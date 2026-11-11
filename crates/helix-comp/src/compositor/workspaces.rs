@@ -20,11 +20,17 @@ pub struct WorkspaceState {
     parked: Vec<(Window, Point<i32, Logical>)>,
     /// Most recently focused first.
     history: Vec<Window>,
+    /// Shown on every workspace (`toggle-on-all-workspaces`).
+    sticky: Vec<Window>,
 }
 
 impl WorkspaceState {
     pub fn parked(&self) -> impl Iterator<Item = &Window> {
         self.parked.iter().map(|(w, _)| w)
+    }
+
+    pub fn is_sticky(&self, window: &Window) -> bool {
+        self.sticky.contains(window)
     }
 
     pub fn is_parked(&self, window: &Window) -> bool {
@@ -60,7 +66,10 @@ impl Helix {
 
     /// Shown on every workspace: on a monitor other than the primary one,
     /// with `workspaces-only-on-primary`.
-    fn on_all_workspaces(&self, window: &Window) -> bool {
+    pub fn on_all_workspaces(&self, window: &Window) -> bool {
+        if self.workspaces.sticky.contains(window) {
+            return true;
+        }
         if !self.workspaces.config.only_on_primary {
             return false;
         }
@@ -77,6 +86,14 @@ impl Helix {
         }
         let ws = &mut self.workspaces;
         ws.assigned.retain(|(w, _)| windows.contains(w));
+        ws.sticky.retain(|w| windows.contains(w));
+        // Windows on every workspace count as on the active one.
+        let active = ws.layout.active;
+        for (w, n) in ws.assigned.iter_mut() {
+            if ws.sticky.contains(w) {
+                *n = active;
+            }
+        }
         let mut numbers: Vec<usize> = ws.assigned.iter().map(|(_, n)| *n).collect();
         let config = ws.config;
         ws.layout.tidy(&config, &mut numbers);
@@ -194,12 +211,32 @@ impl Helix {
         history.insert(0, window.clone());
     }
 
+    /// Show `window` on every workspace, or (off) only on the active one.
+    pub fn set_on_all_workspaces(&mut self, window: &Window, on: bool) {
+        let ws = &mut self.workspaces;
+        let was = ws.sticky.contains(window);
+        if on && !was {
+            ws.sticky.push(window.clone());
+        } else if !on && was {
+            ws.sticky.retain(|w| w != window);
+        }
+        let active = ws.layout.active;
+        if let Some(entry) = ws.assigned.iter_mut().find(|(w, _)| w == window) {
+            entry.1 = active;
+        }
+        // On the active workspace either way, so it is shown.
+        self.unpark(window);
+        self.tidy_workspaces();
+        self.sync_window_list();
+    }
+
     /// `window` is gone.
     pub fn workspace_forget(&mut self, window: &Window) {
         let ws = &mut self.workspaces;
         ws.assigned.retain(|(w, _)| w != window);
         ws.parked.retain(|(w, _)| w != window);
         ws.history.retain(|w| w != window);
+        ws.sticky.retain(|w| w != window);
         self.tidy_workspaces();
     }
 }

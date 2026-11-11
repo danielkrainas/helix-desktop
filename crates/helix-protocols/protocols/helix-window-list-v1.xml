@@ -10,7 +10,7 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="2">
+  <interface name="helix_window_list_v1" version="3">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
       open window, topmost first, then a focused event (and, since version
@@ -50,6 +50,7 @@
     <event name="workspace" since="2">
       <description summary="the workspace a window is on">
         Sent after the window's window event, and whenever it changes.
+        0xffffffff means every workspace.
       </description>
       <arg name="id" type="uint"/>
       <arg name="workspace" type="uint"/>
@@ -59,6 +60,14 @@
         Out of range numbers are ignored.
       </description>
       <arg name="workspace" type="uint"/>
+    </request>
+    <request name="set_on_all_workspaces" since="3">
+      <description summary="show a window on every workspace, or not">
+        Turned off, the window belongs to the active workspace. Unknown ids
+        are ignored.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="on" type="uint" summary="1 on, 0 off"/>
     </request>
     <request name="move_window" since="2">
       <description summary="put a window on a workspace">

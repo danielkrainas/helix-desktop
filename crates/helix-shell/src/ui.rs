@@ -136,6 +136,12 @@ struct Ui {
     windows: crate::windows::Windows,
     /// The window or input source switcher, while open.
     switcher: Option<Overlay<SwitcherState>>,
+    /// What the open window switcher was opened for.
+    switcher_mode: Option<SwitchMode>,
+    /// A `cycle-windows` / `cycle-group` run in progress.
+    cycle: Option<Cycle>,
+    /// The panel control with keyboard focus (`switch-panels`).
+    panel_focus: Option<usize>,
     /// Screen captures (privileged shell only).
     screenshots: Option<HelixScreenshotManagerV1>,
     /// Picking an area, a point or what to capture, while open.
@@ -400,6 +406,14 @@ impl Ui {
             }
             text.draw(&mut canvas, POWER_LABEL, w as f32 - (POWER_BUTTON_W as f32 + pw) / 2.0, base, Style { px, color: FG, max_width: 72.0 });
         }
+        // Keyboard focus ring (switch-panels).
+        if let Some(control) = self.panel_focus {
+            let (x, bw) = if control == 0 { (4, APPS_BUTTON_W - 8) } else { (w as i32 - POWER_BUTTON_W + 4, POWER_BUTTON_W - 8) };
+            let (y, bh) = (3, h as i32 - 6);
+            for (rx, ry, rw, rh) in [(x, y, bw, 2), (x, y + bh - 2, bw, 2), (x, y, 2, bh), (x + bw - 2, y, 2, bh)] {
+                canvas.rect(rx, ry, rw, rh, ACCENT);
+            }
+        }
         match &self.osd {
             Some((osd, _)) => draw_osd(self.text.as_ref(), &mut canvas, osd, w, h),
             None => {
@@ -518,7 +532,115 @@ impl Ui {
         let only_here = if mode == SwitchMode::Apps { apps_only_here } else { windows_only_here };
         let only = only_here.then_some(self.windows.active);
         let Some(switcher) = Switcher::open(&self.windows, mode, backward, only, name) else { return };
-        self.open_switcher(switcher, hold, SwitchKind::Windows);
+        let kind = SwitchKind::Windows { apps: None };
+        self.switcher_mode = Some(mode);
+        self.open_switcher(switcher, hold, kind);
+    }
+
+    /// Into the selected application's windows (Down in the application
+    /// switcher), or back (Up).
+    fn switcher_drill(&mut self, into: bool) -> bool {
+        if self.switcher_mode != Some(SwitchMode::Apps) {
+            return false;
+        }
+        let only = crate::windows::current_workspace_only().1.then_some(self.windows.active);
+        let Some(open) = self.switcher.as_mut() else { return false };
+        let SwitchKind::Windows { apps } = &mut open.state.kind else { return false };
+        match (into, apps.is_some()) {
+            (true, false) => {
+                let Some(windows) = Switcher::app_windows(&self.windows, open.state.switcher.selected_id(), only) else { return true };
+                *apps = Some(std::mem::replace(&mut open.state.switcher, windows));
+            }
+            (false, true) => {
+                open.state.switcher = apps.take().expect("checked");
+            }
+            _ => return false,
+        }
+        self.draw_switcher();
+        true
+    }
+
+    /// `cycle-windows` / `cycle-group`: activate the next window directly.
+    fn cycle_windows(&mut self, group: bool, backward: bool) {
+        let now = Instant::now();
+        let continuing = self
+            .cycle
+            .as_ref()
+            .is_some_and(|c| c.group == group && now.duration_since(c.last) < CYCLE_CONTINUE);
+        if !continuing {
+            let only = crate::windows::current_workspace_only().1.then_some(self.windows.active);
+            let order = crate::windows::cycle_order(&self.windows, group, only);
+            if order.len() < 2 {
+                self.cycle = None;
+                return;
+            }
+            self.cycle = Some(Cycle { order, index: 0, group, last: now });
+        }
+        let Some(cycle) = self.cycle.as_mut() else { return };
+        let n = cycle.order.len();
+        cycle.index = if backward { (cycle.index + n - 1) % n } else { (cycle.index + 1) % n };
+        cycle.last = now;
+        let id = cycle.order[cycle.index];
+        self.activate_window(id);
+    }
+
+    /// `toggle-on-all-workspaces` for the focused window.
+    fn toggle_on_all_workspaces(&mut self) {
+        let focused = self.windows.focused();
+        let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 3) else { return };
+        if focused == 0 {
+            return;
+        }
+        let on_all = self.windows.mru().iter().any(|e| e.id == focused && e.workspace == crate::windows::ALL_WORKSPACES);
+        list.set_on_all_workspaces(focused, u32::from(!on_all));
+    }
+
+    // ----- Panel keyboard focus (switch-panels) -------------------------------
+
+    fn focus_panel(&mut self, backward: bool) {
+        let next = match self.panel_focus {
+            None if backward => PANEL_CONTROLS - 1,
+            None => 0,
+            Some(i) if backward => (i + PANEL_CONTROLS - 1) % PANEL_CONTROLS,
+            Some(i) => (i + 1) % PANEL_CONTROLS,
+        };
+        if self.panel_focus.is_none() {
+            self.close_launcher(true);
+            self.power_menu = None;
+            self.panel.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+            self.panel.commit();
+        }
+        self.panel_focus = Some(next);
+        self.draw_panel();
+    }
+
+    fn leave_panel(&mut self) {
+        if self.panel_focus.take().is_some() {
+            self.panel.set_keyboard_interactivity(KeyboardInteractivity::None);
+            self.panel.commit();
+            self.draw_panel();
+        }
+    }
+
+    fn panel_key(&mut self, event: &KeyEvent) {
+        match event.keysym {
+            Keysym::Escape => self.leave_panel(),
+            Keysym::Right | Keysym::Tab => self.focus_panel(false),
+            Keysym::Left | Keysym::ISO_Left_Tab => self.focus_panel(true),
+            Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+                let control = self.panel_focus;
+                self.leave_panel();
+                match control {
+                    Some(0) => self.open_launcher(true),
+                    Some(_) => {
+                        self.toggle_power_menu();
+                        self.draw_panel();
+                    }
+                    None => {}
+                }
+            }
+            _ => {}
+        }
     }
 
     fn switch_input_source(&mut self, backward: bool, hold: u32) {
@@ -553,7 +675,7 @@ impl Ui {
 
     fn commit_switch(&mut self, kind: &SwitchKind, id: u32) {
         match kind {
-            SwitchKind::Windows => self.activate_window(id),
+            SwitchKind::Windows { .. } => self.activate_window(id),
             SwitchKind::InputSources(sources) => {
                 if let Some(source) = sources.get(id as usize) {
                     crate::input_sources::activate(source);
@@ -571,6 +693,15 @@ impl Ui {
     }
 
     fn switcher_key(&mut self, event: &KeyEvent) {
+        // The key above Tab (evdev KEY_GRAVE) or Down: an application's
+        // windows; Up: back to the applications.
+        const KEY_ABOVE_TAB: u32 = 41;
+        if (event.keysym == Keysym::Down || event.raw_code == KEY_ABOVE_TAB) && self.switcher_drill(true) {
+            return;
+        }
+        if event.keysym == Keysym::Up && self.switcher_drill(false) {
+            return;
+        }
         match event.keysym {
             Keysym::Escape => self.finish_switching(false),
             Keysym::Return | Keysym::KP_Enter => self.finish_switching(true),
@@ -1433,6 +1564,12 @@ impl Ui {
             self.bind(next, &accelerator);
             next += 1;
         }
+        for (text, key) in crate::windows::wm_key_accelerators() {
+            let Some(accelerator) = parse(&text, "window management") else { continue };
+            self.internal.insert(next, Internal::Wm(key));
+            self.bind(next, &accelerator);
+            next += 1;
+        }
         if self.window_list.as_ref().is_some_and(|l| l.version() >= 2) {
             for (text, key) in crate::windows::workspace_accelerators() {
                 let Some(accelerator) = parse(&text, "workspace") else { continue };
@@ -1451,6 +1588,9 @@ impl Ui {
                 let _ = self.requests.send(UiRequest::ShellKey(key));
             }
             Some(Internal::Workspace(key)) => self.workspace_key(key),
+            Some(Internal::Wm(crate::windows::WmKey::Cycle { group, backward })) => self.cycle_windows(group, backward),
+            Some(Internal::Wm(crate::windows::WmKey::Panels { backward })) => self.focus_panel(backward),
+            Some(Internal::Wm(crate::windows::WmKey::ToggleOnAllWorkspaces)) => self.toggle_on_all_workspaces(),
             None => {}
         }
     }
@@ -1523,7 +1663,7 @@ pub fn run(
     let shm = Shm::bind(&globals, &qh)?;
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=2, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=3, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=2, ()).ok();
     if keybindings.is_none() {
         tracing::warn!("compositor offers no key bindings to this process; accelerators will not fire");
@@ -1563,6 +1703,9 @@ pub fn run(
         window_list,
         windows: Default::default(),
         switcher: None,
+        switcher_mode: None,
+        cycle: None,
+        panel_focus: None,
         screenshots,
         picker: None,
         flashes: Vec::new(),
@@ -1770,6 +1913,8 @@ impl KeyboardHandler for Ui {
             self.dialog_key(&event);
         } else if self.switcher.is_some() {
             self.switcher_key(&event);
+        } else if self.panel_focus.is_some() {
+            self.panel_key(&event);
         } else if self.power_menu.is_some() && event.keysym == Keysym::Escape {
             self.power_menu = None;
             self.draw_panel();
@@ -1978,11 +2123,26 @@ enum Internal {
     /// Screenshot, brightness and volume keys (run on the D-Bus side).
     ShellKey(crate::shell_keys::KeyAction),
     Workspace(crate::windows::WorkspaceKey),
+    Wm(crate::windows::WmKey),
+}
+
+/// Presses this close continue a window cycle.
+const CYCLE_CONTINUE: Duration = Duration::from_millis(1500);
+/// Panel controls reachable with `switch-panels`: Apps, Power.
+const PANEL_CONTROLS: usize = 2;
+
+struct Cycle {
+    order: Vec<u32>,
+    index: usize,
+    group: bool,
+    last: Instant,
 }
 
 /// What an open switcher switches.
 enum SwitchKind {
-    Windows,
+    /// Windows or applications; `apps` is the application switcher we
+    /// went into an application's windows from (Up goes back).
+    Windows { apps: Option<Switcher> },
     /// The sources listed, by entry id.
     InputSources(Vec<crate::input_sources::Source>),
 }
@@ -2026,7 +2186,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
             helix_window_list_v1::Event::Closed { id } => {
                 ui.windows.close(id);
                 // A window that went away can't be switched to.
-                if let Some(open) = ui.switcher.as_mut().filter(|o| matches!(o.state.kind, SwitchKind::Windows)) {
+                if let Some(open) = ui.switcher.as_mut().filter(|o| matches!(o.state.kind, SwitchKind::Windows { .. })) {
                     let entries = &mut open.state.switcher.entries;
                     entries.retain(|e| e.id != id);
                     if entries.len() < 2 {

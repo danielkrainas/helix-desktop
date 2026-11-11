@@ -6,6 +6,59 @@ use gio::prelude::*;
 
 const KEYBINDINGS: &str = "org.gnome.desktop.wm.keybindings";
 
+/// A window's workspace when it is on every workspace.
+pub const ALL_WORKSPACES: u32 = u32::MAX;
+
+/// Window-management keys handled without a switcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WmKey {
+    /// `cycle-windows` (`group`: false) or `cycle-group`.
+    Cycle { group: bool, backward: bool },
+    /// `switch-panels`.
+    Panels { backward: bool },
+    /// `toggle-on-all-workspaces`.
+    ToggleOnAllWorkspaces,
+}
+
+/// The configured keys of [`WmKey`]s.
+pub fn wm_key_accelerators() -> Vec<(String, WmKey)> {
+    if !helix_settings::has_schema(KEYBINDINGS) {
+        return Vec::new();
+    }
+    let settings = gio::Settings::new(KEYBINDINGS);
+    let mut out: Vec<(String, WmKey)> = Vec::new();
+    for (key, action) in [
+        ("cycle-windows", WmKey::Cycle { group: false, backward: false }),
+        ("cycle-windows-backward", WmKey::Cycle { group: false, backward: true }),
+        ("cycle-group", WmKey::Cycle { group: true, backward: false }),
+        ("cycle-group-backward", WmKey::Cycle { group: true, backward: true }),
+        ("switch-panels", WmKey::Panels { backward: false }),
+        ("switch-panels-backward", WmKey::Panels { backward: true }),
+        ("toggle-on-all-workspaces", WmKey::ToggleOnAllWorkspaces),
+    ] {
+        for accel in settings.strv(key) {
+            let accel = accel.to_string();
+            if !accel.is_empty() && !out.iter().any(|(a, _)| *a == accel) {
+                out.push((accel, action));
+            }
+        }
+    }
+    out
+}
+
+/// The order `cycle-windows` / `cycle-group` go through: window ids, most
+/// recently used first (only the focused window's app with `group`).
+pub fn cycle_order(windows: &Windows, group: bool, only: Option<u32>) -> Vec<u32> {
+    let focused_app = windows.mru().iter().find(|e| e.id == windows.focused()).map(|e| e.app_id.clone());
+    windows
+        .mru()
+        .iter()
+        .filter(|e| only.is_none_or(|w| e.workspace == w || e.workspace == ALL_WORKSPACES))
+        .filter(|e| !group || focused_app.as_ref().is_some_and(|a| !a.is_empty() && *a == e.app_id))
+        .map(|e| e.id)
+        .collect()
+}
+
 /// What a switcher lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwitchMode {
@@ -253,7 +306,11 @@ impl Switcher {
         names: impl Fn(&str) -> Option<String>,
     ) -> Option<Self> {
         let focused = windows.focused();
-        let pool: Vec<&WindowEntry> = windows.mru().iter().filter(|e| only.is_none_or(|w| e.workspace == w)).collect();
+        let pool: Vec<&WindowEntry> = windows
+            .mru()
+            .iter()
+            .filter(|e| only.is_none_or(|w| e.workspace == w || e.workspace == ALL_WORKSPACES))
+            .collect();
         let window = |e: &WindowEntry| SwitchEntry { id: e.id, label: e.label().to_owned(), detail: e.app_id.clone() };
         match mode {
             SwitchMode::Windows => {
@@ -292,6 +349,20 @@ impl Switcher {
                 Self::new(entries, current_first, backward)
             }
         }
+    }
+
+    /// The windows of the application `window` belongs to, most recent
+    /// first and selected (from the application switcher).
+    pub fn app_windows(windows: &Windows, window: u32, only: Option<u32>) -> Option<Self> {
+        let app = windows.mru().iter().find(|e| e.id == window)?.app_id.clone();
+        let entries: Vec<SwitchEntry> = windows
+            .mru()
+            .iter()
+            .filter(|e| if app.is_empty() { e.id == window } else { e.app_id == app })
+            .filter(|e| only.is_none_or(|w| e.workspace == w || e.workspace == ALL_WORKSPACES))
+            .map(|e| SwitchEntry { id: e.id, label: e.label().to_owned(), detail: e.app_id.clone() })
+            .collect();
+        (!entries.is_empty()).then_some(Self { entries, selected: 0 })
     }
 
     pub fn step(&mut self, backward: bool) {
@@ -398,6 +469,22 @@ mod tests {
         w.set_workspaces(3, 2);
         assert_eq!(w.workspace_target(WorkspaceTarget::Right), None);
         assert_eq!(w.workspace_target(WorkspaceTarget::Number(0)), None);
+    }
+
+    #[test]
+    fn cycles_and_app_windows() {
+        let mut w = mixed();
+        // MRU 1 (a), 3 (a), 2 (b), 4 (none); focus 1.
+        assert_eq!(cycle_order(&w, false, None), [1, 3, 2, 4]);
+        assert_eq!(cycle_order(&w, true, None), [1, 3]);
+        w.set_workspaces(2, 1);
+        w.set_workspace(2, 1);
+        w.set_workspace(4, ALL_WORKSPACES);
+        assert_eq!(cycle_order(&w, false, Some(1)), [2, 4], "on every workspace counts");
+        let s = Switcher::app_windows(&w, 3, None).unwrap();
+        assert_eq!(s.entries.iter().map(|e| e.id).collect::<Vec<_>>(), [1, 3]);
+        assert_eq!(s.selected_id(), 1);
+        assert_eq!(Switcher::app_windows(&w, 4, None).unwrap().entries.len(), 1, "no app id: just it");
     }
 
     #[test]

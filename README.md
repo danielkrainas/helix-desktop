@@ -410,6 +410,12 @@ points at the compositor, draws:
   count, most recently used first), windows on `switch-windows`, the
   current application's windows on Alt+\` (`switch-group`), and keyboard
   layouts on Super+Space;
+- in the application switcher, Down (or the key above Tab) shows the
+  selected application's windows, Up goes back; Alt+Escape and Alt+F6
+  (`cycle-windows`, `cycle-group`) switch windows directly without a
+  switcher; Ctrl+Alt+Tab (`switch-panels`) puts keyboard focus on the
+  panel (arrows, Enter, Escape); `toggle-on-all-workspaces` keeps a window
+  on every workspace;
 - screenshots: Print opens the screenshot UI (drag an area, or Enter for
   the whole screen), Shift+Print captures the screen and Alt+Print the
   focused window at once. Images go to `~/Pictures/Screenshots`, are

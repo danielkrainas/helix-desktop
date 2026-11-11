@@ -88,6 +88,15 @@ impl Helix {
         self.window_list.ids.iter().find(|(w, _)| *w == window).map(|(_, id)| *id).unwrap_or(0)
     }
 
+    /// A window's workspace for the protocol (every workspace: 0xffffffff).
+    fn wire_workspace(&mut self, window: &Window) -> u32 {
+        if self.workspaces.is_sticky(window) {
+            u32::MAX
+        } else {
+            self.workspace_of(window) as u32
+        }
+    }
+
     fn layout_wire(&self) -> (u32, u32) {
         let layout = self.workspaces.layout;
         (layout.count as u32, layout.active as u32)
@@ -100,7 +109,7 @@ impl Helix {
             return;
         }
         let listed = self.listed_windows();
-        let workspaces: Vec<(u32, u32)> = listed.iter().map(|(id, w)| (*id, self.workspace_of(w) as u32)).collect();
+        let workspaces: Vec<(u32, u32)> = listed.iter().map(|(id, w)| (*id, self.wire_workspace(w))).collect();
         let now: Vec<(u32, (String, String))> = listed.into_iter().map(|(id, w)| (id, describe(&w))).collect();
         let focus = self.focused_window_id();
         let layout = self.layout_wire();
@@ -175,7 +184,7 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
         }
         listener.focused(state.focused_window_id());
         let layout = state.layout_wire();
-        let workspaces: HashMap<u32, u32> = windows.iter().map(|(id, w)| (*id, state.workspace_of(w) as u32)).collect();
+        let workspaces: HashMap<u32, u32> = windows.iter().map(|(id, w)| (*id, state.wire_workspace(w))).collect();
         if listener.version() >= 2 {
             listener.workspaces(layout.0, layout.1);
             for (id, ws) in &workspaces {
@@ -210,6 +219,11 @@ impl Dispatch<HelixWindowListV1, ()> for Helix {
         match request {
             helix_window_list_v1::Request::Activate { id } => state.activate_window(id),
             helix_window_list_v1::Request::SwitchWorkspace { workspace } => state.switch_workspace(workspace as usize),
+            helix_window_list_v1::Request::SetOnAllWorkspaces { id, on } => {
+                if let Some(window) = state.window_by_list_id(id) {
+                    state.set_on_all_workspaces(&window, on != 0);
+                }
+            }
             helix_window_list_v1::Request::MoveWindow { id, workspace } => {
                 let window = state.window_list.ids.iter().find(|(_, i)| *i == id).map(|(w, _)| w.clone());
                 if let Some(window) = window {
