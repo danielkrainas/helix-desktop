@@ -85,8 +85,12 @@ struct Running {
 }
 
 async fn start(bus: &TestBus, store: &Path, monitors: Vec<Monitor>) -> Running {
+    start_confirming(bus, store, monitors, 20).await
+}
+
+async fn start_confirming(bus: &TestBus, store: &Path, monitors: Vec<Monitor>, confirm_seconds: u32) -> Running {
     let (applier, applied) = fake_compositor(monitors.clone());
-    let control = MonitorControl { applier: Some(applier), store: Store::at(store.to_path_buf()) };
+    let control = MonitorControl { applier: Some(applier), store: Store::at(store.to_path_buf()), confirm_seconds };
     let services = CompositorServices::start_with(bus.builder(), monitors, control).await.unwrap();
     let (events, rx) = mpsc::unbounded_channel();
     tokio::spawn(services.run(rx));
@@ -210,4 +214,123 @@ async fn refused_without_a_compositor_that_applies() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("AccessDenied"), "{err}");
+}
+
+/// The shell's display change question, answered by the test.
+#[derive(Default)]
+struct FakeDialog {
+    calls: Arc<Mutex<Vec<String>>>,
+}
+
+#[zbus::interface(name = "org.helix.DisplayChangeDialog")]
+impl FakeDialog {
+    async fn open(&self, seconds: u32) {
+        self.calls.lock().unwrap().push(format!("Open {seconds}"));
+    }
+    async fn close(&self) {
+        self.calls.lock().unwrap().push("Close".into());
+    }
+    #[zbus(signal)]
+    async fn kept(emitter: &zbus::object_server::SignalEmitter<'_>) -> zbus::Result<()>;
+    #[zbus(signal)]
+    async fn reverted(emitter: &zbus::object_server::SignalEmitter<'_>) -> zbus::Result<()>;
+}
+
+const DIALOG_PATH: &str = "/org/helix/DisplayChangeDialog";
+
+async fn fake_dialog(bus: &TestBus) -> (zbus::Connection, Arc<Mutex<Vec<String>>>) {
+    let dialog = FakeDialog::default();
+    let calls = dialog.calls.clone();
+    let conn = bus
+        .builder()
+        .serve_at(DIALOG_PATH, dialog)
+        .unwrap()
+        .name("org.gnome.Shell")
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    (conn, calls)
+}
+
+async fn answer(conn: &zbus::Connection, keep: bool) {
+    let emitter = zbus::object_server::SignalEmitter::new(conn, DIALOG_PATH).unwrap();
+    if keep {
+        FakeDialog::kept(&emitter).await.unwrap();
+    } else {
+        FakeDialog::reverted(&emitter).await.unwrap();
+    }
+}
+
+fn dp_only() -> [ApplyLogical<'static>; 1] {
+    [one(0, true, "DP-1")]
+}
+
+fn both() -> Vec<(String, i32, bool)> {
+    vec![("DP-1".to_owned(), 0, true), ("HDMI-1".to_owned(), 1920, false)]
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn kept_changes_are_remembered() {
+    let Some(bus) = TestBus::start() else { return };
+    let store = scratch("keep");
+    let (shell, calls) = fake_dialog(&bus).await;
+    let _running = start(&bus, &store, both_on()).await;
+    let dc = proxy(&bus).await;
+    let (serial, ..) = dc.get_current_state().await.unwrap();
+
+    dc.apply_monitors_config(serial, 2, &dp_only(), HashMap::new()).await.unwrap();
+    assert_eq!(shown(&dc).await, [("DP-1".to_owned(), 0, true)], "applied before the answer");
+    assert_eq!(*calls.lock().unwrap(), ["Open 20"]);
+    assert!(!store.exists(), "not remembered until kept");
+
+    answer(&shell, true).await;
+    eventually(|| async { store.exists() }).await;
+    assert_eq!(shown(&dc).await, [("DP-1".to_owned(), 0, true)]);
+    let _ = std::fs::remove_dir_all(store.parent().unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reverted_and_unanswered_changes_go_back() {
+    let Some(bus) = TestBus::start() else { return };
+    let store = scratch("revert");
+    let (shell, calls) = fake_dialog(&bus).await;
+    let _running = start_confirming(&bus, &store, both_on(), 1).await;
+    let dc = proxy(&bus).await;
+
+    // Reverted by the user.
+    let (serial, ..) = dc.get_current_state().await.unwrap();
+    dc.apply_monitors_config(serial, 2, &dp_only(), HashMap::new()).await.unwrap();
+    answer(&shell, false).await;
+    eventually(|| async { shown(&dc).await == both() }).await;
+
+    // Nobody answers: back after the countdown (1 s) and a grace period.
+    let (serial, ..) = dc.get_current_state().await.unwrap();
+    dc.apply_monitors_config(serial, 2, &dp_only(), HashMap::new()).await.unwrap();
+    assert_eq!(shown(&dc).await.len(), 1);
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    assert_eq!(shown(&dc).await, both());
+    assert_eq!(calls.lock().unwrap().last().map(String::as_str), Some("Close"), "the dialog is dismissed");
+    assert!(!store.exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_change_replaces_the_question() {
+    let Some(bus) = TestBus::start() else { return };
+    let store = scratch("second");
+    let (shell, calls) = fake_dialog(&bus).await;
+    let _running = start(&bus, &store, both_on()).await;
+    let dc = proxy(&bus).await;
+
+    let (serial, ..) = dc.get_current_state().await.unwrap();
+    dc.apply_monitors_config(serial, 2, &dp_only(), HashMap::new()).await.unwrap();
+    let (serial, ..) = dc.get_current_state().await.unwrap();
+    let swapped = [one(0, true, "HDMI-1"), one(1920, false, "DP-1")];
+    dc.apply_monitors_config(serial, 2, &swapped, HashMap::new()).await.unwrap();
+    assert_eq!(*calls.lock().unwrap(), ["Open 20", "Close", "Open 20"]);
+
+    // Reverting goes back to before both changes.
+    answer(&shell, false).await;
+    eventually(|| async { shown(&dc).await == both() }).await;
+    assert!(!store.exists());
 }

@@ -7,6 +7,7 @@
 
 pub mod accel;
 pub mod auth;
+pub mod display_change;
 pub mod end_dialog;
 pub mod font;
 pub mod idle;
@@ -87,6 +88,9 @@ pub enum UiEvent {
     EndDialog(Option<end_dialog::EndDialog>),
     /// Which power actions the Power menu may offer.
     PowerAvailability(logind::Availability),
+    /// Ask whether to keep a display change (countdown seconds), or stop
+    /// asking.
+    DisplayChange(Option<u32>),
 }
 
 /// Power menu entries.
@@ -122,6 +126,8 @@ pub enum UiRequest {
     EndDialogAnswer(end_dialog::Choice),
     /// A power menu entry was chosen.
     Power(PowerAction),
+    /// The user kept or reverted a display change (or time ran out).
+    DisplayChangeAnswer { keep: bool },
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -385,6 +391,10 @@ impl ShellService {
                 end_dialog::OBJECT_PATH,
                 end_dialog::EndSessionDialog { ui: ui.clone(), open_kind: Default::default() },
             )?
+            .serve_at(
+                display_change::OBJECT_PATH,
+                display_change::DisplayChangeDialog { ui: ui.clone(), open: Default::default() },
+            )?
             .build()
             .await?;
         match conn
@@ -530,6 +540,16 @@ impl UiBridge {
                     .await?;
                 let object = dialog.get().await;
                 let result = object.answer(choice, dialog.signal_emitter()).await;
+                result
+            }
+            UiRequest::DisplayChangeAnswer { keep } => {
+                let dialog = self
+                    .conn
+                    .object_server()
+                    .interface::<_, display_change::DisplayChangeDialog>(display_change::OBJECT_PATH)
+                    .await?;
+                let object = dialog.get().await;
+                let result = object.answer(keep, dialog.signal_emitter()).await;
                 result
             }
             UiRequest::Power(action) => {

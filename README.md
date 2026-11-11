@@ -166,9 +166,12 @@ monitors, and turns monitors off; nested, only the scale can change (the
 window decides the size, and it can't rotate). A persistent configuration
 is saved in `~/.config/helix/monitors.toml` for that set of monitors and
 comes back when they are connected again or the compositor restarts.
-Changes apply at once: there is no "Keep these settings?" countdown yet.
-Mode changes and turning monitors off have only been tried in tests, not
-on real hardware.
+A persistent change asks "Keep the new display settings?" with a 20-second
+countdown (Escape or Revert goes back, Enter or Keep keeps it); only kept
+changes are remembered, and if nobody answers the old settings return.
+While GNOME Settings' Displays panel is open, each monitor shows its number
+in the top-left corner (`ShowMonitorLabels`). Mode changes and turning
+monitors off have only been tried in tests, not on real hardware.
 
 Keyboard and pointer settings follow GNOME's GSettings live: keyboard
 layouts from `org.gnome.desktop.input-sources` (switch with Super+Space or

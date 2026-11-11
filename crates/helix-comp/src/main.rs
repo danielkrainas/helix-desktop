@@ -234,6 +234,7 @@ fn start_dbus_thread(
                 let control = MonitorControl {
                     applier: Some(applier),
                     store: Store::user(),
+                    ..MonitorControl::default()
                 };
                 let services = match zbus::connection::Builder::session() {
                     Ok(builder) => CompositorServices::start_with(builder, monitors, control).await,

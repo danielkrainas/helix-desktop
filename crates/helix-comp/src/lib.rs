@@ -57,12 +57,25 @@ async fn own(conn: &Connection, name: &'static str) -> zbus::Result<()> {
 }
 
 /// How monitor configuration changes reach the compositor.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MonitorControl {
     /// Where `ApplyMonitorsConfig` requests go; `None` refuses them.
     pub applier: Option<mpsc::UnboundedSender<ApplyRequest>>,
     /// Remembered configurations.
     pub store: Store,
+    /// Seconds the user has to keep a persistent change (the shell asks);
+    /// 0 keeps changes without asking.
+    pub confirm_seconds: u32,
+}
+
+impl Default for MonitorControl {
+    fn default() -> Self {
+        Self {
+            applier: None,
+            store: Store::default(),
+            confirm_seconds: display_config::CONFIRM_SECONDS,
+        }
+    }
 }
 
 impl CompositorServices {
@@ -78,7 +91,7 @@ impl CompositorServices {
     ) -> zbus::Result<Self> {
         let idle = Shared::new();
         let layout = Arc::new(Mutex::new(Layout::new(monitors)));
-        let display_config = DisplayConfig::new(layout.clone(), control.applier, control.store);
+        let display_config = DisplayConfig::new(layout.clone(), control.applier, control.store, control.confirm_seconds);
         let conn = builder
             .serve_at(idle_monitor::MANAGER_PATH, ObjectManager)?
             .serve_at(idle_monitor::CORE_PATH, IdleMonitor::new(idle.clone()))?

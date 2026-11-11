@@ -127,6 +127,8 @@ struct Ui {
     /// Full-screen overlays: the end-session dialog and the power menu.
     dialog: Option<Overlay<DialogState>>,
     power_menu: Option<Overlay<()>>,
+    /// Numbers identifying monitors (`ShowMonitorLabels`), one per output.
+    monitor_labels: Vec<Overlay<i32>>,
     /// Which power actions logind allows (entries shown in the menu).
     power: crate::logind::Availability,
     exit: bool,
@@ -151,8 +153,17 @@ enum OverlayHit {
 }
 
 struct DialogState {
-    data: EndDialog,
+    kind: DialogKind,
     remaining: u32,
+}
+
+/// What the centered dialog asks.
+enum DialogKind {
+    /// Confirm ending the session (`EndSessionDialog`).
+    End(EndDialog),
+    /// Keep a display configuration change, or go back
+    /// (`org.helix.DisplayChangeDialog`).
+    DisplayChange,
 }
 
 const POWER_LABEL: &str = "Power";
@@ -177,6 +188,7 @@ struct BannerView {
 
 const BANNER_W: u32 = 440;
 const BANNER_BG: u32 = 0xFF2E2E36;
+const MONITOR_LABEL_SIZE: u32 = 72;
 const BANNER_BORDER: u32 = 0xFF4A4A55;
 const BANNER_PAD: i32 = 14;
 
@@ -732,29 +744,52 @@ impl Ui {
     }
 
     fn show_end_dialog(&mut self, dialog: Option<EndDialog>) {
-        let Some(data) = dialog else {
-            self.dialog = None;
-            return;
-        };
+        match dialog {
+            Some(data) => {
+                let remaining = data.seconds;
+                self.show_dialog(DialogState { kind: DialogKind::End(data), remaining });
+            }
+            None => {
+                if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::End(_))) {
+                    self.dialog = None;
+                }
+            }
+        }
+    }
+
+    fn show_display_change(&mut self, seconds: Option<u32>) {
+        match seconds {
+            Some(remaining) => self.show_dialog(DialogState { kind: DialogKind::DisplayChange, remaining }),
+            None => {
+                if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::DisplayChange)) {
+                    self.dialog = None;
+                }
+            }
+        }
+    }
+
+    fn show_dialog(&mut self, state: DialogState) {
         self.power_menu = None;
         self.close_launcher(true);
-        let remaining = data.seconds;
         match self.dialog.as_mut() {
             Some(open) => {
-                open.state = DialogState { data, remaining };
+                open.state = state;
                 self.draw_dialog();
             }
             None => {
-                let overlay = self.new_overlay("helix-end-session", KeyboardInteractivity::Exclusive, DialogState { data, remaining });
+                let overlay = self.new_overlay("helix-dialog", KeyboardInteractivity::Exclusive, state);
                 self.dialog = Some(overlay);
             }
         }
     }
 
     fn answer_dialog(&mut self, choice: Choice) {
-        if self.dialog.take().is_some() {
-            let _ = self.requests.send(UiRequest::EndDialogAnswer(choice));
-        }
+        let Some(dialog) = self.dialog.take() else { return };
+        let request = match dialog.state.kind {
+            DialogKind::End(_) => UiRequest::EndDialogAnswer(choice),
+            DialogKind::DisplayChange => UiRequest::DisplayChangeAnswer { keep: choice == Choice::Confirmed },
+        };
+        let _ = self.requests.send(request);
     }
 
     fn dialog_key(&mut self, event: &KeyEvent) {
@@ -765,15 +800,18 @@ impl Ui {
         }
     }
 
-    /// One second passed: count down, confirming at zero if nothing blocks.
+    /// One second passed: count down. At zero, ending the session goes ahead
+    /// (unless something blocks it) and a display change is reverted.
     fn dialog_tick(&mut self) {
         let Some(dialog) = self.dialog.as_mut() else { return };
-        if !dialog.state.data.blockers.is_empty() {
-            return;
-        }
+        let on_timeout = match &dialog.state.kind {
+            DialogKind::End(data) if !data.blockers.is_empty() => return,
+            DialogKind::End(_) => Choice::Confirmed,
+            DialogKind::DisplayChange => Choice::Canceled,
+        };
         dialog.state.remaining = dialog.state.remaining.saturating_sub(1);
         if dialog.state.remaining == 0 {
-            self.answer_dialog(Choice::Confirmed);
+            self.answer_dialog(on_timeout);
         } else {
             self.draw_dialog();
         }
@@ -795,15 +833,30 @@ impl Ui {
         let mut canvas = Canvas { data, width: w, height: h };
         canvas.fill(SCRIM);
         let text = self.text.as_ref();
-        let d = &overlay.state.data;
-        let (title, verb) = match d.kind {
-            SHUTDOWN => ("Power Off", "Power Off"),
-            REBOOT => ("Restart", "Restart"),
-            _ => ("Log Out", "Log Out"),
+        let remaining = overlay.state.remaining;
+        let no_blockers = Vec::new();
+        let (title, message, cancel_label, confirm_label, blockers) = match &overlay.state.kind {
+            DialogKind::End(d) => {
+                let (title, verb) = match d.kind {
+                    SHUTDOWN => ("Power Off", "Power Off"),
+                    REBOOT => ("Restart", "Restart"),
+                    _ => ("Log Out", "Log Out"),
+                };
+                let confirm = if d.blockers.is_empty() { verb.to_owned() } else { format!("{verb} Anyway") };
+                let message = format!("The session will end automatically in {remaining} seconds.");
+                (title, message, "Cancel", confirm, &d.blockers)
+            }
+            DialogKind::DisplayChange => (
+                "Keep the new display settings?",
+                format!("The previous settings come back in {remaining} seconds."),
+                "Revert",
+                "Keep".to_owned(),
+                &no_blockers,
+            ),
         };
-        let blocked = !d.blockers.is_empty();
+        let blocked = !blockers.is_empty();
         let bw = 460.min(w as i32 - 40);
-        let rows = d.blockers.len().min(6) as i32;
+        let rows = blockers.len().min(6) as i32;
         let bh = if blocked { 150 + 26 + rows * 40 } else { 160 };
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
@@ -817,14 +870,13 @@ impl Ui {
             let msg = "Some applications are busy or have unsaved work:";
             label(text, &mut canvas, msg, (bx + 24) as f32, y as f32, 14.0, DIM_FG, inner);
             y += 16;
-            for (app, reason) in d.blockers.iter().take(6) {
+            for (app, reason) in blockers.iter().take(6) {
                 label(text, &mut canvas, app, (bx + 24) as f32, (y + 18) as f32, 15.0, FG, inner);
                 label(text, &mut canvas, reason, (bx + 24) as f32, (y + 36) as f32, 13.0, DIM_FG, inner);
                 y += 40;
             }
         } else {
-            let msg = format!("The session will end automatically in {} seconds.", overlay.state.remaining);
-            label(text, &mut canvas, &msg, center(&msg, 14.0), y as f32, 14.0, DIM_FG, inner);
+            label(text, &mut canvas, &message, center(&message, 14.0), y as f32, 14.0, DIM_FG, inner);
         }
         // Buttons: Cancel and the action.
         let by2 = by + bh - 56;
@@ -833,13 +885,72 @@ impl Ui {
         let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: 36 };
         canvas.rect(cancel.x, cancel.y, cancel.w, cancel.h, BANNER_BORDER);
         canvas.rect(confirm.x, confirm.y, confirm.w, confirm.h, ACCENT);
-        let confirm_label = if blocked { format!("{verb} Anyway") } else { verb.to_owned() };
-        for (r, s) in [(cancel, "Cancel"), (confirm, confirm_label.as_str())] {
+        for (r, s) in [(cancel, cancel_label), (confirm, confirm_label.as_str())] {
             let lw = text.map_or(0.0, |t| t.width(s, 15.0));
             let base = baseline(text, r.y, r.h, 15.0);
             label(text, &mut canvas, s, r.x as f32 + (r.w as f32 - lw) / 2.0, base, 15.0, FG, r.w as f32);
         }
         overlay.hits = vec![(cancel, OverlayHit::Cancel), (confirm, OverlayHit::Confirm)];
+        let surface = overlay.layer.wl_surface();
+        surface.damage_buffer(0, 0, w as i32, h as i32);
+        if buffer.attach_to(surface).is_ok() {
+            overlay.layer.commit();
+        }
+    }
+
+    /// One label per output whose connector is in `labels`, top left below
+    /// the panel. Labels take no input.
+    fn show_monitor_labels(&mut self, labels: &HashMap<String, i32>) {
+        self.monitor_labels.clear();
+        for output in self.output_state.outputs() {
+            let Some(name) = self.output_state.info(&output).and_then(|i| i.name) else { continue };
+            let Some(&number) = labels.get(&name) else { continue };
+            let surface = self.compositor.create_surface(&self.qh);
+            if let Ok(region) = smithay_client_toolkit::compositor::Region::new(&self.compositor) {
+                surface.set_input_region(Some(region.wl_region()));
+            }
+            let layer = self.layer_shell.create_layer_surface(
+                &self.qh,
+                surface,
+                Layer::Overlay,
+                Some("helix-monitor-label"),
+                Some(&output),
+            );
+            layer.set_anchor(Anchor::TOP | Anchor::LEFT);
+            layer.set_margin(PANEL_HEIGHT as i32 + 12, 0, 0, 12);
+            layer.set_size(MONITOR_LABEL_SIZE, MONITOR_LABEL_SIZE);
+            layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+            layer.commit();
+            tracing::debug!(name, number, "monitor label");
+            self.monitor_labels.push(Overlay {
+                layer,
+                width: 0,
+                height: 0,
+                configured: false,
+                hits: Vec::new(),
+                state: number,
+            });
+        }
+    }
+
+    fn draw_monitor_label(&mut self, index: usize) {
+        let Some(overlay) = self.monitor_labels.get(index) else { return };
+        if !overlay.configured || overlay.width == 0 {
+            return;
+        }
+        let (w, h) = (overlay.width as usize, overlay.height as usize);
+        let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
+            return;
+        };
+        let mut canvas = Canvas { data, width: w, height: h };
+        canvas.fill(BANNER_BORDER);
+        canvas.rect(2, 2, w as i32 - 4, h as i32 - 4, BANNER_BG);
+        let text = self.text.as_ref();
+        let number = overlay.state.to_string();
+        let px = 40.0;
+        let width = text.map(|t| t.width(&number, px)).unwrap_or(0.0);
+        let base = baseline(text, 0, h as i32, px);
+        label(text, &mut canvas, &number, (w as f32 - width) / 2.0, base, px, FG, w as f32);
         let surface = overlay.layer.wl_surface();
         surface.damage_buffer(0, 0, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
@@ -892,6 +1003,7 @@ impl Ui {
     fn handle(&mut self, event: UiEvent) {
         match event {
             UiEvent::EndDialog(dialog) => self.show_end_dialog(dialog),
+            UiEvent::DisplayChange(seconds) => self.show_display_change(seconds),
             UiEvent::PowerAvailability(power) => self.power = power,
             UiEvent::Lock => self.start_lock(),
             UiEvent::Banner(banner) => self.show_banner(banner),
@@ -901,8 +1013,8 @@ impl Ui {
             }
             UiEvent::Overview(true) => self.open_launcher(false),
             UiEvent::Overview(false) => self.close_launcher(false),
-            // Monitor labels need per-output surfaces; not drawn yet.
-            UiEvent::MonitorLabels(_) | UiEvent::HideMonitorLabels => {}
+            UiEvent::MonitorLabels(labels) => self.show_monitor_labels(&labels),
+            UiEvent::HideMonitorLabels => self.monitor_labels.clear(),
             UiEvent::Bind { action, accelerator } => self.bind(action, &accelerator),
             UiEvent::Unbind { action } => {
                 if let Some(binding) = self.bindings.remove(&action) {
@@ -1025,6 +1137,7 @@ pub fn run(
         banner: None,
         dialog: None,
         power_menu: None,
+        monitor_labels: Vec::new(),
         power: Default::default(),
         lock: LockScreen {
             state: SessionLockState::new(&globals, &qh),
@@ -1107,6 +1220,8 @@ impl LayerShellHandler for Ui {
             self.answer_dialog(Choice::Canceled);
         } else if self.power_menu.as_ref().is_some_and(|m| &m.layer == layer) {
             self.power_menu = None;
+        } else if self.monitor_labels.iter().any(|l| &l.layer == layer) {
+            self.monitor_labels.retain(|l| &l.layer != layer);
         } else {
             self.close_launcher(true);
         }
@@ -1137,6 +1252,12 @@ impl LayerShellHandler for Ui {
             overlay.configured = true;
             self.draw_power_menu();
             self.draw_panel();
+        } else if let Some(index) = self.monitor_labels.iter().position(|l| &l.layer == layer) {
+            let overlay = &mut self.monitor_labels[index];
+            overlay.width = configure.new_size.0;
+            overlay.height = configure.new_size.1;
+            overlay.configured = true;
+            self.draw_monitor_label(index);
         } else if let Some(view) = self.banner.as_mut().filter(|v| &v.layer == layer) {
             view.width = configure.new_size.0;
             view.height = configure.new_size.1;

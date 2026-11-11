@@ -15,15 +15,26 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
+use futures_util::StreamExt;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedValue, Str};
-use zbus::{fdo, interface};
+use zbus::{fdo, interface, Connection, MatchRule, MessageStream};
 
 pub const BUS_NAME: &str = "org.gnome.Mutter.DisplayConfig";
 pub const OBJECT_PATH: &str = "/org/gnome/Mutter/DisplayConfig";
 
 /// `layout-mode`: logical monitor sizes are scaled.
 pub const LAYOUT_MODE_LOGICAL: u32 = 1;
+
+/// The shell's "keep these settings?" question
+/// (helix-desktop-spec `org.helix.DisplayChangeDialog.md`).
+const DIALOG_BUS_NAME: &str = "org.gnome.Shell";
+const DIALOG_PATH: &str = "/org/helix/DisplayChangeDialog";
+const DIALOG_IFACE: &str = "org.helix.DisplayChangeDialog";
+/// How long the user has to keep a change.
+pub const CONFIRM_SECONDS: u32 = 20;
+/// Extra time before giving up on a dialog that never answers.
+const CONFIRM_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Every transform (0 normal … 7 flipped 270°).
 pub const ALL_TRANSFORMS: [u32; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
@@ -306,6 +317,36 @@ impl Layout {
         self.applied(config) == self.monitors
     }
 
+    /// What is shown now, as a configuration.
+    pub fn current_config(&self) -> MonitorsConfig {
+        let mut config = MonitorsConfig::default();
+        for m in &self.monitors {
+            let Some(mode) = m.current_mode() else { continue };
+            let choice = MonitorChoice {
+                connector: m.connector.clone(),
+                width: mode.width,
+                height: mode.height,
+                refresh_mhz: mode.refresh_mhz,
+            };
+            let same = |l: &&mut LogicalConfig| l.x == m.x && l.y == m.y && l.scale == m.scale && l.transform == m.transform;
+            match config.logical.iter_mut().find(same) {
+                Some(l) => {
+                    l.primary |= m.primary;
+                    l.monitors.push(choice);
+                }
+                None => config.logical.push(LogicalConfig {
+                    x: m.x,
+                    y: m.y,
+                    scale: m.scale,
+                    transform: m.transform,
+                    primary: m.primary,
+                    monitors: vec![choice],
+                }),
+            }
+        }
+        config
+    }
+
     pub fn current_state(&self) -> (u32, Vec<WireMonitor>, Vec<WireLogicalMonitor>, Props) {
         let monitors = self
             .monitors
@@ -576,6 +617,15 @@ impl Store {
     }
 }
 
+/// A persistent change waiting for the user to keep it.
+#[derive(Debug)]
+struct Pending {
+    /// What to go back to: the configuration before the first unconfirmed
+    /// change.
+    previous: MonitorsConfig,
+    generation: u64,
+}
+
 /// The exported DisplayConfig object.
 pub struct DisplayConfig {
     layout: Arc<Mutex<Layout>>,
@@ -583,20 +633,83 @@ pub struct DisplayConfig {
     /// The compositor, if it accepts configuration changes.
     applier: Option<mpsc::UnboundedSender<ApplyRequest>>,
     store: Store,
+    /// Countdown for keeping a persistent change; 0 keeps it without asking.
+    confirm_seconds: u32,
+    pending: Mutex<Option<Pending>>,
+    generation: std::sync::atomic::AtomicU64,
 }
 
 impl DisplayConfig {
-    pub fn new(layout: Arc<Mutex<Layout>>, applier: Option<mpsc::UnboundedSender<ApplyRequest>>, store: Store) -> Self {
+    pub fn new(
+        layout: Arc<Mutex<Layout>>,
+        applier: Option<mpsc::UnboundedSender<ApplyRequest>>,
+        store: Store,
+        confirm_seconds: u32,
+    ) -> Self {
         Self {
             layout,
             power_save_mode: 0,
             applier,
             store,
+            confirm_seconds,
+            pending: Mutex::new(None),
+            generation: Default::default(),
         }
     }
 
     fn layout(&self) -> MutexGuard<'_, Layout> {
         self.layout.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn pending(&self) -> MutexGuard<'_, Option<Pending>> {
+        self.pending.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// After a persistent change: ask the shell to confirm it, and remember
+    /// or revert it depending on the answer.
+    async fn confirm(&self, conn: &Connection, previous: MonitorsConfig, key: String, config: MonitorsConfig) {
+        let signals = match open_dialog(conn, self.confirm_seconds).await {
+            Ok(signals) => signals,
+            Err(err) => {
+                tracing::info!(%err, "no display change dialog; keeping the change");
+                if let Err(err) = self.store.save(&key, &config) {
+                    tracing::warn!(%err, "cannot remember the monitor configuration");
+                }
+                return;
+            }
+        };
+        let generation = self.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        *self.pending() = Some(Pending { previous, generation });
+        let timeout = std::time::Duration::from_secs(u64::from(self.confirm_seconds)) + CONFIRM_GRACE;
+        let conn = conn.clone();
+        tokio::spawn(async move {
+            let keep = wait_for_answer(signals, timeout).await;
+            if keep.is_none() {
+                close_dialog(&conn).await;
+            }
+            let Ok(iface) = conn.object_server().interface::<_, DisplayConfig>(OBJECT_PATH).await else { return };
+            let dc = iface.get().await;
+            let previous = {
+                let mut pending = dc.pending();
+                match pending.as_ref() {
+                    Some(p) if p.generation == generation => pending.take().map(|p| p.previous),
+                    // Superseded by a newer change.
+                    _ => return,
+                }
+            };
+            let Some(previous) = previous else { return };
+            if keep == Some(true) {
+                tracing::info!("display change kept");
+                if let Err(err) = dc.store.save(&key, &config) {
+                    tracing::warn!(%err, "cannot remember the monitor configuration");
+                }
+            } else {
+                tracing::info!(timed_out = keep.is_none(), "reverting the display change");
+                if let Err(err) = dc.apply_and_publish(previous, iface.signal_emitter()).await {
+                    tracing::warn!(%err, "cannot revert the display change");
+                }
+            }
+        });
     }
 
     /// Have the compositor apply `config`, then publish the new layout.
@@ -640,6 +753,40 @@ impl DisplayConfig {
     }
 }
 
+/// Subscribe to the dialog's answers, then open it.
+async fn open_dialog(conn: &Connection, seconds: u32) -> zbus::Result<MessageStream> {
+    let rule = MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface(DIALOG_IFACE)?
+        .path(DIALOG_PATH)?
+        .build();
+    let signals = MessageStream::for_match_rule(rule, conn, None).await?;
+    conn.call_method(Some(DIALOG_BUS_NAME), DIALOG_PATH, Some(DIALOG_IFACE), "Open", &(seconds,))
+        .await?;
+    Ok(signals)
+}
+
+async fn close_dialog(conn: &Connection) {
+    let _ = conn
+        .call_method(Some(DIALOG_BUS_NAME), DIALOG_PATH, Some(DIALOG_IFACE), "Close", &())
+        .await;
+}
+
+/// `Some(true)` kept, `Some(false)` reverted, `None` no answer in time.
+async fn wait_for_answer(mut signals: MessageStream, timeout: std::time::Duration) -> Option<bool> {
+    let answer = async {
+        while let Some(Ok(message)) = signals.next().await {
+            match message.header().member().map(|m| m.as_str()) {
+                Some("Kept") => return Some(true),
+                Some("Reverted") => return Some(false),
+                _ => {}
+            }
+        }
+        None
+    };
+    tokio::time::timeout(timeout, answer).await.ok().flatten()
+}
+
 type WireMonitorChoice = (String, String, Props);
 type WireLogicalConfig = (i32, i32, f64, u32, bool, Vec<WireMonitorChoice>);
 
@@ -666,12 +813,13 @@ impl DisplayConfig {
         logical_monitors: Vec<WireLogicalConfig>,
         properties: Props,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        #[zbus(connection)] conn: &Connection,
     ) -> fdo::Result<()> {
         if self.applier.is_none() {
             return Err(fdo::Error::AccessDenied("changing the monitor configuration is not allowed".into()));
         }
         let method = Method::try_from(method).map_err(fdo::Error::InvalidArgs)?;
-        let (config, key) = {
+        let (config, key, current) = {
             let layout = self.layout();
             if serial != layout.serial {
                 return Err(fdo::Error::InvalidArgs(format!(
@@ -680,18 +828,31 @@ impl DisplayConfig {
                 )));
             }
             let config = layout.parse(&logical_monitors, &properties).map_err(fdo::Error::InvalidArgs)?;
-            (config, layout.key())
+            (config, layout.key(), layout.current_config())
         };
         if method == Method::Verify {
             return Ok(());
+        }
+        // A change while the user is still being asked about the previous
+        // one replaces it; going back still means going back to before both.
+        let earlier = self.pending().take();
+        if earlier.is_some() {
+            close_dialog(conn).await;
         }
         self.apply_and_publish(config.clone(), &emitter)
             .await
             .map_err(fdo::Error::Failed)?;
         tracing::info!(?method, "monitor configuration applied");
         if method == Method::Persistent {
-            if let Err(err) = self.store.save(&key, &config) {
-                tracing::warn!(%err, "cannot remember the monitor configuration");
+            // Nothing to keep or revert when nothing changed.
+            let unchanged = earlier.is_none() && current == config;
+            if self.confirm_seconds == 0 || unchanged {
+                if let Err(err) = self.store.save(&key, &config) {
+                    tracing::warn!(%err, "cannot remember the monitor configuration");
+                }
+            } else {
+                let previous = earlier.map(|p| p.previous).unwrap_or(current);
+                self.confirm(conn, previous, key, config).await;
             }
         }
         Ok(())
@@ -913,6 +1074,17 @@ mod tests {
         assert_eq!(off.current_state().2.len(), 1);
         assert!(off.is_current(&only_dp));
         assert!(!layout.is_current(&only_dp));
+    }
+
+    #[test]
+    fn current_config_round_trips() {
+        let layout = two();
+        assert!(layout.is_current(&layout.current_config()));
+        let mirror = MonitorsConfig {
+            logical: vec![logical(0, 0, true, vec![choice("DP-1", 1920, 1080), choice("HDMI-1", 1920, 1080)])],
+        };
+        let mirrored = Layout::new(layout.applied(&mirror));
+        assert_eq!(mirrored.current_config(), mirror);
     }
 
     #[test]

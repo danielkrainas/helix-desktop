@@ -146,6 +146,15 @@ async fn org_gnome_shell() {
         &[],
     )
     .await;
+    assert_matches_contract(
+        service.connection(),
+        helix_shell::BUS_NAME,
+        helix_shell::display_change::OBJECT_PATH,
+        "org.helix.DisplayChangeDialog",
+        "org.helix.DisplayChangeDialog.xml",
+        &[],
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
