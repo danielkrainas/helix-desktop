@@ -88,6 +88,11 @@ impl CompositorHandler for Helix {
             }
         }
         self.handle_xdg_commit(surface);
+        if let Some(window) = self.wm.unplaced.iter().find(|w| super::wm::surface_of(w).as_ref() == Some(surface)).cloned() {
+            if window.geometry().size.w > 0 {
+                self.place_new_window(&window);
+            }
+        }
         self.handle_layer_commit(surface);
         self.track_resize_commit(surface);
     }
@@ -193,9 +198,9 @@ impl XdgShellHandler for Helix {
         tracing::info!("new toplevel window");
         let window = Window::new_wayland_window(surface);
         let position = self.next_window_position();
-        self.space.map_element(window.clone(), position, true);
-        // New windows get keyboard focus.
-        self.focus_window(&window);
+        // Placed for real once it has a size (its first buffer).
+        self.wm.unplaced.push(window.clone());
+        self.map_new_window(&window, position.into());
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
@@ -597,6 +602,26 @@ delegate_viewporter!(Helix);
 delegate_fractional_scale!(Helix);
 delegate_cursor_shape!(Helix);
 delegate_dmabuf!(Helix);
+smithay::delegate_xdg_system_bell!(Helix);
+smithay::delegate_xdg_dialog!(Helix);
+
+/// `xdg_system_bell_v1`: an app rang the bell.
+impl smithay::wayland::xdg_system_bell::XdgSystemBellHandler for Helix {
+    fn ring(&mut self, surface: Option<WlSurface>) {
+        self.ring_bell(surface.as_ref());
+    }
+}
+
+/// `xdg_dialog_v1`: which dialogs are modal (for `attach-modal-dialogs`).
+impl smithay::wayland::shell::xdg::dialog::XdgDialogHandler for Helix {
+    fn modal_changed(&mut self, toplevel: ToplevelSurface, is_modal: bool) {
+        let surface = toplevel.wl_surface().clone();
+        self.wm.modal.retain(|s| s != &surface && s.is_alive());
+        if is_modal {
+            self.wm.modal.push(surface);
+        }
+    }
+}
 smithay::delegate_session_lock!(Helix);
 smithay::delegate_xwayland_shell!(Helix);
 

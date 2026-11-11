@@ -278,7 +278,6 @@ Shortcuts handled by the compositor:
 | Keys | Action |
 |------|--------|
 | Super (alone) | Show applications (asks the shell over `org.gnome.Shell`) |
-| Super+drag | Move the window under the pointer |
 | Super+L | Lock the screen |
 
 Alt+Tab (the application switcher), Alt+\` (windows of the current
@@ -288,6 +287,18 @@ Super+Up/Down maximize and restore, Super+H minimize, Alt+Space window
 menu, Alt+F7/F8 move and resize, Super+Shift+arrows to another monitor,
 and the rest of `org.gnome.desktop.wm.keybindings`) belong to the shell,
 which binds them from GSettings.
+
+GNOME's window preferences apply: focus follows the pointer with
+`focus-mode` sloppy or mouse (with `auto-raise` and
+`focus-change-on-pointer-rest`), `raise-on-click`, modifier clicks
+(`mouse-button-modifier`, Super by default: drag to move, middle drag to
+resize, right click for the window menu; `resize-with-right-button` swaps
+them), new windows centered (`center-new-windows`), maximized when they
+fill the screen (`auto-maximize`) or kept behind the focused window
+(`focus-new-windows` strict), dialogs over their parent (modal ones
+attached with `attach-modal-dialogs`), the `overlay-key`, audible and
+visual bells for apps using `xdg_system_bell_v1`, and locate pointer
+(`locate-pointer`, Ctrl).
 
 Super+Left / Super+Right (`org.gnome.mutter.keybindings`) tile the
 focused window to half the screen; with `org.gnome.mutter edge-tiling`,

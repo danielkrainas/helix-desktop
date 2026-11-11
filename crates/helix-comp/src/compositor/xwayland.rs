@@ -151,10 +151,10 @@ impl XwmHandler for Helix {
         // Room for the title bar Helix draws above it.
         let location: smithay::utils::Point<i32, Logical> = (x, y + super::frames::frame_top(&window)).into();
         let size = surface.geometry().size;
-        self.space.map_element(window.clone(), location, true);
         let _ = surface.configure(Rectangle::new(location, size));
         tracing::info!(title = surface.title(), class = surface.class(), ?location, ?size, "new X11 window");
-        self.focus_window(&window);
+        self.map_new_window(&window, location);
+        self.place_new_window(&window);
     }
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, surface: X11Surface) {

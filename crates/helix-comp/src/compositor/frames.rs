@@ -77,7 +77,18 @@ pub struct Frames {
     last_click: Option<(Window, u32)>,
     /// The edge-tiling preview (where a dragged window would go).
     preview: Option<(Rectangle<i32, Logical>, SolidColorBuffer)>,
+    /// Visual bells: area, start, and the white drawn over it.
+    flashes: Vec<(Rectangle<i32, Logical>, std::time::Instant, SolidColorBuffer)>,
+    /// Locate pointer: where, and since when.
+    locating: Option<(Point<f64, Logical>, std::time::Instant)>,
 }
+
+/// How long a visual bell flash lasts.
+const FLASH: std::time::Duration = std::time::Duration::from_millis(250);
+/// How long the locate-pointer rings show.
+const LOCATE: std::time::Duration = std::time::Duration::from_millis(500);
+/// The rings' largest radius (logical pixels).
+const LOCATE_R: f64 = 64.0;
 
 struct Colors {
     background: u32,
@@ -121,6 +132,56 @@ impl Frames {
             }
             (Some(area), None) => self.preview = Some((area, SolidColorBuffer::new(area.size, color))),
         }
+    }
+
+    /// Flash `area` white (visual bell).
+    pub fn flash(&mut self, area: Rectangle<i32, Logical>) {
+        self.flashes.push((area, std::time::Instant::now(), SolidColorBuffer::new(area.size, [0.6, 0.6, 0.6, 0.6])));
+    }
+
+    /// Show shrinking rings around `pos`.
+    pub fn locate(&mut self, pos: Point<f64, Logical>) {
+        self.locating = Some((pos, std::time::Instant::now()));
+    }
+
+    /// Advance animations to `now`; true while one runs.
+    pub fn animate(&mut self, now: std::time::Instant) -> bool {
+        self.flashes.retain(|(_, start, _)| now.duration_since(*start) < FLASH);
+        for (area, start, buffer) in &mut self.flashes {
+            let a = 0.6 * (1.0 - now.duration_since(*start).as_secs_f32() / FLASH.as_secs_f32());
+            buffer.update(area.size, [a, a, a, a]);
+        }
+        if self.locating.as_ref().is_some_and(|(_, start)| now.duration_since(*start) >= LOCATE) {
+            self.locating = None;
+        }
+        !self.flashes.is_empty() || self.locating.is_some()
+    }
+
+    /// The locate rings at this moment, drawn at `scale`.
+    fn locate_element(&self, renderer: &mut GlesRenderer, origin: Point<i32, Logical>, scale: f64) -> Option<MemoryRenderBufferRenderElement<GlesRenderer>> {
+        let (pos, start) = self.locating.as_ref()?;
+        let t = (start.elapsed().as_secs_f64() / LOCATE.as_secs_f64()).min(1.0);
+        let size = (2.0 * LOCATE_R) as usize;
+        let (pw, ph) = (physical(size, scale), physical(size, scale));
+        let mut data = vec![0u8; pw * ph * 4];
+        let mut canvas = Canvas::scaled(&mut data, size, size, scale);
+        let c = LOCATE_R;
+        // Two rings closing in on the pointer.
+        for offset in [0.0, 0.35] {
+            let k = (t + offset).fract();
+            let r = LOCATE_R * (1.0 - k) + 4.0;
+            let alpha = ((1.0 - k) * 200.0) as u32;
+            let color = (alpha << 24) | 0x003584E4;
+            let steps = 48;
+            for i in 0..steps {
+                let a0 = i as f64 / steps as f64 * std::f64::consts::TAU;
+                let a1 = (i + 1) as f64 / steps as f64 * std::f64::consts::TAU;
+                canvas.line((c + r * a0.cos(), c + r * a0.sin()), (c + r * a1.cos(), c + r * a1.sin()), 3.0, color);
+            }
+        }
+        let buffer = MemoryRenderBuffer::from_slice(&data, Fourcc::Argb8888, (pw as i32, ph as i32), 1, Transform::Normal, None);
+        let at = Point::<f64, Logical>::from((pos.x - LOCATE_R, pos.y - LOCATE_R)) - origin.to_f64();
+        MemoryRenderBufferRenderElement::from_buffer(renderer, at.to_physical(scale), &buffer, None, None, Some((size as i32, size as i32).into()), Kind::Unspecified).ok()
     }
 
     /// Forget a window that went away.
@@ -274,6 +335,13 @@ pub fn scene(
             );
         }
     };
+    if let Some(rings) = frames.locate_element(renderer, output_geo.loc, scale) {
+        elements.push(SceneElement::Frame(rings));
+    }
+    for (area, _, buffer) in frames.flashes.iter().filter(|(a, _, _)| a.overlaps(output_geo)) {
+        let at = (area.loc - output_geo.loc).to_physical_precise_round(scale);
+        elements.push(SceneElement::Preview(SolidColorRenderElement::from_buffer(buffer, at, scale, 1.0, Kind::Unspecified)));
+    }
     push_layers(&mut elements, renderer, &upper);
     if let Some((area, buffer)) = frames.preview.as_ref().filter(|(a, _)| a.overlaps(output_geo)) {
         let at = (area.loc - output_geo.loc).to_physical_precise_round(scale);

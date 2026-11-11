@@ -21,7 +21,8 @@ pub mod markup;
 pub mod notifications;
 pub mod notify_store;
 pub mod screensaver;
-pub mod sound;
+/// Event sounds live in `helix-settings`, shared with the compositor.
+pub use helix_settings::sound;
 pub mod screencast_chooser;
 pub mod screenshot;
 pub mod shell_keys;

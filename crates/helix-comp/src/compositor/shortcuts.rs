@@ -21,6 +21,8 @@ pub enum Action {
     ShowApplications,
     /// Escape during a window menu Move/Resize.
     CancelFollow,
+    /// The locate-pointer key was pressed and released alone.
+    LocatePointer,
     SwitchVt(i32),
     Quit,
     Lock,
@@ -84,18 +86,33 @@ const FORWARD: Decision = Decision {
     action: None,
 };
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Shortcuts {
-    /// Super is down and nothing else was pressed since.
+    /// The overlay key is down and nothing else was pressed since.
     super_alone: bool,
+    /// Keys that show the launcher pressed alone (`overlay-key`).
+    overlay: Vec<Keysym>,
+    /// The `locate-pointer-key`, when locating is on.
+    locate: Option<Keysym>,
+    /// The locate key is down and nothing else was pressed since.
+    locate_alone: bool,
     /// Keys whose press was intercepted (and the binding they triggered);
     /// their release is intercepted too.
     suppressed: Vec<(u32, Option<u32>)>,
     bindings: Vec<Binding>,
 }
 
-fn is_super(sym: Keysym) -> bool {
-    sym == Keysym::Super_L || sym == Keysym::Super_R
+impl Default for Shortcuts {
+    fn default() -> Self {
+        Self {
+            super_alone: false,
+            overlay: vec![Keysym::Super_L, Keysym::Super_R],
+            locate: None,
+            locate_alone: false,
+            suppressed: Vec::new(),
+            bindings: Vec::new(),
+        }
+    }
 }
 
 /// The compositor's own action for a press, if any.
@@ -113,7 +130,7 @@ impl Shortcuts {
     /// Bind `mods`+`key` for the shell under `id`.
     pub fn bind(&mut self, id: u32, mods: Mods, key: Key) -> Result<(), BindError> {
         let reserved = match key {
-            Key::Sym(sym) => is_super(sym) || builtin(mods, sym).is_some(),
+            Key::Sym(sym) => self.overlay.contains(&sym) || builtin(mods, sym).is_some(),
             Key::Code(_) => false,
         };
         let duplicate = self.bindings.iter().any(|b| b.mods == mods && b.key == key);
@@ -139,10 +156,25 @@ impl Shortcuts {
         self.bindings.retain(|b| b.id != id);
     }
 
+    /// The keys of `overlay-key` and `locate-pointer-key`.
+    pub fn set_special_keys(&mut self, overlay: Vec<Keysym>, locate: Option<Keysym>) {
+        self.overlay = overlay;
+        self.locate = locate;
+    }
+
     pub fn key(&mut self, keycode: u32, pressed: bool, mods: Mods, sym: Keysym) -> Decision {
+        // The locate key works alone and is never kept from the client.
+        let locate_alone = std::mem::take(&mut self.locate_alone);
+        if self.locate == Some(sym) {
+            if pressed {
+                self.locate_alone = true;
+            } else if locate_alone {
+                return Decision { intercept: false, action: Some(Action::LocatePointer) };
+            }
+        }
         if !pressed {
             let suppressed = self.take_suppressed(keycode);
-            if is_super(sym) {
+            if self.overlay.contains(&sym) {
                 let alone = std::mem::take(&mut self.super_alone);
                 return Decision {
                     intercept: suppressed.is_some(),
@@ -155,7 +187,7 @@ impl Shortcuts {
             };
         }
 
-        if is_super(sym) {
+        if self.overlay.contains(&sym) {
             self.super_alone = true;
             self.suppressed.push((keycode, None));
             return Decision {

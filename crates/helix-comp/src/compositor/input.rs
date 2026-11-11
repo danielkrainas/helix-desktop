@@ -25,6 +25,7 @@ impl Helix {
         let under = if self.frame_hover(frame.as_ref()) { None } else { self.surface_under(pos) };
         pointer.motion(self, under, &MotionEvent { location: pos, serial, time });
         pointer.frame(self);
+        self.focus_follows_pointer(pos);
     }
 
     /// Keep the pointer within the outputs' combined bounding box.
@@ -44,7 +45,7 @@ impl Helix {
         }
     }
 
-    fn run_shortcut(&mut self, action: Action, time: u32) {
+    pub(super) fn run_shortcut(&mut self, action: Action, time: u32) {
         tracing::debug!(?action, "shortcut");
         // While locked only the escape hatches work.
         let allowed = match action {
@@ -68,6 +69,7 @@ impl Helix {
             }
             Action::ShowApplications => self.send(helix_comp::Event::ShowApplications),
             Action::CancelFollow => self.cancel_follow(),
+            Action::LocatePointer => self.locate_pointer(),
             Action::SwitchVt(vt) => self.switch_vt(vt),
             Action::Quit => {
                 tracing::info!("quit requested (Ctrl+Alt+Backspace)");
@@ -119,6 +121,8 @@ impl Helix {
                         if decision.intercept {
                             FilterResult::Intercept(decision.action)
                         } else {
+                            // E.g. the locate-pointer key: the app gets it too.
+                            state.wm.pending_action = decision.action;
                             FilterResult::Forward
                         }
                     },
@@ -126,6 +130,7 @@ impl Helix {
                 if let Some(Some(action)) = action {
                     self.run_shortcut(action, time);
                 }
+                self.run_pending_action(time);
             }
             InputEvent::PointerMotionAbsolute { event, .. } => {
                 let Some(output) = self.space.outputs().next() else {
@@ -161,32 +166,15 @@ impl Helix {
                         pointer.frame(self);
                         return;
                     }
-                    let super_held = self
-                        .seat
-                        .get_keyboard()
-                        .is_some_and(|k| k.modifier_state().logo);
                     if self.over_panel(pos) {
                         // Clicks on panels don't change window focus.
                     } else if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
-                        self.focus_window(&window);
-                        // Super+drag moves any window, including X11 windows
-                        // without a title bar of their own.
-                        if super_held && event.button_code() == BTN_LEFT && !super::wm::is_override_redirect(&window) {
-                            self.restore_window(&window);
-                            let initial_location = self.space.element_location(&window).unwrap_or_default();
-                            let start_data = smithay::input::pointer::GrabStartData {
-                                focus: None,
-                                button: BTN_LEFT,
-                                location: pos,
-                            };
-                            pointer.set_grab(
-                                self,
-                                super::grabs::MoveGrab { start_data, window, initial_location, follow: false, unmaximize: false },
-                                serial,
-                                smithay::input::pointer::Focus::Clear,
-                            );
+                        // `mouse-button-modifier` clicks move, resize or open
+                        // the window menu, and are not passed to the app.
+                        if self.modifier_click(&window, event.button_code(), pos) {
                             return;
                         }
+                        self.focus_window_with(&window, self.wm_settings.raise_on_click);
                     } else {
                         self.unfocus_all();
                     }

@@ -16,7 +16,6 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::Helix;
 
-const BTN_LEFT: u32 = 0x110;
 
 /// Forward the grab methods that need no special handling.
 macro_rules! forward_passthrough {
@@ -101,6 +100,7 @@ impl PointerGrab<Helix> for MoveGrab {
         let location = (self.initial_location.to_f64() + delta).to_i32_round();
         data.space.map_element(self.window.clone(), location, true);
         data.restack_above();
+        data.move_attached(&self.window, location);
         data.update_tile_preview(event.location);
         // X11 apps need to know where they are (for menus and input).
         if let Some(x11) = self.window.x11_surface() {
@@ -118,7 +118,7 @@ impl PointerGrab<Helix> for MoveGrab {
             return;
         }
         handle.button(data, event);
-        if !handle.current_pressed().contains(&BTN_LEFT) {
+        if !handle.current_pressed().contains(&self.start_data.button) {
             data.finish_tile_preview(&self.window);
             tracing::debug!(
                 start = ?self.start_data.location,
@@ -267,7 +267,7 @@ impl PointerGrab<Helix> for ResizeGrab {
             data.follow = None;
         } else {
             handle.button(data, event);
-            if handle.current_pressed().contains(&BTN_LEFT) {
+            if handle.current_pressed().contains(&self.start_data.button) {
                 return;
             }
         }

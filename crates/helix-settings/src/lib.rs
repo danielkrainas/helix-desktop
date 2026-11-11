@@ -12,6 +12,7 @@
 //! Key contracts: `helix-desktop-spec/contracts/gsettings/`.
 
 pub mod convert;
+pub mod sound;
 
 use std::collections::BTreeMap;
 use std::thread::JoinHandle;

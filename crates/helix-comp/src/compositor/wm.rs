@@ -87,6 +87,12 @@ impl Helix {
 
     /// Raise `window`, give it keyboard focus, and mark only it activated.
     pub fn focus_window(&mut self, window: &Window) {
+        self.focus_window_with(window, true);
+    }
+
+    /// Give `window` keyboard focus, raising it or not (focus following
+    /// the pointer, `raise-on-click` false).
+    pub fn focus_window_with(&mut self, window: &Window, raise: bool) {
         // Nothing gets focus while the session is locked.
         if is_override_redirect(window) || self.lock.locked {
             return;
@@ -97,10 +103,12 @@ impl Helix {
             let location = self.minimized_at.remove(pos);
             self.space.map_element(window, location, false);
         }
-        self.space.raise_element(window, true);
-        self.restack_above();
-        if let (Some(xwm), Some(x11)) = (self.xwm.as_mut(), window.x11_surface()) {
-            let _ = xwm.raise_window(x11);
+        if raise {
+            self.space.raise_element(window, true);
+            self.restack_above();
+            if let (Some(xwm), Some(x11)) = (self.xwm.as_mut(), window.x11_surface()) {
+                let _ = xwm.raise_window(x11);
+            }
         }
         let keyboard = self.seat.get_keyboard().unwrap();
         keyboard.set_focus(self, surface_of(window), SERIAL_COUNTER.next_serial());

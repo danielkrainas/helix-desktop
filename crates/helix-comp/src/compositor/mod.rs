@@ -12,6 +12,7 @@ mod handlers;
 mod input;
 mod scales;
 mod tiling;
+mod wm_behavior;
 mod input_config;
 mod keybindings;
 mod lock;
@@ -94,6 +95,8 @@ pub struct Helix {
         smithay::wayland::text_input::TextInputManagerState,
         smithay::wayland::input_method::InputMethodManagerState,
         smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState,
+        smithay::wayland::xdg_system_bell::XdgSystemBellState,
+        smithay::wayland::shell::xdg::dialog::XdgDialogState,
     ),
 
     /// Minimized windows (unmapped) and where they were.
@@ -149,6 +152,7 @@ pub struct Helix {
     pub wm_settings: helix_comp::wm_settings::WmSettings,
     /// Where a dragged window would go if released now (edge tiling).
     pub tile_target: Option<wm::Takeover>,
+    pub wm: wm_behavior::WmState,
     pub gamma: gamma::GammaState,
     pub screencast: screencast::CastState,
 
@@ -199,6 +203,8 @@ impl Helix {
                 // The input method and its virtual keyboard: the shell only.
                 smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, privileged),
                 smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, privileged),
+                smithay::wayland::xdg_system_bell::XdgSystemBellState::new::<Self>(&dh),
+                smithay::wayland::shell::xdg::dialog::XdgDialogState::new::<Self>(&dh),
             ),
             seat_state,
             popups: PopupManager::default(),
@@ -237,6 +243,7 @@ impl Helix {
             frames: Default::default(),
             wm_settings: Default::default(),
             tile_target: None,
+            wm: Default::default(),
             gamma: Default::default(),
             screencast: Default::default(),
         };

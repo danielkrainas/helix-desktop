@@ -60,7 +60,7 @@ pub enum Sound {
 /// Play `sound` in the background, unless event sounds are off.
 pub fn play(sound: &Sound) {
     use gio::prelude::*;
-    let (enabled, theme) = if helix_settings::has_schema(SCHEMA) {
+    let (enabled, theme) = if crate::has_schema(SCHEMA) {
         let settings = gio::Settings::new(SCHEMA);
         (settings.boolean("event-sounds"), settings.string("theme-name").to_string())
     } else {

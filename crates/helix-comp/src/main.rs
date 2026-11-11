@@ -88,11 +88,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         )
         .map_err(|e| format!("cannot start the window list timer: {e}"))?;
 
+    // Focus following the pointer, auto-raise and animations.
+    event_loop
+        .handle()
+        .insert_source(smithay::reexports::calloop::timer::Timer::immediate(), |_, _, state| {
+            state.wm_tick();
+            smithay::reexports::calloop::timer::TimeoutAction::ToDuration(std::time::Duration::from_millis(50))
+        })
+        .map_err(|e| format!("cannot start the window-management timer: {e}"))?;
+
     // Keyboard, mouse and touchpad settings: now, and whenever they change.
     state.apply_input_settings();
     state.apply_workspace_settings();
     state.apply_frame_settings();
-    state.wm_settings = helix_comp::wm_settings::read();
+    state.apply_wm_settings();
     let (settings_tx, settings_rx) = smithay::reexports::calloop::channel::channel::<()>();
     event_loop
         .handle()
@@ -101,7 +110,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 state.apply_input_settings();
                 state.apply_workspace_settings();
                 state.apply_frame_settings();
-                state.wm_settings = helix_comp::wm_settings::read();
+                state.apply_wm_settings();
             }
         })
         .map_err(|e| format!("cannot follow input settings: {e}"))?;
