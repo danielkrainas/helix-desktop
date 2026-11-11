@@ -34,8 +34,9 @@ crates/
   helix-session/    # session manager and D-Bus services
   helix-settings/   # GSettings / settings integration
   helix-portals/    # portal backends
+  helix-test-support/ # test helpers: private D-Bus, contract checks
 session/            # startup units and scripts
-tests/              # contract and integration tests
+tests/contract/     # conformance tests against helix-desktop-spec
 ```
 
 Contracts are defined in the companion [helix-desktop-spec](https://github.com/danielkrainas/helix-desktop-spec) repository.

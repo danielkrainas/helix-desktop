@@ -209,6 +209,15 @@ name = "helix-comp"
 version = "0.1.0"
 
 [[package]]
+name = "helix-contract-tests"
+version = "0.1.0"
+dependencies = [
+ "helix-session",
+ "helix-test-support",
+ "tokio",
+]
+
+[[package]]
 name = "helix-portals"
 version = "0.1.0"
 
@@ -217,6 +226,7 @@ name = "helix-session"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "helix-test-support",
  "libc",
  "tokio",
  "tracing",
@@ -231,6 +241,14 @@ version = "0.1.0"
 [[package]]
 name = "helix-shell"
 version = "0.1.0"
+
+[[package]]
+name = "helix-test-support"
+version = "0.1.0"
+dependencies = [
+ "zbus",
+ "zbus_xml",
+]
 
 [[package]]
 name = "hex"
@@ -830,6 +848,18 @@ checksum = "812a12be4ead7a59e18ea8f047d08add0066b73bc62fc1467066a2472ae088dd"
 dependencies = [
  "serde",
  "winnow",
+ "zvariant",
+]
+
+[[package]]
+name = "zbus_xml"
+version = "5.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1586c021a01ca0a9216dcd874e546382e156a5cbab5fab6cb5f10087e22682a"
+dependencies = [
+ "serde",
+ "winnow",
+ "zbus_names",
  "zvariant",
 ]
 

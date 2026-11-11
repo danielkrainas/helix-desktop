@@ -1,0 +1,13 @@
+[package]
+name = "helix-test-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Test helpers for Helix: private D-Bus daemons and contract conformance checks"
+publish = false
+
+[dependencies]
+zbus.workspace = true
+zbus_xml.workspace = true

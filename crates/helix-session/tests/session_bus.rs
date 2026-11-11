@@ -3,19 +3,17 @@
 //! Each test starts its own bus, so they never touch the user's session bus.
 //! If `dbus-daemon` is not installed the tests are skipped (with a notice).
 
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use helix_session::state::{EndSessionAction, LogoutMode};
 use helix_session::{SessionEnd, SessionService};
+use helix_test_support::TestBus;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use zbus::proxy::CacheProperties;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath};
-use zbus::{connection, Connection};
+use zbus::Connection;
 
 #[zbus::proxy(
     interface = "org.gnome.SessionManager",
@@ -52,66 +50,6 @@ trait SessionManager {
     fn session_name(&self) -> zbus::Result<String>;
     #[zbus(property)]
     fn restore_supported(&self) -> zbus::Result<bool>;
-}
-
-/// A private `dbus-daemon` that is killed on drop.
-struct TestBus {
-    child: Child,
-    dir: PathBuf,
-    address: String,
-}
-
-impl TestBus {
-    fn start() -> Option<Self> {
-        static N: AtomicU32 = AtomicU32::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "helix-session-test-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let socket = dir.join("bus");
-        let address = format!("unix:path={}", socket.display());
-
-        let child = match Command::new("dbus-daemon")
-            .args(["--session", "--nofork", "--nopidfile"])
-            .arg(format!("--address={address}"))
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-        {
-            Ok(c) => c,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                eprintln!("dbus-daemon not found; skipping D-Bus integration test");
-                return None;
-            }
-            Err(e) => panic!("failed to spawn dbus-daemon: {e}"),
-        };
-
-        let bus = Self { child, dir, address };
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !socket.exists() {
-            assert!(Instant::now() < deadline, "dbus-daemon did not create its socket");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        Some(bus)
-    }
-
-    fn builder(&self) -> connection::Builder<'static> {
-        connection::Builder::address(self.address.as_str()).unwrap()
-    }
-
-    async fn connect(&self) -> Connection {
-        self.builder().build().await.unwrap()
-    }
-}
-
-impl Drop for TestBus {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
 }
 
 /// Start the service on `bus`, returning its task and a stop trigger.

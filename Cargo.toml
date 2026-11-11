@@ -5,6 +5,8 @@ members = [
     "crates/helix-session",
     "crates/helix-settings",
     "crates/helix-portals",
+    "crates/helix-test-support",
+    "tests/contract",
 ]
 resolver = "2"
 
@@ -21,4 +23,7 @@ tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "signal", "
 futures-util = { version = "0.3", default-features = false }
 tracing = "0.1"
 libc = "0.2"
+zbus_xml = "5.2"
+helix-test-support = { path = "crates/helix-test-support" }
+helix-session = { path = "crates/helix-session" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
