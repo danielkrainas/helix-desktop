@@ -234,6 +234,8 @@ the compositor applies to the DRM CRTCs (nested, the ramps are accepted
 but have no visible effect). Its state is published as gnome-settings-daemon's
 `org.gnome.SettingsDaemon.Color` (active, temperature, sunrise and sunset),
 which also lets GNOME Settings preview it and disable it until tomorrow.
+`SetOutputCTM` sets a monitor's color transformation matrix (the CRTC's
+`CTM` property on bare hardware) the same way.
 
 Workspaces follow GNOME's settings: a fixed number (`num-workspaces`) or
 dynamic ones (always one empty workspace at the end), optionally only on

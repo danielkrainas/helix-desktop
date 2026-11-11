@@ -77,7 +77,7 @@ pub struct MonitorControl {
     /// The built-in panel's backlight (`None`: no backlight control).
     pub backlight: Option<backlight::Backlight>,
     /// Where gamma requests go (`None`: no gamma control).
-    pub gamma: Option<mpsc::UnboundedSender<display_config::GammaRequest>>,
+    pub gamma: Option<mpsc::UnboundedSender<display_config::ColorRequest>>,
     /// Where screen cast requests go (`None`: no screen casting).
     pub cast: Option<mpsc::UnboundedSender<screencast::CastRequest>>,
 }

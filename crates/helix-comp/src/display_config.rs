@@ -620,13 +620,46 @@ impl Store {
 /// Gamma ramps: red, green, blue.
 pub type Ramps = (Vec<u16>, Vec<u16>, Vec<u16>);
 
-/// Ask the compositor for a monitor's gamma ramps (`set` None) or to set
-/// them; the reply is the ramps in effect.
+/// A color transformation matrix: row-major, each value S31.32 sign and
+/// magnitude (the kernel's `drm_color_ctm`).
+pub type Ctm = [u64; 9];
+
+/// The identity matrix.
+pub const IDENTITY_CTM: Ctm = {
+    const ONE: u64 = 1 << 32;
+    [ONE, 0, 0, 0, ONE, 0, 0, 0, ONE]
+};
+
+/// A color change for a monitor.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ColorSet {
+    Gamma(Ramps),
+    Ctm(Ctm),
+}
+
+/// Why a color request failed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ColorError {
+    Invalid(String),
+    NotSupported(String),
+}
+
+impl From<ColorError> for fdo::Error {
+    fn from(err: ColorError) -> Self {
+        match err {
+            ColorError::Invalid(msg) => fdo::Error::InvalidArgs(msg),
+            ColorError::NotSupported(msg) => fdo::Error::NotSupported(msg),
+        }
+    }
+}
+
+/// Ask the compositor for a monitor's gamma ramps (`set` None) or to
+/// change its colors; the reply is the gamma ramps in effect.
 #[derive(Debug)]
-pub struct GammaRequest {
+pub struct ColorRequest {
     pub connector: String,
-    pub set: Option<Ramps>,
-    pub reply: oneshot::Sender<Result<Ramps, String>>,
+    pub set: Option<ColorSet>,
+    pub reply: oneshot::Sender<Result<Ramps, ColorError>>,
 }
 
 /// Identity ramps of `size` entries.
@@ -660,7 +693,7 @@ pub struct DisplayConfig {
     /// The built-in panel's backlight, if it can be controlled.
     backlight: Option<crate::backlight::Backlight>,
     /// The compositor, if it handles gamma.
-    gamma: Option<mpsc::UnboundedSender<GammaRequest>>,
+    gamma: Option<mpsc::UnboundedSender<ColorRequest>>,
     /// The value last published, to notice outside changes.
     backlight_shown: Mutex<Option<i32>>,
 }
@@ -672,7 +705,7 @@ impl DisplayConfig {
         store: Store,
         confirm_seconds: u32,
         backlight: Option<crate::backlight::Backlight>,
-        gamma: Option<mpsc::UnboundedSender<GammaRequest>>,
+        gamma: Option<mpsc::UnboundedSender<ColorRequest>>,
     ) -> Self {
         Self {
             layout,
@@ -688,25 +721,26 @@ impl DisplayConfig {
         }
     }
 
-    /// Send a gamma request for `crtc` (a `GetResources` id) to the compositor.
-    async fn gamma(&self, serial: u32, crtc: u32, set: Option<Ramps>) -> fdo::Result<Ramps> {
+    /// Send a color request for `crtc` (a `GetResources` CRTC or output id;
+    /// they are the same) to the compositor.
+    async fn color(&self, serial: u32, crtc: u32, set: Option<ColorSet>) -> fdo::Result<Ramps> {
         let connector = {
             let layout = self.layout();
             if serial != layout.serial {
                 return Err(fdo::Error::InvalidArgs(format!("stale serial {serial}")));
             }
             let monitor = layout.monitors.get(crtc as usize);
-            monitor.map(|m| m.connector.clone()).ok_or_else(|| fdo::Error::InvalidArgs(format!("unknown CRTC {crtc}")))?
+            monitor.map(|m| m.connector.clone()).ok_or_else(|| fdo::Error::InvalidArgs(format!("unknown CRTC or output {crtc}")))?
         };
         let sender = self.gamma.as_ref().ok_or_else(|| fdo::Error::NotSupported("no gamma control".into()))?;
         let (reply, answer) = oneshot::channel();
         sender
-            .send(GammaRequest { connector, set, reply })
+            .send(ColorRequest { connector, set, reply })
             .map_err(|_| fdo::Error::Failed("the compositor is gone".into()))?;
         answer
             .await
             .map_err(|_| fdo::Error::Failed("the compositor did not answer".into()))?
-            .map_err(fdo::Error::InvalidArgs)
+            .map_err(fdo::Error::from)
     }
 
     /// The controllable built-in monitor's connector, its device and value.
@@ -966,7 +1000,7 @@ impl DisplayConfig {
 
     #[zbus(out_args("red", "green", "blue"))]
     async fn get_crtc_gamma(&self, serial: u32, crtc: u32) -> fdo::Result<(Vec<u16>, Vec<u16>, Vec<u16>)> {
-        self.gamma(serial, crtc, None).await
+        self.color(serial, crtc, None).await
     }
 
     async fn set_crtc_gamma(
@@ -977,7 +1011,13 @@ impl DisplayConfig {
         green: Vec<u16>,
         blue: Vec<u16>,
     ) -> fdo::Result<()> {
-        self.gamma(serial, crtc, Some((red, green, blue))).await.map(drop)
+        self.color(serial, crtc, Some(ColorSet::Gamma((red, green, blue)))).await.map(drop)
+    }
+
+    #[zbus(name = "SetOutputCTM")]
+    async fn set_output_ctm(&self, serial: u32, output: u32, ctm: (u64, u64, u64, u64, u64, u64, u64, u64, u64)) -> fdo::Result<()> {
+        let (a, b, c, d, e, f, g, h, i) = ctm;
+        self.color(serial, output, Some(ColorSet::Ctm([a, b, c, d, e, f, g, h, i]))).await.map(drop)
     }
 
     async fn set_backlight(

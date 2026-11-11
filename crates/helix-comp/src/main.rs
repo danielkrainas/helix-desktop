@@ -23,7 +23,7 @@ mod compositor;
 
 use std::process::ExitCode;
 
-use helix_comp::display_config::{ApplyRequest, GammaRequest, Monitor, Store};
+use helix_comp::display_config::{ApplyRequest, ColorRequest, Monitor, Store};
 use helix_comp::screencast::CastRequest;
 use helix_comp::{CompositorServices, Event, MonitorControl};
 use helix_session::client::SessionManagerProxy;
@@ -144,7 +144,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("cannot listen for screen cast requests: {e}"))?;
 
     // GetCrtcGamma / SetCrtcGamma, also from the D-Bus thread.
-    let (gamma_tx, gamma_rx) = smithay::reexports::calloop::channel::channel::<GammaRequest>();
+    let (gamma_tx, gamma_rx) = smithay::reexports::calloop::channel::channel::<ColorRequest>();
     event_loop
         .handle()
         .insert_source(gamma_rx, |event, _, state| {
@@ -249,7 +249,7 @@ fn start_dbus_thread(
     events: mpsc::UnboundedReceiver<Event>,
     xdisplay: tokio::sync::oneshot::Receiver<Option<u32>>,
     to_compositor: smithay::reexports::calloop::channel::Sender<ApplyRequest>,
-    gamma_to_compositor: smithay::reexports::calloop::channel::Sender<GammaRequest>,
+    gamma_to_compositor: smithay::reexports::calloop::channel::Sender<ColorRequest>,
     cast_to_compositor: smithay::reexports::calloop::channel::Sender<CastRequest>,
 ) {
     std::thread::Builder::new()
@@ -275,7 +275,7 @@ fn start_dbus_thread(
                         }
                     }
                 });
-                let (gamma, mut gamma_requests) = mpsc::unbounded_channel::<GammaRequest>();
+                let (gamma, mut gamma_requests) = mpsc::unbounded_channel::<ColorRequest>();
                 tokio::spawn(async move {
                     while let Some(request) = gamma_requests.recv().await {
                         if gamma_to_compositor.send(request).is_err() {

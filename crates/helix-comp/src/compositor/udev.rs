@@ -32,7 +32,8 @@ use smithay::input::pointer::{CursorImageStatus, CursorImageSurfaceData};
 use smithay::output::{Mode as WlMode, Output, PhysicalProperties};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::EventLoop;
-use smithay::reexports::drm::control::{connector, crtc, Device as _, Mode as DrmMode, ModeTypeFlags};
+use helix_comp::display_config::ColorError;
+use smithay::reexports::drm::control::{connector, crtc, property, Device as _, Mode as DrmMode, ModeTypeFlags};
 use smithay::reexports::drm::Device as _;
 use smithay::reexports::input::Libinput;
 use smithay::reexports::rustix::fs::OFlags;
@@ -104,6 +105,23 @@ impl UdevData {
             .device()
             .set_gamma(crtc, &ramps.0, &ramps.1, &ramps.2)
             .map_err(|e| e.to_string())
+    }
+
+    /// Set the `CTM` property of the CRTC showing `connector`.
+    pub fn set_ctm(&mut self, connector: &str, ctm: &helix_comp::display_config::Ctm) -> Result<(), ColorError> {
+        let unsupported = |msg: String| ColorError::NotSupported(msg);
+        let crtc = self.crtc_of(connector).ok_or_else(|| unsupported("monitor is off".into()))?;
+        let device = self.manager.device();
+        let props = device.get_properties(crtc).and_then(|p| p.as_hashmap(device)).map_err(|e| unsupported(e.to_string()))?;
+        let prop = props.get("CTM").ok_or_else(|| unsupported(format!("{connector} has no color matrix")))?;
+        // `drm_color_ctm` is nine u64s, the same layout as `Ctm`.
+        let blob = device.create_property_blob(ctm).map_err(|e| unsupported(e.to_string()))?;
+        let result = device.set_property(crtc, prop.handle(), blob.into());
+        if let property::Value::Blob(id) = blob {
+            // The CRTC keeps its own reference.
+            let _ = device.destroy_property_blob(id);
+        }
+        result.map_err(|e| ColorError::Invalid(e.to_string()))
     }
 
     /// Outputs that are connected but turned off.

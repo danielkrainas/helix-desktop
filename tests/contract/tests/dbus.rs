@@ -116,7 +116,6 @@ async fn mutter_idle_monitor_and_display_config() {
         &[
             "method ApplyConfiguration",
             "method ChangeBacklight",
-            "method SetOutputCTM",
         ],
     )
     .await;
