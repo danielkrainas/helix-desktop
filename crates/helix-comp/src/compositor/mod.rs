@@ -6,6 +6,7 @@ mod cursor;
 mod grabs;
 mod handlers;
 mod input;
+mod input_config;
 mod keybindings;
 mod lock;
 pub mod monitors;
@@ -113,6 +114,10 @@ pub struct Helix {
     pub lock: lock::LockState,
     /// Connector of the primary monitor, as last configured.
     pub primary_output: Option<String>,
+    /// Input settings as last applied (`None` before the first time).
+    pub input_settings: Option<helix_comp::input_settings::InputSettings>,
+    /// libinput devices (bare hardware), to apply settings to.
+    pub input_devices: Vec<smithay::reexports::input::Device>,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -180,6 +185,8 @@ impl Helix {
             last_activity_sent: None,
             windows_mapped: 0,
             primary_output: None,
+            input_settings: None,
+            input_devices: Vec::new(),
         })
     }
 

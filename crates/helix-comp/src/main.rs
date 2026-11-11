@@ -74,6 +74,29 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Backend::Drm => compositor::udev::init(&mut event_loop, &mut state)?,
     };
 
+    // Keyboard, mouse and touchpad settings: now, and whenever they change.
+    state.apply_input_settings();
+    let (settings_tx, settings_rx) = smithay::reexports::calloop::channel::channel::<()>();
+    event_loop
+        .handle()
+        .insert_source(settings_rx, |event, _, state| {
+            if let smithay::reexports::calloop::channel::Event::Msg(()) = event {
+                state.apply_input_settings();
+            }
+        })
+        .map_err(|e| format!("cannot follow input settings: {e}"))?;
+    std::thread::Builder::new()
+        .name("helix-comp-settings".into())
+        .spawn(move || {
+            let settings = helix_settings::GSettings::new(&helix_comp::input_settings::SCHEMAS);
+            let (mut changes, _watch) = settings.watch();
+            while changes.blocking_recv().is_some() {
+                if settings_tx.send(()).is_err() {
+                    break;
+                }
+            }
+        })?;
+
     // ApplyMonitorsConfig requests come from the D-Bus thread.
     let (apply_tx, apply_rx) = smithay::reexports::calloop::channel::channel::<ApplyRequest>();
     event_loop

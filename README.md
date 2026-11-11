@@ -170,6 +170,13 @@ Changes apply at once: there is no "Keep these settings?" countdown yet.
 Mode changes and turning monitors off have only been tried in tests, not
 on real hardware.
 
+Keyboard and pointer settings follow GNOME's GSettings live: keyboard
+layouts from `org.gnome.desktop.input-sources` (switch with Super+Space or
+whatever `switch-input-source` says; the panel briefly shows the new
+layout), key repeat, and, on bare hardware, mouse and touchpad settings
+(speed, acceleration, natural scrolling, tap-to-click, left-handed and
+more). IBus input methods and per-window layouts are not supported yet.
+
 X11 apps run through Xwayland (the `xwayland` package must be installed):
 the compositor starts it, manages its windows alongside Wayland ones, and
 bridges the clipboard and primary selection. Its `DISPLAY` is announced to

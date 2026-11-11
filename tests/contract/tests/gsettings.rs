@@ -28,7 +28,11 @@ fn installed_schemas_match_contracts() {
     let strict = std::env::var_os("HELIX_STRICT_GSETTINGS").is_some_and(|v| v == "1");
     let mut problems = Vec::new();
     let mut missing = Vec::new();
-    for schema in helix_settings::PORTAL_SCHEMAS {
+    let read_by_helix = helix_settings::PORTAL_SCHEMAS
+        .iter()
+        .chain(helix_comp::input_settings::SCHEMAS.iter())
+        .chain(["org.gnome.desktop.wm.keybindings"].iter());
+    for schema in read_by_helix {
         let keys = contract_keys(schema);
         assert!(!keys.is_empty(), "no keys parsed for {schema}");
         if !helix_settings::has_schema(schema) {

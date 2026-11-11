@@ -119,6 +119,8 @@ struct Ui {
     requests: UnboundedSender<UiRequest>,
     /// Global key bindings; `None` unless the compositor launched us.
     keybindings: Option<HelixKeybindingsManagerV1>,
+    /// The shell's own key bindings (ids from `INTERNAL_ACTIONS` up).
+    internal: HashMap<u32, Internal>,
     bindings: HashMap<u32, HelixKeybindingV1>,
     lock: LockScreen,
     banner: Option<BannerView>,
@@ -910,6 +912,33 @@ impl Ui {
         }
     }
 
+    /// Bind the keys the shell handles itself.
+    fn bind_internal(&mut self) {
+        let mut next = INTERNAL_ACTIONS;
+        for (text, backward) in crate::input_sources::accelerators() {
+            let Some(accelerator) = crate::accel::Accelerator::parse(&text) else {
+                tracing::warn!(text, "cannot parse input source switch key");
+                continue;
+            };
+            self.internal.insert(next, Internal::InputSource { backward });
+            self.bind(next, &accelerator);
+            next += 1;
+        }
+    }
+
+    fn internal_pressed(&mut self, action: u32) {
+        match self.internal.get(&action).copied() {
+            Some(Internal::InputSource { backward }) => {
+                if let Some(id) = crate::input_sources::switch(backward) {
+                    let osd = Osd { icon: None, label: Some(id), level: None, max_level: 1.0, connector: None };
+                    self.osd = Some((osd, Instant::now() + OSD_DURATION));
+                    self.draw_panel();
+                }
+            }
+            None => {}
+        }
+    }
+
     fn bind(&mut self, action: u32, accelerator: &crate::accel::Accelerator) {
         let (Some(manager), Some((mods, key))) = (&self.keybindings, accelerator.to_wire()) else {
             if self.keybindings.is_none() {
@@ -992,6 +1021,7 @@ pub fn run(
         requests,
         keybindings,
         bindings: HashMap::new(),
+        internal: HashMap::new(),
         banner: None,
         dialog: None,
         power_menu: None,
@@ -1009,6 +1039,8 @@ pub fn run(
         },
         exit: false,
     };
+
+    ui.bind_internal();
 
     let mut event_loop: EventLoop<Ui> = EventLoop::try_new()?;
     let handle = event_loop.handle();
@@ -1279,8 +1311,12 @@ impl Dispatch<HelixKeybindingV1, u32> for Ui {
                 if ui.bindings.remove(&action).is_some() {
                     binding.destroy();
                 }
-                let _ = ui.requests.send(UiRequest::GrabFailed { action });
+                if action < INTERNAL_ACTIONS {
+                    let _ = ui.requests.send(UiRequest::GrabFailed { action });
+                }
             }
+            helix_keybinding_v1::Event::Pressed { .. } if action >= INTERNAL_ACTIONS => ui.internal_pressed(action),
+            helix_keybinding_v1::Event::Released { .. } if action >= INTERNAL_ACTIONS => {}
             helix_keybinding_v1::Event::Pressed { time } => {
                 let _ = ui.requests.send(UiRequest::Accelerator { action, pressed: true, time });
             }
@@ -1329,6 +1365,16 @@ impl SessionLockHandler for Ui {
         }
         self.lock.surfaces = views;
     }
+}
+
+/// Action ids from here up are the shell's own bindings, never handed out
+/// to `GrabAccelerator` callers.
+const INTERNAL_ACTIONS: u32 = 0xFFFF_0000;
+
+/// What a shell-internal binding does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Internal {
+    InputSource { backward: bool },
 }
 
 /// Power menu entries, offering only what logind allows.

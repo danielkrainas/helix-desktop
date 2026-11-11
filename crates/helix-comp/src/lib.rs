@@ -6,10 +6,12 @@
 //!
 //! - [`idle_monitor`] — `org.gnome.Mutter.IdleMonitor`
 //! - [`display_config`] — `org.gnome.Mutter.DisplayConfig`
+//! - [`input_settings`] — keyboard, mouse and touchpad GSettings
 
 pub mod display_config;
 pub mod idle;
 pub mod idle_monitor;
+pub mod input_settings;
 
 use std::sync::{Arc, Mutex};
 

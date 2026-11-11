@@ -154,6 +154,11 @@ pub fn init(
         .udev_assign_seat(&seat)
         .map_err(|()| "cannot assign libinput to the seat")?;
     handle.insert_source(LibinputInputBackend::new(libinput.clone()), |event, _, state| {
+        match &event {
+            smithay::backend::input::InputEvent::DeviceAdded { device } => state.input_device_added(device),
+            smithay::backend::input::InputEvent::DeviceRemoved { device } => state.input_device_removed(device),
+            _ => {}
+        }
         state.process_input_event(event);
     })?;
 

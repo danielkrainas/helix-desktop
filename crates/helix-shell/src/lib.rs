@@ -10,6 +10,7 @@ pub mod auth;
 pub mod end_dialog;
 pub mod font;
 pub mod idle;
+pub mod input_sources;
 pub mod launcher;
 pub mod logind;
 pub mod notifications;
