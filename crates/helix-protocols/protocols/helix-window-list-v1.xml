@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="helix_window_list_v1">
+  <copyright>
+    SPDX-License-Identifier: CC0-1.0
+  </copyright>
+  <description summary="the open windows, for the Helix shell">
+    A private protocol between the Helix compositor and the Helix shell,
+    so the shell can show a window switcher and list open windows. In
+    GNOME the shell and the compositor are one process; in Helix they are
+    separate. The global is only advertised to privileged clients (the
+    shell the compositor launched itself).
+  </description>
+  <interface name="helix_window_list_v1" version="1">
+    <description summary="open windows and focus">
+      Right after binding, the compositor sends a window event for every
+      open window, topmost first, then a focused event. Later events
+      follow changes. Window ids are never reused.
+    </description>
+    <event name="window">
+      <description summary="a window appeared, or its app id or title changed"/>
+      <arg name="id" type="uint"/>
+      <arg name="app_id" type="string"/>
+      <arg name="title" type="string"/>
+    </event>
+    <event name="closed">
+      <description summary="a window is gone"/>
+      <arg name="id" type="uint"/>
+    </event>
+    <event name="focused">
+      <description summary="the window with keyboard focus (0: none)"/>
+      <arg name="id" type="uint"/>
+    </event>
+    <request name="activate">
+      <description summary="raise and focus a window">
+        Brings the window back if it was minimized. Unknown ids are
+        ignored.
+      </description>
+      <arg name="id" type="uint"/>
+    </request>
+    <request name="destroy" type="destructor">
+      <description summary="stop receiving events"/>
+    </request>
+  </interface>
+</protocol>

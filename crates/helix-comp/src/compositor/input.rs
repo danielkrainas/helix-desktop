@@ -59,7 +59,6 @@ impl Helix {
                 }
             }
             Action::ShowApplications => self.send(helix_comp::Event::ShowApplications),
-            Action::CycleWindows => self.cycle_windows(),
             Action::CloseWindow => self.close_focused(),
             Action::ToggleMaximize => self.toggle_maximize_focused(),
             Action::SwitchVt(vt) => self.switch_vt(vt),

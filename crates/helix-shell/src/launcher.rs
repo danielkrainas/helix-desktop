@@ -1,10 +1,13 @@
-//! The application launcher's model: installed apps, search, selection.
+//! The application launcher's model: open windows and installed apps,
+//! search, selection.
 //!
 //! Apps come from installed `.desktop` files via GIO, the same source GNOME
 //! uses; launching goes through GIO too, so `Exec` field codes, `Terminal`
 //! and startup notification behave as usual.
 
 use gio::prelude::*;
+
+use crate::windows::WindowEntry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct App {
@@ -83,28 +86,65 @@ pub fn search(apps: &[App], query: &str) -> Vec<usize> {
     ranked.into_iter().map(|(_, i)| i).collect()
 }
 
+/// One row of the launcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hit {
+    /// Index into the open windows.
+    Window(usize),
+    /// Index into the apps.
+    App(usize),
+}
+
 /// Launcher state while it is open.
 #[derive(Debug, Default)]
 pub struct Launcher {
     pub apps: Vec<App>,
+    /// Open windows, most recently used first.
+    pub windows: Vec<WindowEntry>,
     pub query: String,
-    pub results: Vec<usize>,
+    pub results: Vec<Hit>,
     pub selected: usize,
 }
 
 impl Launcher {
     pub fn new(apps: Vec<App>) -> Self {
+        Self::with_windows(apps, Vec::new())
+    }
+
+    pub fn with_windows(apps: Vec<App>, windows: Vec<WindowEntry>) -> Self {
         let mut l = Self {
             apps,
+            windows,
             ..Self::default()
         };
         l.refilter();
         l
     }
 
+    /// Windows whose title or app id match come first, then apps.
     fn refilter(&mut self) {
-        self.results = search(&self.apps, &self.query);
+        let q = self.query.trim().to_lowercase();
+        self.results = self
+            .windows
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| q.is_empty() || w.title.to_lowercase().contains(&q) || w.app_id.to_lowercase().contains(&q))
+            .map(|(i, _)| Hit::Window(i))
+            .chain(search(&self.apps, &self.query).into_iter().map(Hit::App))
+            .collect();
         self.selected = 0;
+    }
+
+    pub fn selected(&self) -> Option<Hit> {
+        self.results.get(self.selected).copied()
+    }
+
+    /// Text for a row, and whether it is an open window.
+    pub fn row_label(&self, hit: Hit) -> (&str, bool) {
+        match hit {
+            Hit::Window(i) => (self.windows[i].label(), true),
+            Hit::App(i) => (&self.apps[i].name, false),
+        }
     }
 
     pub fn type_text(&mut self, text: &str) {
@@ -131,7 +171,10 @@ impl Launcher {
     }
 
     pub fn selected_app(&self) -> Option<&App> {
-        self.results.get(self.selected).map(|&i| &self.apps[i])
+        match self.selected()? {
+            Hit::App(i) => Some(&self.apps[i]),
+            Hit::Window(_) => None,
+        }
     }
 }
 
@@ -192,5 +235,19 @@ mod tests {
         l.backspace();
         assert_eq!(l.query, "");
         assert_eq!(l.results.len(), 4);
+    }
+
+    #[test]
+    fn open_windows_come_first() {
+        let window = |id: u32, app: &str, title: &str| WindowEntry { id, app_id: app.into(), title: title.into() };
+        let windows = vec![window(7, "org.gnome.TextEditor", "notes.txt"), window(3, "firefox", "News")];
+        let mut l = Launcher::with_windows(sample(), windows);
+        assert_eq!(l.results[..3], [Hit::Window(0), Hit::Window(1), Hit::App(0)]);
+        assert_eq!(l.row_label(Hit::Window(0)), ("notes.txt", true));
+        assert_eq!(l.selected_app(), None, "a window is selected");
+        l.type_text("fire");
+        assert_eq!(l.results, [Hit::Window(1), Hit::App(2)], "windows match by app id too");
+        l.type_text("x");
+        assert!(l.results.is_empty());
     }
 }

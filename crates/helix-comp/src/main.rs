@@ -74,6 +74,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Backend::Drm => compositor::udev::init(&mut event_loop, &mut state)?,
     };
 
+    // Keep the shell's window list current (titles, focus, open/close).
+    event_loop
+        .handle()
+        .insert_source(
+            smithay::reexports::calloop::timer::Timer::immediate(),
+            |_, _, state| {
+                state.sync_window_list();
+                smithay::reexports::calloop::timer::TimeoutAction::ToDuration(std::time::Duration::from_millis(200))
+            },
+        )
+        .map_err(|e| format!("cannot start the window list timer: {e}"))?;
+
     // Keyboard, mouse and touchpad settings: now, and whenever they change.
     state.apply_input_settings();
     let (settings_tx, settings_rx) = smithay::reexports::calloop::channel::channel::<()>();

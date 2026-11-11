@@ -20,6 +20,7 @@ pub mod screensaver;
 pub mod state;
 pub mod text;
 pub mod ui;
+pub mod windows;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};

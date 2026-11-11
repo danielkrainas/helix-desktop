@@ -12,6 +12,7 @@ mod lock;
 pub mod monitors;
 mod shortcuts;
 mod supervise;
+pub mod window_list;
 pub mod udev;
 pub mod winit;
 mod wm;
@@ -118,6 +119,8 @@ pub struct Helix {
     pub input_settings: Option<helix_comp::input_settings::InputSettings>,
     /// libinput devices (bare hardware), to apply settings to.
     pub input_devices: Vec<smithay::reexports::input::Device>,
+    /// What the shell knows about open windows.
+    pub window_list: window_list::WindowList,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -138,6 +141,7 @@ impl Helix {
 
         // Private protocol for the shell (visible to privileged clients only).
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(1, ());
+        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(1, ());
         let socket_name = Self::listen(display, event_loop)?;
         Ok(Self {
             start_time: Instant::now(),
@@ -187,6 +191,7 @@ impl Helix {
             primary_output: None,
             input_settings: None,
             input_devices: Vec::new(),
+            window_list: Default::default(),
         })
     }
 

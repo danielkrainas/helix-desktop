@@ -20,7 +20,6 @@ use smithay::input::keyboard::Keysym;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     ShowApplications,
-    CycleWindows,
     CloseWindow,
     ToggleMaximize,
     RestoreOrMinimize,
@@ -93,7 +92,6 @@ fn builtin(mods: Mods, sym: Keysym) -> Option<Action> {
     match sym {
         Keysym::BackSpace if ctrl_alt => Some(Action::Quit),
         _ if ctrl_alt && function_key(sym).is_some() => function_key(sym).map(Action::SwitchVt),
-        Keysym::Tab if mods.alt && !mods.logo && !mods.ctrl => Some(Action::CycleWindows),
         Keysym::F4 if mods.alt && !mods.logo && !mods.ctrl => Some(Action::CloseWindow),
         Keysym::Up if mods.logo && !mods.alt && !mods.ctrl => Some(Action::ToggleMaximize),
         Keysym::Down if mods.logo && !mods.alt && !mods.ctrl => Some(Action::RestoreOrMinimize),
@@ -206,11 +204,15 @@ mod tests {
     }
 
     #[test]
-    fn alt_tab_and_alt_f4_are_intercepted_including_release() {
+    fn alt_tab_is_left_to_the_shell_and_alt_f4_is_intercepted() {
         let mut s = Shortcuts::default();
-        let d = s.key(TAB, true, alt(), Keysym::Tab);
-        assert_eq!(d, Decision { intercept: true, action: Some(Action::CycleWindows) });
-        assert_eq!(s.key(TAB, false, alt(), Keysym::Tab), Decision { intercept: true, action: None });
+        // Unbound, Alt+Tab goes to the client; the shell may bind it (window
+        // switcher), and then presses and releases go to the binding.
+        assert_eq!(s.key(TAB, true, alt(), Keysym::Tab), FORWARD);
+        assert_eq!(s.key(TAB, false, alt(), Keysym::Tab), FORWARD);
+        assert_eq!(s.bind(7, alt(), Keysym::Tab), Ok(()));
+        assert_eq!(s.key(TAB, true, alt(), Keysym::Tab), Decision { intercept: true, action: Some(Action::Binding(7, true)) });
+        assert_eq!(s.key(TAB, false, alt(), Keysym::Tab), Decision { intercept: true, action: Some(Action::Binding(7, false)) });
         // A plain Tab goes to the client.
         assert_eq!(s.key(TAB, true, Mods::default(), Keysym::Tab), FORWARD);
         assert_eq!(s.key(TAB, false, Mods::default(), Keysym::Tab), FORWARD);
@@ -235,7 +237,7 @@ mod tests {
         let ctrl_shift = Mods { ctrl: true, shift: true, ..Mods::default() };
         assert_eq!(s.bind(7, ctrl_shift, Keysym::F9), Ok(()));
         assert_eq!(s.bind(8, ctrl_shift, Keysym::F9), Err(BindError::Taken), "duplicate");
-        assert_eq!(s.bind(9, alt(), Keysym::Tab), Err(BindError::Taken), "compositor shortcut");
+        assert_eq!(s.bind(9, alt(), Keysym::F4), Err(BindError::Taken), "compositor shortcut");
         assert_eq!(s.bind(10, Mods::default(), Keysym::Super_L), Err(BindError::Taken), "Super");
 
         let d = s.key(75, true, ctrl_shift, Keysym::F9);

@@ -91,21 +91,6 @@ impl Helix {
         }
     }
 
-    /// Focus the next window in the cycle (Alt+Tab): the bottom-most mapped
-    /// window, so repeated presses walk through all of them, then minimized
-    /// ones.
-    pub fn cycle_windows(&mut self) {
-        let top = self.top_window();
-        let next = self
-            .managed()
-            .chain(self.minimized.iter())
-            .find(|w| Some(*w) != top.as_ref())
-            .cloned();
-        if let Some(window) = next {
-            self.focus_window(&window);
-        }
-    }
-
     /// Ask the focused window to close (Alt+F4).
     pub fn close_focused(&mut self) {
         let Some(window) = self.top_window() else { return };

@@ -206,15 +206,16 @@ Shortcuts handled by the compositor:
 | Keys | Action |
 |------|--------|
 | Super (alone) | Show applications (asks the shell over `org.gnome.Shell`) |
-| Alt+Tab | Cycle windows (includes minimized ones) |
 | Alt+F4 | Close the focused window |
 | Super+Up | Toggle maximize |
 | Super+Down | Restore a maximized window, else minimize |
 | Super+drag | Move the window under the pointer |
 | Super+L | Lock the screen |
 
-When nested, the host desktop's window manager may grab some of these (e.g.
-Alt+Tab under XFCE) before Helix sees them.
+Alt+Tab (the window switcher) and Super+Space (switch keyboard layout)
+belong to the shell, which binds them from GSettings. When nested, the host
+desktop's window manager may grab some of these keys (e.g. Alt+Tab and
+Super+Space under XFCE) before Helix sees them.
 
 ## Notifications
 
@@ -328,9 +329,14 @@ points at the compositor, draws:
   "Logging out"); `ShowOSD` level requests show as a level bar in the panel
   for two seconds;
 - an application launcher, opened by the Apps button, Super, or
-  `ShowApplications`: type to search installed apps (from their `.desktop`
-  files), arrows to select, Enter or click to launch, Escape or a click
-  outside to close. Its open state is `OverviewActive`.
+  `ShowApplications`: open windows first, then installed apps (from their
+  `.desktop` files); type to search, arrows to select, Enter or click to
+  switch to the window or launch the app, Escape or a click outside to
+  close. Its open state is `OverviewActive`;
+- a window switcher on Alt+Tab and Super+Tab (or whatever
+  `switch-applications` / `switch-windows` say): windows most recently
+  used first, Tab again (Shift for backward) to move, let go of Alt or
+  Super to switch, Escape to cancel.
 
 Text uses the system sans-serif font (via `fc-match`).
 
