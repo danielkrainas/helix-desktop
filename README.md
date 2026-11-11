@@ -6,7 +6,7 @@ This repository is the implementation. The living specification and contracts li
 
 ## Status
 
-Early implementation scaffolding. No functional session yet.
+Early implementation. `helix-session` serves a minimal `org.gnome.SessionManager`; other crates are still scaffolding.
 
 ## Target
 
@@ -39,3 +39,43 @@ tests/              # contract and integration tests
 ```
 
 Contracts are defined in the companion [helix-desktop-spec](https://github.com/danielkrainas/helix-desktop-spec) repository.
+
+## Running the session skeleton
+
+`helix-session` owns `org.gnome.SessionManager` on the session bus. Run it on a
+throwaway bus so it never conflicts with a real desktop session:
+
+```sh
+dbus-run-session -- bash -c '
+  cargo run -p helix-session &
+  sleep 1
+  SM="busctl --user call org.gnome.SessionManager /org/gnome/SessionManager org.gnome.SessionManager"
+  $SM Initialized           # initializing -> running, emits SessionRunning
+  $SM IsSessionRunning      # b true
+  $SM Logout u 0            # emits SessionOver; the service exits
+  wait'
+```
+
+Set `RUST_LOG=debug` for more detail. SIGTERM/SIGINT also end the session
+cleanly (emitting `SessionOver`).
+
+Implemented: `Setenv`, `Initialized`, `RegisterClient`, `UnregisterClient`,
+`Inhibit`, `Uninhibit`, `IsInhibited`, `GetInhibitors`, `Logout`, `Shutdown`,
+`Reboot`, `IsSessionRunning`; the `SessionIsActive`, `SessionIsLocked` and
+`InhibitedActions` properties; and all six signals.
+
+Current behavior worth knowing:
+
+- `Setenv` is only accepted before `Initialized`.
+- `Logout` accepts modes 0 (normal), 1 (no confirmation), 2 (force) and
+  rejects anything else. All three modes behave the same for now.
+- `Logout`/`Shutdown`/`Reboot` are refused with
+  `org.gnome.SessionManager.Error.Inhibited` while any inhibitor is active.
+  `Shutdown`/`Reboot` only end the session; they never power off the machine.
+- Clients and inhibitors are tied to the caller's bus connection and are
+  released when it disconnects. A one-shot `busctl call Inhibit ...` therefore
+  holds its inhibitor only for the duration of that call.
+
+Tests: `cargo test -p helix-session` runs unit tests for the session rules
+and integration tests that start a private `dbus-daemon` (skipped if it is not
+installed).

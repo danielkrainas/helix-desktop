@@ -16,3 +16,8 @@ authors = ["Daniel Krainas"]
 repository = "https://github.com/danielkrainas/helix-desktop"
 
 [workspace.dependencies]
+zbus = { version = "5.19", default-features = false, features = ["tokio"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "process", "io-util"] }
+futures-util = { version = "0.3", default-features = false }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

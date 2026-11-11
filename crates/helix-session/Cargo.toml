@@ -7,4 +7,16 @@ authors.workspace = true
 repository.workspace = true
 description = "Helix session manager and D-Bus services"
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "helix-session"
+path = "src/main.rs"
+
 [dependencies]
+zbus.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
