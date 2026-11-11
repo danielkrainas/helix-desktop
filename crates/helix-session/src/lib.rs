@@ -9,10 +9,12 @@
 //!   session ends.
 
 pub mod client;
+pub mod launcher;
 pub mod locale;
 pub mod manager;
 pub mod state;
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
@@ -87,6 +89,27 @@ impl SessionService {
 
     pub fn connection(&self) -> &Connection {
         &self.conn
+    }
+
+    /// Variables set through `Setenv` so far.
+    pub fn environment(&self) -> BTreeMap<String, String> {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .environment()
+            .clone()
+    }
+
+    /// End the initialization phase, as a client calling `Initialized`
+    /// would.
+    pub async fn mark_initialized(&self) -> zbus::Result<()> {
+        let iface = self
+            .conn
+            .object_server()
+            .interface::<_, SessionManager>(OBJECT_PATH)
+            .await?;
+        let manager = iface.get().await;
+        manager.mark_initialized(iface.signal_emitter()).await
     }
 
     /// Serve until a client ends the session or `stop` resolves, then release

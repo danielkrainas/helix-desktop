@@ -57,6 +57,16 @@ dbus-run-session -- bash -c '
   wait'
 ```
 
+With no session config, `helix-session` only serves SessionManager (as
+above). Given a config (`--config FILE`, or `helix/session.toml` under
+`$XDG_CONFIG_HOME` / `$XDG_CONFIG_DIRS`), it is also the session launcher: it
+starts each component in order, waits for it to be ready (a bus name, or a
+variable passed to `Setenv`), hands accumulated environment to later
+components and to D-Bus activation, then calls `Initialized` itself. If a
+required component fails to start or exits, the session ends; when the
+session ends, components are stopped in reverse order. See
+`session/helix-session.toml` for the default session.
+
 Set `RUST_LOG=debug` for more detail. SIGTERM/SIGINT also end the session
 cleanly (emitting `SessionOver`).
 

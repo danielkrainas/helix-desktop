@@ -1,0 +1,29 @@
+# Default Helix session. Installed as /etc/xdg/helix/session.toml; a copy in
+# ~/.config/helix/session.toml takes precedence.
+
+[session]
+name = "helix"
+
+[environment]
+# "Helix" first so xdg-desktop-portal picks helix-portals.conf; "GNOME" so
+# GNOME-aware apps keep their GNOME integration.
+XDG_CURRENT_DESKTOP = "Helix:GNOME"
+XDG_SESSION_DESKTOP = "helix"
+
+[[component]]
+name = "compositor"
+command = ["helix-comp"]
+required = true
+# The compositor announces its socket with SessionManager.Setenv.
+wait_for_env = "WAYLAND_DISPLAY"
+
+[[component]]
+name = "portals"
+command = ["helix-portals"]
+wait_for_name = "org.freedesktop.impl.portal.desktop.helix"
+
+[[component]]
+name = "shell"
+command = ["helix-shell"]
+required = true
+wait_for_name = "org.gnome.Shell"

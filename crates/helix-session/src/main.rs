@@ -1,13 +1,24 @@
-//! `helix-session`: owns `org.gnome.SessionManager` on the session bus.
+//! `helix-session`: the Helix session leader.
 //!
-//! Run under a throwaway bus with:
+//! Owns `org.gnome.SessionManager` and, given a session config, starts the
+//! session's components (see `helix_session::launcher`).
 //!
-//! ```sh
-//! dbus-run-session -- cargo run -p helix-session
+//! ```text
+//! helix-session [--config FILE]
 //! ```
+//!
+//! Without `--config`, the config is looked up in
+//! `$XDG_CONFIG_HOME/helix/session.toml` and `$XDG_CONFIG_DIRS`. With no
+//! config at all, only the SessionManager service runs and a client must
+//! call `Initialized` (handy for testing under `dbus-run-session`).
 
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Duration;
 
+use helix_session::launcher::{self, SessionConfig};
+use helix_session::manager::SessionInfo;
 use helix_session::{SessionEnd, SessionService};
 use tokio::signal::unix::{signal, SignalKind};
 use tracing_subscriber::EnvFilter;
@@ -34,18 +45,67 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
-    let builder = zbus::connection::Builder::session()?;
-    let service = SessionService::start(builder).await?;
+fn config_path() -> Result<Option<PathBuf>, String> {
+    let mut args = std::env::args().skip(1);
+    match (args.next().as_deref(), args.next(), args.next()) {
+        (None, _, _) => Ok(SessionConfig::find()),
+        (Some("--config"), Some(path), None) => Ok(Some(PathBuf::from(path))),
+        _ => Err("usage: helix-session [--config FILE]".to_owned()),
+    }
+}
 
-    let mut sigterm = signal(SignalKind::terminate())?;
-    let mut sigint = signal(SignalKind::interrupt())?;
-    let stop = async move {
-        tokio::select! {
-            _ = sigterm.recv() => tracing::info!("received SIGTERM"),
-            _ = sigint.recv() => tracing::info!("received SIGINT"),
+async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
+    let config = match config_path()? {
+        Some(path) => {
+            tracing::info!(path = %path.display(), "using session config");
+            Some(SessionConfig::load(&path)?)
+        }
+        None => {
+            tracing::info!("no session config; serving SessionManager only");
+            None
         }
     };
 
-    Ok(service.run(stop).await?)
+    let mut info = SessionInfo::default();
+    if let Some(config) = &config {
+        info.name = config.session.name.clone();
+    }
+    let service = SessionService::start_with(zbus::connection::Builder::session()?, info).await?;
+
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sigint = signal(SignalKind::interrupt())?;
+
+    let mut children = match &config {
+        Some(config) => match launcher::launch(&service, config, &BTreeMap::new()).await {
+            Ok(children) => Some(children),
+            Err(err) => {
+                tracing::error!(%err, "session startup failed");
+                service.run(std::future::ready(())).await?;
+                return Err(err.into());
+            }
+        },
+        None => None,
+    };
+
+    let stop = async {
+        let required_exit = async {
+            match children.as_mut() {
+                Some(c) => {
+                    c.required_exited().await;
+                }
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            _ = sigterm.recv() => tracing::info!("received SIGTERM"),
+            _ = sigint.recv() => tracing::info!("received SIGINT"),
+            () = required_exit => {},
+        }
+    };
+    let end = service.run(stop).await?;
+
+    if let Some(children) = children {
+        children.terminate(Duration::from_secs(5)).await;
+    }
+    Ok(end)
 }

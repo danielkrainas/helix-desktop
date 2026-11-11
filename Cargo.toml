@@ -23,6 +23,8 @@ tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "signal", "
 futures-util = { version = "0.3", default-features = false }
 tracing = "0.1"
 libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
 zbus_xml = "5.2"
 gio = "0.22"
 helix-settings = { path = "crates/helix-settings" }

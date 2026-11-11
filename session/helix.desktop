@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Helix
+Comment=Helix desktop session
+Exec=helix-session
+Type=Application
+DesktopNames=Helix;GNOME;

@@ -124,6 +124,16 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Leave the initialization phase (used by the launcher and by the
+    /// `Initialized` method).
+    pub async fn mark_initialized(&self, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
+        self.state()
+            .initialized()
+            .map_err(|e| zbus::Error::Failure(e.to_string()))?;
+        tracing::info!("session initialized; now running");
+        Self::session_running(emitter).await
+    }
+
     /// Release everything owned by a bus peer that left the bus, and announce
     /// the removals.
     pub async fn release_owner(&self, owner: &str, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
@@ -185,9 +195,11 @@ impl SessionManager {
     }
 
     async fn initialized(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) -> Result<()> {
-        self.state().initialized()?;
-        tracing::info!("session initialized; now running");
-        Self::session_running(&emitter).await?;
+        // Check first so callers get the specific error name.
+        if self.state().phase() != crate::state::Phase::Initializing {
+            return Err(SessionError::AlreadyInitialized.into());
+        }
+        self.mark_initialized(&emitter).await?;
         Ok(())
     }
 
