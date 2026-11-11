@@ -1,8 +1,10 @@
 //! The simple session launcher.
 //!
 //! Reads a TOML config naming the session's components, starts them in
-//! order (waiting for each to become ready), propagates environment to
-//! children and to D-Bus activation, then marks the session initialized.
+//! order (waiting for each to become ready), then marks the session
+//! initialized. Components get the config's environment plus everything
+//! set through `Setenv` before they start; the config's environment also
+//! goes to D-Bus activation (`Setenv` values get there by themselves).
 //!
 //! ```toml
 //! [session]
@@ -258,7 +260,6 @@ pub async fn launch(
             }
             Err(err) => tracing::warn!(%err, "optional component failed to start"),
         }
-        update_activation_env(&dbus, &service.environment()).await;
     }
 
     service.mark_initialized().await?;

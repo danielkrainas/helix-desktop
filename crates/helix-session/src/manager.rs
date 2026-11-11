@@ -332,9 +332,20 @@ fn sender(header: &Header<'_>) -> Option<String> {
 impl SessionManager {
     // --- Initialization phase -------------------------------------------
 
-    async fn setenv(&self, variable: &str, value: &str) -> Result<()> {
+    async fn setenv(&self, variable: &str, value: &str, #[zbus(connection)] conn: &Connection) -> Result<()> {
         self.state().setenv(variable, value)?;
         tracing::debug!(variable, "setenv");
+        // Part of the launch environment from now on: D-Bus activated
+        // services see it (components started later get it from the
+        // launcher). A bus that refuses doesn't undo the Setenv.
+        let env = std::collections::HashMap::from([(variable, value)]);
+        let updated = match zbus::fdo::DBusProxy::new(conn).await {
+            Ok(dbus) => dbus.update_activation_environment(env).await,
+            Err(err) => Err(err.into()),
+        };
+        if let Err(err) = updated {
+            tracing::warn!(%err, variable, "could not update the D-Bus activation environment");
+        }
         Ok(())
     }
 

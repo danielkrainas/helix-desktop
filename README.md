@@ -79,6 +79,11 @@ Current behavior worth knowing:
 
 - `Setenv` and `InitializationError` are only accepted before `Initialized`.
   A fatal `InitializationError` ends the session.
+- A `Setenv` value goes into the D-Bus activation environment before the
+  call returns, and to every component the launcher starts afterwards.
+  Running processes keep their environment: apps the shell launches
+  directly get the shell's environment, while D-Bus activatable apps get
+  the activation environment.
 - `Logout` accepts modes 0 (normal), 1 (no confirmation), 2 (force) and
   rejects anything else.
 - Ending the session follows the spec's sequence (see "Logging out"

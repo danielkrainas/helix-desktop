@@ -27,6 +27,16 @@ impl TestBus {
     /// `dbus-daemon` is not installed. With `HELIX_REQUIRE_DBUS=1` (as in
     /// CI), a missing `dbus-daemon` is a failure instead of a skip.
     pub fn start() -> Option<Self> {
+        Self::start_inner(None)
+    }
+
+    /// Like [`start`](Self::start), activating services from the `.service`
+    /// files in `services` (and no others).
+    pub fn start_with_services(services: &std::path::Path) -> Option<Self> {
+        Self::start_inner(Some(services))
+    }
+
+    fn start_inner(services: Option<&std::path::Path>) -> Option<Self> {
         static N: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
             "helix-test-bus-{}-{}",
@@ -37,9 +47,31 @@ impl TestBus {
         let socket = dir.join("bus");
         let address = format!("unix:path={}", socket.display());
 
-        let child = match Command::new("dbus-daemon")
-            .args(["--session", "--nofork", "--nopidfile"])
-            .arg(format!("--address={address}"))
+        let mut command = Command::new("dbus-daemon");
+        command.args(["--nofork", "--nopidfile"]);
+        match services {
+            None => {
+                command.arg("--session").arg(format!("--address={address}"));
+            }
+            Some(services) => {
+                let config = dir.join("bus.conf");
+                std::fs::write(
+                    &config,
+                    format!(
+                        "<!DOCTYPE busconfig PUBLIC \"-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN\"\n \
+                         \"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd\">\n\
+                         <busconfig><type>session</type><listen>{address}</listen>\
+                         <servicedir>{}</servicedir>\
+                         <policy context=\"default\"><allow send_destination=\"*\" eavesdrop=\"true\"/>\
+                         <allow eavesdrop=\"true\"/><allow own=\"*\"/></policy></busconfig>\n",
+                        services.display()
+                    ),
+                )
+                .expect("write bus config");
+                command.arg(format!("--config-file={}", config.display()));
+            }
+        }
+        let child = match command
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
