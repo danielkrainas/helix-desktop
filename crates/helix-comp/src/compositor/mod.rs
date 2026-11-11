@@ -11,6 +11,7 @@ mod grabs;
 mod handlers;
 mod input;
 mod scales;
+mod tiling;
 mod input_config;
 mod keybindings;
 mod lock;
@@ -145,6 +146,9 @@ pub struct Helix {
     pub workspaces: workspaces::WorkspaceState,
     /// Title bars of X11 windows.
     pub frames: frames::Frames,
+    pub wm_settings: helix_comp::wm_settings::WmSettings,
+    /// Where a dragged window would go if released now (edge tiling).
+    pub tile_target: Option<wm::Takeover>,
     pub gamma: gamma::GammaState,
     pub screencast: screencast::CastState,
 
@@ -231,6 +235,8 @@ impl Helix {
             captures: Default::default(),
             workspaces: Default::default(),
             frames: Default::default(),
+            wm_settings: Default::default(),
+            tile_target: None,
             gamma: Default::default(),
             screencast: Default::default(),
         };

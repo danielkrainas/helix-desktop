@@ -5,6 +5,7 @@
 use gio::prelude::*;
 
 const KEYBINDINGS: &str = "org.gnome.desktop.wm.keybindings";
+const MUTTER_KEYBINDINGS: &str = "org.gnome.mutter.keybindings";
 
 /// A window's workspace when it is on every workspace.
 pub const ALL_WORKSPACES: u32 = u32::MAX;
@@ -82,6 +83,18 @@ pub fn wm_key_accelerators() -> Vec<(String, WmKey)> {
             let accel = accel.to_string();
             if !accel.is_empty() && !out.iter().any(|(a, _)| *a == accel) {
                 out.push((accel, action));
+            }
+        }
+    }
+    // Tiling keys live in mutter's own schema.
+    if helix_settings::has_schema(MUTTER_KEYBINDINGS) {
+        let mutter = gio::Settings::new(MUTTER_KEYBINDINGS);
+        for (key, action) in [("toggle-tiled-left", WindowAction::ToggleTiledLeft), ("toggle-tiled-right", WindowAction::ToggleTiledRight)] {
+            for accel in mutter.strv(key) {
+                let accel = accel.to_string();
+                if !accel.is_empty() && !out.iter().any(|(a, _)| *a == accel) {
+                    out.push((accel, WmKey::Window(action)));
+                }
             }
         }
     }

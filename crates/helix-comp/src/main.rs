@@ -92,6 +92,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     state.apply_input_settings();
     state.apply_workspace_settings();
     state.apply_frame_settings();
+    state.wm_settings = helix_comp::wm_settings::read();
     let (settings_tx, settings_rx) = smithay::reexports::calloop::channel::channel::<()>();
     event_loop
         .handle()
@@ -100,6 +101,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 state.apply_input_settings();
                 state.apply_workspace_settings();
                 state.apply_frame_settings();
+                state.wm_settings = helix_comp::wm_settings::read();
             }
         })
         .map_err(|e| format!("cannot follow input settings: {e}"))?;
@@ -110,6 +112,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .iter()
                 .chain(helix_comp::workspaces::SCHEMAS.iter())
                 .chain(helix_comp::frames::SCHEMAS.iter())
+                .chain(helix_comp::wm_settings::SCHEMAS.iter())
                 .copied()
                 .collect();
             schemas.sort_unstable();

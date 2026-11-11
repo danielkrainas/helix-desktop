@@ -289,6 +289,11 @@ menu, Alt+F7/F8 move and resize, Super+Shift+arrows to another monitor,
 and the rest of `org.gnome.desktop.wm.keybindings`) belong to the shell,
 which binds them from GSettings.
 
+Super+Left / Super+Right (`org.gnome.mutter.keybindings`) tile the
+focused window to half the screen; with `org.gnome.mutter edge-tiling`,
+dragging a window against a monitor's left or right edge tiles it (top
+edge: maximize), with a preview of where it will go.
+
 The window menu (Alt+Space, a right click on a GTK header bar or on an X11
 title bar) offers minimize, maximize, move, resize, Always on Top, Always
 on Visible Workspace, moving to another workspace or monitor, and close. Volume and brightness keys keep working while the screen is

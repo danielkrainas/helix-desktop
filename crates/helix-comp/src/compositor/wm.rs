@@ -15,6 +15,18 @@ use super::Helix;
 pub enum Takeover {
     Maximized,
     Fullscreen,
+    /// The left or right half of the work area (`toggle-tiled-*`).
+    TiledLeft,
+    TiledRight,
+}
+
+/// The `side` half of `area`.
+pub fn half(area: Rectangle<i32, Logical>, side: Takeover) -> Rectangle<i32, Logical> {
+    let left = area.size.w / 2;
+    match side {
+        Takeover::TiledRight => Rectangle::new((area.loc.x + left, area.loc.y).into(), (area.size.w - left, area.size.h).into()),
+        _ => Rectangle::new(area.loc, (left, area.size.h).into()),
+    }
 }
 
 /// The surface that receives keyboard focus for a window (xdg toplevel or
@@ -169,19 +181,29 @@ impl Helix {
         if is_override_redirect(window) {
             return;
         }
-        if !self.restore.iter().any(|(w, _, _)| w == window) {
-            let location = self.space.element_location(window).unwrap_or_default();
-            let size = window.geometry().size;
-            self.restore.push((window.clone(), Rectangle::new(location, size), kind));
+        match self.restore.iter_mut().find(|(w, _, _)| w == window) {
+            Some(entry) => entry.2 = kind,
+            None => {
+                let location = self.space.element_location(window).unwrap_or_default();
+                let size = window.geometry().size;
+                self.restore.push((window.clone(), Rectangle::new(location, size), kind));
+            }
         }
         if let Some(toplevel) = window.toplevel() {
+            use xdg_toplevel::State;
             toplevel.with_pending_state(|state| {
-                let (set, unset) = match kind {
-                    Takeover::Maximized => (xdg_toplevel::State::Maximized, xdg_toplevel::State::Fullscreen),
-                    Takeover::Fullscreen => (xdg_toplevel::State::Fullscreen, xdg_toplevel::State::Maximized),
+                for s in [State::Maximized, State::Fullscreen, State::TiledLeft, State::TiledRight, State::TiledTop, State::TiledBottom] {
+                    state.states.unset(s);
+                }
+                let set: &[State] = match kind {
+                    Takeover::Maximized => &[State::Maximized],
+                    Takeover::Fullscreen => &[State::Fullscreen],
+                    Takeover::TiledLeft => &[State::TiledLeft, State::TiledTop, State::TiledBottom],
+                    Takeover::TiledRight => &[State::TiledRight, State::TiledTop, State::TiledBottom],
                 };
-                state.states.set(set);
-                state.states.unset(unset);
+                for s in set {
+                    state.states.set(*s);
+                }
                 state.size = Some(area.size);
             });
             toplevel.send_pending_configure();
@@ -202,8 +224,10 @@ impl Helix {
         let (_, geometry, _) = self.restore.remove(pos);
         if let Some(toplevel) = window.toplevel() {
             toplevel.with_pending_state(|state| {
-                state.states.unset(xdg_toplevel::State::Maximized);
-                state.states.unset(xdg_toplevel::State::Fullscreen);
+                use xdg_toplevel::State;
+                for s in [State::Maximized, State::Fullscreen, State::TiledLeft, State::TiledRight, State::TiledTop, State::TiledBottom] {
+                    state.states.unset(s);
+                }
                 state.size = Some(geometry.size);
             });
             toplevel.send_pending_configure();
@@ -214,6 +238,18 @@ impl Helix {
         }
         self.space.map_element(window.clone(), geometry.loc, true);
         self.restack_above();
+    }
+
+    /// Tile `window` to `side` (`TiledLeft`/`TiledRight`) of its work
+    /// area; again restores it.
+    pub fn toggle_tiled(&mut self, window: &Window, side: Takeover) {
+        if self.is_taken_over(window, side) {
+            self.restore_window(window);
+            return;
+        }
+        if let Some(area) = self.usable_area(window) {
+            self.take_over(window, side, below_frame(window, half(area, side)));
+        }
     }
 
     pub fn maximize(&mut self, window: &Window) {
@@ -269,6 +305,10 @@ impl Helix {
             }
             if self.is_taken_over(&window, Takeover::Maximized) {
                 self.take_over(&window, Takeover::Maximized, below_frame(&window, area));
+                continue;
+            }
+            if let Some(side) = [Takeover::TiledLeft, Takeover::TiledRight].into_iter().find(|s| self.is_taken_over(&window, *s)) {
+                self.take_over(&window, side, below_frame(&window, half(area, side)));
                 continue;
             }
             let Some(location) = self.space.element_location(&window) else { continue };

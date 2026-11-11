@@ -9,6 +9,7 @@ use helix_comp::frames::{self, Button, FrameConfig, Part, TitleAction, BUTTON, T
 use helix_draw::{physical, Canvas, Style, Text};
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement};
+use smithay::backend::renderer::element::solid::{SolidColorBuffer, SolidColorRenderElement};
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::{AsRenderElements, Kind};
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -26,6 +27,7 @@ smithay::backend::renderer::element::render_elements! {
     pub SceneElement<=GlesRenderer>;
     Surface = WaylandSurfaceRenderElement<GlesRenderer>,
     Frame = MemoryRenderBufferRenderElement<GlesRenderer>,
+    Preview = SolidColorRenderElement,
 }
 
 /// Whether Helix draws a title bar for `window`: managed X11 windows that
@@ -73,6 +75,8 @@ pub struct Frames {
     pub pressed: Option<(Window, Button)>,
     /// The last left click on a title (window, time), for double clicks.
     last_click: Option<(Window, u32)>,
+    /// The edge-tiling preview (where a dragged window would go).
+    preview: Option<(Rectangle<i32, Logical>, SolidColorBuffer)>,
 }
 
 struct Colors {
@@ -105,6 +109,18 @@ impl Frames {
         self.config = config;
         self.generation += 1;
         self.cache.borrow_mut().clear();
+    }
+
+    /// Show (or, with `None`, hide) the edge-tiling preview.
+    pub fn set_preview(&mut self, area: Option<Rectangle<i32, Logical>>, color: [f32; 4]) {
+        match (area, self.preview.as_mut()) {
+            (None, _) => self.preview = None,
+            (Some(area), Some((shown, buffer))) => {
+                *shown = area;
+                buffer.update(area.size, color);
+            }
+            (Some(area), None) => self.preview = Some((area, SolidColorBuffer::new(area.size, color))),
+        }
     }
 
     /// Forget a window that went away.
@@ -259,6 +275,10 @@ pub fn scene(
         }
     };
     push_layers(&mut elements, renderer, &upper);
+    if let Some((area, buffer)) = frames.preview.as_ref().filter(|(a, _)| a.overlaps(output_geo)) {
+        let at = (area.loc - output_geo.loc).to_physical_precise_round(scale);
+        elements.push(SceneElement::Preview(SolidColorRenderElement::from_buffer(buffer, at, scale, 1.0, Kind::Unspecified)));
+    }
     for window in space.elements().rev() {
         let Some(location) = space.element_location(window) else { continue };
         let client = Rectangle::new(location, window.geometry().size);
@@ -466,7 +486,7 @@ impl Helix {
         let pointer = self.seat.get_pointer().unwrap();
         // A maximized window is restored once the pointer really drags
         // (so a double click can restore it instead).
-        let unmaximize = self.is_taken_over(&window, Takeover::Maximized);
+        let unmaximize = [Takeover::Maximized, Takeover::TiledLeft, Takeover::TiledRight].into_iter().any(|k| self.is_taken_over(&window, k));
         let initial_location = self.space.element_location(&window).unwrap_or_default();
         let start_data = GrabStartData { focus: None, button: super::input::BTN_LEFT, location: pos };
         pointer.set_grab(

@@ -112,6 +112,8 @@
       <entry name="lower" value="26"/>
       <entry name="raise_or_lower" value="27"/>
       <entry name="show_desktop" value="28"/>
+      <entry name="toggle_tiled_left" value="29"/>
+      <entry name="toggle_tiled_right" value="30"/>
     </enum>
     <request name="window_action" since="4">
       <description summary="act on a window">

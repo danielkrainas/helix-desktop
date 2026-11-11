@@ -101,6 +101,7 @@ impl PointerGrab<Helix> for MoveGrab {
         let location = (self.initial_location.to_f64() + delta).to_i32_round();
         data.space.map_element(self.window.clone(), location, true);
         data.restack_above();
+        data.update_tile_preview(event.location);
         // X11 apps need to know where they are (for menus and input).
         if let Some(x11) = self.window.x11_surface() {
             let _ = x11.configure(Rectangle::new(location, x11.geometry().size));
@@ -112,11 +113,13 @@ impl PointerGrab<Helix> for MoveGrab {
             if event.state == smithay::backend::input::ButtonState::Pressed {
                 data.follow = None;
                 handle.unset_grab(self, data, event.serial, event.time, true);
+                data.finish_tile_preview(&self.window);
             }
             return;
         }
         handle.button(data, event);
         if !handle.current_pressed().contains(&BTN_LEFT) {
+            data.finish_tile_preview(&self.window);
             tracing::debug!(
                 start = ?self.start_data.location,
                 initial = ?self.initial_location,
