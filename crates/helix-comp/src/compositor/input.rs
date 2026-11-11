@@ -2,8 +2,9 @@
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
-    KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
+    KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
 };
+use smithay::utils::{Logical, Point};
 use smithay::backend::input::KeyState;
 use smithay::input::keyboard::FilterResult;
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
@@ -13,6 +14,31 @@ use super::shortcuts::{Action, Mods};
 use super::Helix;
 
 impl Helix {
+    fn pointer_to(&mut self, pos: Point<f64, Logical>, time: u32) {
+        let serial = SERIAL_COUNTER.next_serial();
+        let pointer = self.seat.get_pointer().unwrap();
+        let under = self.surface_under(pos);
+        pointer.motion(self, under, &MotionEvent { location: pos, serial, time });
+        pointer.frame(self);
+    }
+
+    /// Keep the pointer within the outputs' combined bounding box.
+    fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {
+        let bounds = self
+            .space
+            .outputs()
+            .filter_map(|o| self.space.output_geometry(o))
+            .reduce(|a, b| a.merge(b));
+        match bounds {
+            Some(b) => {
+                let max_x = f64::from(b.loc.x + b.size.w - 1);
+                let max_y = f64::from(b.loc.y + b.size.h - 1);
+                (pos.x.clamp(f64::from(b.loc.x), max_x), pos.y.clamp(f64::from(b.loc.y), max_y)).into()
+            }
+            None => pos,
+        }
+    }
+
     fn run_shortcut(&mut self, action: Action) {
         tracing::debug!(?action, "shortcut");
         match action {
@@ -20,6 +46,11 @@ impl Helix {
             Action::CycleWindows => self.cycle_windows(),
             Action::CloseWindow => self.close_focused(),
             Action::ToggleMaximize => self.toggle_maximize_focused(),
+            Action::SwitchVt(vt) => self.switch_vt(vt),
+            Action::Quit => {
+                tracing::info!("quit requested (Ctrl+Alt+Backspace)");
+                self.loop_signal.stop();
+            }
             Action::RestoreOrMinimize => {
                 if let Some(window) = self.top_window() {
                     if self.is_taken_over(&window, super::wm::Takeover::Maximized) {
@@ -86,19 +117,13 @@ impl Helix {
                     return;
                 };
                 let pos = event.position_transformed(output_geo.size) + output_geo.loc.to_f64();
-                let serial = SERIAL_COUNTER.next_serial();
-                let pointer = self.seat.get_pointer().unwrap();
-                let under = self.surface_under(pos);
-                pointer.motion(
-                    self,
-                    under,
-                    &MotionEvent {
-                        location: pos,
-                        serial,
-                        time: event.time_msec(),
-                    },
-                );
-                pointer.frame(self);
+                self.pointer_to(pos, event.time_msec());
+            }
+            InputEvent::PointerMotion { event, .. } => {
+                // Relative motion (real mice/touchpads on bare hardware).
+                let current = self.seat.get_pointer().unwrap().current_location();
+                let pos = self.clamp_to_outputs(current + event.delta());
+                self.pointer_to(pos, event.time_msec());
             }
             InputEvent::PointerButton { event, .. } => {
                 let pointer = self.seat.get_pointer().unwrap();

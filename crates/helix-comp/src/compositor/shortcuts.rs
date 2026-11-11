@@ -8,6 +8,8 @@
 //! | Alt+F4 | Close the focused window |
 //! | Super+Up | Toggle maximize |
 //! | Super+Down | Restore a maximized window, else minimize |
+//! | Ctrl+Alt+F1..F12 | Switch VT (bare hardware only) |
+//! | Ctrl+Alt+Backspace | Quit Helix (always available escape hatch) |
 
 use smithay::input::keyboard::Keysym;
 
@@ -18,6 +20,15 @@ pub enum Action {
     CloseWindow,
     ToggleMaximize,
     RestoreOrMinimize,
+    SwitchVt(i32),
+    Quit,
+}
+
+/// F1..F12 → 1..12.
+fn function_key(sym: Keysym) -> Option<i32> {
+    let raw = sym.raw();
+    let f1 = Keysym::F1.raw();
+    (f1..f1 + 12).contains(&raw).then(|| (raw - f1 + 1) as i32)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -80,7 +91,10 @@ impl Shortcuts {
         }
         self.super_alone = false;
 
+        let ctrl_alt = mods.ctrl && mods.alt && !mods.logo;
         let action = match sym {
+            Keysym::BackSpace if ctrl_alt => Some(Action::Quit),
+            _ if ctrl_alt && function_key(sym).is_some() => function_key(sym).map(Action::SwitchVt),
             Keysym::Tab if mods.alt && !mods.logo && !mods.ctrl => Some(Action::CycleWindows),
             Keysym::F4 if mods.alt && !mods.logo && !mods.ctrl => Some(Action::CloseWindow),
             Keysym::Up if mods.logo && !mods.alt && !mods.ctrl => Some(Action::ToggleMaximize),
@@ -153,6 +167,18 @@ mod tests {
         assert_eq!(s.key(TAB, true, Mods::default(), Keysym::Tab), FORWARD);
         assert_eq!(s.key(TAB, false, Mods::default(), Keysym::Tab), FORWARD);
         assert_eq!(s.key(F4, true, alt(), Keysym::F4).action, Some(Action::CloseWindow));
+    }
+
+    #[test]
+    fn vt_switch_and_quit() {
+        let mut s = Shortcuts::default();
+        let ctrl_alt = Mods { ctrl: true, alt: true, ..Mods::default() };
+        assert_eq!(s.key(67, true, ctrl_alt, Keysym::F1).action, Some(Action::SwitchVt(1)));
+        assert_eq!(s.key(96, true, ctrl_alt, Keysym::F12).action, Some(Action::SwitchVt(12)));
+        assert_eq!(s.key(22, true, ctrl_alt, Keysym::BackSpace).action, Some(Action::Quit));
+        // Without both modifiers these go to the client.
+        assert_eq!(s.key(67, true, alt(), Keysym::F1), FORWARD);
+        assert_eq!(s.key(22, true, Mods { ctrl: true, ..Mods::default() }, Keysym::BackSpace), FORWARD);
     }
 
     #[test]

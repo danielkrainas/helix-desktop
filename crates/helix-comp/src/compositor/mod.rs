@@ -2,10 +2,12 @@
 //!
 //! Structure follows Smithay's `smallvil` example (MIT licensed).
 
+mod cursor;
 mod grabs;
 mod handlers;
 mod input;
 mod shortcuts;
+pub mod udev;
 pub mod winit;
 mod wm;
 
@@ -15,16 +17,17 @@ use std::time::Instant;
 
 use helix_comp::Event;
 use smithay::desktop::{layer_map_for_output, PopupManager, Space, Window, WindowSurfaceType};
-use smithay::input::pointer::CursorIcon;
+use smithay::input::pointer::{CursorIcon, CursorImageStatus};
 use smithay::input::{Seat, SeatState};
 use smithay::reexports::calloop::generic::Generic;
-use smithay::reexports::calloop::{EventLoop, Interest, LoopSignal, Mode, PostAction};
+use smithay::reexports::calloop::{EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction};
 use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use smithay::utils::{Logical, Point, Rectangle};
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
+use smithay::wayland::dmabuf::DmabufState;
 use smithay::wayland::fractional_scale::FractionalScaleManagerState;
 use smithay::wayland::selection::primary_selection::PrimarySelectionState;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
@@ -47,6 +50,7 @@ pub struct Helix {
     pub display_handle: DisplayHandle,
     pub space: Space<Window>,
     pub loop_signal: LoopSignal,
+    pub loop_handle: LoopHandle<'static, Helix>,
 
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
@@ -80,6 +84,11 @@ pub struct Helix {
     pub shortcuts: shortcuts::Shortcuts,
     /// Cursor requested by the focused client, for the host window.
     pub cursor: Option<CursorIcon>,
+    /// Full cursor state, drawn by the compositor on bare hardware.
+    pub cursor_status: CursorImageStatus,
+    pub dmabuf_state: DmabufState,
+    /// Set when running on bare hardware (DRM/KMS).
+    pub udev: Option<udev::UdevData>,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -111,6 +120,7 @@ impl Helix {
             display_handle: dh.clone(),
             space: Space::default(),
             loop_signal: event_loop.get_signal(),
+            loop_handle: event_loop.handle(),
             primary_selection_state: PrimarySelectionState::new::<Self>(&dh),
             activation_state: XdgActivationState::new::<Self>(&dh),
             globals: (
@@ -128,6 +138,9 @@ impl Helix {
             resize: None,
             shortcuts: shortcuts::Shortcuts::default(),
             cursor: Some(CursorIcon::Default),
+            cursor_status: CursorImageStatus::default_named(),
+            dmabuf_state: DmabufState::new(),
+            udev: None,
             events,
             last_activity_sent: None,
             windows_mapped: 0,

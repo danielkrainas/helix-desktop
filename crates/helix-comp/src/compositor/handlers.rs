@@ -9,6 +9,9 @@ use smithay::desktop::{
 use smithay::input::pointer::{CursorImageStatus, Focus};
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+use smithay::backend::allocator::dmabuf::Dmabuf;
+use smithay::backend::renderer::ImportDma;
+use smithay::wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier};
 use smithay::wayland::fractional_scale::{with_fractional_scale, FractionalScaleHandler};
 use smithay::wayland::selection::primary_selection::{PrimarySelectionHandler, PrimarySelectionState};
 use smithay::wayland::shell::xdg::decoration::XdgDecorationHandler;
@@ -45,7 +48,7 @@ use smithay::wayland::shell::xdg::{
 };
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::{
-    delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_fractional_scale,
+    delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_dmabuf, delegate_fractional_scale,
     delegate_layer_shell, delegate_output, delegate_primary_selection, delegate_seat,
     delegate_shm, delegate_viewporter, delegate_xdg_activation, delegate_xdg_decoration,
     delegate_xdg_shell,
@@ -116,10 +119,11 @@ impl SeatHandler for Helix {
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
         // Nested: show named cursors on the host window. Surface cursors are
         // not composited yet, so they fall back to the default arrow.
-        self.cursor = Some(match image {
-            CursorImageStatus::Named(icon) => icon,
+        self.cursor = Some(match &image {
+            CursorImageStatus::Named(icon) => *icon,
             _ => smithay::input::pointer::CursorIcon::Default,
         });
+        self.cursor_status = image;
     }
 }
 
@@ -532,6 +536,27 @@ delegate_xdg_activation!(Helix);
 delegate_viewporter!(Helix);
 delegate_fractional_scale!(Helix);
 delegate_cursor_shape!(Helix);
+delegate_dmabuf!(Helix);
+
+impl DmabufHandler for Helix {
+    fn dmabuf_state(&mut self) -> &mut DmabufState {
+        &mut self.dmabuf_state
+    }
+
+    fn dmabuf_imported(&mut self, _global: &DmabufGlobal, dmabuf: Dmabuf, notifier: ImportNotifier) {
+        // The dmabuf global only exists on bare hardware, where we can test
+        // the import against the renderer that will use it.
+        let ok = self
+            .udev
+            .as_mut()
+            .is_some_and(|u| u.renderer().import_dmabuf(&dmabuf, None).is_ok());
+        if ok {
+            let _ = notifier.successful::<Helix>();
+        } else {
+            notifier.failed();
+        }
+    }
+}
 
 /// Required by cursor-shape (tablet tool cursors); defaults suffice.
 impl TabletSeatHandler for Helix {}

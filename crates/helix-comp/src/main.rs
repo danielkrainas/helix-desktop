@@ -1,10 +1,16 @@
 //! `helix-comp`: the Helix compositor.
 //!
 //! ```text
-//! helix-comp [--command PROGRAM]
+//! helix-comp [--backend winit|drm] [--command PROGRAM]
 //! ```
 //!
-//! Runs nested (winit backend) inside an existing X11 or Wayland session.
+//! Backends:
+//! - `winit`: nested in a window of an existing X11 or Wayland session
+//!   (the default when `WAYLAND_DISPLAY` or `DISPLAY` is set);
+//! - `drm`: on bare hardware from a text console, via libseat, KMS and
+//!   libinput (the default otherwise). Ctrl+Alt+Backspace quits;
+//!   Ctrl+Alt+F1..F12 switch VTs.
+//!
 //! Serves `org.gnome.Mutter.IdleMonitor` and `org.gnome.Mutter.DisplayConfig`
 //! on the session bus and announces its Wayland socket to the session
 //! manager with `Setenv("WAYLAND_DISPLAY", ...)`.
@@ -39,14 +45,29 @@ fn main() -> ExitCode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    Winit,
+    Drm,
+}
+
+struct Args {
+    backend: Backend,
+    command: Option<String>,
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let command = parse_args()?;
+    let Args { backend, command } = parse_args()?;
+    tracing::info!(?backend, "starting");
 
     let (events_tx, events_rx) = mpsc::unbounded_channel();
     let mut event_loop: EventLoop<'static, Helix> = EventLoop::try_new()?;
     let display: Display<Helix> = Display::new()?;
     let mut state = Helix::new(&mut event_loop, display, events_tx)?;
-    let monitors = compositor::winit::init(&mut event_loop, &mut state)?;
+    let monitors = match backend {
+        Backend::Winit => compositor::winit::init(&mut event_loop, &mut state)?,
+        Backend::Drm => compositor::udev::init(&mut event_loop, &mut state)?,
+    };
 
     let socket = state.socket_name.to_string_lossy().into_owned();
     tracing::info!(socket, "listening for Wayland clients");
@@ -65,13 +86,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn parse_args() -> Result<Option<String>, String> {
+fn parse_args() -> Result<Args, String> {
+    const USAGE: &str = "usage: helix-comp [--backend winit|drm] [--command PROGRAM]";
+    let nested = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
+    let mut parsed = Args {
+        backend: if nested { Backend::Winit } else { Backend::Drm },
+        command: None,
+    };
     let mut args = std::env::args().skip(1);
-    match (args.next().as_deref(), args.next(), args.next()) {
-        (None, _, _) => Ok(None),
-        (Some("--command" | "-c"), Some(program), None) => Ok(Some(program)),
-        _ => Err("usage: helix-comp [--command PROGRAM]".into()),
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--backend" => {
+                parsed.backend = match args.next().as_deref() {
+                    Some("winit") => Backend::Winit,
+                    Some("drm") => Backend::Drm,
+                    _ => return Err(USAGE.into()),
+                }
+            }
+            "--command" | "-c" => parsed.command = Some(args.next().ok_or(USAGE)?),
+            _ => return Err(USAGE.into()),
+        }
     }
+    Ok(parsed)
 }
 
 /// D-Bus services live on their own thread with a tokio runtime. Failure to

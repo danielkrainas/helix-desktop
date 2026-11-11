@@ -29,7 +29,19 @@ zbus_xml = "5.2"
 gio = "0.22"
 smithay-client-toolkit = { version = "0.21", default-features = false, features = ["calloop", "xkbcommon"] }
 ab_glyph = "0.2"
-smithay = { version = "0.7", default-features = false, features = ["backend_winit", "wayland_frontend", "desktop"] }
+smithay = { version = "0.7", default-features = false, features = [
+    "backend_winit",
+    "backend_drm",
+    "backend_gbm",
+    "backend_egl",
+    "backend_libinput",
+    "backend_udev",
+    "backend_session_libseat",
+    "renderer_gl",
+    "wayland_frontend",
+    "desktop",
+] }
+smithay-drm-extras = { version = "0.1", default-features = false }
 helix-settings = { path = "crates/helix-settings" }
 helix-test-support = { path = "crates/helix-test-support" }
 helix-session = { path = "crates/helix-session" }

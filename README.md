@@ -6,7 +6,7 @@ This repository is the implementation. The living specification and contracts li
 
 ## Status
 
-Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested only, for now) with `IdleMonitor` and `DisplayConfig`, `helix-shell` serves `org.gnome.Shell` and draws a top panel, `helix-portals` serves the Settings and Inhibit portal backends, and `helix-settings` reads the system GSettings.
+Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested, or on bare hardware via DRM/KMS) with `IdleMonitor` and `DisplayConfig`, `helix-shell` serves `org.gnome.Shell` and draws a top panel, `helix-portals` serves the Settings and Inhibit portal backends, and `helix-settings` reads the system GSettings.
 
 ## Target
 
@@ -121,10 +121,20 @@ For xdg-desktop-portal to use it, install `session/helix.portal` into
 
 ## Running the compositor
 
-`helix-comp` is built on [Smithay](https://github.com/Smithay/smithay). For
-now it only has the nested (winit) backend: it runs in a window of your
-current X11 or Wayland session. Running on bare hardware (DRM/KMS) needs the
-libseat, libinput, libudev and gbm development packages and comes later.
+`helix-comp` is built on [Smithay](https://github.com/Smithay/smithay) and
+has two backends, chosen automatically or with `--backend`:
+
+- `winit` (default inside a desktop): runs in a window of your current X11
+  or Wayland session.
+- `drm` (default from a text console): drives the displays directly with
+  KMS, reads input through libinput, and gets device access from the seat
+  (logind or seatd) via libseat, so it runs as a normal user and supports VT
+  switching. One GPU (the seat's primary) drives all connected displays,
+  side by side at their preferred modes. Clients can share GPU buffers
+  (linux-dmabuf).
+
+Building needs the libseat, libinput, libudev, gbm, drm and EGL development
+packages (see `.github/workflows/ci.yml`).
 
 ```sh
 # A throwaway bus keeps its D-Bus names away from your real GNOME session.
@@ -161,6 +171,30 @@ Shortcuts handled by the compositor:
 
 When nested, the host desktop's window manager may grab some of these (e.g.
 Alt+Tab under XFCE) before Helix sees them.
+
+## Running on real hardware
+
+Try this from a free text console, not from inside your desktop:
+
+1. `cargo build`, then check KMS is available. On NVIDIA,
+   `sudo cat /sys/module/nvidia_drm/parameters/modeset` must print `Y`
+   (kernel parameter `nvidia-drm.modeset=1`).
+2. Switch to a text console (e.g. Ctrl+Alt+F3) and log in.
+3. Start the whole session, logging to a file:
+
+   ```sh
+   cd path/to/helix-desktop
+   PATH=$PWD/target/debug:$PATH RUST_LOG=info \
+     dbus-run-session -- helix-session --config session/helix-session.toml 2> ~/helix.log
+   ```
+
+   or just the compositor with one app:
+   `target/debug/helix-comp --backend drm --command gnome-calculator`.
+4. **Ctrl+Alt+Backspace quits Helix** at any time; Ctrl+Alt+F1..F12 switch
+   to other consoles (and back).
+
+If it can't get a seat session or finds no display it exits with an error
+instead of taking over the screen.
 
 ## Running the shell
 
