@@ -94,6 +94,7 @@ pub struct SessionManager {
     logind: Option<Logind>,
     /// logind `sleep` block inhibitor, held while a suspend inhibitor exists.
     sleep_block: tokio::sync::Mutex<Option<zbus::zvariant::OwnedFd>>,
+    restore: crate::restore::Shared,
 }
 
 impl SessionManager {
@@ -103,6 +104,7 @@ impl SessionManager {
         info: SessionInfo,
         timeouts: Timeouts,
         logind: Option<Logind>,
+        restore: crate::restore::Shared,
     ) -> Self {
         Self {
             state,
@@ -113,6 +115,23 @@ impl SessionManager {
             force: ForceSignal::default(),
             logind,
             sleep_block: tokio::sync::Mutex::new(None),
+            restore,
+        }
+    }
+
+    fn with_restore<T>(&self, f: impl FnOnce(&mut crate::restore::Restore) -> T) -> Option<T> {
+        self.restore.lock().unwrap_or_else(|e| e.into_inner()).as_mut().map(f)
+    }
+
+    /// `Can*` availability from logind's answer to `method`.
+    async fn availability(&self, method: &str, blocked: bool) -> u32 {
+        let Some(logind) = &self.logind else { return 0 };
+        let answer = logind.can(method).await.unwrap_or_default();
+        match answer.as_str() {
+            "yes" | "challenge" if blocked => 1,
+            "yes" => 3,
+            "challenge" => 2,
+            _ => 0,
         }
     }
 
@@ -247,6 +266,7 @@ impl SessionManager {
     /// The sequence completed.
     pub async fn finish_end(&self, action: EndSessionAction, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
         self.state().commit_end();
+        self.with_restore(|r| r.end_session());
         self.announce_end(action, emitter)
             .await
             .map_err(|e| zbus::Error::Failure(format!("{e:?}")))
@@ -296,6 +316,7 @@ impl SessionManager {
     /// the removals.
     pub async fn release_owner(&self, owner: &str, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
         let OwnerCleanup { clients, inhibitors } = self.state().remove_owner(owner);
+        self.with_restore(|r| r.owner_left(owner));
         let server = emitter.connection().object_server();
         for c in &clients {
             tracing::info!(owner, app_id = %c.app_id, "client vanished from bus");
@@ -505,6 +526,36 @@ impl SessionManager {
         self.state().is_running()
     }
 
+    async fn can_shutdown(&self) -> u32 {
+        self.availability("CanPowerOff", false).await
+    }
+
+    async fn can_reboot(&self) -> u32 {
+        self.availability("CanReboot", false).await
+    }
+
+    async fn can_suspend(&self) -> u32 {
+        let blocked = self.state().is_inhibited(crate::state::inhibit_flags::SUSPEND);
+        self.availability("CanSuspend", blocked).await
+    }
+
+    async fn register_restore(&self, app_id: &str, dbus_name: &str) -> Result<(u32, String, Vec<String>)> {
+        let registered = self.with_restore(|r| r.register(app_id, dbus_name));
+        let (reason, id, cleanup) = registered.ok_or_else(|| ManagerError::General("session restore is not supported".into()))?;
+        tracing::info!(app_id, id, reason, "app registered for restore");
+        Ok((reason, id, cleanup))
+    }
+
+    async fn deleted_instance_ids(&self, app_id: &str, ids: Vec<String>) -> Result<()> {
+        self.with_restore(|r| r.deleted(app_id, &ids))
+            .ok_or_else(|| ManagerError::General("session restore is not supported".into()))
+    }
+
+    async fn unregister_restore(&self, app_id: &str, instance_id: &str) -> Result<()> {
+        self.with_restore(|r| r.unregister(app_id, instance_id))
+            .ok_or_else(|| ManagerError::General("session restore is not supported".into()))
+    }
+
     async fn can_reboot_to_firmware_setup(&self) -> bool {
         // Requires a system power backend, which Helix does not have yet.
         false
@@ -553,7 +604,7 @@ impl SessionManager {
 
     #[zbus(property)]
     async fn restore_supported(&self) -> bool {
-        false
+        self.restore.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
     #[zbus(property)]

@@ -266,6 +266,40 @@ pub async fn launch(
     Ok(children)
 }
 
+/// Where `app_id`'s desktop file is, in the XDG data directories.
+pub fn desktop_file(app_id: &str) -> Option<PathBuf> {
+    let home = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
+    let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+    home.into_iter()
+        .chain(dirs.split(':').filter(|d| !d.is_empty()).map(PathBuf::from))
+        .map(|d| d.join("applications").join(format!("{app_id}.desktop")))
+        .find(|p| p.is_file())
+}
+
+/// Start apps to restore (session restore), each through its desktop file
+/// with `gio launch`, in the components' environment.
+pub fn restore_apps(service: &SessionService, config: &SessionConfig, extra_env: &BTreeMap<String, String>, apps: &[String]) {
+    for app_id in apps {
+        let Some(file) = desktop_file(app_id) else {
+            tracing::warn!(app_id, "no desktop file; cannot restore the app");
+            continue;
+        };
+        let spawned = std::process::Command::new("gio")
+            .arg("launch")
+            .arg(&file)
+            .envs(extra_env)
+            .envs(&config.environment)
+            .envs(service.environment())
+            .spawn();
+        match spawned {
+            Ok(_) => tracing::info!(app_id, "restoring app"),
+            Err(err) => tracing::warn!(%err, app_id, "cannot run gio to restore the app"),
+        }
+    }
+}
+
 async fn start_component(
     service: &SessionService,
     dbus: &DBusProxy<'_>,

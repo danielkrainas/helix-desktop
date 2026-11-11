@@ -9,15 +9,7 @@ use helix_test_support::TestBus;
 async fn org_gnome_session_manager() {
     const IFACE: &str = "org.gnome.SessionManager";
     // Tracked in helix-desktop-spec/gaps.md.
-    const KNOWN_UNIMPLEMENTED: &[&str] = &[
-        "method CanShutdown",
-        "method CanReboot",
-        "method CanSuspend",
-        "method SetRebootToFirmwareSetup",
-        "method RegisterRestore",
-        "method DeletedInstanceIds",
-        "method UnregisterRestore",
-    ];
+    const KNOWN_UNIMPLEMENTED: &[&str] = &["method SetRebootToFirmwareSetup"];
 
     let Some(bus) = TestBus::start() else { return };
     let service = helix_session::SessionService::start(bus.builder())

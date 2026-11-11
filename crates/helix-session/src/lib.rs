@@ -15,6 +15,7 @@ pub mod locale;
 pub mod logind;
 pub mod manager;
 pub mod objects;
+pub mod restore;
 pub mod state;
 
 use std::collections::BTreeMap;
@@ -48,6 +49,7 @@ pub struct SessionService {
     watcher: JoinHandle<()>,
     lock_watcher: JoinHandle<()>,
     active_watcher: Option<JoinHandle<()>>,
+    restore: restore::Shared,
 }
 
 /// How to run the service (see [`SessionService::start_with_options`]).
@@ -58,6 +60,8 @@ pub struct ServiceOptions {
     /// Where to reach logind; `None` disables power actions and leaves
     /// `SessionIsActive` true.
     pub logind: Option<logind::Logind>,
+    /// Where session restore records live; `None` disables restore.
+    pub restore: Option<std::path::PathBuf>,
 }
 
 impl SessionService {
@@ -84,17 +88,21 @@ impl SessionService {
         info: SessionInfo,
         timeouts: end_session::Timeouts,
     ) -> zbus::Result<Self> {
-        Self::start_with_options(builder, ServiceOptions { info, timeouts, logind: None }).await
+        Self::start_with_options(builder, ServiceOptions { info, timeouts, logind: None, restore: None }).await
     }
 
     /// Start with every option explicit.
     pub async fn start_with_options(builder: connection::Builder<'_>, options: ServiceOptions) -> zbus::Result<Self> {
-        let ServiceOptions { info, timeouts, logind } = options;
+        let ServiceOptions { info, timeouts, logind, restore } = options;
+        let restore: restore::Shared = Arc::new(Mutex::new(restore.map(restore::Restore::open)));
         let state = Arc::new(Mutex::new(SessionState::new()));
         let (end_tx, end_rx) = mpsc::unbounded_channel();
 
         let conn = builder
-            .serve_at(OBJECT_PATH, SessionManager::new(state.clone(), end_tx, info, timeouts, logind.clone()))?
+            .serve_at(
+                OBJECT_PATH,
+                SessionManager::new(state.clone(), end_tx, info, timeouts, logind.clone(), restore.clone()),
+            )?
             .build()
             .await?;
 
@@ -122,11 +130,17 @@ impl SessionService {
             watcher,
             lock_watcher,
             active_watcher,
+            restore,
         })
     }
 
     pub fn connection(&self) -> &Connection {
         &self.conn
+    }
+
+    /// Apps to start again at login (one entry per instance to restore).
+    pub fn apps_to_restore(&self) -> Vec<String> {
+        self.restore.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|r| r.to_relaunch()).unwrap_or_default()
     }
 
     /// Variables set through `Setenv` so far.

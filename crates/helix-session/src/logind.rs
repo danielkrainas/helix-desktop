@@ -57,6 +57,12 @@ impl Logind {
         self.call("Suspend", &(false,)).await.map(drop)
     }
 
+    /// `CanPowerOff`, `CanReboot`, `CanSuspend`: `yes`, `challenge`, `no`, `na`.
+    pub async fn can(&self, method: &str) -> zbus::Result<String> {
+        let reply = self.call(method, &()).await?;
+        reply.body().deserialize::<String>()
+    }
+
     /// Take an inhibitor; it lasts until the returned descriptor is dropped.
     pub async fn inhibit(&self, what: &str, why: &str, mode: &str) -> zbus::Result<OwnedFd> {
         let reply = self.call("Inhibit", &(what, "Helix", why, mode)).await?;

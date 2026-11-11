@@ -82,6 +82,8 @@ async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
     let options = ServiceOptions {
         info,
         logind: logind.clone(),
+        // Session restore only for a real session (with components).
+        restore: config.as_ref().map(|_| helix_session::restore::Restore::default_path()),
         ..Default::default()
     };
     let service = SessionService::start_with_options(zbus::connection::Builder::session()?, options).await?;
@@ -91,7 +93,10 @@ async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
 
     let mut children = match &config {
         Some(config) => match launcher::launch(&service, config, &BTreeMap::new()).await {
-            Ok(children) => Some(children),
+            Ok(children) => {
+                launcher::restore_apps(&service, config, &BTreeMap::new(), &service.apps_to_restore());
+                Some(children)
+            }
             Err(err) => {
                 tracing::error!(%err, "session startup failed");
                 service.run(std::future::ready(())).await?;

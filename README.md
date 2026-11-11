@@ -321,6 +321,15 @@ For development only, building helix-shell with the `insecure-test-auth`
 feature makes the lock screen accept the password `helix-test` instead of
 using PAM. Never use such a build for real.
 
+## Session restore and power queries
+
+`SessionManager` answers `CanShutdown`, `CanReboot` and `CanSuspend` from
+logind (with suspend shown as blocked while something inhibits it), and
+supports session restore (`RegisterRestore` and friends, used by
+xdg-desktop-portal): apps registered when you log out (or that crashed)
+are started again at the next login through their desktop file, with
+`gio launch`. Records live in `~/.local/state/helix/restore.toml`.
+
 ## Logging out
 
 The panel's **Power** button opens a menu: Lock Screen, Suspend, Log Out…,
