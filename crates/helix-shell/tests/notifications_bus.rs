@@ -185,6 +185,35 @@ async fn gtk_notifications_activate_the_app() {
     assert_eq!(app.calls.lock().unwrap().as_slice(), ["ActivateAction open file.iso"]);
     assert_eq!(next_banner(&mut ui).await, None, "removed after activation");
 
+    // A non-`app.` action: no activation, an ActionInvoked signal instead.
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.gtk.Notifications")
+        .unwrap()
+        .member("ActionInvoked")
+        .unwrap()
+        .build();
+    let mut invoked = zbus::MessageStream::for_match_rule(rule, &conn, None).await.unwrap();
+    let notification = HashMap::from([
+        ("title", Value::from("Reply?")),
+        ("default-action", Value::from("win.reply")),
+        ("default-action-target", Value::Value(Box::new(Value::from(7u32)))),
+    ]);
+    gtk.add_notification("org.example.App", "msg-1", notification).await.unwrap();
+    let banner = next_banner(&mut ui).await.unwrap();
+    bridge.handle(UiRequest::NotificationActivated { id: banner.id, action: None }).await.unwrap();
+    let message = tokio::time::timeout(std::time::Duration::from_secs(5), futures_util::StreamExt::next(&mut invoked))
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let (app_id, id, action, parameter, _): (String, String, String, Vec<zbus::zvariant::OwnedValue>, HashMap<String, zbus::zvariant::OwnedValue>) =
+        message.body().deserialize().unwrap();
+    assert_eq!((app_id.as_str(), id.as_str(), action.as_str()), ("org.example.App", "msg-1", "win.reply"));
+    assert_eq!(parameter.len(), 1);
+    assert_eq!(app.calls.lock().unwrap().len(), 1, "not activated");
+    assert_eq!(next_banner(&mut ui).await, None);
+
     // Add then withdraw.
     gtk.add_notification("org.example.App", "dl-2", HashMap::from([("title", Value::from("Second"))]))
         .await

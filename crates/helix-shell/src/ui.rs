@@ -1379,7 +1379,14 @@ impl Ui {
             UiEvent::Overview(false) => self.close_launcher(false),
             UiEvent::MonitorLabels(labels) => self.show_monitor_labels(&labels),
             UiEvent::HideMonitorLabels => self.monitor_labels.clear(),
-            UiEvent::Bind { action, accelerator } => self.bind(action, &accelerator),
+            UiEvent::Bind { action, accelerator, when_locked } => {
+                self.bind(action, &accelerator);
+                if when_locked {
+                    if let Some(binding) = self.bindings.get(&action).filter(|b| b.version() >= 2) {
+                        binding.allow_when_locked();
+                    }
+                }
+            }
             UiEvent::Unbind { action } => {
                 if let Some(binding) = self.bindings.remove(&action) {
                     binding.destroy();

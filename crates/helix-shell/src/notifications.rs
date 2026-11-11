@@ -171,8 +171,22 @@ impl Center {
                     .unwrap_or_else(|e| e.into_inner())
                     .get(&(id, key.clone()))
                     .and_then(|v| v.try_clone().ok());
-                if let Err(err) = activate_app(conn, app_id, action.as_deref(), target).await {
-                    tracing::warn!(%err, app_id, "cannot activate application");
+                match action.as_deref() {
+                    // Not an `app.` action: the app hears about it by signal.
+                    Some(name) if !name.starts_with("app.") => {
+                        let emitter = SignalEmitter::new(conn, GTK_PATH)?;
+                        let parameter: Vec<Value<'_>> = target.map(Value::from).into_iter().collect();
+                        let gtk_id = match &n.origin {
+                            Origin::Gtk { id, .. } => id.clone(),
+                            _ => String::new(),
+                        };
+                        GtkNotifications::action_invoked(&emitter, app_id, &gtk_id, name, parameter, HashMap::new()).await?;
+                    }
+                    _ => {
+                        if let Err(err) = activate_app(conn, app_id, action.as_deref(), target).await {
+                            tracing::warn!(%err, app_id, "cannot activate application");
+                        }
+                    }
                 }
                 self.remove(id);
             }

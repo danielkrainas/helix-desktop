@@ -41,6 +41,10 @@ use zbus::{connection, interface, Connection};
 use crate::state::ShellState;
 
 pub const BUS_NAME: &str = "org.gnome.Shell";
+/// The lock screen action mode of `GrabAccelerator`.
+pub const ACTION_MODE_LOCK_SCREEN: u32 = 4;
+/// `grabFlags`: notify on release as well as press.
+pub const GRAB_TRIGGER_RELEASE: u32 = 128;
 pub const OBJECT_PATH: &str = "/org/gnome/Shell";
 /// The GNOME version whose surface Helix implements (see gaps.md).
 pub const SHELL_VERSION: &str = "51.0";
@@ -82,8 +86,9 @@ pub enum UiEvent {
     Osd(Osd),
     MonitorLabels(HashMap<String, i32>),
     HideMonitorLabels,
-    /// Ask the compositor to deliver this accelerator for `action`.
-    Bind { action: u32, accelerator: accel::Accelerator },
+    /// Ask the compositor to deliver this accelerator for `action` (also
+    /// while locked, with `when_locked`).
+    Bind { action: u32, accelerator: accel::Accelerator, when_locked: bool },
     Unbind { action: u32 },
     /// Lock the session now.
     Lock,
@@ -147,6 +152,8 @@ pub enum UiRequest {
 pub struct Shell {
     state: Arc<Mutex<ShellState>>,
     ui: mpsc::UnboundedSender<UiEvent>,
+    /// Whether the session is locked (the lock screen action mode).
+    lock: screensaver::SharedStatus,
 }
 
 impl Shell {
@@ -158,9 +165,10 @@ impl Shell {
         if action == 0 {
             return;
         }
-        let accelerator = self.state().grab_for(action).map(|g| g.accelerator.clone());
-        if let Some(accelerator) = accelerator {
-            let _ = self.ui.send(UiEvent::Bind { action, accelerator });
+        let grab = self.state().grab_for(action).map(|g| (g.accelerator.clone(), g.mode_flags));
+        if let Some((accelerator, mode_flags)) = grab {
+            let when_locked = mode_flags & ACTION_MODE_LOCK_SCREEN != 0;
+            let _ = self.ui.send(UiEvent::Bind { action, accelerator, when_locked });
         }
     }
 
@@ -173,13 +181,17 @@ impl Shell {
         time: u32,
         emitter: &SignalEmitter<'_>,
     ) -> zbus::Result<()> {
-        let (applies, mode) = {
+        let locked = screensaver::status(&self.lock).locked();
+        let (applies, mode, on_release) = {
             let state = self.state();
-            let mode = state.action_mode();
-            let applies = state.grab_for(action).is_some_and(|g| g.mode_flags & mode != 0);
-            (applies, mode)
+            let mode = if locked { ACTION_MODE_LOCK_SCREEN } else { state.action_mode() };
+            let grab = state.grab_for(action);
+            let applies = grab.is_some_and(|g| g.mode_flags & mode != 0);
+            let on_release = grab.is_some_and(|g| g.grab_flags & GRAB_TRIGGER_RELEASE != 0);
+            (applies, mode, on_release)
         };
-        if !applies {
+        // Releases only for grabs that ask for them.
+        if !applies || (!pressed && !on_release) {
             return Ok(());
         }
         let params = HashMap::from([
@@ -396,10 +408,10 @@ impl ShellService {
             ui: ui.clone(),
             auth: auth.clone(),
         };
-        let center = notifications::Center::new(ui.clone(), lock_status);
+        let center = notifications::Center::new(ui.clone(), lock_status.clone());
         let night_light = night_light::Handle::default();
         let conn = builder
-            .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone() })?
+            .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone(), lock: lock_status.clone() })?
             .serve_at(screensaver::OBJECT_PATH, saver)?
             .serve_at(notifications::FDO_PATH, notifications::FdoNotifications { center: center.clone() })?
             .serve_at(notifications::GTK_PATH, notifications::GtkNotifications { center: center.clone() })?

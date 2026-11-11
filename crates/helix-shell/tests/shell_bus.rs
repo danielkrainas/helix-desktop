@@ -115,3 +115,77 @@ async fn accelerator_grabs() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+
+/// Signals heard: ("Activated" | "Deactivated", action).
+async fn accelerator_signals(conn: &zbus::Connection) -> zbus::MessageStream {
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.gnome.Shell")
+        .unwrap()
+        .build();
+    zbus::MessageStream::for_match_rule(rule, conn, None).await.unwrap()
+}
+
+async fn next_accelerator_signal(signals: &mut zbus::MessageStream) -> Option<(String, u32)> {
+    use futures_util::StreamExt;
+    loop {
+        let message = tokio::time::timeout(Duration::from_millis(500), signals.next()).await.ok()??.ok()?;
+        let member = message.header().member()?.to_string();
+        if let Some(kind) = member.strip_prefix("Accelerator") {
+            let (action, _): (u32, HashMap<String, zbus::zvariant::OwnedValue>) = message.body().deserialize().ok()?;
+            return Some((kind.to_owned(), action));
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn release_signals_and_lock_screen_mode() {
+    use helix_shell::UiRequest;
+    let Some(bus) = TestBus::start() else { return };
+    let (service, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let bridge = service.ui_bridge();
+    let client = bus.connect().await;
+    let shell = proxy(&client).await;
+    let mut signals = accelerator_signals(&client).await;
+
+    let plain = shell.grab_accelerator("<Super>p", 1, 0).await.unwrap();
+    let on_release = shell.grab_accelerator("<Super>r", 1, 128).await.unwrap();
+    let anywhere = shell.grab_accelerator("XF86AudioMute", 1 | 4, 0).await.unwrap();
+    // The lock screen grab is bound to work while locked.
+    let mut locked_bind = None;
+    while let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(300), ui.recv()).await {
+        if let helix_shell::UiEvent::Bind { action, when_locked, .. } = event {
+            if action == anywhere {
+                locked_bind = Some(when_locked);
+            } else {
+                assert!(!when_locked);
+            }
+        }
+    }
+    assert_eq!(locked_bind, Some(true));
+
+    let key = |action, pressed| UiRequest::Accelerator { action, pressed, time: 1 };
+    bridge.handle(key(plain, true)).await.unwrap();
+    bridge.handle(key(plain, false)).await.unwrap();
+    bridge.handle(key(on_release, true)).await.unwrap();
+    bridge.handle(key(on_release, false)).await.unwrap();
+    let mut heard = Vec::new();
+    while let Some(signal) = next_accelerator_signal(&mut signals).await {
+        heard.push(signal);
+    }
+    assert_eq!(
+        heard,
+        [("Activated".into(), plain), ("Activated".into(), on_release), ("Deactivated".into(), on_release)],
+        "releases only with trigger-on-release"
+    );
+
+    // Locked: only the lock-screen grab fires.
+    bridge.handle(UiRequest::Locked).await.unwrap();
+    bridge.handle(key(plain, true)).await.unwrap();
+    bridge.handle(key(anywhere, true)).await.unwrap();
+    let mut heard = Vec::new();
+    while let Some(signal) = next_accelerator_signal(&mut signals).await {
+        heard.push(signal);
+    }
+    assert_eq!(heard, [("Activated".into(), anywhere)]);
+}
