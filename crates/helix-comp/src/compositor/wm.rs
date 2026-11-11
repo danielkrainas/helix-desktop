@@ -32,6 +32,7 @@ impl Helix {
         self.space
             .elements()
             .chain(self.minimized.iter())
+            .chain(self.workspaces.parked())
             .find(|w| surface_of(w).as_ref() == Some(surface))
             .cloned()
     }
@@ -52,6 +53,7 @@ impl Helix {
         if is_override_redirect(window) || self.lock.locked {
             return;
         }
+        self.workspace_focus(window);
         if let Some(pos) = self.minimized.iter().position(|w| w == window) {
             let window = self.minimized.remove(pos);
             let location = self.minimized_at.remove(pos);
@@ -249,6 +251,7 @@ impl Helix {
             focus.is_none() || focus == surface_of(window)
         };
         self.space.unmap_elem(window);
+        self.workspace_forget(window);
         if had_focus {
             match self.top_window() {
                 Some(top) => self.focus_window(&top),

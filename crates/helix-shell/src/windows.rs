@@ -48,6 +48,62 @@ pub fn accelerators() -> Vec<(String, bool, SwitchMode)> {
     out
 }
 
+/// Which workspace a workspace key means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceTarget {
+    /// 1-based, as in the key names.
+    Number(u32),
+    Left,
+    Right,
+    Last,
+}
+
+/// What a workspace key does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkspaceKey {
+    /// Take the focused window along.
+    pub move_window: bool,
+    pub target: WorkspaceTarget,
+}
+
+/// The configured workspace keys (`-up` / `-down` do nothing: workspaces
+/// are in a row).
+pub fn workspace_accelerators() -> Vec<(String, WorkspaceKey)> {
+    if !helix_settings::has_schema(KEYBINDINGS) {
+        return Vec::new();
+    }
+    let settings = gio::Settings::new(KEYBINDINGS);
+    let mut keys: Vec<(String, WorkspaceKey)> = Vec::new();
+    for move_window in [false, true] {
+        let prefix = if move_window { "move-to-workspace-" } else { "switch-to-workspace-" };
+        let mut targets: Vec<(String, WorkspaceTarget)> =
+            (1..=12).map(|n| (n.to_string(), WorkspaceTarget::Number(n))).collect();
+        targets.push(("left".into(), WorkspaceTarget::Left));
+        targets.push(("right".into(), WorkspaceTarget::Right));
+        targets.push(("last".into(), WorkspaceTarget::Last));
+        for (suffix, target) in targets {
+            for accel in settings.strv(format!("{prefix}{suffix}").as_str()) {
+                let accel = accel.to_string();
+                if !accel.is_empty() && !keys.iter().any(|(a, _)| *a == accel) {
+                    keys.push((accel, WorkspaceKey { move_window, target }));
+                }
+            }
+        }
+    }
+    keys
+}
+
+/// `current-workspace-only` for the (application, window) switchers.
+pub fn current_workspace_only() -> (bool, bool) {
+    let read = |schema: &str, default: bool| {
+        gio::SettingsSchemaSource::default()
+            .and_then(|s| s.lookup(schema, true))
+            .filter(|s| s.has_key("current-workspace-only"))
+            .map_or(default, |_| gio::Settings::new(schema).boolean("current-workspace-only"))
+    };
+    (read("org.gnome.shell.app-switcher", false), read("org.gnome.shell.window-switcher", true))
+}
+
 /// Installed applications' names by app id (desktop file id without
 /// `.desktop`, lowercased).
 pub fn app_names() -> std::collections::HashMap<String, String> {
@@ -66,6 +122,8 @@ pub struct WindowEntry {
     pub id: u32,
     pub app_id: String,
     pub title: String,
+    /// The workspace it is on (0-based).
+    pub workspace: u32,
 }
 
 impl WindowEntry {
@@ -79,11 +137,20 @@ impl WindowEntry {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Windows {
     /// Most recently focused first.
     entries: Vec<WindowEntry>,
     focused: u32,
+    /// Workspaces: how many, and the active one (0-based).
+    pub count: u32,
+    pub active: u32,
+}
+
+impl Default for Windows {
+    fn default() -> Self {
+        Self { entries: Vec::new(), focused: 0, count: 1, active: 0 }
+    }
 }
 
 impl Windows {
@@ -94,8 +161,30 @@ impl Windows {
                 entry.app_id = app_id;
                 entry.title = title;
             }
-            None => self.entries.push(WindowEntry { id, app_id, title }),
+            None => self.entries.push(WindowEntry { id, app_id, title, workspace: self.active }),
         }
+    }
+
+    pub fn set_workspace(&mut self, id: u32, workspace: u32) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) {
+            entry.workspace = workspace;
+        }
+    }
+
+    pub fn set_workspaces(&mut self, count: u32, active: u32) {
+        self.count = count.max(1);
+        self.active = active;
+    }
+
+    /// The workspace for a workspace key, if it exists.
+    pub fn workspace_target(&self, target: WorkspaceTarget) -> Option<u32> {
+        let found = match target {
+            WorkspaceTarget::Number(n) => n.checked_sub(1)?,
+            WorkspaceTarget::Left => self.active.checked_sub(1)?,
+            WorkspaceTarget::Right => self.active + 1,
+            WorkspaceTarget::Last => self.count - 1,
+        };
+        (found < self.count).then_some(found)
     }
 
     pub fn close(&mut self, id: u32) {
@@ -155,25 +244,33 @@ impl Switcher {
         Some(Self { entries, selected })
     }
 
-    pub fn open(windows: &Windows, mode: SwitchMode, backward: bool, names: impl Fn(&str) -> Option<String>) -> Option<Self> {
+    /// `only`: list just the windows on this workspace.
+    pub fn open(
+        windows: &Windows,
+        mode: SwitchMode,
+        backward: bool,
+        only: Option<u32>,
+        names: impl Fn(&str) -> Option<String>,
+    ) -> Option<Self> {
         let focused = windows.focused();
+        let pool: Vec<&WindowEntry> = windows.mru().iter().filter(|e| only.is_none_or(|w| e.workspace == w)).collect();
         let window = |e: &WindowEntry| SwitchEntry { id: e.id, label: e.label().to_owned(), detail: e.app_id.clone() };
         match mode {
             SwitchMode::Windows => {
-                let entries: Vec<SwitchEntry> = windows.mru().iter().map(window).collect();
+                let entries: Vec<SwitchEntry> = pool.iter().copied().map(window).collect();
                 let current_first = entries.first().is_some_and(|e| e.id == focused);
                 Self::new(entries, current_first, backward)
             }
             SwitchMode::Group => {
                 let app = windows.mru().iter().find(|e| e.id == focused).map(|e| e.app_id.clone()).filter(|a| !a.is_empty())?;
-                let entries: Vec<SwitchEntry> = windows.mru().iter().filter(|e| e.app_id == app).map(window).collect();
+                let entries: Vec<SwitchEntry> = pool.iter().copied().filter(|e| e.app_id == app).map(window).collect();
                 let current_first = entries.first().is_some_and(|e| e.id == focused);
                 Self::new(entries, current_first, backward)
             }
             SwitchMode::Apps => {
                 // Applications in the order of their most recent window.
                 let mut apps: Vec<(&WindowEntry, usize)> = Vec::new();
-                for e in windows.mru() {
+                for e in pool.iter().copied() {
                     match apps.iter_mut().find(|(first, _)| !e.app_id.is_empty() && first.app_id == e.app_id) {
                         Some((_, count)) => *count += 1,
                         None => apps.push((e, 1)),
@@ -233,7 +330,7 @@ mod tests {
     }
 
     fn open(w: &Windows, mode: SwitchMode, backward: bool) -> Option<Switcher> {
-        Switcher::open(w, mode, backward, |_| None)
+        Switcher::open(w, mode, backward, None, |_| None)
     }
 
     #[test]
@@ -272,11 +369,35 @@ mod tests {
         let w = mixed();
         // MRU: 1 (a), 3 (a), 2 (b), 4 (none).
         let names = |app: &str| (app == "a").then(|| "App A".to_owned());
-        let s = Switcher::open(&w, SwitchMode::Apps, false, names).unwrap();
+        let s = Switcher::open(&w, SwitchMode::Apps, false, None, names).unwrap();
         let shown: Vec<(&str, &str, u32)> = s.entries.iter().map(|e| (e.label.as_str(), e.detail.as_str(), e.id)).collect();
         assert_eq!(shown, [("App A", "2 windows", 1), ("b", "1 window", 2), ("Window 4", "1 window", 4)]);
         assert_eq!(s.selected_id(), 2, "the next application's most recent window");
         assert_eq!(open(&w, SwitchMode::Apps, true).unwrap().selected_id(), 4);
+    }
+
+    #[test]
+    fn workspace_filter_and_targets() {
+        let mut w = mixed();
+        w.set_workspaces(3, 1);
+        w.set_workspace(3, 1);
+        w.set_workspace(2, 1);
+        // MRU 1 (a, ws0), 3 (a, ws1), 2 (b, ws1), 4 (ws0); focus on 1.
+        let s = Switcher::open(&w, SwitchMode::Windows, false, Some(1), |_| None).unwrap();
+        assert_eq!(s.entries.iter().map(|e| e.id).collect::<Vec<_>>(), [3, 2]);
+        assert_eq!(s.selected_id(), 3, "the focused window is elsewhere: start at the first");
+        let apps = Switcher::open(&w, SwitchMode::Apps, false, Some(1), |_| None).unwrap();
+        assert_eq!(apps.entries.iter().map(|e| e.id).collect::<Vec<_>>(), [3, 2], "a's window here, then b");
+        assert_eq!(w.workspace_target(WorkspaceTarget::Number(1)), Some(0));
+        assert_eq!(w.workspace_target(WorkspaceTarget::Number(4)), None);
+        assert_eq!(w.workspace_target(WorkspaceTarget::Left), Some(0));
+        assert_eq!(w.workspace_target(WorkspaceTarget::Right), Some(2));
+        assert_eq!(w.workspace_target(WorkspaceTarget::Last), Some(2));
+        w.set_workspaces(3, 0);
+        assert_eq!(w.workspace_target(WorkspaceTarget::Left), None);
+        w.set_workspaces(3, 2);
+        assert_eq!(w.workspace_target(WorkspaceTarget::Right), None);
+        assert_eq!(w.workspace_target(WorkspaceTarget::Number(0)), None);
     }
 
     #[test]
@@ -293,7 +414,7 @@ mod tests {
 
     #[test]
     fn labels() {
-        let e = |app: &str, title: &str| WindowEntry { id: 1, app_id: app.into(), title: title.into() };
+        let e = |app: &str, title: &str| WindowEntry { id: 1, app_id: app.into(), title: title.into(), workspace: 0 };
         assert_eq!(e("org.gnome.Calculator", "Calculator").label(), "Calculator");
         assert_eq!(e("org.gnome.Calculator", "").label(), "org.gnome.Calculator");
         assert_eq!(e("", "").label(), "Untitled window");

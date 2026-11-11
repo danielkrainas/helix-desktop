@@ -69,6 +69,8 @@ const HOVER_BG: u32 = 0xFF2C2C33;
 
 const APPS_LABEL: &str = "Apps";
 const APPS_BUTTON_W: i32 = 72;
+/// Size of a workspace dot in the panel.
+const WORKSPACE_DOT: i32 = 6;
 const ROW_H: i32 = 40;
 const MAX_ROWS: usize = 10;
 
@@ -359,6 +361,17 @@ impl Ui {
             let lw = text.width(APPS_LABEL, px);
             text.draw(&mut canvas, APPS_LABEL, (APPS_BUTTON_W as f32 - lw) / 2.0, base, Style { px, color: FG, max_width: 64.0 });
         }
+        // Workspace dots, the active one highlighted.
+        if self.windows.count > 1 {
+            let y = h as i32 / 2 - WORKSPACE_DOT / 2;
+            for i in 0..self.windows.count.min(36) as i32 {
+                let x = APPS_BUTTON_W + 6 + i * (WORKSPACE_DOT + 6);
+                let active = i as u32 == self.windows.active;
+                let (w, color) = if active { (WORKSPACE_DOT * 2, FG) } else { (WORKSPACE_DOT, DIM_FG) };
+                let x = if i as u32 > self.windows.active { x + WORKSPACE_DOT } else { x };
+                canvas.rect(x, y, w, WORKSPACE_DOT, color);
+            }
+        }
 
         if let Some(text) = &self.text {
             let pw = text.width(POWER_LABEL, px);
@@ -481,7 +494,10 @@ impl Ui {
         }
         let names = if mode == SwitchMode::Apps { crate::windows::app_names() } else { HashMap::new() };
         let name = |app_id: &str| names.get(&app_id.to_lowercase()).cloned();
-        let Some(switcher) = Switcher::open(&self.windows, mode, backward, name) else { return };
+        let (apps_only_here, windows_only_here) = crate::windows::current_workspace_only();
+        let only_here = if mode == SwitchMode::Apps { apps_only_here } else { windows_only_here };
+        let only = only_here.then_some(self.windows.active);
+        let Some(switcher) = Switcher::open(&self.windows, mode, backward, only, name) else { return };
         self.open_switcher(switcher, hold, SwitchKind::Windows);
     }
 
@@ -1277,6 +1293,14 @@ impl Ui {
             self.bind(next, &accelerator);
             next += 1;
         }
+        if self.window_list.as_ref().is_some_and(|l| l.version() >= 2) {
+            for (text, key) in crate::windows::workspace_accelerators() {
+                let Some(accelerator) = parse(&text, "workspace") else { continue };
+                self.internal.insert(next, Internal::Workspace(key));
+                self.bind(next, &accelerator);
+                next += 1;
+            }
+        }
     }
 
     fn internal_pressed(&mut self, action: u32) {
@@ -1286,8 +1310,23 @@ impl Ui {
             Some(Internal::ShellKey(key)) => {
                 let _ = self.requests.send(UiRequest::ShellKey(key));
             }
+            Some(Internal::Workspace(key)) => self.workspace_key(key),
             None => {}
         }
+    }
+
+    /// Switch workspace, or move the focused window and switch with it.
+    fn workspace_key(&mut self, key: crate::windows::WorkspaceKey) {
+        let (Some(list), Some(target)) = (&self.window_list, self.windows.workspace_target(key.target)) else { return };
+        if key.move_window {
+            let focused = self.windows.focused();
+            if focused == 0 {
+                return;
+            }
+            list.move_window(focused, target);
+        }
+        tracing::debug!(target, moving = key.move_window, "workspace key");
+        list.switch_workspace(target);
     }
 
     fn bind(&mut self, action: u32, accelerator: &crate::accel::Accelerator) {
@@ -1332,7 +1371,7 @@ pub fn run(
     let shm = Shm::bind(&globals, &qh)?;
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=1, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=2, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=2, ()).ok();
     if keybindings.is_none() {
         tracing::warn!("compositor offers no key bindings to this process; accelerators will not fire");
@@ -1786,6 +1825,7 @@ enum Internal {
     SwitchWindows { backward: bool, hold: u32, mode: SwitchMode },
     /// Screenshot, brightness and volume keys (run on the D-Bus side).
     ShellKey(crate::shell_keys::KeyAction),
+    Workspace(crate::windows::WorkspaceKey),
 }
 
 /// What an open switcher switches.
@@ -1846,6 +1886,11 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                 }
             }
             helix_window_list_v1::Event::Focused { id } => ui.windows.focus(id),
+            helix_window_list_v1::Event::Workspaces { count, active } => {
+                ui.windows.set_workspaces(count, active);
+                ui.draw_panel();
+            }
+            helix_window_list_v1::Event::Workspace { id, workspace } => ui.windows.set_workspace(id, workspace),
             _ => {}
         }
     }

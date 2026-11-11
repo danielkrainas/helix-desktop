@@ -13,6 +13,7 @@ pub mod display_config;
 pub mod idle;
 pub mod idle_monitor;
 pub mod input_settings;
+pub mod workspaces;
 
 use std::sync::{Arc, Mutex};
 

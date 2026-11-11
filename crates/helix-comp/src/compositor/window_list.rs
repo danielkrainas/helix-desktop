@@ -1,12 +1,13 @@
 //! Server side of the private `helix_window_list_v1` protocol: tells the
-//! shell about open windows and focus, and activates windows it asks for.
+//! shell about open windows, focus and workspaces, and activates windows,
+//! switches workspaces and moves windows between them when asked.
 //! Changes are found by comparing snapshots a few times a second.
 
 use std::collections::HashMap;
 
 use helix_protocols::server::helix_window_list_v1::{self, HelixWindowListV1};
 use smithay::desktop::Window;
-use smithay::reexports::wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New};
+use smithay::reexports::wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
 
@@ -21,6 +22,9 @@ pub struct WindowList {
     next_id: u32,
     sent: HashMap<u32, (String, String)>,
     sent_focus: u32,
+    sent_workspace: HashMap<u32, u32>,
+    /// (count, active)
+    sent_workspaces: (u32, u32),
 }
 
 /// (app id, title)
@@ -51,6 +55,7 @@ impl Helix {
             .elements()
             .rev()
             .chain(self.minimized.iter())
+            .chain(self.workspaces.parked())
             .filter(|w| !is_override_redirect(w))
             .cloned()
             .collect();
@@ -78,17 +83,22 @@ impl Helix {
         self.window_list.ids.iter().find(|(w, _)| *w == window).map(|(_, id)| *id).unwrap_or(0)
     }
 
+    fn layout_wire(&self) -> (u32, u32) {
+        let layout = self.workspaces.layout;
+        (layout.count as u32, layout.active as u32)
+    }
+
     /// Send the shell whatever changed since last time.
     pub fn sync_window_list(&mut self) {
+        self.tidy_workspaces();
         if self.window_list.listeners.is_empty() {
             return;
         }
-        let now: Vec<(u32, (String, String))> = self
-            .listed_windows()
-            .into_iter()
-            .map(|(id, w)| (id, describe(&w)))
-            .collect();
+        let listed = self.listed_windows();
+        let workspaces: Vec<(u32, u32)> = listed.iter().map(|(id, w)| (*id, self.workspace_of(w) as u32)).collect();
+        let now: Vec<(u32, (String, String))> = listed.into_iter().map(|(id, w)| (id, describe(&w))).collect();
         let focus = self.focused_window_id();
+        let layout = self.layout_wire();
         let list = &mut self.window_list;
         let closed: Vec<u32> = list.sent.keys().filter(|id| !now.iter().any(|(n, _)| n == *id)).copied().collect();
         for id in closed {
@@ -109,6 +119,22 @@ impl Helix {
             list.sent_focus = focus;
             for l in &list.listeners {
                 l.focused(focus);
+            }
+        }
+        let v2: Vec<&HelixWindowListV1> = list.listeners.iter().filter(|l| l.version() >= 2).collect();
+        if layout != list.sent_workspaces {
+            list.sent_workspaces = layout;
+            for l in &v2 {
+                l.workspaces(layout.0, layout.1);
+            }
+        }
+        list.sent_workspace.retain(|id, _| list.sent.contains_key(id));
+        for (id, ws) in workspaces {
+            if list.sent_workspace.get(&id) != Some(&ws) {
+                list.sent_workspace.insert(id, ws);
+                for l in &v2 {
+                    l.workspace(id, ws);
+                }
             }
         }
     }
@@ -143,11 +169,21 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
             listener.window(*id, app_id, title);
         }
         listener.focused(state.focused_window_id());
+        let layout = state.layout_wire();
+        let workspaces: HashMap<u32, u32> = windows.iter().map(|(id, w)| (*id, state.workspace_of(w) as u32)).collect();
+        if listener.version() >= 2 {
+            listener.workspaces(layout.0, layout.1);
+            for (id, ws) in &workspaces {
+                listener.workspace(*id, *ws);
+            }
+        }
         state.window_list.listeners.push(listener);
         if state.window_list.listeners.len() == 1 {
             // First listener: what it was told is the baseline.
             state.window_list.sent = windows.iter().map(|(id, w)| (*id, describe(w))).collect();
             state.window_list.sent_focus = state.focused_window_id();
+            state.window_list.sent_workspaces = layout;
+            state.window_list.sent_workspace = workspaces;
         }
     }
 
@@ -166,8 +202,16 @@ impl Dispatch<HelixWindowListV1, ()> for Helix {
         _dh: &DisplayHandle,
         _data_init: &mut DataInit<'_, Self>,
     ) {
-        if let helix_window_list_v1::Request::Activate { id } = request {
-            state.activate_window(id);
+        match request {
+            helix_window_list_v1::Request::Activate { id } => state.activate_window(id),
+            helix_window_list_v1::Request::SwitchWorkspace { workspace } => state.switch_workspace(workspace as usize),
+            helix_window_list_v1::Request::MoveWindow { id, workspace } => {
+                let window = state.window_list.ids.iter().find(|(_, i)| *i == id).map(|(w, _)| w.clone());
+                if let Some(window) = window {
+                    state.move_to_workspace(&window, workspace as usize);
+                }
+            }
+            _ => {}
         }
     }
 

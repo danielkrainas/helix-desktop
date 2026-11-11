@@ -10,11 +10,13 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="1">
+  <interface name="helix_window_list_v1" version="2">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
-      open window, topmost first, then a focused event. Later events
-      follow changes. Window ids are never reused.
+      open window, topmost first, then a focused event (and, since version
+      2, a workspaces event and a workspace event per window). Later events
+      follow changes. Window ids are never reused. Workspaces are numbered
+      from 0.
     </description>
     <event name="window">
       <description summary="a window appeared, or its app id or title changed"/>
@@ -39,6 +41,33 @@
     </request>
     <request name="destroy" type="destructor">
       <description summary="stop receiving events"/>
+    </request>
+    <event name="workspaces" since="2">
+      <description summary="how many workspaces there are, and the active one"/>
+      <arg name="count" type="uint"/>
+      <arg name="active" type="uint"/>
+    </event>
+    <event name="workspace" since="2">
+      <description summary="the workspace a window is on">
+        Sent after the window's window event, and whenever it changes.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="workspace" type="uint"/>
+    </event>
+    <request name="switch_workspace" since="2">
+      <description summary="make a workspace the active one">
+        Out of range numbers are ignored.
+      </description>
+      <arg name="workspace" type="uint"/>
+    </request>
+    <request name="move_window" since="2">
+      <description summary="put a window on a workspace">
+        The window stays where it is on screen; it is hidden if the
+        workspace is not the active one. Unknown ids and out of range
+        numbers are ignored.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="workspace" type="uint"/>
     </request>
   </interface>
 </protocol>

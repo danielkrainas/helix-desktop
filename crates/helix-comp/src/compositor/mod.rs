@@ -17,6 +17,7 @@ pub mod window_list;
 pub mod udev;
 pub mod winit;
 mod wm;
+mod workspaces;
 mod xwayland;
 
 use std::ffi::OsString;
@@ -124,6 +125,7 @@ pub struct Helix {
     pub window_list: window_list::WindowList,
     /// Screen captures asked for by the shell.
     pub captures: capture::Captures,
+    pub workspaces: workspaces::WorkspaceState,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -144,7 +146,7 @@ impl Helix {
 
         // Private protocol for the shell (visible to privileged clients only).
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
-        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(1, ());
+        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(2, ());
         dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(2, ());
         let socket_name = Self::listen(display, event_loop)?;
         let mut helix = Self {
@@ -197,6 +199,7 @@ impl Helix {
             input_devices: Vec::new(),
             window_list: Default::default(),
             captures: Default::default(),
+            workspaces: Default::default(),
         };
         helix.init_captures();
         Ok(helix)

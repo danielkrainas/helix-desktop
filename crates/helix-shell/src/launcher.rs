@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn open_windows_come_first() {
-        let window = |id: u32, app: &str, title: &str| WindowEntry { id, app_id: app.into(), title: title.into() };
+        let window = |id: u32, app: &str, title: &str| WindowEntry { id, app_id: app.into(), title: title.into(), workspace: 0 };
         let windows = vec![window(7, "org.gnome.TextEditor", "notes.txt"), window(3, "firefox", "News")];
         let mut l = Launcher::with_windows(sample(), windows);
         assert_eq!(l.results[..3], [Hit::Window(0), Hit::Window(1), Hit::App(0)]);

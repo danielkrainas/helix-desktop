@@ -193,6 +193,13 @@ D-Bus-activated services see it; when nested, the host's `DISPLAY` is never
 passed on to Helix's children. Helix draws no title bars yet, so X11 apps
 that rely on the window manager for one can be moved with Super+drag.
 
+Workspaces follow GNOME's settings: a fixed number (`num-workspaces`) or
+dynamic ones (always one empty workspace at the end), optionally only on
+the primary monitor. Super+Page Up/Down (and the other
+`switch-to-workspace-*` keys) switch, Super+Shift+Page Up/Down move the
+focused window along; the panel shows a dot per workspace. The window
+switcher lists only the current workspace's windows by default.
+
 Window management: windows open in a cascade below any panels and get
 focus, and stay out from under panels when the work area changes; click
 to focus; client-side (GTK) decorations; dragging and resizing
