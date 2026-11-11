@@ -1,0 +1,10 @@
+[package]
+name = "helix-comp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Helix compositor and window management surface"
+
+[dependencies]
