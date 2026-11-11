@@ -405,10 +405,11 @@ impl XdgActivationHandler for Helix {
 
 impl FractionalScaleHandler for Helix {
     fn new_fractional_scale(&mut self, surface: WlSurface) {
-        // Outputs are unscaled for now.
+        let scale = self.initial_surface_scale();
         with_states(&surface, |states| {
-            with_fractional_scale(states, |fractional| fractional.set_preferred_scale(1.0));
+            with_fractional_scale(states, |fractional| fractional.set_preferred_scale(scale));
         });
+        self.update_surface_scales();
     }
 }
 

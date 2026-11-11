@@ -82,6 +82,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             smithay::reexports::calloop::timer::Timer::immediate(),
             |_, _, state| {
                 state.sync_window_list();
+                state.update_surface_scales();
                 smithay::reexports::calloop::timer::TimeoutAction::ToDuration(std::time::Duration::from_millis(200))
             },
         )

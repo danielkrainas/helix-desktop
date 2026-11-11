@@ -39,14 +39,14 @@ const CONFIRM_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 /// Every transform (0 normal … 7 flipped 270°).
 pub const ALL_TRANSFORMS: [u32; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
-/// Whole-number scales from 1 to 4 that divide the mode and leave at least
-/// 800×480 logical pixels; 1 always.
+/// Scales from 1 to 4 in steps of 0.25 that leave a whole number of
+/// logical pixels each way and at least 800×480 of them; 1 always.
 pub fn supported_scales(width: i32, height: i32) -> Vec<f64> {
-    (1..=4)
-        .filter(|&s| {
-            s == 1 || (width % s == 0 && height % s == 0 && i64::from(width / s) * i64::from(height / s) >= 800 * 480)
-        })
-        .map(f64::from)
+    // Scale k/4: the logical size is 4·width/k × 4·height/k.
+    let (w4, h4) = (i64::from(width) * 4, i64::from(height) * 4);
+    (4..=16)
+        .filter(|&k| k == 4 || (w4 % k == 0 && h4 % k == 0 && (w4 / k) * (h4 / k) >= 800 * 480))
+        .map(|k| k as f64 / 4.0)
         .collect()
 }
 
@@ -1179,10 +1179,11 @@ mod tests {
 
     #[test]
     fn scales_offered() {
-        assert_eq!(supported_scales(1280, 800), [1.0]);
+        assert_eq!(supported_scales(1280, 800), [1.0, 1.25]);
         assert_eq!(supported_scales(1366, 768), [1.0]);
-        assert_eq!(supported_scales(1920, 1080), [1.0, 2.0]);
-        assert_eq!(supported_scales(3840, 2160), [1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(supported_scales(1920, 1080), [1.0, 1.25, 1.5, 2.0], "not 1.75: 1097.14 logical pixels");
+        assert_eq!(supported_scales(3840, 2160), [1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 3.75, 4.0]);
+        assert_eq!(supported_scales(2560, 1600), [1.0, 1.25, 2.0, 2.5]);
         assert_eq!(logical_size(3840, 2160, 2.0, 1), (1080, 1920));
     }
 
@@ -1207,8 +1208,13 @@ mod tests {
         let mut scaled = side_by_side(960, 0);
         scaled.logical[0].scale = 2.0;
         assert_eq!(layout.check(&scaled), Ok(()), "960x540 logical");
-        scaled.logical[0].scale = 1.5;
-        assert!(err(&layout, &scaled).contains("scale"));
+        scaled.logical[0].scale = 1.75;
+        assert!(err(&layout, &scaled).contains("scale"), "1097.14 logical pixels");
+        scaled.logical[0].scale = 1.3;
+        assert!(err(&layout, &scaled).contains("scale"), "not a 0.25 step");
+        let mut fractional = side_by_side(1280, 0);
+        fractional.logical[0].scale = 1.5;
+        assert_eq!(layout.check(&fractional), Ok(()), "1280x720 logical");
 
         let mut rotated = side_by_side(1080, 0);
         rotated.logical[0].transform = 1;

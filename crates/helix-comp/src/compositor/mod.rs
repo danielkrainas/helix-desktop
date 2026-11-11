@@ -8,6 +8,7 @@ mod gamma;
 mod grabs;
 mod handlers;
 mod input;
+mod scales;
 mod input_config;
 mod keybindings;
 mod lock;

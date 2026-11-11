@@ -35,9 +35,13 @@ pub fn from_transform(transform: Transform) -> u32 {
     }
 }
 
-/// Configurations only offer whole-number scales.
+/// Whole-number scales stay integers (`wl_output` reports them exactly).
 pub fn to_scale(scale: f64) -> Scale {
-    Scale::Integer(scale.round().max(1.0) as i32)
+    if scale.fract() == 0.0 {
+        Scale::Integer(scale.max(1.0) as i32)
+    } else {
+        Scale::Fractional(scale)
+    }
 }
 
 impl Helix {
@@ -69,6 +73,7 @@ impl Helix {
         }
         if result.is_ok() {
             self.rescue_windows();
+            self.update_surface_scales();
         }
         result
     }

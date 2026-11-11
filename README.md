@@ -178,11 +178,16 @@ which is what the session launcher waits for.
 
 Monitor settings (e.g. from GNOME Settings' Displays panel) go through
 `ApplyMonitorsConfig`: verify, temporary or persistent. On bare hardware it
-changes modes, position, whole-number scale (1–4) and rotation, mirrors
+changes modes, position, scale and rotation, mirrors
 monitors, and turns monitors off; nested, only the scale can change (the
 window decides the size, and it can't rotate). A persistent configuration
 is saved in `~/.config/helix/monitors.toml` for that set of monitors and
 comes back when they are connected again or the compositor restarts.
+Scales go from 1 to 4 in quarter steps (125%, 150%, …) where the
+monitor's resolution divides evenly; apps that support fractional scaling
+(GTK 4, Qt 6) draw sharply at the exact scale, others are drawn at the
+next whole scale and scaled down. Helix's own panel and launcher still
+draw at 1× and are scaled up.
 A persistent change asks "Keep the new display settings?" with a 20-second
 countdown (Escape or Revert goes back, Enter or Keep keeps it); only kept
 changes are remembered, and if nobody answers the old settings return.
@@ -257,7 +262,7 @@ menus and popovers (popup grabs). Panels and other `wlr-layer-shell`
 surfaces are supported, including exclusive keyboard focus.
 
 Protocols beyond the core: xdg-decoration, xdg-activation, viewporter,
-fractional-scale (always 1 for now), primary selection, cursor-shape, text-input and
+fractional-scale, primary selection, cursor-shape, text-input and
 (for the shell) input-method and virtual-keyboard (named
 cursors are shown on the host window when nested). Not yet: linux-dmabuf
 (GTK falls back to shared-memory rendering), compositing client-drawn cursor surfaces.
