@@ -9,9 +9,12 @@ use std::time::{Duration, Instant};
 use helix_comp::screencast::{CastRequest, CastSource};
 use helix_comp::Event;
 use smithay::backend::renderer::element::memory::MemoryRenderBuffer;
-use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::allocator::Fourcc;
+use smithay::backend::renderer::damage::OutputDamageTracker;
+use smithay::backend::renderer::gles::{GlesMapping, GlesRenderer, GlesTexture};
+use smithay::backend::renderer::{Bind, ExportMem, Offscreen, TextureMapping};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
-use smithay::utils::{Physical, Size};
+use smithay::utils::{Buffer, Physical, Rectangle, Size, Transform};
 
 use super::pipewire::{Command, Notice, PipeWire, MAX_FPS};
 use super::Helix;
@@ -21,6 +24,10 @@ const FRAME: Duration = Duration::from_millis(1000 / MAX_FPS as u64);
 struct Cast {
     source: CastSource,
     cursor: bool,
+    /// Rendering state between frames.
+    target: Option<FrameTarget>,
+    /// The session was locked at the last frame.
+    locked: bool,
     size: Size<i32, Physical>,
     streaming: bool,
     last: Option<Instant>,
@@ -34,7 +41,7 @@ pub struct CastState {
     timer: bool,
 }
 
-/// RGBA → BGRx, in place.
+/// RGBA → BGRx, in place (when the GPU can't read back BGRA).
 pub fn to_bgrx(rgba: &mut [u8]) {
     for px in rgba.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
@@ -130,7 +137,7 @@ impl Helix {
                         .unwrap_or_else(|_| Err("PipeWire did not set up the stream".into()));
                     let _ = reply.send(node);
                 });
-                self.screencast.casts.insert(stream, Cast { source, cursor, size, streaming: false, last: None });
+                self.screencast.casts.insert(stream, Cast { source, cursor, size, streaming: false, last: None, target: None, locked: false });
                 self.start_cast_timer();
             }
             CastRequest::Stop { stream } => {
@@ -149,6 +156,10 @@ impl Helix {
                 if let Some(cast) = self.screencast.casts.get_mut(&id) {
                     tracing::info!(stream = id, on, "screen cast consumer");
                     cast.streaming = on;
+                    // A new consumer needs a whole frame.
+                    if let Some(target) = cast.target.as_mut() {
+                        target.fresh = true;
+                    }
                 }
             }
             Notice::Ended { id } => self.end_cast(id),
@@ -184,9 +195,13 @@ impl Helix {
         });
     }
 
-    /// Send a frame to every streaming cast that is due one.
+    /// Render every streaming cast that is due a frame, into its own
+    /// target with damage tracking: nothing is read back when nothing
+    /// changed. Read-back finishes on the next tick, so the GPU is not
+    /// waited on.
     pub fn cast_frames(&mut self, renderer: &mut GlesRenderer, named_cursor: Option<&MemoryRenderBuffer>) {
         let now = Instant::now();
+        let locked = self.lock.locked;
         let due: Vec<u32> = self
             .screencast
             .casts
@@ -196,63 +211,148 @@ impl Helix {
             .collect();
         for id in due {
             let Some(cast) = self.screencast.casts.get(&id) else { continue };
-            let (source, cursor, size) = (cast.source.clone(), cast.cursor, cast.size);
-            let cursor = cursor.then_some(named_cursor);
-            let image = match &source {
+            let (source, cursor) = (cast.source.clone(), cast.cursor.then_some(named_cursor));
+            // What to draw (nothing while locked: the target is just cleared).
+            let scene = match &source {
                 CastSource::Monitor(connector) => match self.output_named(connector) {
-                    Some(output) => self.output_image(renderer, &output, cursor).map(Some),
+                    Some(output) => self.output_elements(renderer, &output, cursor).ok(),
                     None => {
-                        // The monitor went away.
                         self.end_cast(id);
                         continue;
                     }
                 },
                 CastSource::Window(window_id) => match self.window_by_list_id(*window_id) {
-                    // Hidden (another workspace, minimized): no frames.
-                    Some(window) => match self.window_image(renderer, &window, cursor) {
-                        Ok((_, image)) => Ok(Some(image)),
-                        Err(None) => Ok(None),
-                        Err(Some(err)) => Err(err),
-                    },
+                    Some(window) => self.window_elements(renderer, &window, cursor).map(|(r, scale, e)| (r.size, scale, e)),
                     None => {
-                        // The window closed.
                         self.end_cast(id);
                         continue;
                     }
                 },
             };
-            let frame = match image {
-                Ok(Some(image)) => {
-                    let new_size: Size<i32, Physical> = (image.width as i32, image.height as i32).into();
-                    if new_size != size {
-                        tracing::info!(stream = id, ?new_size, "screen cast size changed");
-                        if let Some(cast) = self.screencast.casts.get_mut(&id) {
-                            cast.size = new_size;
-                        }
-                        if let Some(pw) = &self.screencast.pipewire {
-                            pw.send(Command::Resize { id, width: new_size.w as u32, height: new_size.h as u32 });
-                        }
-                    }
-                    let mut pixels = image.rgba;
-                    if self.lock.locked {
-                        pixels.fill(0);
-                    }
-                    to_bgrx(&mut pixels);
-                    Some(pixels)
-                }
-                Ok(None) => None,
-                Err(err) => {
-                    tracing::debug!(err, "screen cast frame failed");
-                    None
-                }
-            };
-            if let Some(cast) = self.screencast.casts.get_mut(&id) {
-                cast.last = Some(now);
+            // Hidden window (or monitor briefly unmapped): no frame.
+            let Some((size, scale, elements)) = scene else { continue };
+            let physical: Size<i32, Physical> = size.to_f64().to_physical(scale).to_i32_round();
+            if physical.w <= 0 || physical.h <= 0 {
+                continue;
             }
+            let frame = {
+                let cast = self.screencast.casts.get_mut(&id).expect("listed above");
+                cast.last = Some(now);
+                if cast.size != physical {
+                    tracing::info!(stream = id, size = ?physical, "screen cast size changed");
+                    cast.size = physical;
+                    cast.target = None;
+                    if let Some(pw) = &self.screencast.pipewire {
+                        pw.send(Command::Resize { id, width: physical.w as u32, height: physical.h as u32 });
+                    }
+                }
+                if cast.locked != locked {
+                    cast.locked = locked;
+                    if let Some(target) = cast.target.as_mut() {
+                        target.fresh = true;
+                    }
+                }
+                if cast.target.is_none() {
+                    match FrameTarget::new(renderer, physical, scale) {
+                        Ok(target) => cast.target = Some(target),
+                        Err(err) => {
+                            tracing::warn!(err, "cannot render screen cast frames");
+                            continue;
+                        }
+                    }
+                }
+                let target = cast.target.as_mut().expect("just made");
+                let finished = target.finish(renderer);
+                let elements: &[super::capture::CaptureElement] = if locked { &[] } else { &elements };
+                let clear = if locked { [0.0, 0.0, 0.0, 1.0] } else { super::capture::CLEAR };
+                if let Err(err) = target.render(renderer, elements, clear) {
+                    tracing::debug!(err, "screen cast frame failed");
+                }
+                finished
+            };
             if let (Some(bgrx), Some(pw)) = (frame, &self.screencast.pipewire) {
                 pw.send(Command::Frame { id, bgrx });
             }
         }
+    }
+}
+
+/// A stream's render target: kept between frames so damage tracking can
+/// tell when nothing changed.
+pub struct FrameTarget {
+    texture: GlesTexture,
+    tracker: OutputDamageTracker,
+    /// BGRA when the GPU can read it back so (no conversion), else RGBA.
+    format: Fourcc,
+    size: Size<i32, Physical>,
+    /// Read-back started last tick.
+    pending: Option<GlesMapping>,
+    /// Draw everything next time (new target, lock change, new consumer).
+    fresh: bool,
+}
+
+impl FrameTarget {
+    fn new(renderer: &mut GlesRenderer, size: Size<i32, Physical>, scale: f64) -> Result<Self, String> {
+        let buffer: Size<i32, Buffer> = (size.w, size.h).into();
+        let (texture, format) = match renderer.create_buffer(Fourcc::Argb8888, buffer) {
+            Ok(texture) => (texture, Fourcc::Argb8888),
+            Err(_) => (renderer.create_buffer(Fourcc::Abgr8888, buffer).map_err(|e| format!("{e:?}"))?, Fourcc::Abgr8888),
+        };
+        Ok(Self {
+            texture,
+            tracker: OutputDamageTracker::new(size, scale, Transform::Normal),
+            format,
+            size,
+            pending: None,
+            fresh: true,
+        })
+    }
+
+    /// Draw `elements`; start reading back if anything changed.
+    fn render(&mut self, renderer: &mut GlesRenderer, elements: &[super::capture::CaptureElement], clear: [f32; 4]) -> Result<(), String> {
+        let age = if self.fresh { 0 } else { 1 };
+        let mut framebuffer = renderer.bind(&mut self.texture).map_err(|e| format!("{e:?}"))?;
+        let result = self
+            .tracker
+            .render_output(renderer, &mut framebuffer, age, elements, clear)
+            .map_err(|e| format!("{e:?}"))?;
+        let changed = self.fresh || result.damage.is_some_and(|d| !d.is_empty());
+        if changed {
+            let region = Rectangle::from_size((self.size.w, self.size.h).into());
+            let mapping = match renderer.copy_framebuffer(&framebuffer, region, self.format) {
+                Ok(m) => m,
+                Err(_) if self.format == Fourcc::Argb8888 => {
+                    // This GPU can't read BGRA back: read RGBA and convert.
+                    self.format = Fourcc::Abgr8888;
+                    renderer.copy_framebuffer(&framebuffer, region, self.format).map_err(|e| format!("{e:?}"))?
+                }
+                Err(err) => return Err(format!("{err:?}")),
+            };
+            self.pending = Some(mapping);
+            self.fresh = false;
+        }
+        Ok(())
+    }
+
+    /// The frame read back last tick, as BGRx top to bottom.
+    fn finish(&mut self, renderer: &mut GlesRenderer) -> Option<Vec<u8>> {
+        let mapping = self.pending.take()?;
+        let bottom_up = !mapping.flipped();
+        let data = renderer.map_texture(&mapping).ok()?;
+        let (w, h) = (self.size.w as usize, self.size.h as usize);
+        let stride = w * 4;
+        if data.len() < stride * h {
+            return None;
+        }
+        let mut out = vec![0u8; stride * h];
+        for row in 0..h {
+            let src = if bottom_up { h - 1 - row } else { row };
+            out[row * stride..(row + 1) * stride].copy_from_slice(&data[src * stride..(src + 1) * stride]);
+        }
+        if self.format == Fourcc::Abgr8888 {
+            to_bgrx(&mut out);
+        }
+        Some(out)
     }
 }
 

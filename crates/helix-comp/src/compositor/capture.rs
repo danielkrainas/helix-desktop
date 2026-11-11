@@ -30,14 +30,17 @@ use smithay::wayland::compositor::with_states;
 use super::{ClientState, Helix};
 
 /// The background where no window is (same as the screen).
-const CLEAR: [f32; 4] = [0.12, 0.12, 0.14, 1.0];
+pub const CLEAR: [f32; 4] = [0.12, 0.12, 0.14, 1.0];
 
 smithay::backend::renderer::element::render_elements! {
-    CaptureElement<=GlesRenderer>;
+    pub CaptureElement<=GlesRenderer>;
     Space = SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>,
     Cursor = MemoryRenderBufferRenderElement<GlesRenderer>,
     Surface = WaylandSurfaceRenderElement<GlesRenderer>,
 }
+
+/// What to draw: logical size, scale, and the elements front to back.
+pub type Scene = (Size<i32, Logical>, f64, Vec<CaptureElement>);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Target {
@@ -336,6 +339,17 @@ impl Helix {
         output: &smithay::output::Output,
         cursor: Option<Option<&MemoryRenderBuffer>>,
     ) -> Result<Image, String> {
+        let (size, scale, elements) = self.output_elements(renderer, output, cursor)?;
+        render(renderer, size, scale, &elements)
+    }
+
+    /// What one monitor shows: its logical size, scale and elements.
+    pub fn output_elements(
+        &self,
+        renderer: &mut GlesRenderer,
+        output: &smithay::output::Output,
+        cursor: Option<Option<&MemoryRenderBuffer>>,
+    ) -> Result<Scene, String> {
         let geometry = self.space.output_geometry(output).ok_or("output not mapped")?;
         let scale = output.current_scale().fractional_scale();
         let mut elements = match cursor {
@@ -344,7 +358,7 @@ impl Helix {
         };
         let space = space_render_elements(renderer, [&self.space], output, 1.0).map_err(|e| format!("{e:?}"))?;
         elements.extend(space.into_iter().map(CaptureElement::Space));
-        render(renderer, geometry.size, scale, &elements)
+        Ok((geometry.size, scale, elements))
     }
 
     /// `Err(None)`: no focused window.
@@ -366,8 +380,21 @@ impl Helix {
         window: &Window,
         cursor: Option<Option<&MemoryRenderBuffer>>,
     ) -> Result<(Rectangle<i32, Logical>, Image), Option<String>> {
+        let (rect, scale, elements) = self.window_elements(renderer, window, cursor).ok_or(None)?;
+        let image = render(renderer, rect.size, scale, &elements).map_err(Some)?;
+        Ok((rect, image))
+    }
+
+    /// What one window shows: its rectangle, scale and elements; `None`
+    /// when it is not shown.
+    pub fn window_elements(
+        &self,
+        renderer: &mut GlesRenderer,
+        window: &Window,
+        cursor: Option<Option<&MemoryRenderBuffer>>,
+    ) -> Option<(Rectangle<i32, Logical>, f64, Vec<CaptureElement>)> {
         let window = window.clone();
-        let location = self.space.element_location(&window).ok_or(None)?;
+        let location = self.space.element_location(&window)?;
         let geometry = window.geometry();
         let rect = Rectangle::new(location, geometry.size);
         let scale = self
@@ -385,8 +412,7 @@ impl Helix {
         let surfaces: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
             window.render_elements(renderer, at, Scale::from(scale), 1.0);
         elements.extend(surfaces.into_iter().map(CaptureElement::Surface));
-        let image = render(renderer, rect.size, scale, &elements).map_err(Some)?;
-        Ok((rect, image))
+        Some((rect, scale, elements))
     }
 
     /// The pointer, relative to `origin`, if it is drawn by us.

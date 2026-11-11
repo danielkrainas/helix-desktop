@@ -210,7 +210,9 @@ that rely on the window manager for one can be moved with Super+drag.
 Screen sharing works through the ScreenCast portal: when an app asks, the
 shell lets you pick a monitor ("Share your screen?"), the compositor
 records it into a PipeWire video stream (`org.gnome.Mutter.ScreenCast`,
-BGRx, up to 30 frames a second), and the panel shows a red "Sharing" label
+BGRx, up to 30 frames a second, only when something changed; frames are
+read back from the GPU in BGRA without conversion where the GPU allows,
+one frame behind so the compositor never waits on the GPU), and the panel shows a red "Sharing" label
 until it ends. Single windows can be shared too (the stream follows the
 window's size; nothing is sent while it is hidden). When an app asks to
 remember the choice, a shared monitor is shared again later without
