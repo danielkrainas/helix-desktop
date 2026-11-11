@@ -249,6 +249,9 @@ async fn monitor_reports_running_then_ending() {
     assert_eq!(next_state(&mut states, &session).await, 1);
 
     sm.logout(1).await.unwrap();
+    // Query end first; a monitor acknowledges, then the session ends.
+    assert_eq!(next_state(&mut states, &session).await, 2);
+    inhibit.query_end_response(&session).await.unwrap();
     assert_eq!(next_state(&mut states, &session).await, 3);
 
     let s = PortalSessionProxy::builder(&frontend).path(&session).unwrap().build().await.unwrap();

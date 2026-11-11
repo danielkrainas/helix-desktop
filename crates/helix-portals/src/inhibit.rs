@@ -39,6 +39,10 @@ pub struct Registry {
     requests: HashMap<OwnedObjectPath, RequestEntry>,
     monitors: HashMap<OwnedObjectPath, Option<String>>,
     session_state: Option<u32>,
+    /// Monitors that have not yet acknowledged the current query end.
+    awaiting_query_end: std::collections::HashSet<OwnedObjectPath>,
+    /// Woken when a monitor acknowledges.
+    pub query_end_acked: Arc<tokio::sync::Notify>,
 }
 
 pub type SharedRegistry = Arc<Mutex<Registry>>;
@@ -168,9 +172,11 @@ impl InhibitBackend {
     }
 
     async fn query_end_response(&self, session_handle: ObjectPath<'_>) {
-        // There is no query-end phase yet (see gaps.md), so nothing waits on
-        // this acknowledgement.
         tracing::debug!(%session_handle, "query end response");
+        let path = OwnedObjectPath::from(session_handle.into_owned());
+        let mut reg = lock(&self.registry);
+        reg.awaiting_query_end.remove(&path);
+        reg.query_end_acked.notify_waiters();
     }
 
     #[zbus(signal)]
@@ -298,6 +304,28 @@ pub async fn release_all(conn: &Connection, registry: &SharedRegistry) {
     }
     for path in &monitors {
         let _ = server.remove::<MonitorSession, _>(path).await;
+    }
+}
+
+/// Query end: tell monitors, then wait (up to `limit`) for them all to
+/// acknowledge with QueryEndResponse.
+pub async fn query_end(conn: &Connection, registry: &SharedRegistry, limit: std::time::Duration) {
+    let acked = {
+        let mut reg = lock(registry);
+        reg.awaiting_query_end = reg.monitors.keys().cloned().collect();
+        reg.query_end_acked.clone()
+    };
+    broadcast_state(conn, registry, session_state::QUERY_END).await;
+    let deadline = tokio::time::Instant::now() + limit;
+    loop {
+        let notified = acked.notified();
+        if lock(registry).awaiting_query_end.is_empty() {
+            return;
+        }
+        if tokio::time::timeout_at(deadline, notified).await.is_err() {
+            tracing::debug!("not every monitor acknowledged the query end in time");
+            return;
+        }
     }
 }
 

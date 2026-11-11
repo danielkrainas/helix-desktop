@@ -63,7 +63,8 @@ impl PortalService {
 
         let tasks = vec![
             spawn_owner_watcher(&conn, sm.clone(), registry.clone()).await?,
-            spawn_session_watcher(&conn, sm, registry.clone()).await?,
+            spawn_session_watcher(&conn, sm.clone(), registry.clone()).await?,
+            spawn_session_client(&conn, sm, registry.clone()),
         ];
         Ok(Self {
             conn,
@@ -128,6 +129,73 @@ async fn spawn_owner_watcher(
             }
         }
     }))
+}
+
+/// Register as a session client so the end-of-session protocol reaches the
+/// inhibit portal's monitors (query end → state 2, end → state 3, cancel →
+/// state 1), as GNOME's portal backend does.
+fn spawn_session_client(
+    conn: &Connection,
+    sm: SessionManagerProxy<'static>,
+    registry: SharedRegistry,
+) -> JoinHandle<()> {
+    let conn = conn.clone();
+    tokio::spawn(async move {
+        let path = match sm.register_client(BUS_NAME, "").await {
+            Ok(path) => path,
+            Err(err) => {
+                tracing::info!(%err, "no session manager to register with");
+                return;
+            }
+        };
+        let rule = match zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface("org.gnome.SessionManager.ClientPrivate")
+            .and_then(|b| b.path(path.clone()))
+        {
+            Ok(b) => b.build(),
+            Err(err) => {
+                tracing::warn!(%err, "bad session client match rule");
+                return;
+            }
+        };
+        let Ok(mut signals) = zbus::MessageStream::for_match_rule(rule, &conn, None).await else {
+            tracing::warn!("cannot watch session client signals");
+            return;
+        };
+        let respond = |ok: bool| {
+            let conn = conn.clone();
+            let path = path.clone();
+            async move {
+                let _ = conn
+                    .call_method(
+                        Some("org.gnome.SessionManager"),
+                        path.as_str(),
+                        Some("org.gnome.SessionManager.ClientPrivate"),
+                        "EndSessionResponse",
+                        &(ok, ""),
+                    )
+                    .await;
+            }
+        };
+        while let Some(Ok(message)) = signals.next().await {
+            match message.header().member().map(|m| m.as_str()) {
+                Some("QueryEndSession") => {
+                    // Answer within the protocol's one second.
+                    inhibit::query_end(&conn, &registry, std::time::Duration::from_millis(800)).await;
+                    respond(true).await;
+                }
+                Some("EndSession") => {
+                    inhibit::broadcast_state(&conn, &registry, session_state::ENDING).await;
+                    respond(true).await;
+                }
+                Some("CancelEndSession") => {
+                    inhibit::broadcast_state(&conn, &registry, session_state::RUNNING).await;
+                }
+                _ => {}
+            }
+        }
+    })
 }
 
 /// Forward SessionManager lifecycle signals to inhibit monitors.

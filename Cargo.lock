@@ -918,6 +918,7 @@ dependencies = [
  "futures-util",
  "gio",
  "helix-protocols",
+ "helix-session",
  "helix-settings",
  "helix-test-support",
  "libc",

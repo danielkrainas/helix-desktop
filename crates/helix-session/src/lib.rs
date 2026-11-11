@@ -9,9 +9,11 @@
 //!   session ends.
 
 pub mod client;
+pub mod end_session;
 pub mod launcher;
 pub mod locale;
 pub mod manager;
+pub mod objects;
 pub mod state;
 
 use std::collections::BTreeMap;
@@ -60,11 +62,21 @@ impl SessionService {
         builder: connection::Builder<'_>,
         info: SessionInfo,
     ) -> zbus::Result<Self> {
+        Self::start_with_timeouts(builder, info, end_session::Timeouts::default()).await
+    }
+
+    /// Like [`start_with`](Self::start_with), with end-of-session timeouts
+    /// (tests use short ones).
+    pub async fn start_with_timeouts(
+        builder: connection::Builder<'_>,
+        info: SessionInfo,
+        timeouts: end_session::Timeouts,
+    ) -> zbus::Result<Self> {
         let state = Arc::new(Mutex::new(SessionState::new()));
         let (end_tx, end_rx) = mpsc::unbounded_channel();
 
         let conn = builder
-            .serve_at(OBJECT_PATH, SessionManager::new(state.clone(), end_tx, info))?
+            .serve_at(OBJECT_PATH, SessionManager::new(state.clone(), end_tx, info, timeouts))?
             .build()
             .await?;
 

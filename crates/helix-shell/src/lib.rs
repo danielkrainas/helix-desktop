@@ -7,6 +7,7 @@
 
 pub mod accel;
 pub mod auth;
+pub mod end_dialog;
 pub mod font;
 pub mod idle;
 pub mod launcher;
@@ -80,6 +81,17 @@ pub enum UiEvent {
     Lock,
     /// The notification banner to show, or none.
     Banner(Option<notifications::Banner>),
+    /// The end-session confirmation dialog to show, or none.
+    EndDialog(Option<end_dialog::EndDialog>),
+}
+
+/// Power menu entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerAction {
+    Lock,
+    LogOut,
+    Restart,
+    PowerOff,
 }
 
 /// Reports from the shell UI back to the D-Bus side.
@@ -101,6 +113,10 @@ pub enum UiRequest {
     NotificationActivated { id: u32, action: Option<String> },
     /// A banner's close button was pressed.
     NotificationDismissed { id: u32 },
+    /// The user answered the end-session dialog.
+    EndDialogAnswer(end_dialog::Choice),
+    /// A power menu entry was chosen.
+    Power(PowerAction),
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -356,10 +372,14 @@ impl ShellService {
         };
         let center = notifications::Center::new(ui.clone(), lock_status);
         let conn = builder
-            .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui })?
+            .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone() })?
             .serve_at(screensaver::OBJECT_PATH, saver)?
             .serve_at(notifications::FDO_PATH, notifications::FdoNotifications { center: center.clone() })?
             .serve_at(notifications::GTK_PATH, notifications::GtkNotifications { center: center.clone() })?
+            .serve_at(
+                end_dialog::OBJECT_PATH,
+                end_dialog::EndSessionDialog { ui: ui.clone(), open_kind: Default::default() },
+            )?
             .build()
             .await?;
         match conn
@@ -497,6 +517,39 @@ impl UiBridge {
                 result
             }
             UiRequest::NotificationActivated { id, action } => self.center.activate(&self.conn, id, action).await,
+            UiRequest::EndDialogAnswer(choice) => {
+                let dialog = self
+                    .conn
+                    .object_server()
+                    .interface::<_, end_dialog::EndSessionDialog>(end_dialog::OBJECT_PATH)
+                    .await?;
+                let object = dialog.get().await;
+                let result = object.answer(choice, dialog.signal_emitter()).await;
+                result
+            }
+            UiRequest::Power(action) => {
+                let call = |member: &'static str, body: Option<u32>| {
+                    let conn = self.conn.clone();
+                    async move {
+                        let (iface, path, name) = ("org.gnome.SessionManager", "/org/gnome/SessionManager", "org.gnome.SessionManager");
+                        match body {
+                            Some(mode) => conn.call_method(Some(name), path, Some(iface), member, &(mode,)).await,
+                            None => conn.call_method(Some(name), path, Some(iface), member, &()).await,
+                        }
+                        .map(|_| ())
+                    }
+                };
+                let result = match action {
+                    PowerAction::Lock => lock_via(&self.conn).await,
+                    PowerAction::LogOut => call("Logout", Some(0)).await,
+                    PowerAction::Restart => call("Reboot", None).await,
+                    PowerAction::PowerOff => call("Shutdown", None).await,
+                };
+                if let Err(err) = &result {
+                    tracing::warn!(%err, ?action, "power action failed");
+                }
+                Ok(())
+            }
             UiRequest::NotificationDismissed { id } => {
                 self.center
                     .close(&self.conn, id, notify_store::CloseReason::Dismissed)

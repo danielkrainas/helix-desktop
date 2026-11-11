@@ -93,6 +93,8 @@ pub enum SessionError {
     Inhibited { count: usize },
     /// Every cookie value is in use (practically unreachable).
     CookiesExhausted,
+    /// An end-of-session sequence is already under way.
+    AlreadyEnding,
 }
 
 impl EndSessionAction {
@@ -122,6 +124,7 @@ impl fmt::Display for SessionError {
                 write!(f, "session end is inhibited by {count} active inhibitor(s)")
             }
             Self::CookiesExhausted => write!(f, "no free inhibit cookies"),
+            Self::AlreadyEnding => write!(f, "the session is already ending"),
         }
     }
 }
@@ -184,6 +187,8 @@ pub struct SessionState {
     next_cookie: u32,
     active: bool,
     locked: bool,
+    /// An end-of-session sequence (confirm/query/end) is running.
+    ending: bool,
 }
 
 impl Default for SessionState {
@@ -205,6 +210,7 @@ impl SessionState {
             // considered active and unlocked.
             active: true,
             locked: false,
+            ending: false,
         }
     }
 
@@ -341,6 +347,43 @@ impl SessionState {
         }
         self.phase = Phase::Ending;
         Ok(())
+    }
+
+    /// Start an end-of-session sequence (it may still be cancelled).
+    pub fn begin_end(&mut self) -> Result<(), SessionError> {
+        if self.phase != Phase::Running {
+            return Err(SessionError::NotRunning);
+        }
+        if self.ending {
+            return Err(SessionError::AlreadyEnding);
+        }
+        self.ending = true;
+        Ok(())
+    }
+
+    /// The sequence was cancelled; the session keeps running.
+    pub fn cancel_end(&mut self) {
+        self.ending = false;
+    }
+
+    /// The sequence completed: the session is over.
+    pub fn commit_end(&mut self) {
+        self.phase = Phase::Ending;
+    }
+
+    /// Inhibitors that block ending the session (logout flag).
+    pub fn blocking_inhibitors(&self) -> Vec<Inhibitor> {
+        self.inhibitors
+            .values()
+            .filter(|i| i.flags & inhibit_flags::LOGOUT != 0)
+            .cloned()
+            .collect()
+    }
+
+    /// The client registered by a bus peer, if any.
+    pub fn client_of(&self, owner: Option<&str>) -> Option<&Client> {
+        let owner = owner?;
+        self.clients.values().find(|c| c.owner.as_deref() == Some(owner))
     }
 
     /// A session component failed to start (`InitializationError`).
@@ -563,6 +606,28 @@ mod tests {
         s.inhibit("editor", "unsaved", inhibit_flags::LOGOUT, None).unwrap();
         s.request_end(EndSessionAction::Logout(LogoutMode::Force)).unwrap();
         assert_eq!(s.phase(), Phase::Ending);
+    }
+
+    #[test]
+    fn end_sequence_bookkeeping() {
+        let mut s = SessionState::new();
+        assert_eq!(s.begin_end(), Err(SessionError::NotRunning));
+        s.initialized().unwrap();
+        s.begin_end().unwrap();
+        assert_eq!(s.begin_end(), Err(SessionError::AlreadyEnding), "one at a time");
+        s.cancel_end();
+        assert!(s.is_running(), "cancelled: still running");
+        s.begin_end().unwrap();
+        s.commit_end();
+        assert_eq!(s.phase(), Phase::Ending);
+
+        let mut s = running();
+        s.inhibit("idle", "", inhibit_flags::IDLE, None).unwrap();
+        let blocker = s.inhibit("editor", "unsaved", inhibit_flags::LOGOUT, Some(":1.4")).unwrap();
+        assert_eq!(s.blocking_inhibitors(), vec![blocker]);
+        let c = s.register_client("editor", Some(":1.4"));
+        assert_eq!(s.client_of(Some(":1.4")), Some(&c));
+        assert_eq!(s.client_of(Some(":1.5")), None);
     }
 
     #[test]

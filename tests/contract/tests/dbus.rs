@@ -181,3 +181,36 @@ async fn notifications() {
     .await;
     assert_matches_contract(service.connection(), GTK_BUS_NAME, GTK_PATH, "org.gtk.Notifications", "org.gtk.Notifications.xml", &[]).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn end_session_dialog_and_session_objects() {
+    let Some(bus) = TestBus::start() else { return };
+    let (shell, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
+    assert_matches_contract(
+        shell.connection(),
+        helix_shell::BUS_NAME,
+        helix_shell::end_dialog::OBJECT_PATH,
+        "org.gnome.SessionManager.EndSessionDialog",
+        "org.gnome.SessionManager.EndSessionDialog.xml",
+        &[],
+    )
+    .await;
+
+    // A client and an inhibitor object exported by the session manager.
+    let session = helix_session::SessionService::start(bus.builder()).await.unwrap();
+    let client = bus.connect().await;
+    let reply = client
+        .call_method(Some("org.gnome.SessionManager"), "/org/gnome/SessionManager", Some("org.gnome.SessionManager"), "RegisterClient", &("org.example.App", ""))
+        .await
+        .unwrap();
+    let client_path: zbus::zvariant::OwnedObjectPath = reply.body().deserialize().unwrap();
+    let reply = client
+        .call_method(Some("org.gnome.SessionManager"), "/org/gnome/SessionManager", Some("org.gnome.SessionManager"), "Inhibit", &("org.example.App", 0u32, "busy", 1u32))
+        .await
+        .unwrap();
+    let cookie: u32 = reply.body().deserialize().unwrap();
+    let conn = session.connection();
+    assert_matches_contract(conn, "org.gnome.SessionManager", client_path.as_str(), "org.gnome.SessionManager.ClientPrivate", "org.gnome.SessionManager.ClientPrivate.xml", &[]).await;
+    let inhibitor = format!("/org/gnome/SessionManager/Inhibitor{cookie}");
+    assert_matches_contract(conn, "org.gnome.SessionManager", &inhibitor, "org.gnome.SessionManager.Inhibitor", "org.gnome.SessionManager.Inhibitor.xml", &[]).await;
+}

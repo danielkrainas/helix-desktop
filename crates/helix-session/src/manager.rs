@@ -11,7 +11,10 @@ use tokio::sync::mpsc;
 use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath};
-use zbus::{interface, DBusError};
+use zbus::{interface, Connection, DBusError, ObjectServer};
+
+use crate::end_session::{self, needs_confirmation, Dialog, ForceSignal, Sequence, Timeouts, REFUSAL_FLAGS};
+use crate::objects::{ClientObject, InhibitorObject, Responses};
 
 use crate::state::{EndSessionAction, LogoutMode, OwnerCleanup, SessionError, SessionState};
 
@@ -72,6 +75,7 @@ impl From<SessionError> for ManagerError {
             SessionError::InvalidLogoutMode(_) => Self::InvalidArgs(msg),
             SessionError::Inhibited { .. } => Self::Inhibited(msg),
             SessionError::CookiesExhausted => Self::General(msg),
+            SessionError::AlreadyEnding => Self::General(msg),
         }
     }
 }
@@ -83,6 +87,9 @@ pub struct SessionManager {
     state: Arc<Mutex<SessionState>>,
     end_tx: mpsc::UnboundedSender<EndSessionAction>,
     info: SessionInfo,
+    responses: Responses,
+    timeouts: Timeouts,
+    force: ForceSignal,
 }
 
 impl SessionManager {
@@ -90,8 +97,16 @@ impl SessionManager {
         state: Arc<Mutex<SessionState>>,
         end_tx: mpsc::UnboundedSender<EndSessionAction>,
         info: SessionInfo,
+        timeouts: Timeouts,
     ) -> Self {
-        Self { state, end_tx, info }
+        Self {
+            state,
+            end_tx,
+            info,
+            responses: Responses::default(),
+            timeouts,
+            force: ForceSignal::default(),
+        }
     }
 
     fn state(&self) -> MutexGuard<'_, SessionState> {
@@ -100,13 +115,97 @@ impl SessionManager {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    async fn end_session(
-        &self,
-        action: EndSessionAction,
-        emitter: &SignalEmitter<'_>,
-    ) -> Result<()> {
-        self.state().request_end(action)?;
-        self.announce_end(action, emitter).await
+    /// Start the end-of-session sequence (confirm, query, end, stop).
+    /// Returns once it is under way; `SessionOver` follows.
+    async fn end_session(&self, action: EndSessionAction, conn: &Connection) -> Result<()> {
+        let forced = action == EndSessionAction::Logout(LogoutMode::Force);
+        tracing::info!(?action, "end of session requested");
+        if let Err(err) = self.state().begin_end() {
+            // A forced logout takes over a sequence that is still asking.
+            if forced && err == SessionError::AlreadyEnding {
+                tracing::info!("forced logout overrides the end already in progress");
+                self.force.force();
+                return Ok(());
+            }
+            return Err(err.into());
+        }
+        self.force.reset();
+        let blockers = if forced { Vec::new() } else { self.state().blocking_inhibitors() };
+        let mut dialog = None;
+        if needs_confirmation(action, !blockers.is_empty()) {
+            let paths: Vec<OwnedObjectPath> = blockers.iter().map(|i| owned(&i.object_path())).collect();
+            match Dialog::open(conn, action, &paths).await {
+                Ok(d) => dialog = Some(d),
+                Err(err) if !blockers.is_empty() => {
+                    // Nobody to ask "anyway?": refuse, as without a shell.
+                    tracing::info!(%err, "blocked, and no end-session dialog to ask");
+                    self.state().cancel_end();
+                    return Err(SessionError::Inhibited { count: blockers.len() }.into());
+                }
+                Err(err) => tracing::info!(%err, "no end-session dialog; ending without confirmation"),
+            }
+        }
+        tracing::info!(?action, confirming = dialog.is_some(), "ending the session");
+        tokio::spawn(end_session::run(Sequence {
+            conn: conn.clone(),
+            action,
+            responses: self.responses.clone(),
+            timeouts: self.timeouts,
+            dialog,
+            force: self.force.clone(),
+        }));
+        Ok(())
+    }
+
+    pub fn cancel_end(&self) {
+        self.state().cancel_end();
+    }
+
+    pub fn client_paths(&self) -> Vec<String> {
+        self.state().clients().map(|c| c.object_path()).collect()
+    }
+
+    pub fn blocking_paths(&self) -> Vec<OwnedObjectPath> {
+        self.state().blocking_inhibitors().iter().map(|i| owned(&i.object_path())).collect()
+    }
+
+    /// A client refused to end: show it like an inhibitor (temporary).
+    pub async fn add_refusal(&self, conn: &Connection, client: &str, reason: &str) -> Option<OwnedObjectPath> {
+        let app_id = self
+            .state()
+            .clients()
+            .find(|c| c.object_path() == client)
+            .map(|c| c.app_id.clone())
+            .unwrap_or_default();
+        let inhibitor = self.state().inhibit(&app_id, reason, REFUSAL_FLAGS, None).ok()?;
+        let path = owned(&inhibitor.object_path());
+        let object = InhibitorObject {
+            app_id,
+            reason: reason.to_owned(),
+            flags: REFUSAL_FLAGS,
+            client: OwnedObjectPath::try_from(client.to_owned()).ok()?,
+        };
+        let _ = conn.object_server().at(&path, object).await;
+        Some(path)
+    }
+
+    pub async fn remove_refusal(&self, conn: &Connection, path: &OwnedObjectPath) {
+        let cookie = path
+            .as_str()
+            .strip_prefix(crate::state::INHIBITOR_PATH_PREFIX)
+            .and_then(|n| n.parse::<u32>().ok());
+        if let Some(cookie) = cookie {
+            let _ = self.state().uninhibit(cookie);
+        }
+        let _ = conn.object_server().remove::<InhibitorObject, _>(path).await;
+    }
+
+    /// The sequence completed.
+    pub async fn finish_end(&self, action: EndSessionAction, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
+        self.state().commit_end();
+        self.announce_end(action, emitter)
+            .await
+            .map_err(|e| zbus::Error::Failure(format!("{e:?}")))
     }
 
     /// The state has already moved to `Ending`: tell listeners and the
@@ -153,12 +252,15 @@ impl SessionManager {
     /// the removals.
     pub async fn release_owner(&self, owner: &str, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
         let OwnerCleanup { clients, inhibitors } = self.state().remove_owner(owner);
+        let server = emitter.connection().object_server();
         for c in &clients {
             tracing::info!(owner, app_id = %c.app_id, "client vanished from bus");
+            let _ = server.remove::<ClientObject, _>(c.object_path().as_str()).await;
             Self::client_removed(emitter, path(&c.object_path())).await?;
         }
         for i in &inhibitors {
             tracing::info!(owner, cookie = i.cookie, "inhibitor owner vanished from bus");
+            let _ = server.remove::<InhibitorObject, _>(i.object_path().as_str()).await;
             Self::inhibitor_removed(emitter, path(&i.object_path())).await?;
         }
         if !inhibitors.is_empty() {
@@ -171,6 +273,10 @@ impl SessionManager {
 fn path(s: &str) -> ObjectPath<'_> {
     // Paths are built from fixed prefixes plus a number, so always valid.
     ObjectPath::try_from(s).expect("generated object path is valid")
+}
+
+fn owned(p: &str) -> OwnedObjectPath {
+    OwnedObjectPath::from(path(p).into_owned())
 }
 
 fn sender(header: &Header<'_>) -> Option<String> {
@@ -226,9 +332,15 @@ impl SessionManager {
         _ignored: &str,
         #[zbus(header)] header: Header<'_>,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
     ) -> Result<OwnedObjectPath> {
         let client = self.state().register_client(app_id, sender(&header).as_deref());
         let p = client.object_path();
+        let object = ClientObject {
+            path: p.clone(),
+            responses: self.responses.clone(),
+        };
+        server.at(p.as_str(), object).await?;
         tracing::info!(app_id, path = %p, "client registered");
         Self::client_added(&emitter, path(&p)).await?;
         Ok(OwnedObjectPath::from(path(&p).into_owned()))
@@ -238,13 +350,16 @@ impl SessionManager {
         &self,
         client_id: ObjectPath<'_>,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
     ) -> Result<()> {
         let client = self.state().unregister_client(client_id.as_str())?;
+        let _ = server.remove::<ClientObject, _>(client_id.as_str()).await;
         tracing::info!(app_id = %client.app_id, path = %client_id, "client unregistered");
         Self::client_removed(&emitter, client_id).await?;
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn inhibit(
         &self,
         app_id: &str,
@@ -253,10 +368,25 @@ impl SessionManager {
         flags: u32,
         #[zbus(header)] header: Header<'_>,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
     ) -> Result<u32> {
-        let inhibitor = self
-            .state()
-            .inhibit(app_id, reason, flags, sender(&header).as_deref())?;
+        let owner = sender(&header);
+        let (inhibitor, client) = {
+            let mut state = self.state();
+            let inhibitor = state.inhibit(app_id, reason, flags, owner.as_deref())?;
+            let client = state
+                .client_of(owner.as_deref())
+                .map(|c| owned(&c.object_path()))
+                .unwrap_or_else(|| owned("/"));
+            (inhibitor, client)
+        };
+        let object = InhibitorObject {
+            app_id: app_id.to_owned(),
+            reason: reason.to_owned(),
+            flags,
+            client,
+        };
+        server.at(inhibitor.object_path().as_str(), object).await?;
         tracing::info!(app_id, reason, flags, cookie = inhibitor.cookie, "inhibit");
         Self::inhibitor_added(&emitter, path(&inhibitor.object_path())).await?;
         self.inhibited_actions_changed(&emitter).await?;
@@ -267,8 +397,10 @@ impl SessionManager {
         &self,
         inhibit_cookie: u32,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        #[zbus(object_server)] server: &ObjectServer,
     ) -> Result<()> {
         let inhibitor = self.state().uninhibit(inhibit_cookie)?;
+        let _ = server.remove::<InhibitorObject, _>(inhibitor.object_path().as_str()).await;
         tracing::info!(app_id = %inhibitor.app_id, cookie = inhibit_cookie, "uninhibit");
         Self::inhibitor_removed(&emitter, path(&inhibitor.object_path())).await?;
         self.inhibited_actions_changed(&emitter).await?;
@@ -286,21 +418,17 @@ impl SessionManager {
             .collect()
     }
 
-    async fn shutdown(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) -> Result<()> {
-        self.end_session(EndSessionAction::Shutdown, &emitter).await
+    async fn shutdown(&self, #[zbus(connection)] conn: &Connection) -> Result<()> {
+        self.end_session(EndSessionAction::Shutdown, conn).await
     }
 
-    async fn reboot(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) -> Result<()> {
-        self.end_session(EndSessionAction::Reboot, &emitter).await
+    async fn reboot(&self, #[zbus(connection)] conn: &Connection) -> Result<()> {
+        self.end_session(EndSessionAction::Reboot, conn).await
     }
 
-    async fn logout(
-        &self,
-        mode: u32,
-        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
-    ) -> Result<()> {
+    async fn logout(&self, mode: u32, #[zbus(connection)] conn: &Connection) -> Result<()> {
         let mode = LogoutMode::try_from(mode)?;
-        self.end_session(EndSessionAction::Logout(mode), &emitter).await
+        self.end_session(EndSessionAction::Logout(mode), conn).await
     }
 
     async fn is_session_running(&self) -> bool {

@@ -36,7 +36,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::launcher::{self, Launcher};
 use crate::text::{Canvas, Style, Text};
 use crate::auth::{AuthError, Authenticator, Secret};
-use crate::{font, Osd, UiEvent, UiRequest};
+use crate::end_dialog::{Choice, EndDialog, REBOOT, SHUTDOWN};
+use crate::{font, Osd, PowerAction, UiEvent, UiRequest};
 use smithay_client_toolkit::session_lock::{
     SessionLock, SessionLockHandler, SessionLockState, SessionLockSurface, SessionLockSurfaceConfigure,
 };
@@ -121,8 +122,37 @@ struct Ui {
     bindings: HashMap<u32, HelixKeybindingV1>,
     lock: LockScreen,
     banner: Option<BannerView>,
+    /// Full-screen overlays: the end-session dialog and the power menu.
+    dialog: Option<Overlay<DialogState>>,
+    power_menu: Option<Overlay<()>>,
     exit: bool,
 }
+
+/// A full-output overlay surface with clickable regions.
+struct Overlay<T> {
+    layer: LayerSurface,
+    width: u32,
+    height: u32,
+    configured: bool,
+    hits: Vec<(Rect, OverlayHit)>,
+    state: T,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum OverlayHit {
+    Confirm,
+    Cancel,
+    Power(PowerAction),
+    Outside,
+}
+
+struct DialogState {
+    data: EndDialog,
+    remaining: u32,
+}
+
+const POWER_LABEL: &str = "Power";
+const POWER_BUTTON_W: i32 = 80;
 
 /// What a click on the banner hit.
 #[derive(Debug, Clone, PartialEq)]
@@ -264,6 +294,13 @@ impl Ui {
             text.draw(&mut canvas, APPS_LABEL, (APPS_BUTTON_W as f32 - lw) / 2.0, base, Style { px, color: FG, max_width: 64.0 });
         }
 
+        if let Some(text) = &self.text {
+            let pw = text.width(POWER_LABEL, px);
+            if self.power_menu.is_some() {
+                canvas.rect(w as i32 - POWER_BUTTON_W + 4, 4, POWER_BUTTON_W - 8, h as i32 - 8, HOVER_BG);
+            }
+            text.draw(&mut canvas, POWER_LABEL, w as f32 - (POWER_BUTTON_W as f32 + pw) / 2.0, base, Style { px, color: FG, max_width: 72.0 });
+        }
         match &self.osd {
             Some((osd, _)) => draw_osd(self.text.as_ref(), &mut canvas, osd, w, h),
             None => {
@@ -677,8 +714,185 @@ impl Ui {
         let _ = self.requests.send(request);
     }
 
+    // ----- Overlays: end-session dialog and power menu -----------------------
+
+    fn new_overlay<T>(&mut self, namespace: &str, keyboard: KeyboardInteractivity, state: T) -> Overlay<T> {
+        let surface = self.compositor.create_surface(&self.qh);
+        let layer = self.layer_shell.create_layer_surface(&self.qh, surface, Layer::Overlay, Some(namespace.to_owned()), None);
+        layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
+        layer.set_exclusive_zone(-1);
+        layer.set_keyboard_interactivity(keyboard);
+        layer.set_size(0, 0);
+        layer.commit();
+        Overlay { layer, width: 0, height: 0, configured: false, hits: Vec::new(), state }
+    }
+
+    fn show_end_dialog(&mut self, dialog: Option<EndDialog>) {
+        let Some(data) = dialog else {
+            self.dialog = None;
+            return;
+        };
+        self.power_menu = None;
+        self.close_launcher(true);
+        let remaining = data.seconds;
+        match self.dialog.as_mut() {
+            Some(open) => {
+                open.state = DialogState { data, remaining };
+                self.draw_dialog();
+            }
+            None => {
+                let overlay = self.new_overlay("helix-end-session", KeyboardInteractivity::Exclusive, DialogState { data, remaining });
+                self.dialog = Some(overlay);
+            }
+        }
+    }
+
+    fn answer_dialog(&mut self, choice: Choice) {
+        if self.dialog.take().is_some() {
+            let _ = self.requests.send(UiRequest::EndDialogAnswer(choice));
+        }
+    }
+
+    fn dialog_key(&mut self, event: &KeyEvent) {
+        match event.keysym {
+            Keysym::Escape => self.answer_dialog(Choice::Canceled),
+            Keysym::Return | Keysym::KP_Enter => self.answer_dialog(Choice::Confirmed),
+            _ => {}
+        }
+    }
+
+    /// One second passed: count down, confirming at zero if nothing blocks.
+    fn dialog_tick(&mut self) {
+        let Some(dialog) = self.dialog.as_mut() else { return };
+        if !dialog.state.data.blockers.is_empty() {
+            return;
+        }
+        dialog.state.remaining = dialog.state.remaining.saturating_sub(1);
+        if dialog.state.remaining == 0 {
+            self.answer_dialog(Choice::Confirmed);
+        } else {
+            self.draw_dialog();
+        }
+    }
+
+    fn draw_dialog(&mut self) {
+        let Some(mut overlay) = self.dialog.take() else { return };
+        if overlay.configured && overlay.width > 0 {
+            self.paint_dialog(&mut overlay);
+        }
+        self.dialog = Some(overlay);
+    }
+
+    fn paint_dialog(&mut self, overlay: &mut Overlay<DialogState>) {
+        let (w, h) = (overlay.width as usize, overlay.height as usize);
+        let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
+            return;
+        };
+        let mut canvas = Canvas { data, width: w, height: h };
+        canvas.fill(SCRIM);
+        let text = self.text.as_ref();
+        let d = &overlay.state.data;
+        let (title, verb) = match d.kind {
+            SHUTDOWN => ("Power Off", "Power Off"),
+            REBOOT => ("Restart", "Restart"),
+            _ => ("Log Out", "Log Out"),
+        };
+        let blocked = !d.blockers.is_empty();
+        let bw = 460.min(w as i32 - 40);
+        let rows = d.blockers.len().min(6) as i32;
+        let bh = if blocked { 150 + 26 + rows * 40 } else { 160 };
+        let bx = (w as i32 - bw) / 2;
+        let by = (h as i32 - bh) / 3;
+        canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
+        canvas.rect(bx, by, bw, bh, BANNER_BG);
+        let inner = (bw - 48) as f32;
+        let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
+        label(text, &mut canvas, title, center(title, 20.0), (by + 44) as f32, 20.0, FG, inner);
+        let mut y = by + 78;
+        if blocked {
+            let msg = "Some applications are busy or have unsaved work:";
+            label(text, &mut canvas, msg, (bx + 24) as f32, y as f32, 14.0, DIM_FG, inner);
+            y += 16;
+            for (app, reason) in d.blockers.iter().take(6) {
+                label(text, &mut canvas, app, (bx + 24) as f32, (y + 18) as f32, 15.0, FG, inner);
+                label(text, &mut canvas, reason, (bx + 24) as f32, (y + 36) as f32, 13.0, DIM_FG, inner);
+                y += 40;
+            }
+        } else {
+            let msg = format!("The session will end automatically in {} seconds.", overlay.state.remaining);
+            label(text, &mut canvas, &msg, center(&msg, 14.0), y as f32, 14.0, DIM_FG, inner);
+        }
+        // Buttons: Cancel and the action.
+        let by2 = by + bh - 56;
+        let half = (bw - 24 * 2 - 12) / 2;
+        let cancel = Rect { x: bx + 24, y: by2, w: half, h: 36 };
+        let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: 36 };
+        canvas.rect(cancel.x, cancel.y, cancel.w, cancel.h, BANNER_BORDER);
+        canvas.rect(confirm.x, confirm.y, confirm.w, confirm.h, ACCENT);
+        let confirm_label = if blocked { format!("{verb} Anyway") } else { verb.to_owned() };
+        for (r, s) in [(cancel, "Cancel"), (confirm, confirm_label.as_str())] {
+            let lw = text.map_or(0.0, |t| t.width(s, 15.0));
+            let base = baseline(text, r.y, r.h, 15.0);
+            label(text, &mut canvas, s, r.x as f32 + (r.w as f32 - lw) / 2.0, base, 15.0, FG, r.w as f32);
+        }
+        overlay.hits = vec![(cancel, OverlayHit::Cancel), (confirm, OverlayHit::Confirm)];
+        let surface = overlay.layer.wl_surface();
+        surface.damage_buffer(0, 0, w as i32, h as i32);
+        if buffer.attach_to(surface).is_ok() {
+            overlay.layer.commit();
+        }
+    }
+
+    fn toggle_power_menu(&mut self) {
+        if self.power_menu.take().is_some() {
+            return;
+        }
+        self.close_launcher(true);
+        let overlay = self.new_overlay("helix-power-menu", KeyboardInteractivity::OnDemand, ());
+        self.power_menu = Some(overlay);
+    }
+
+    fn draw_power_menu(&mut self) {
+        let Some(mut overlay) = self.power_menu.take() else { return };
+        if overlay.configured && overlay.width > 0 {
+            let (w, h) = (overlay.width as usize, overlay.height as usize);
+            if let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) {
+                let mut canvas = Canvas { data, width: w, height: h };
+                canvas.fill(0x00000000);
+                let text = self.text.as_ref();
+                let items = [
+                    ("Lock Screen", PowerAction::Lock),
+                    ("Log Out…", PowerAction::LogOut),
+                    ("Restart…", PowerAction::Restart),
+                    ("Power Off…", PowerAction::PowerOff),
+                ];
+                let mw = 200;
+                let mx = w as i32 - mw - 6;
+                let my = PANEL_HEIGHT as i32 + 4;
+                let mh = items.len() as i32 * 36 + 8;
+                canvas.rect(mx - 1, my - 1, mw + 2, mh + 2, BANNER_BORDER);
+                canvas.rect(mx, my, mw, mh, BANNER_BG);
+                overlay.hits.clear();
+                for (i, (name, action)) in items.iter().enumerate() {
+                    let r = Rect { x: mx + 4, y: my + 4 + i as i32 * 36, w: mw - 8, h: 36 };
+                    let base = baseline(text, r.y, r.h, 15.0);
+                    label(text, &mut canvas, name, (r.x + 12) as f32, base, 15.0, FG, (r.w - 24) as f32);
+                    overlay.hits.push((r, OverlayHit::Power(*action)));
+                }
+                overlay.hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, OverlayHit::Outside));
+                let surface = overlay.layer.wl_surface();
+                surface.damage_buffer(0, 0, w as i32, h as i32);
+                if buffer.attach_to(surface).is_ok() {
+                    overlay.layer.commit();
+                }
+            }
+        }
+        self.power_menu = Some(overlay);
+    }
+
     fn handle(&mut self, event: UiEvent) {
         match event {
+            UiEvent::EndDialog(dialog) => self.show_end_dialog(dialog),
             UiEvent::Lock => self.start_lock(),
             UiEvent::Banner(banner) => self.show_banner(banner),
             UiEvent::Osd(osd) => {
@@ -715,6 +929,7 @@ impl Ui {
 
     /// Redraw when the minute changes or an OSD expires.
     fn tick(&mut self) {
+        self.dialog_tick();
         let osd_expired = self.osd.as_ref().is_some_and(|(_, until)| Instant::now() >= *until);
         let minute_changed =
             self.osd.is_none() && self.shown_minute.as_deref() != Some(&clock_text());
@@ -780,6 +995,8 @@ pub fn run(
         keybindings,
         bindings: HashMap::new(),
         banner: None,
+        dialog: None,
+        power_menu: None,
         lock: LockScreen {
             state: SessionLockState::new(&globals, &qh),
             session: None,
@@ -855,6 +1072,10 @@ impl LayerShellHandler for Ui {
             self.exit = true;
         } else if self.banner.as_ref().is_some_and(|b| &b.layer == layer) {
             self.banner = None;
+        } else if self.dialog.as_ref().is_some_and(|d| &d.layer == layer) {
+            self.answer_dialog(Choice::Canceled);
+        } else if self.power_menu.as_ref().is_some_and(|m| &m.layer == layer) {
+            self.power_menu = None;
         } else {
             self.close_launcher(true);
         }
@@ -873,6 +1094,17 @@ impl LayerShellHandler for Ui {
                 self.panel_width = configure.new_size.0;
             }
             self.panel_configured = true;
+            self.draw_panel();
+        } else if let Some(overlay) = self.dialog.as_mut().filter(|o| &o.layer == layer) {
+            overlay.width = configure.new_size.0;
+            overlay.height = configure.new_size.1;
+            overlay.configured = true;
+            self.draw_dialog();
+        } else if let Some(overlay) = self.power_menu.as_mut().filter(|o| &o.layer == layer) {
+            overlay.width = configure.new_size.0;
+            overlay.height = configure.new_size.1;
+            overlay.configured = true;
+            self.draw_power_menu();
             self.draw_panel();
         } else if let Some(view) = self.banner.as_mut().filter(|v| &v.layer == layer) {
             view.width = configure.new_size.0;
@@ -928,6 +1160,11 @@ impl KeyboardHandler for Ui {
     fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
         if self.lock.session.is_some() {
             self.lock_key(&event);
+        } else if self.dialog.is_some() {
+            self.dialog_key(&event);
+        } else if self.power_menu.is_some() && event.keysym == Keysym::Escape {
+            self.power_menu = None;
+            self.draw_panel();
         } else {
             self.launcher_key(&event);
         }
@@ -950,10 +1187,28 @@ impl PointerHandler for Ui {
                 continue;
             };
             let (x, y) = event.position;
-            if self.banner.as_ref().is_some_and(|b| b.layer.wl_surface() == &event.surface) {
+            let hit_in = |hits: &[(Rect, OverlayHit)]| hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, h)| *h);
+            if let Some(hit) = self.dialog.as_ref().filter(|d| d.layer.wl_surface() == &event.surface).and_then(|d| hit_in(&d.hits)) {
+                match hit {
+                    OverlayHit::Confirm => self.answer_dialog(Choice::Confirmed),
+                    OverlayHit::Cancel => self.answer_dialog(Choice::Canceled),
+                    _ => {}
+                }
+            } else if self.power_menu.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
+                let hit = self.power_menu.as_ref().and_then(|m| hit_in(&m.hits));
+                self.power_menu = None;
+                if let Some(OverlayHit::Power(action)) = hit {
+                    tracing::info!(?action, "power menu");
+                    let _ = self.requests.send(UiRequest::Power(action));
+                }
+                self.draw_panel();
+            } else if self.banner.as_ref().is_some_and(|b| b.layer.wl_surface() == &event.surface) {
                 self.banner_click(x, y);
             } else if &event.surface == self.panel.wl_surface() {
-                if x < f64::from(APPS_BUTTON_W) {
+                if x >= f64::from(self.panel_width as i32 - POWER_BUTTON_W) {
+                    self.toggle_power_menu();
+                    self.draw_panel();
+                } else if x < f64::from(APPS_BUTTON_W) {
                     if self.launcher.is_some() {
                         self.close_launcher(true);
                     } else {

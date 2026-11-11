@@ -81,10 +81,13 @@ Current behavior worth knowing:
   A fatal `InitializationError` ends the session.
 - `Logout` accepts modes 0 (normal), 1 (no confirmation), 2 (force) and
   rejects anything else.
-- `Logout(0|1)`/`Shutdown`/`Reboot` are refused with
+- Ending the session follows the spec's sequence (see "Logging out"
+  below): confirm, query clients, end, stop, `SessionOver`. Without a shell
+  to ask, `Logout(0|1)`/`Shutdown`/`Reboot` are refused with
   `org.gnome.SessionManager.Error.Inhibited` while an inhibitor holds the
-  logout flag (1). `Logout(2)` ignores inhibitors. Inhibitors without the
-  logout flag (e.g. idle) never block ending the session.
+  logout flag (1). `Logout(2)` ignores inhibitors and client refusals, and
+  takes over a sequence still waiting for confirmation. Inhibitors without
+  the logout flag (e.g. idle) never block ending the session.
 - `Shutdown`/`Reboot` only end the session; they never power off the machine.
 - Clients and inhibitors are tied to the caller's bus connection and are
   released when it disconnects. A one-shot `busctl call Inhibit ...` therefore
@@ -227,6 +230,33 @@ For development only, building helix-shell with the `insecure-test-auth`
 feature makes the lock screen accept the password `helix-test` instead of
 using PAM. Never use such a build for real.
 
+## Logging out
+
+The panel's **Power** button opens a menu: Lock Screen, Log Out…,
+Restart…, Power Off…. The last three call `SessionManager`'s `Logout(0)`,
+`Reboot` and `Shutdown`, like any other caller would.
+
+The session manager then asks the shell's
+`org.gnome.SessionManager.EndSessionDialog` to confirm. The dialog counts
+down 60 seconds, lists the apps inhibiting logout (with their reasons) and
+offers Cancel or Log Out/Restart/Power Off ("… Anyway" when something
+inhibits); Escape cancels, Enter confirms.
+
+Each registered client (`RegisterClient`) gets an object at
+`/org/gnome/SessionManager/Client<n>` (`ClientPrivate`). Once confirmed,
+clients get `QueryEndSession` and have one second to answer with
+`EndSessionResponse`. If one says no, the dialog comes back listing that
+client like an inhibitor. Then `EndSession` (ten seconds to clean up),
+`Stop`, and `SessionOver`. Cancelling sends `CancelEndSession`. Inhibitors
+are objects at `/org/gnome/SessionManager/Inhibitor<cookie>`.
+
+helix-portals registers as a client, so the Inhibit portal's session
+monitors see the query (state 2, "query end") and can answer it with
+`QueryEndResponse`.
+
+`Shutdown` and `Reboot` still only end the session; they do not power off
+or restart the machine yet.
+
 ## Running on real hardware
 
 Try this from a free text console, not from inside your desktop:
@@ -257,8 +287,9 @@ instead of taking over the screen.
 accelerator grabs; `Eval` is always refused) and, when `WAYLAND_DISPLAY`
 points at the compositor, draws:
 
-- a top panel with an **Apps** button and a clock; `ShowOSD` level requests
-  show as a level bar in the panel for two seconds;
+- a top panel with an **Apps** button, a clock and a **Power** menu (see
+  "Logging out"); `ShowOSD` level requests show as a level bar in the panel
+  for two seconds;
 - an application launcher, opened by the Apps button, Super, or
   `ShowApplications`: type to search installed apps (from their `.desktop`
   files), arrows to select, Enter or click to launch, Escape or a click
