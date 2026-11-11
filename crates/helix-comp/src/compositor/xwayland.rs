@@ -287,6 +287,12 @@ impl XwmHandler for Helix {
     }
 
     fn send_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {
+        if selection == SelectionTarget::Clipboard {
+            if let Some(super::ServerSelection::Image(png)) = current_data_device_selection_userdata(&self.seat).as_deref() {
+                super::capture::serve_image(png.clone(), &mime_type, fd);
+                return;
+            }
+        }
         let result = match selection {
             SelectionTarget::Clipboard => request_data_device_client_selection(&self.seat, mime_type, fd)
                 .map_err(|e| e.to_string()),
@@ -301,20 +307,26 @@ impl XwmHandler for Helix {
     fn new_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
         tracing::debug!(?selection, ?mime_types, "X11 selection offered to Wayland clients");
         match selection {
-            SelectionTarget::Clipboard => set_data_device_selection(&self.display_handle, &self.seat, mime_types, ()),
-            SelectionTarget::Primary => set_primary_selection(&self.display_handle, &self.seat, mime_types, ()),
+            SelectionTarget::Clipboard => {
+                set_data_device_selection(&self.display_handle, &self.seat, mime_types, super::ServerSelection::X11)
+            }
+            SelectionTarget::Primary => {
+                set_primary_selection(&self.display_handle, &self.seat, mime_types, super::ServerSelection::X11)
+            }
         }
     }
 
     fn cleared_selection(&mut self, _xwm: XwmId, selection: SelectionTarget) {
         match selection {
             SelectionTarget::Clipboard => {
-                if current_data_device_selection_userdata(&self.seat).is_some() {
+                let x11 = matches!(current_data_device_selection_userdata(&self.seat).as_deref(), Some(super::ServerSelection::X11));
+                if x11 {
                     clear_data_device_selection(&self.display_handle, &self.seat);
                 }
             }
             SelectionTarget::Primary => {
-                if current_primary_selection_userdata(&self.seat).is_some() {
+                let x11 = matches!(current_primary_selection_userdata(&self.seat).as_deref(), Some(super::ServerSelection::X11));
+                if x11 {
                     clear_primary_selection(&self.display_handle, &self.seat);
                 }
             }

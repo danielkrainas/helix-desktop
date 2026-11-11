@@ -399,7 +399,10 @@ impl ShellService {
                 end_dialog::OBJECT_PATH,
                 end_dialog::EndSessionDialog { ui: ui.clone(), open_kind: Default::default() },
             )?
-            .serve_at(screenshot::OBJECT_PATH, screenshot::Screenshot { screens: screenshot::Screens::new(ui.clone()) })?
+            .serve_at(
+                screenshot::OBJECT_PATH,
+                screenshot::Screenshot { screens: screenshot::Screens::with_notifications(ui.clone(), center.clone()) },
+            )?
             .serve_at(
                 display_change::OBJECT_PATH,
                 display_change::DisplayChangeDialog { ui: ui.clone(), open: Default::default() },
@@ -589,15 +592,19 @@ impl UiBridge {
             }
             UiRequest::ShellKey(action) => {
                 // Runs on its own: the screenshot UI waits for the user.
-                let (conn, ui) = (self.conn.clone(), self.ui.clone());
+                let (conn, ui, center) = (self.conn.clone(), self.ui.clone(), self.center.clone());
                 tokio::spawn(async move {
                     let osd = match action {
                         shell_keys::KeyAction::Screenshot(key) => {
-                            screenshot::run_key(&screenshot::Screens::new(ui.clone()), key).await;
+                            screenshot::run_key(&screenshot::Screens::with_notifications(ui.clone(), center), key).await;
                             None
                         }
                         shell_keys::KeyAction::Brightness(step) => shell_keys::change_brightness(&conn, step).await,
                         shell_keys::KeyAction::Volume(change) => shell_keys::change_volume(change).await,
+                        shell_keys::KeyAction::Playback(command) => {
+                            shell_keys::control_player(&conn, command).await;
+                            None
+                        }
                     };
                     if let Some(osd) = osd {
                         let _ = ui.send(UiEvent::Osd(osd));

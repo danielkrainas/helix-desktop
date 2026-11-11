@@ -131,7 +131,7 @@ impl SeatHandler for Helix {
 }
 
 impl SelectionHandler for Helix {
-    type SelectionUserData = ();
+    type SelectionUserData = super::ServerSelection;
 
     /// A Wayland client set the clipboard/primary selection: offer it to X11.
     fn new_selection(
@@ -154,8 +154,12 @@ impl SelectionHandler for Helix {
         mime_type: String,
         fd: std::os::fd::OwnedFd,
         _seat: Seat<Self>,
-        _user_data: &(),
+        user_data: &super::ServerSelection,
     ) {
+        if let super::ServerSelection::Image(png) = user_data {
+            super::capture::serve_image(png.clone(), &mime_type, fd);
+            return;
+        }
         if let Some(xwm) = self.xwm.as_mut() {
             if let Err(err) = xwm.send_selection(ty, mime_type, fd, self.loop_handle.clone()) {
                 tracing::warn!(?err, "cannot transfer selection from X11");

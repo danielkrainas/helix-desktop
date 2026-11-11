@@ -39,6 +39,9 @@ pub enum Origin {
         /// Buttons' action names, by index (key `button-N`).
         buttons: Vec<String>,
     },
+    /// The shell's own: a screenshot it saved (click opens it; the
+    /// `show-in-files` button shows it in the file manager).
+    Screenshot { path: std::path::PathBuf },
 }
 
 #[derive(Debug, Clone, PartialEq)]

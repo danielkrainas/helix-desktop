@@ -1333,7 +1333,7 @@ pub fn run(
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
     let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=1, ()).ok();
-    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=1, ()).ok();
+    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=2, ()).ok();
     if keybindings.is_none() {
         tracing::warn!("compositor offers no key bindings to this process; accelerators will not fire");
     }

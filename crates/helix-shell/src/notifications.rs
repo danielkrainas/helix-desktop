@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+use gio::prelude::*;
 use tokio::sync::mpsc;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedValue, Value};
@@ -96,6 +97,21 @@ impl Center {
         }
     }
 
+    /// "Screenshot captured", for a screenshot the user took.
+    pub fn screenshot_captured(&self, path: std::path::PathBuf) -> u32 {
+        self.post(Notification {
+            id: 0,
+            app_name: "Screenshot".into(),
+            summary: "Screenshot captured".into(),
+            body: "You can paste the image from the clipboard.".into(),
+            actions: vec![("default".into(), "Open".into()), ("show-in-files".into(), "Show in Files".into())],
+            has_default: true,
+            urgency: Urgency::Normal,
+            timeout: Notification::timeout_from(-1, Urgency::Normal),
+            origin: Origin::Screenshot { path },
+        })
+    }
+
     fn post(&self, notification: Notification) -> u32 {
         let id = self.store().add(notification);
         self.refresh();
@@ -160,6 +176,14 @@ impl Center {
                 }
                 self.remove(id);
             }
+            Origin::Screenshot { path } => {
+                if key == "show-in-files" {
+                    show_in_files(conn, path).await;
+                } else {
+                    open_uri(&gio::File::for_path(path).uri());
+                }
+                self.remove(id);
+            }
         }
         Ok(())
     }
@@ -171,6 +195,32 @@ impl Center {
             self.close(conn, id, CloseReason::Expired).await?;
         }
         Ok(())
+    }
+}
+
+fn open_uri(uri: &str) {
+    if let Err(err) = gio::AppInfo::launch_default_for_uri(uri, None::<&gio::AppLaunchContext>) {
+        tracing::warn!(%err, uri, "cannot open");
+    }
+}
+
+/// Show `path` in the file manager, or open its folder.
+async fn show_in_files(conn: &Connection, path: &std::path::Path) {
+    let uri = gio::File::for_path(path).uri().to_string();
+    let shown = conn
+        .call_method(
+            Some("org.freedesktop.FileManager1"),
+            "/org/freedesktop/FileManager1",
+            Some("org.freedesktop.FileManager1"),
+            "ShowItems",
+            &(vec![uri.as_str()], ""),
+        )
+        .await;
+    if let Err(err) = shown {
+        tracing::info!(%err, "no file manager service; opening the folder");
+        if let Some(dir) = path.parent() {
+            open_uri(&gio::File::for_path(dir).uri());
+        }
     }
 }
 

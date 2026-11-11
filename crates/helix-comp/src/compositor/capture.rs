@@ -112,6 +112,19 @@ pub fn compose(area: Rectangle<i32, Logical>, scale: f64, pieces: &[Piece]) -> I
     out
 }
 
+/// Write `png` to `fd` (a client pasting it), off the event loop.
+pub fn serve_image(png: std::sync::Arc<Vec<u8>>, mime_type: &str, fd: OwnedFd) {
+    if mime_type != "image/png" {
+        return;
+    }
+    std::thread::spawn(move || {
+        use std::io::Write;
+        if let Err(err) = std::fs::File::from(fd).write_all(&png) {
+            tracing::debug!(%err, "clipboard image not delivered");
+        }
+    });
+}
+
 /// Encode as PNG.
 pub fn encode_png(image: &Image, out: impl std::io::Write) -> Result<(), png::EncodingError> {
     let mut encoder = png::Encoder::new(out, image.width, image.height);
@@ -188,6 +201,33 @@ impl Helix {
             Ok(_) => self.captures.results = Some(tx),
             Err(err) => tracing::warn!(%err, "screen capture unavailable"),
         }
+    }
+
+    /// Take the clipboard with the PNG image read from `fd`.
+    fn copy_image(&mut self, fd: OwnedFd) {
+        use std::io::Read;
+        let mut png = Vec::new();
+        if let Err(err) = std::fs::File::from(fd).read_to_end(&mut png) {
+            tracing::warn!(%err, "cannot read the image to copy");
+            return;
+        }
+        if !png.starts_with(b"\x89PNG") {
+            tracing::warn!("not copying: not a PNG image");
+            return;
+        }
+        let mime = vec!["image/png".to_owned()];
+        smithay::wayland::selection::data_device::set_data_device_selection(
+            &self.display_handle,
+            &self.seat,
+            mime.clone(),
+            super::ServerSelection::Image(std::sync::Arc::new(png)),
+        );
+        if let Some(xwm) = self.xwm.as_mut() {
+            if let Err(err) = xwm.new_selection(smithay::wayland::selection::SelectionTarget::Clipboard, Some(mime)) {
+                tracing::warn!(?err, "cannot offer the image to X11");
+            }
+        }
+        tracing::info!("image copied to the clipboard");
     }
 
     fn queue_capture(&mut self, pending: Pending) {
@@ -399,6 +439,10 @@ impl Dispatch<HelixScreenshotManagerV1, ()> for Helix {
                 (id, Target::Area(Rectangle::new((x, y).into(), (width, height).into())), shown(cursor), fd)
             }
             Request::CaptureWindow { id, cursor, fd } => (id, Target::Window, shown(cursor), fd),
+            Request::CopyImage { fd } => {
+                state.copy_image(fd);
+                return;
+            }
             Request::Destroy => return,
             _ => return,
         };

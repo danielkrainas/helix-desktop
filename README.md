@@ -357,11 +357,16 @@ points at the compositor, draws:
   layouts on Super+Space;
 - screenshots: Print opens the screenshot UI (drag an area, or Enter for
   the whole screen), Shift+Print captures the screen and Alt+Print the
-  focused window at once. Images go to `~/Pictures/Screenshots`.
+  focused window at once. Images go to `~/Pictures/Screenshots`, are
+  copied to the clipboard (paste works in X11 apps too), and a
+  "Screenshot captured" notification opens the image, or shows it in the
+  file manager with its button.
   `org.gnome.Shell.Screenshot` serves the Screenshot portal and the GNOME
   Screenshot app; other callers are refused;
 - volume keys (through `pactl`, which PipeWire and PulseAudio both serve)
-  and brightness keys, with the new level shown in the panel.
+  and brightness keys, with the new level shown in the panel; playback
+  keys (play/pause, stop, next, previous) control the playing MPRIS media
+  player, or else a paused one.
 
 Text uses the system sans-serif font (via `fc-match`).
 

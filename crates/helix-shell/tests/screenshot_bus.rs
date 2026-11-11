@@ -61,6 +61,8 @@ fn fake_ui(mut ui: tokio::sync::mpsc::UnboundedReceiver<UiEvent>, script: Arc<Mu
                     let _ = reply.send(answer);
                 }
                 Job::Flash(r) => script.seen.push(format!("flash {},{} {}x{}", r.x, r.y, r.width, r.height)),
+                // Apps' screenshots are not copied (none expected below).
+                Job::Copy(_) => script.seen.push("copy".into()),
             }
         }
     });

@@ -78,6 +78,10 @@ impl Ui {
             Job::Capture { target, cursor, file, reply } => self.capture(target, cursor, file, reply),
             Job::Pick { mode, reply } => self.open_picker(mode, reply),
             Job::Flash(area) => self.flash(area),
+            Job::Copy(file) => match self.screenshots.as_ref().filter(|m| m.version() >= 2) {
+                Some(manager) => manager.copy_image(file.as_fd()),
+                None => tracing::info!("compositor cannot take the clipboard; screenshot not copied"),
+            },
         }
     }
 

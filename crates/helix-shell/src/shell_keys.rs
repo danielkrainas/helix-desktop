@@ -39,12 +39,35 @@ pub enum Volume {
     MicMute,
 }
 
+/// Playback keys: the MPRIS method each calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Playback {
+    PlayPause,
+    Pause,
+    Stop,
+    Next,
+    Previous,
+}
+
+impl Playback {
+    pub fn method(self) -> &'static str {
+        match self {
+            Playback::PlayPause => "PlayPause",
+            Playback::Pause => "Pause",
+            Playback::Stop => "Stop",
+            Playback::Next => "Next",
+            Playback::Previous => "Previous",
+        }
+    }
+}
+
 /// What a shell key does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyAction {
     Screenshot(ScreenshotKey),
     Brightness(Brightness),
     Volume(Volume),
+    Playback(Playback),
 }
 
 impl KeyAction {
@@ -83,6 +106,16 @@ const KEYS: &[(&str, &str, &[&str], KeyAction)] = &[
     (MEDIA_KEYS, "volume-mute-quiet-static", &["<Alt>XF86AudioMute"], KeyAction::Volume(Volume::Mute)),
     (MEDIA_KEYS, "mic-mute", &[], KeyAction::Volume(Volume::MicMute)),
     (MEDIA_KEYS, "mic-mute-static", &["XF86AudioMicMute"], KeyAction::Volume(Volume::MicMute)),
+    (MEDIA_KEYS, "play", &[], KeyAction::Playback(Playback::PlayPause)),
+    (MEDIA_KEYS, "play-static", &["XF86AudioPlay", "<Ctrl>XF86AudioPlay"], KeyAction::Playback(Playback::PlayPause)),
+    (MEDIA_KEYS, "pause", &[], KeyAction::Playback(Playback::Pause)),
+    (MEDIA_KEYS, "pause-static", &["XF86AudioPause"], KeyAction::Playback(Playback::Pause)),
+    (MEDIA_KEYS, "stop", &[], KeyAction::Playback(Playback::Stop)),
+    (MEDIA_KEYS, "stop-static", &["XF86AudioStop"], KeyAction::Playback(Playback::Stop)),
+    (MEDIA_KEYS, "next", &[], KeyAction::Playback(Playback::Next)),
+    (MEDIA_KEYS, "next-static", &["XF86AudioNext", "<Ctrl>XF86AudioNext"], KeyAction::Playback(Playback::Next)),
+    (MEDIA_KEYS, "previous", &[], KeyAction::Playback(Playback::Previous)),
+    (MEDIA_KEYS, "previous-static", &["XF86AudioPrev", "<Ctrl>XF86AudioPrev"], KeyAction::Playback(Playback::Previous)),
 ];
 
 /// The installed schema, if it has `key`.
@@ -170,6 +203,50 @@ pub async fn change_brightness(conn: &Connection, step: Brightness) -> Option<Os
         max_level: 1.0,
         connector: None,
     })
+}
+
+// ----- Playback (MPRIS) -------------------------------------------------
+
+const MPRIS_PREFIX: &str = "org.mpris.MediaPlayer2.";
+const MPRIS_PATH: &str = "/org/mpris/MediaPlayer2";
+const MPRIS_PLAYER: &str = "org.mpris.MediaPlayer2.Player";
+
+/// The player to control among (bus name, status), in bus-name order:
+/// the first playing, else the first paused, else the first.
+pub fn choose_player(players: &[(String, String)]) -> Option<&str> {
+    let mut sorted: Vec<&(String, String)> = players.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    sorted
+        .iter()
+        .find(|(_, s)| s == "Playing")
+        .or_else(|| sorted.iter().find(|(_, s)| s == "Paused"))
+        .or_else(|| sorted.first())
+        .map(|(name, _)| name.as_str())
+}
+
+/// Send a playback key to the chosen MPRIS player.
+pub async fn control_player(conn: &Connection, command: Playback) {
+    let names = match zbus::fdo::DBusProxy::new(conn).await {
+        Ok(dbus) => dbus.list_names().await.unwrap_or_default(),
+        Err(_) => return,
+    };
+    let mut players = Vec::new();
+    for name in names.iter().filter(|n| n.starts_with(MPRIS_PREFIX)) {
+        let Ok(proxy) = zbus::Proxy::new(conn, name.to_string(), MPRIS_PATH, MPRIS_PLAYER).await else { continue };
+        if proxy.get_property::<bool>("CanControl").await == Ok(false) {
+            continue;
+        }
+        let status = proxy.get_property::<String>("PlaybackStatus").await.unwrap_or_default();
+        players.push((name.to_string(), status));
+    }
+    let Some(player) = choose_player(&players) else {
+        tracing::info!("no media player to control");
+        return;
+    };
+    tracing::debug!(player, method = command.method(), "media key");
+    if let Err(err) = conn.call_method(Some(player), MPRIS_PATH, Some(MPRIS_PLAYER), command.method(), &()).await {
+        tracing::warn!(%err, player, "media player refused the key");
+    }
 }
 
 // ----- Volume -----------------------------------------------------------
@@ -307,6 +384,16 @@ mod tests {
         assert_eq!(parse_mute("Mute: yes\n"), Some(true));
         assert_eq!(parse_mute("Mute: no"), Some(false));
         assert_eq!(parse_mute("Stummschaltung: ja"), None);
+    }
+
+    #[test]
+    fn player_choice() {
+        let p = |n: &str, s: &str| (n.to_owned(), s.to_owned());
+        assert_eq!(choose_player(&[]), None);
+        let players = [p("org.mpris.MediaPlayer2.z", "Paused"), p("org.mpris.MediaPlayer2.b", "Stopped"), p("org.mpris.MediaPlayer2.c", "Playing")];
+        assert_eq!(choose_player(&players), Some("org.mpris.MediaPlayer2.c"));
+        assert_eq!(choose_player(&players[..2]), Some("org.mpris.MediaPlayer2.z"), "paused beats stopped");
+        assert_eq!(choose_player(&players[1..2]), Some("org.mpris.MediaPlayer2.b"));
     }
 
     #[test]

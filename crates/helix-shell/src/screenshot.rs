@@ -86,6 +86,8 @@ pub enum Job {
     Capture { target: Target, cursor: bool, file: File, reply: oneshot::Sender<Result<Rect, CaptureError>> },
     Pick { mode: PickMode, reply: oneshot::Sender<Picked> },
     Flash(Rect),
+    /// Put the PNG image in this file on the clipboard.
+    Copy(File),
 }
 
 /// A [`Job`] that can travel in a (`Clone`, `PartialEq`) [`UiEvent`].
@@ -109,14 +111,33 @@ impl PartialEq for JobSlot {
 }
 
 /// Hands jobs to the UI.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Screens {
     ui: mpsc::UnboundedSender<UiEvent>,
+    /// Where "Screenshot captured" goes (none in some tests).
+    center: Option<crate::notifications::Center>,
 }
 
 impl Screens {
     pub fn new(ui: mpsc::UnboundedSender<UiEvent>) -> Self {
-        Self { ui }
+        Self { ui, center: None }
+    }
+
+    pub fn with_notifications(ui: mpsc::UnboundedSender<UiEvent>, center: crate::notifications::Center) -> Self {
+        Self { ui, center: Some(center) }
+    }
+
+    /// A screenshot the user took: on the clipboard, and announced.
+    pub fn taken(&self, path: &Path) {
+        match File::open(path) {
+            Ok(file) => {
+                self.send(Job::Copy(file));
+            }
+            Err(err) => tracing::warn!(%err, "cannot copy the screenshot"),
+        }
+        if let Some(center) = &self.center {
+            center.screenshot_captured(path.to_path_buf());
+        }
     }
 
     fn send(&self, job: Job) -> bool {
@@ -175,7 +196,9 @@ impl Screens {
             Picked::Busy => return Err(CaptureError::Failed),
             _ => return Ok(None),
         };
-        self.capture_to(target, false, true, &screenshot_path()).await.map(Some)
+        let path = self.capture_to(target, false, true, &screenshot_path()).await?;
+        self.taken(&path);
+        Ok(Some(path))
     }
 
     /// Let the user click a pixel; its sRGB color.
@@ -426,8 +449,8 @@ pub enum ScreenshotKey {
 pub async fn run_key(screens: &Screens, key: ScreenshotKey) {
     let result = match key {
         ScreenshotKey::Ui => screens.interactive().await.map(drop),
-        ScreenshotKey::Screen => screens.capture_to(Target::Screen, false, true, &screenshot_path()).await.map(drop),
-        ScreenshotKey::Window => screens.capture_to(Target::Window, false, true, &screenshot_path()).await.map(drop),
+        ScreenshotKey::Screen => screens.capture_to(Target::Screen, false, true, &screenshot_path()).await.map(|p| screens.taken(&p)),
+        ScreenshotKey::Window => screens.capture_to(Target::Window, false, true, &screenshot_path()).await.map(|p| screens.taken(&p)),
     };
     if let Err(err) = result {
         tracing::info!(?err, ?key, "no screenshot taken");
