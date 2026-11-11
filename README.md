@@ -239,6 +239,14 @@ can be moved there) without being asked. `org.gnome.Mutter.ScreenCast`
 also records areas, and can send the pointer as PipeWire cursor metadata
 instead of drawing it into the frames.
 
+Remote control works through the RemoteDesktop portal: after the user
+allows it (a dialog naming the app and the devices, or the share dialog
+when the screen is shared too), the app can send keyboard, pointer and
+touch input, either over D-Bus or through an EIS socket (libei, via
+`ConnectToEIS`), as gnome-remote-desktop, Deskflow and similar tools do.
+`org.gnome.Mutter.RemoteDesktop` is served for Helix's portal backend.
+Clipboard sharing and remote keymaps are not supported yet.
+
 Night Light follows GNOME's settings (enabled, temperature, manual
 schedule, or sunset to sunrise at the last known location): the shell
 fades every monitor's gamma through DisplayConfig's `SetCrtcGamma`, which

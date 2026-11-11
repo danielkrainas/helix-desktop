@@ -75,6 +75,14 @@ fn fake_recorder(log: Arc<Mutex<Vec<String>>>) -> mpsc::UnboundedSender<CastRequ
                     let _ = reply.send((window == 7).then_some((800, 600)));
                 }
                 CastRequest::Stop { stream } => log.lock().unwrap().push(format!("stop {stream}")),
+                CastRequest::Input(input) => log.lock().unwrap().push(format!("input {input:?}")),
+                CastRequest::ConnectEis { reply, .. } => {
+                    let _ = reply.send(Err("no EIS here".into()));
+                }
+                CastRequest::EndRemote { session } => log.lock().unwrap().push(format!("end remote {session}")),
+                CastRequest::LockKeys { reply } => {
+                    let _ = reply.send((false, false));
+                }
                 CastRequest::CreateVirtual { stream, reply } => {
                     log.lock().unwrap().push(format!("virtual {stream}"));
                     let _ = reply.send(Ok(("Virtual-1".into(), (1920, 0), (1920, 1080))));

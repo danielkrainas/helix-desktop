@@ -11,6 +11,7 @@ mod gamma;
 mod grabs;
 mod handlers;
 mod input;
+mod remote;
 mod scales;
 mod tiling;
 mod wm_behavior;
@@ -155,6 +156,7 @@ pub struct Helix {
     pub tile_target: Option<wm::Takeover>,
     pub wm: wm_behavior::WmState,
     pub alive: alive::AliveState,
+    pub remote: remote::RemoteState,
     pub gamma: gamma::GammaState,
     pub screencast: screencast::CastState,
 
@@ -247,6 +249,7 @@ impl Helix {
             tile_target: None,
             wm: Default::default(),
             alive: Default::default(),
+            remote: Default::default(),
             gamma: Default::default(),
             screencast: Default::default(),
         };

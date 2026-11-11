@@ -114,6 +114,8 @@ pub enum UiEvent {
     Screenshot(screenshot::JobSlot),
     /// Ask which monitor to share with an app.
     ShareScreen(screencast_chooser::QuestionSlot),
+    /// Ask whether an app may control input (remote desktop).
+    AllowControl(screencast_chooser::ControlSlot),
     /// Whether the screen is being shared (panel indicator).
     Sharing(bool),
     /// From IBus, for the input method.

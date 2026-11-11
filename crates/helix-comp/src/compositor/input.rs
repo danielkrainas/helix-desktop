@@ -18,7 +18,7 @@ pub const BTN_MIDDLE: u32 = 0x112;
 use super::Helix;
 
 impl Helix {
-    fn pointer_to(&mut self, pos: Point<f64, Logical>, time: u32) {
+    pub(super) fn pointer_to(&mut self, pos: Point<f64, Logical>, time: u32) {
         let serial = SERIAL_COUNTER.next_serial();
         let pointer = self.seat.get_pointer().unwrap();
         let frame = if pointer.is_grabbed() { None } else { self.frame_under(pos) };
@@ -29,7 +29,7 @@ impl Helix {
     }
 
     /// Keep the pointer within the outputs' combined bounding box.
-    fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {
+    pub(super) fn clamp_to_outputs(&self, pos: Point<f64, Logical>) -> Point<f64, Logical> {
         let bounds = self
             .space
             .outputs()
@@ -94,43 +94,7 @@ impl Helix {
 
         match event {
             InputEvent::Keyboard { event, .. } => {
-                let serial = SERIAL_COUNTER.next_serial();
-                let time = Event::time_msec(&event);
-                let pressed = event.state() == KeyState::Pressed;
-                let keycode = event.key_code();
-                let action = self.seat.get_keyboard().unwrap().input::<Option<Action>, _>(
-                    self,
-                    keycode,
-                    event.state(),
-                    serial,
-                    time,
-                    |state, modifiers, handle| {
-                        let mods = Mods {
-                            alt: modifiers.alt,
-                            logo: modifiers.logo,
-                            ctrl: modifiers.ctrl,
-                            shift: modifiers.shift,
-                        };
-                        let sym = handle
-                            .raw_latin_sym_or_raw_current_sym()
-                            .unwrap_or_else(|| handle.modified_sym());
-                        if pressed && state.follow.is_some() && handle.modified_sym() == smithay::input::keyboard::Keysym::Escape {
-                            return FilterResult::Intercept(Some(Action::CancelFollow));
-                        }
-                        let decision = state.shortcuts.key(keycode.raw(), pressed, mods, sym);
-                        if decision.intercept {
-                            FilterResult::Intercept(decision.action)
-                        } else {
-                            // E.g. the locate-pointer key: the app gets it too.
-                            state.wm.pending_action = decision.action;
-                            FilterResult::Forward
-                        }
-                    },
-                );
-                if let Some(Some(action)) = action {
-                    self.run_shortcut(action, time);
-                }
-                self.run_pending_action(time);
+                self.key_input(event.key_code(), event.state(), Event::time_msec(&event));
             }
             InputEvent::PointerMotionAbsolute { event, .. } => {
                 let Some(output) = self.space.outputs().next() else {
@@ -149,47 +113,7 @@ impl Helix {
                 self.pointer_to(pos, event.time_msec());
             }
             InputEvent::PointerButton { event, .. } => {
-                let pointer = self.seat.get_pointer().unwrap();
-                let serial = SERIAL_COUNTER.next_serial();
-                let state = event.state();
-
-                if state == ButtonState::Released && event.button_code() == BTN_LEFT {
-                    self.frame_release(pointer.current_location());
-                }
-                if state == ButtonState::Pressed && !pointer.is_grabbed() && !self.lock.locked {
-                    let pos = pointer.current_location();
-                    if let Some((window, part)) = self.frame_under(pos) {
-                        if self.frame_press(window, part, event.button_code(), event.time_msec(), pos) {
-                            return;
-                        }
-                        pointer.button(self, &ButtonEvent { button: event.button_code(), state, serial, time: event.time_msec() });
-                        pointer.frame(self);
-                        return;
-                    }
-                    if self.over_panel(pos) {
-                        // Clicks on panels don't change window focus.
-                    } else if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
-                        // `mouse-button-modifier` clicks move, resize or open
-                        // the window menu, and are not passed to the app.
-                        if self.modifier_click(&window, event.button_code(), pos) {
-                            return;
-                        }
-                        self.focus_window_with(&window, self.wm_settings.raise_on_click);
-                    } else {
-                        self.unfocus_all();
-                    }
-                }
-
-                pointer.button(
-                    self,
-                    &ButtonEvent {
-                        button: event.button_code(),
-                        state,
-                        serial,
-                        time: event.time_msec(),
-                    },
-                );
-                pointer.frame(self);
+                self.button_input(event.button_code(), event.state(), event.time_msec());
             }
             InputEvent::PointerAxis { event, .. } => {
                 let source = event.source();
@@ -223,35 +147,14 @@ impl Helix {
             InputEvent::TouchDown { event } => {
                 let Some(area) = self.touch_area() else { return };
                 let pos = event.position_transformed(area.size) + area.loc.to_f64();
-                if !self.lock.locked {
-                    // A touch focuses the window it lands on, as a click does.
-                    if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
-                        self.focus_window(&window);
-                    }
-                }
-                let under = self.surface_under(pos);
-                let touch = self.seat.get_touch().unwrap();
-                let down = smithay::input::touch::DownEvent {
-                    slot: event.slot(),
-                    location: pos,
-                    serial: SERIAL_COUNTER.next_serial(),
-                    time: event.time_msec(),
-                };
-                touch.down(self, under, &down);
+                self.touch_down(event.slot(), pos, event.time_msec());
             }
             InputEvent::TouchMotion { event } => {
                 let Some(area) = self.touch_area() else { return };
                 let pos = event.position_transformed(area.size) + area.loc.to_f64();
-                let under = self.surface_under(pos);
-                let touch = self.seat.get_touch().unwrap();
-                let motion = smithay::input::touch::MotionEvent { slot: event.slot(), location: pos, time: event.time_msec() };
-                touch.motion(self, under, &motion);
+                self.touch_motion(event.slot(), pos, event.time_msec());
             }
-            InputEvent::TouchUp { event } => {
-                let touch = self.seat.get_touch().unwrap();
-                let up = smithay::input::touch::UpEvent { slot: event.slot(), serial: SERIAL_COUNTER.next_serial(), time: event.time_msec() };
-                touch.up(self, &up);
-            }
+            InputEvent::TouchUp { event } => self.touch_up(event.slot(), event.time_msec()),
             InputEvent::TouchFrame { .. } => {
                 let touch = self.seat.get_touch().unwrap();
                 touch.frame(self);
@@ -262,6 +165,104 @@ impl Helix {
             }
             _ => {}
         }
+    }
+
+    /// A key went down or up (from a device, or injected).
+    pub(super) fn key_input(&mut self, keycode: smithay::input::keyboard::Keycode, key_state: KeyState, time: u32) {
+        let serial = SERIAL_COUNTER.next_serial();
+        let pressed = key_state == KeyState::Pressed;
+        let action = self.seat.get_keyboard().unwrap().input::<Option<Action>, _>(
+            self,
+            keycode,
+            key_state,
+            serial,
+            time,
+            |state, modifiers, handle| {
+                let mods = Mods {
+                    alt: modifiers.alt,
+                    logo: modifiers.logo,
+                    ctrl: modifiers.ctrl,
+                    shift: modifiers.shift,
+                };
+                let sym = handle
+                    .raw_latin_sym_or_raw_current_sym()
+                    .unwrap_or_else(|| handle.modified_sym());
+                if pressed && state.follow.is_some() && handle.modified_sym() == smithay::input::keyboard::Keysym::Escape {
+                    return FilterResult::Intercept(Some(Action::CancelFollow));
+                }
+                let decision = state.shortcuts.key(keycode.raw(), pressed, mods, sym);
+                if decision.intercept {
+                    FilterResult::Intercept(decision.action)
+                } else {
+                    // E.g. the locate-pointer key: the app gets it too.
+                    state.wm.pending_action = decision.action;
+                    FilterResult::Forward
+                }
+            },
+        );
+        if let Some(Some(action)) = action {
+            self.run_shortcut(action, time);
+        }
+        self.run_pending_action(time);
+    }
+
+    /// A pointer button went down or up (from a device, or injected).
+    pub(super) fn button_input(&mut self, button: u32, state: ButtonState, time: u32) {
+        let pointer = self.seat.get_pointer().unwrap();
+        let serial = SERIAL_COUNTER.next_serial();
+        if state == ButtonState::Released && button == BTN_LEFT {
+            self.frame_release(pointer.current_location());
+        }
+        if state == ButtonState::Pressed && !pointer.is_grabbed() && !self.lock.locked {
+            let pos = pointer.current_location();
+            if let Some((window, part)) = self.frame_under(pos) {
+                if self.frame_press(window, part, button, time, pos) {
+                    return;
+                }
+                pointer.button(self, &ButtonEvent { button, state, serial, time });
+                pointer.frame(self);
+                return;
+            }
+            if self.over_panel(pos) {
+                // Clicks on panels don't change window focus.
+            } else if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
+                // `mouse-button-modifier` clicks move, resize or open
+                // the window menu, and are not passed to the app.
+                if self.modifier_click(&window, button, pos) {
+                    return;
+                }
+                self.focus_window_with(&window, self.wm_settings.raise_on_click);
+            } else {
+                self.unfocus_all();
+            }
+        }
+        pointer.button(self, &ButtonEvent { button, state, serial, time });
+        pointer.frame(self);
+    }
+
+    /// A touch point went down at `pos` (layout coordinates).
+    pub(super) fn touch_down(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, time: u32) {
+        if !self.lock.locked {
+            // A touch focuses the window it lands on, as a click does.
+            if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
+                self.focus_window(&window);
+            }
+        }
+        let under = self.surface_under(pos);
+        let touch = self.seat.get_touch().unwrap();
+        let down = smithay::input::touch::DownEvent { slot, location: pos, serial: SERIAL_COUNTER.next_serial(), time };
+        touch.down(self, under, &down);
+    }
+
+    pub(super) fn touch_motion(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, time: u32) {
+        let under = self.surface_under(pos);
+        let touch = self.seat.get_touch().unwrap();
+        touch.motion(self, under, &smithay::input::touch::MotionEvent { slot, location: pos, time });
+    }
+
+    pub(super) fn touch_up(&mut self, slot: smithay::backend::input::TouchSlot, time: u32) {
+        let touch = self.seat.get_touch().unwrap();
+        touch.up(self, &smithay::input::touch::UpEvent { slot, serial: SERIAL_COUNTER.next_serial(), time });
     }
 
     /// The monitor touchscreens cover: the built-in panel, else the primary.

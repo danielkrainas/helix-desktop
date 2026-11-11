@@ -8,6 +8,7 @@
 //! frontend to use (see `session/helix.portal`).
 
 pub mod inhibit;
+pub mod remote_desktop;
 pub mod screencast;
 pub mod screenshot;
 pub mod settings;
@@ -42,10 +43,13 @@ impl PortalService {
         builder: connection::Builder<'_>,
         settings: Arc<dyn SettingsSource>,
     ) -> zbus::Result<Self> {
+        // ScreenCast and RemoteDesktop share their sessions.
+        let casts = screencast::Shared::default();
         let conn = builder
             .serve_at(OBJECT_PATH, SettingsBackend::new(settings))?
             .serve_at(OBJECT_PATH, screenshot::ScreenshotBackend)?
-            .serve_at(OBJECT_PATH, screencast::ScreenCastBackend { shared: Default::default() })?
+            .serve_at(OBJECT_PATH, screencast::ScreenCastBackend { shared: casts.clone() })?
+            .serve_at(OBJECT_PATH, remote_desktop::RemoteDesktopBackend { shared: casts })?
             .build()
             .await?;
 
@@ -116,6 +120,7 @@ impl PortalService {
         server.remove::<SettingsBackend, _>(OBJECT_PATH).await?;
         server.remove::<screenshot::ScreenshotBackend, _>(OBJECT_PATH).await?;
         server.remove::<screencast::ScreenCastBackend, _>(OBJECT_PATH).await?;
+        server.remove::<remote_desktop::RemoteDesktopBackend, _>(OBJECT_PATH).await?;
         self.conn.graceful_shutdown().await;
         Ok(())
     }

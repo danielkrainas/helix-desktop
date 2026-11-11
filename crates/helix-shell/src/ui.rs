@@ -221,12 +221,16 @@ enum DialogKind {
     DisplayChange,
     /// An app does not answer: wait or force it to quit (window id, title).
     NotResponding { id: u32, title: String },
+    /// May an app control input (remote desktop)?
+    RemoteControl { app: String, devices: Vec<String>, reply: Option<tokio::sync::oneshot::Sender<bool>> },
     /// Which monitor to share with an app (`org.helix.ScreenCastChooser`).
     ShareScreen {
         app: String,
         /// (what, label, detail)
         sources: Vec<(crate::screencast_chooser::Shared, String, String)>,
         remember: bool,
+        /// Devices the app will also control (remote desktop).
+        control: Vec<String>,
         reply: Option<tokio::sync::oneshot::Sender<Option<crate::screencast_chooser::Shared>>>,
     },
 }
@@ -925,7 +929,7 @@ impl Ui {
         }
         self.finish_pick(crate::screenshot::Picked::Cancelled);
         self.finish_switching(false);
-        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::ShareScreen { .. })) {
+        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::ShareScreen { .. } | DialogKind::RemoteControl { .. })) {
             self.answer_dialog(Choice::Canceled);
         }
         self.close_launcher(true);
@@ -1145,6 +1149,11 @@ impl Ui {
                         let _ = reply.send(None);
                     }
                 }
+                if let DialogKind::RemoteControl { reply, .. } = &mut open.state.kind {
+                    if let Some(reply) = reply.take() {
+                        let _ = reply.send(false);
+                    }
+                }
                 open.state = state;
                 self.draw_dialog();
             }
@@ -1160,6 +1169,12 @@ impl Ui {
         let request = match dialog.state.kind {
             DialogKind::End(_) => UiRequest::EndDialogAnswer(choice),
             DialogKind::DisplayChange => UiRequest::DisplayChangeAnswer { keep: choice == Choice::Confirmed },
+            DialogKind::RemoteControl { reply, .. } => {
+                if let Some(reply) = reply {
+                    let _ = reply.send(choice == Choice::Confirmed);
+                }
+                return;
+            }
             DialogKind::NotResponding { id, .. } => {
                 let action = if choice == Choice::Confirmed { WindowAction::ForceQuit } else { WindowAction::Wait };
                 if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 5) {
@@ -1200,7 +1215,7 @@ impl Ui {
     fn dialog_tick(&mut self) {
         let Some(dialog) = self.dialog.as_mut() else { return };
         let on_timeout = match &dialog.state.kind {
-            DialogKind::ShareScreen { .. } | DialogKind::NotResponding { .. } => return,
+            DialogKind::ShareScreen { .. } | DialogKind::NotResponding { .. } | DialogKind::RemoteControl { .. } => return,
             DialogKind::End(data) if !data.blockers.is_empty() => return,
             DialogKind::End(_) => Choice::Confirmed,
             DialogKind::DisplayChange => Choice::Canceled,
@@ -1248,6 +1263,13 @@ impl Ui {
                 (title.to_owned(), message, "Cancel", confirm, &d.blockers)
             }
             DialogKind::ShareScreen { .. } => return,
+            DialogKind::RemoteControl { app, devices, .. } => (
+                "Allow remote control?".to_owned(),
+                format!("{app} wants to control your {}.", crate::screencast_chooser::device_list(devices)),
+                "Deny",
+                "Allow".to_owned(),
+                &no_blockers,
+            ),
             DialogKind::NotResponding { title, .. } => (
                 format!("“{title}” is not responding."),
                 "You may choose to wait a short while for it to continue or force the app to quit entirely.".to_owned(),
@@ -1313,7 +1335,7 @@ impl Ui {
 
     /// "Share your screen?": one row per monitor, and Cancel.
     fn paint_share_dialog(&mut self, overlay: &mut Overlay<DialogState>) {
-        let DialogKind::ShareScreen { app, sources, remember, .. } = &overlay.state.kind else { return };
+        let DialogKind::ShareScreen { app, sources, remember, control, .. } = &overlay.state.kind else { return };
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
@@ -1333,7 +1355,11 @@ impl Ui {
         let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
         let title = "Share your screen?";
         label(text, &mut canvas, title, center(title, 20.0), (by + 44) as f32, 20.0, FG, inner);
-        let message = format!("{app} wants to see your screen. Choose what to share.");
+        let message = if control.is_empty() {
+            format!("{app} wants to see your screen. Choose what to share.")
+        } else {
+            format!("{app} wants to see your screen and control your {}.", crate::screencast_chooser::device_list(control))
+        };
         label(text, &mut canvas, &message, center(&message, 14.0), (by + 78) as f32, 14.0, DIM_FG, inner);
         if *remember {
             let note = "It will be able to share the same screen again without asking.";
@@ -1493,9 +1519,19 @@ impl Ui {
                         if sources.is_empty() {
                             let _ = q.reply.send(None);
                         } else {
-                            let kind = DialogKind::ShareScreen { app: q.app, sources, remember: q.remember, reply: Some(q.reply) };
+                            let kind = DialogKind::ShareScreen { app: q.app, sources, remember: q.remember, control: q.control, reply: Some(q.reply) };
                             self.show_dialog(DialogState { kind, remaining: 0 });
                         }
+                    }
+                }
+            }
+            UiEvent::AllowControl(slot) => {
+                if let Some(q) = slot.take() {
+                    if self.lock.session.is_some() || self.dialog.is_some() {
+                        let _ = q.reply.send(false);
+                    } else {
+                        let kind = DialogKind::RemoteControl { app: q.app, devices: q.devices, reply: Some(q.reply) };
+                        self.show_dialog(DialogState { kind, remaining: 0 });
                     }
                 }
             }

@@ -55,7 +55,7 @@ async fn portal_backends() {
         .unwrap();
     let conn = portals.connection();
 
-    for iface in ["Settings", "Inhibit", "Screenshot", "ScreenCast"] {
+    for iface in ["Settings", "Inhibit", "Screenshot", "ScreenCast", "RemoteDesktop"] {
         let name = format!("org.freedesktop.impl.portal.{iface}");
         assert_matches_contract(conn, BUS_NAME, OBJECT_PATH, &name, &format!("{name}.xml"), &[]).await;
     }
@@ -176,6 +176,18 @@ async fn mutter_screen_cast() {
         assert_matches_contract(conn, BUS_NAME, path, iface, "org.gnome.Mutter.ScreenCast.xml", &[]).await;
     }
     assert_matches_contract(conn, BUS_NAME, OBJECT_PATH, "org.helix.ScreenCastState", "org.helix.ScreenCastState.xml", &[]).await;
+
+    // Remote desktop sessions.
+    let remote: OwnedObjectPath = portal
+        .call_method(Some("org.gnome.Mutter.RemoteDesktop"), "/org/gnome/Mutter/RemoteDesktop", Some("org.gnome.Mutter.RemoteDesktop"), "CreateSession", &())
+        .await
+        .unwrap()
+        .body()
+        .deserialize()
+        .unwrap();
+    for (path, iface) in [("/org/gnome/Mutter/RemoteDesktop", "org.gnome.Mutter.RemoteDesktop"), (remote.as_str(), "org.gnome.Mutter.RemoteDesktop.Session")] {
+        assert_matches_contract(conn, "org.gnome.Mutter.RemoteDesktop", path, iface, "org.gnome.Mutter.RemoteDesktop.xml", &[]).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

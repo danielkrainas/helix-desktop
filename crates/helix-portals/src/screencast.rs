@@ -30,6 +30,8 @@ pub const CURSOR_EMBEDDED: u32 = 2;
 pub const CURSOR_METADATA: u32 = 4;
 
 const MUTTER: &str = "org.gnome.Mutter.ScreenCast";
+pub(crate) const REMOTE: &str = "org.gnome.Mutter.RemoteDesktop";
+const REMOTE_PATH: &str = "/org/gnome/Mutter/RemoteDesktop";
 const MUTTER_PATH: &str = "/org/gnome/Mutter/ScreenCast";
 const SHELL: &str = "org.gnome.Shell";
 const CHOOSER_PATH: &str = "/org/helix/ScreenCastChooser";
@@ -38,8 +40,8 @@ const DISPLAY_CONFIG: &str = "org.gnome.Mutter.DisplayConfig";
 type Results = HashMap<String, OwnedValue>;
 
 #[derive(Debug, Default)]
-struct Cast {
-    app_id: String,
+pub(crate) struct Cast {
+    pub(crate) app_id: String,
     cursor_mode: u32,
     types: u32,
     persist_mode: u32,
@@ -47,6 +49,38 @@ struct Cast {
     restore: Option<MonitorId>,
     /// The compositor's session, once started.
     mutter: Option<OwnedObjectPath>,
+    /// `SelectSources` was called (a remote desktop session shares the
+    /// screen only then).
+    sources_selected: bool,
+    /// A RemoteDesktop session (`None`: a plain ScreenCast session).
+    pub(crate) remote: Option<Remote>,
+}
+
+impl Cast {
+    /// A RemoteDesktop session of `app_id` (no screen sharing until
+    /// sources are selected).
+    pub(crate) fn remote(app_id: &str, devices: u32) -> Self {
+        Self {
+            app_id: app_id.to_owned(),
+            cursor_mode: CURSOR_HIDDEN,
+            types: 0,
+            remote: Some(Remote { devices, ..Remote::default() }),
+            ..Self::default()
+        }
+    }
+}
+
+/// The remote desktop part of a session.
+#[derive(Debug, Default)]
+pub(crate) struct Remote {
+    /// Device types asked for (`SelectDevices`).
+    pub devices: u32,
+    /// Device types the user allowed (once started).
+    pub granted: u32,
+    /// The compositor's remote desktop session, once started.
+    pub mutter: Option<OwnedObjectPath>,
+    /// Stream objects by PipeWire node id.
+    pub streams: HashMap<u32, OwnedObjectPath>,
 }
 
 /// What identifies a monitor across sessions.
@@ -100,22 +134,23 @@ impl MonitorId {
 
 #[derive(Debug, Default)]
 pub struct Casts {
-    sessions: HashMap<OwnedObjectPath, Cast>,
+    pub(crate) sessions: HashMap<OwnedObjectPath, Cast>,
 }
 
 pub type Shared = Arc<Mutex<Casts>>;
 
-fn lock(shared: &Shared) -> MutexGuard<'_, Casts> {
+pub(crate) fn lock(shared: &Shared) -> MutexGuard<'_, Casts> {
     shared.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn owned(v: Value<'_>) -> OwnedValue {
+pub(crate) fn owned(v: Value<'_>) -> OwnedValue {
     OwnedValue::try_from(v).expect("plain values")
 }
 
-/// The portal Session object of one screen cast.
+/// The portal Session object of one screen cast (or remote desktop
+/// session).
 pub struct CastSession {
-    shared: Shared,
+    pub(crate) shared: Shared,
 }
 
 #[interface(name = "org.freedesktop.impl.portal.Session")]
@@ -142,9 +177,14 @@ impl CastSession {
 
 /// End a portal session: stop the recording, drop the object; emit
 /// `Closed` when the end did not come from the frontend.
-async fn end(conn: &Connection, shared: &Shared, path: &OwnedObjectPath, notify: bool) {
+pub(crate) async fn end(conn: &Connection, shared: &Shared, path: &OwnedObjectPath, notify: bool) {
     let Some(cast) = lock(shared).sessions.remove(path) else { return };
-    if let Some(mutter) = &cast.mutter {
+    if let Some(remote) = cast.remote.as_ref().and_then(|r| r.mutter.as_ref()) {
+        // Ends its screen cast too.
+        let _ = conn
+            .call_method(Some(REMOTE), remote.as_str(), Some("org.gnome.Mutter.RemoteDesktop.Session"), "Stop", &())
+            .await;
+    } else if let Some(mutter) = &cast.mutter {
         let _ = conn
             .call_method(Some(MUTTER), mutter.as_str(), Some("org.gnome.Mutter.ScreenCast.Session"), "Stop", &())
             .await;
@@ -192,11 +232,41 @@ enum Source {
     Virtual,
 }
 
-async fn start(conn: &Connection, shared: &Shared, session: &OwnedObjectPath) -> (u32, Results) {
-    let (app_id, cursor_mode, types, persist_mode, restore) = match lock(shared).sessions.get(session) {
-        Some(c) => (c.app_id.clone(), c.cursor_mode, c.types, c.persist_mode, c.restore.clone()),
+/// Device names for the dialogs.
+fn device_names(devices: u32) -> Vec<&'static str> {
+    [(1, "keyboard"), (2, "pointer"), (4, "touchscreen")].into_iter().filter(|(bit, _)| devices & bit != 0).map(|(_, n)| n).collect()
+}
+
+pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObjectPath) -> (u32, Results) {
+    let (app_id, cursor_mode, types, persist_mode, restore, remote, sources_selected) = match lock(shared).sessions.get(session) {
+        Some(c) => (c.app_id.clone(), c.cursor_mode, c.types, c.persist_mode, c.restore.clone(), c.remote.as_ref().map(|r| r.devices), c.sources_selected),
         None => return (response::OTHER, Results::new()),
     };
+    // A remote desktop session without screen sharing: just ask.
+    if let (Some(devices), false) = (remote, sources_selected) {
+        let allowed = conn
+            .call_method(Some(SHELL), CHOOSER_PATH, Some("org.helix.ScreenCastChooser"), "AllowRemoteControl", &(app_id.as_str(), device_names(devices)))
+            .await
+            .and_then(|r| r.body().deserialize::<bool>());
+        match allowed {
+            Ok(true) => {}
+            Ok(false) => return (response::CANCELLED, Results::new()),
+            Err(err) => {
+                tracing::warn!(%err, "cannot ask about remote control");
+                return (response::OTHER, Results::new());
+            }
+        }
+        return match start_remote(conn, shared, session, devices, None, cursor_mode).await {
+            Ok(results) => (response::SUCCESS, results),
+            Err(err) => {
+                tracing::warn!(%err, "cannot start remote control");
+                end(conn, shared, session, true).await;
+                (response::OTHER, Results::new())
+            }
+        };
+    }
+    let persist_mode = if remote.is_some() { 0 } else { persist_mode };
+    let restore = if remote.is_some() { None } else { restore };
     let on = match monitors(conn).await {
         Ok(m) => m,
         Err(err) => {
@@ -219,11 +289,14 @@ async fn start(conn: &Connection, shared: &Shared, session: &OwnedObjectPath) ->
             } else {
                 Vec::new()
             };
-            let options = HashMap::from([
+            let mut options = HashMap::from([
                 ("monitors", Value::from(types & SOURCE_MONITOR != 0)),
                 ("windows", Value::from(types & SOURCE_WINDOW != 0)),
                 ("remember", Value::from(persist_mode != 0)),
             ]);
+            if let Some(devices) = remote {
+                options.insert("control", Value::from(device_names(devices)));
+            }
             let choice = conn
                 .call_method(Some(SHELL), CHOOSER_PATH, Some("org.helix.ScreenCastChooser"), "ChooseSource", &(app_id.as_str(), &offered, options))
                 .await
@@ -239,7 +312,17 @@ async fn start(conn: &Connection, shared: &Shared, session: &OwnedObjectPath) ->
             }
         }
     };
-    match record(conn, shared, session, &source, cursor_mode).await {
+    if let Some(devices) = remote {
+        return match start_remote(conn, shared, session, devices, Some(&source), cursor_mode).await {
+            Ok(results) => (response::SUCCESS, results),
+            Err(err) => {
+                tracing::warn!(%err, ?source, "cannot start remote control");
+                end(conn, shared, session, true).await;
+                (response::OTHER, Results::new())
+            }
+        };
+    }
+    match record(conn, shared, session, &source, cursor_mode, None).await {
         Ok(stream) => {
             let mut results = HashMap::from([("streams".to_owned(), owned(Value::from(vec![stream])))]);
             let remembered = match &source {
@@ -272,9 +355,14 @@ async fn record(
     session: &OwnedObjectPath,
     source: &Source,
     cursor_mode: u32,
+    remote: Option<(&OwnedObjectPath, &str)>,
 ) -> zbus::Result<(u32, HashMap<String, OwnedValue>)> {
+    let mut create = HashMap::<&str, Value<'_>>::new();
+    if let Some((_, id)) = remote {
+        create.insert("remote-desktop-session-id", Value::from(id));
+    }
     let reply = conn
-        .call_method(Some(MUTTER), MUTTER_PATH, Some("org.gnome.Mutter.ScreenCast"), "CreateSession", &(HashMap::<&str, Value<'_>>::new(),))
+        .call_method(Some(MUTTER), MUTTER_PATH, Some("org.gnome.Mutter.ScreenCast"), "CreateSession", &(create,))
         .await?;
     let mutter: OwnedObjectPath = reply.body().deserialize()?;
     if let Some(cast) = lock(shared).sessions.get_mut(session) {
@@ -318,8 +406,15 @@ async fn record(
         .path(mutter.clone())?
         .build();
     let mut closed = zbus::MessageStream::for_match_rule(closed, conn, None).await?;
-    conn.call_method(Some(MUTTER), mutter.as_str(), Some("org.gnome.Mutter.ScreenCast.Session"), "Start", &())
-        .await?;
+    match remote {
+        // The remote desktop session starts its screen cast.
+        Some((remote, _)) => {
+            conn.call_method(Some(REMOTE), remote.as_str(), Some("org.gnome.Mutter.RemoteDesktop.Session"), "Start", &()).await?;
+        }
+        None => {
+            conn.call_method(Some(MUTTER), mutter.as_str(), Some("org.gnome.Mutter.ScreenCast.Session"), "Start", &()).await?;
+        }
+    }
     let node: u32 = match tokio::time::timeout(Duration::from_secs(10), added.next()).await {
         Ok(Some(Ok(message))) => message.body().deserialize()?,
         _ => return Err(zbus::Error::Failure("no PipeWire stream".into())),
@@ -342,8 +437,67 @@ async fn record(
             props.insert(key.to_owned(), value.try_clone().expect("plain values"));
         }
     }
+    if let Some(r) = lock(shared).sessions.get_mut(session).and_then(|c| c.remote.as_mut()) {
+        r.streams.insert(node, stream.clone());
+    }
     tracing::info!(node, ?source, "screen cast stream ready");
     Ok((node, props))
+}
+
+/// Start a remote desktop session in the compositor (with a screen cast of
+/// `source`, if given); the `Start` results.
+async fn start_remote(
+    conn: &Connection,
+    shared: &Shared,
+    session: &OwnedObjectPath,
+    devices: u32,
+    source: Option<&Source>,
+    cursor_mode: u32,
+) -> zbus::Result<Results> {
+    let reply = conn.call_method(Some(REMOTE), REMOTE_PATH, Some("org.gnome.Mutter.RemoteDesktop"), "CreateSession", &()).await?;
+    let remote: OwnedObjectPath = reply.body().deserialize()?;
+    let id: String = zbus::Proxy::new(conn, REMOTE, remote.as_str(), "org.gnome.Mutter.RemoteDesktop.Session")
+        .await?
+        .get_property("SessionId")
+        .await?;
+    if let Some(r) = lock(shared).sessions.get_mut(session).and_then(|c| c.remote.as_mut()) {
+        r.mutter = Some(remote.clone());
+        r.granted = devices;
+    }
+    // The compositor may end it (its creator gone, a monitor unplugged).
+    let closed = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.gnome.Mutter.RemoteDesktop.Session")?
+        .member("Closed")?
+        .path(remote.clone())?
+        .build();
+    let mut closed = zbus::MessageStream::for_match_rule(closed, conn, None).await?;
+    let mut results = HashMap::from([
+        ("devices".to_owned(), owned(Value::from(devices))),
+        ("clipboard_enabled".to_owned(), owned(Value::from(false))),
+    ]);
+    match source {
+        Some(source) => {
+            let stream = record(conn, shared, session, source, cursor_mode, Some((&remote, &id))).await?;
+            results.insert("streams".to_owned(), owned(Value::from(vec![stream])));
+        }
+        None => {
+            conn.call_method(Some(REMOTE), remote.as_str(), Some("org.gnome.Mutter.RemoteDesktop.Session"), "Start", &()).await?;
+        }
+    }
+    {
+        let (conn, shared, session) = (conn.clone(), shared.clone(), session.clone());
+        tokio::spawn(async move {
+            if closed.next().await.is_some() {
+                if let Some(r) = lock(&shared).sessions.get_mut(&session).and_then(|c| c.remote.as_mut()) {
+                    r.mutter = None;
+                }
+                end(&conn, &shared, &session, true).await;
+            }
+        });
+    }
+    tracing::info!(%session, devices, "remote control started");
+    Ok(results)
 }
 
 /// The exported ScreenCast backend.
@@ -412,6 +566,7 @@ impl ScreenCastBackend {
                 return (response::OTHER, Results::new());
             }
             if let Some(cast) = lock(&shared).sessions.get_mut(&session) {
+                cast.sources_selected = true;
                 cast.cursor_mode = cursor_mode;
                 cast.types = types & known;
                 cast.persist_mode = persist_mode;

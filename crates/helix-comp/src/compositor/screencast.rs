@@ -180,6 +180,15 @@ impl Helix {
             CastRequest::CreateVirtual { stream, reply } => {
                 let _ = reply.send(Ok(self.create_virtual(stream)));
             }
+            CastRequest::Input(input) => self.remote_input(input),
+            CastRequest::ConnectEis { session, devices, reply } => {
+                let _ = reply.send(self.connect_eis(session, devices));
+            }
+            CastRequest::EndRemote { session } => self.end_remote(session),
+            CastRequest::LockKeys { reply } => {
+                let state = self.seat.get_keyboard().map(|k| k.modifier_state());
+                let _ = reply.send(state.map_or((false, false), |m| (m.caps_lock, m.num_lock)));
+            }
         }
     }
 
@@ -218,6 +227,22 @@ impl Helix {
         tracing::info!(name, x, "virtual monitor added");
         self.screencast.virtuals.insert(stream, (output, global));
         (name, (x, 0), VIRTUAL_SIZE)
+    }
+
+    /// Where stream `stream`'s logical coordinates start (layout
+    /// coordinates).
+    pub(super) fn stream_origin(&self, stream: u32) -> Option<smithay::utils::Point<f64, smithay::utils::Logical>> {
+        match &self.screencast.casts.get(&stream)?.source {
+            CastSource::Monitor(name) | CastSource::Virtual(name) => {
+                let output = self.output_named(name)?;
+                self.space.output_geometry(&output).map(|g| g.loc.to_f64())
+            }
+            CastSource::Area { x, y, .. } => Some((f64::from(*x), f64::from(*y)).into()),
+            CastSource::Window(id) => {
+                let window = self.window_by_list_id(*id)?;
+                self.space.element_location(&window).map(|l| l.to_f64())
+            }
+        }
     }
 
     /// Windows on a virtual monitor only get frame callbacks when its cast

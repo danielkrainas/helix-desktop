@@ -14,6 +14,7 @@ pub mod frames;
 pub mod idle;
 pub mod idle_monitor;
 pub mod input_settings;
+pub mod remote_desktop;
 pub mod screencast;
 pub mod wm_settings;
 pub mod workspaces;
@@ -112,6 +113,7 @@ impl CompositorServices {
         let layout = Arc::new(Mutex::new(Layout::new(monitors)));
         let watch_backlight = control.backlight.is_some();
         let casts = screencast::Shared::default();
+        let remotes = remote_desktop::Shared::default();
         let cast = control.cast.clone();
         let display_config = DisplayConfig::new(
             layout.clone(),
@@ -127,7 +129,16 @@ impl CompositorServices {
             .serve_at(display_config::OBJECT_PATH, display_config)?
             .serve_at(
                 screencast::OBJECT_PATH,
-                screencast::ScreenCast { shared: casts.clone(), layout: layout.clone(), compositor: control.cast },
+                screencast::ScreenCast {
+                    shared: casts.clone(),
+                    layout: layout.clone(),
+                    compositor: control.cast.clone(),
+                    remotes: remotes.clone(),
+                },
+            )?
+            .serve_at(
+                remote_desktop::OBJECT_PATH,
+                remote_desktop::RemoteDesktop { shared: remotes.clone(), casts: casts.clone(), compositor: control.cast },
             )?
             .serve_at(screencast::OBJECT_PATH, screencast::ScreenCastState { shared: casts.clone() })?
             .build()
@@ -135,6 +146,7 @@ impl CompositorServices {
         own(&conn, idle_monitor::BUS_NAME).await?;
         own(&conn, display_config::BUS_NAME).await?;
         own(&conn, screencast::BUS_NAME).await?;
+        own(&conn, remote_desktop::BUS_NAME).await?;
         tracing::info!("IdleMonitor and DisplayConfig ready");
 
         let mut tasks = vec![
@@ -145,7 +157,7 @@ impl CompositorServices {
             tasks.push(spawn_backlight_watcher(&conn));
         }
         if let Some(cast) = &cast {
-            tasks.push(spawn_cast_owner_watcher(&conn, casts.clone(), cast.clone()).await?);
+            tasks.push(spawn_cast_owner_watcher(&conn, casts.clone(), remotes.clone(), cast.clone()).await?);
         }
         Ok(Self {
             conn,
@@ -291,6 +303,7 @@ fn spawn_backlight_watcher(conn: &Connection) -> JoinHandle<()> {
 async fn spawn_cast_owner_watcher(
     conn: &Connection,
     casts: screencast::Shared,
+    remotes: remote_desktop::Shared,
     cast: mpsc::UnboundedSender<screencast::CastRequest>,
 ) -> zbus::Result<JoinHandle<()>> {
     let mut changes = DBusProxy::new(conn).await?.receive_name_owner_changed().await?;
@@ -300,6 +313,10 @@ async fn spawn_cast_owner_watcher(
             let Ok(args) = signal.args() else { continue };
             let name = args.name().as_str();
             if name.starts_with(':') && args.new_owner().is_none() {
+                let remote_sessions = remotes.lock().unwrap_or_else(|e| e.into_inner()).sessions_of(name);
+                for session in remote_sessions {
+                    remote_desktop::close_session(&conn, &remotes, &casts, &cast, session).await;
+                }
                 let sessions = casts.lock().unwrap_or_else(|e| e.into_inner()).sessions_of(name);
                 for session in sessions {
                     screencast::close_session(&conn, &casts, &cast, session).await;

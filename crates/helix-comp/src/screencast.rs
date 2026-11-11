@@ -60,6 +60,15 @@ pub enum CastRequest {
     Stop { stream: u32 },
     /// A window's size in layout coordinates, if it exists.
     WindowSize { window: u32, reply: oneshot::Sender<Option<(i32, i32)>> },
+    /// Input from a remote desktop session.
+    Input(crate::remote_desktop::RemoteInput),
+    /// A socket to an EIS server for remote desktop session `session`
+    /// offering `devices` (1 keyboard, 2 pointer, 4 touchscreen).
+    ConnectEis { session: u32, devices: u32, reply: oneshot::Sender<Result<std::os::fd::OwnedFd, String>> },
+    /// Remote desktop session `session` ended: close its EIS connections.
+    EndRemote { session: u32 },
+    /// Caps Lock and Num Lock.
+    LockKeys { reply: oneshot::Sender<(bool, bool)> },
 }
 
 #[derive(Debug)]
@@ -67,6 +76,8 @@ struct SessionState {
     owner: String,
     streams: Vec<u32>,
     started: bool,
+    /// Belongs to a remote desktop session (starts and stops with it).
+    remote: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -118,7 +129,7 @@ fn stream_path(id: u32) -> String {
 }
 
 /// Whether the caller owns [`ALLOWED_CALLER`].
-async fn check_caller(conn: &Connection, header: &Header<'_>) -> fdo::Result<String> {
+pub async fn check_caller(conn: &Connection, header: &Header<'_>) -> fdo::Result<String> {
     let sender = header.sender().map(|s| s.to_string()).unwrap_or_default();
     let allowed = match DBusProxy::new(conn).await {
         Ok(dbus) => match zbus::names::BusName::try_from(ALLOWED_CALLER) {
@@ -139,6 +150,7 @@ pub struct ScreenCast {
     pub shared: Shared,
     pub layout: Arc<Mutex<Layout>>,
     pub compositor: Option<mpsc::UnboundedSender<CastRequest>>,
+    pub remotes: crate::remote_desktop::Shared,
 }
 
 #[interface(name = "org.gnome.Mutter.ScreenCast")]
@@ -151,16 +163,24 @@ impl ScreenCast {
         #[zbus(object_server)] server: &zbus::ObjectServer,
     ) -> fdo::Result<OwnedObjectPath> {
         let owner = check_caller(conn, &header).await?;
-        if properties.contains_key("remote-desktop-session-id") {
-            return Err(fdo::Error::NotSupported("no remote desktop sessions".into()));
-        }
+        let remote = match properties.get("remote-desktop-session-id").map(|v| &**v) {
+            Some(Value::Str(id)) => Some(id.to_string()),
+            Some(_) => return Err(fdo::Error::InvalidArgs("remote-desktop-session-id (s)".into())),
+            None => None,
+        };
         let compositor = self.compositor.clone().ok_or_else(|| fdo::Error::NotSupported("cannot record".into()))?;
         let id = {
             let mut casts = lock(&self.shared);
             let id = casts.next_id();
-            casts.sessions.insert(id, SessionState { owner: owner.clone(), streams: Vec::new(), started: false });
+            casts.sessions.insert(id, SessionState { owner: owner.clone(), streams: Vec::new(), started: false, remote: remote.is_some() });
             id
         };
+        if let Some(remote) = remote {
+            if !crate::remote_desktop::attach_cast(&self.remotes, &remote, id) {
+                lock(&self.shared).sessions.remove(&id);
+                return Err(fdo::Error::InvalidArgs(format!("no remote desktop session {remote}")));
+            }
+        }
         let path = session_path(id);
         let session = Session { id, shared: self.shared.clone(), layout: self.layout.clone(), compositor, owner };
         server.at(path.as_str(), session).await?;
@@ -191,6 +211,52 @@ async fn active_changed(conn: &Connection) {
     if let Ok(iface) = conn.object_server().interface::<_, ScreenCastState>(OBJECT_PATH).await {
         let _ = iface.get().await.active_changed(iface.signal_emitter()).await;
     }
+}
+
+/// Start session `id`'s streams.
+pub async fn start_session(conn: &Connection, shared: &Shared, compositor: &mpsc::UnboundedSender<CastRequest>, id: u32) -> fdo::Result<()> {
+    let streams: Vec<(u32, StreamState)> = {
+        let mut casts = lock(shared);
+        let session = casts.sessions.get_mut(&id).ok_or_else(|| fdo::Error::Failed("session closed".into()))?;
+        if session.started {
+            return Err(fdo::Error::Failed("already started".into()));
+        }
+        session.started = true;
+        let ids = session.streams.clone();
+        ids.into_iter().filter_map(|id| casts.streams.get(&id).cloned().map(|s| (id, s))).collect()
+    };
+    active_changed(conn).await;
+    for (stream_id, stream) in streams {
+        let (reply, answer) = oneshot::channel();
+        let request = CastRequest::Start { stream: stream_id, source: stream.source.clone(), cursor: stream.cursor, reply };
+        if compositor.send(request).is_err() {
+            return Err(fdo::Error::Failed("the compositor is gone".into()));
+        }
+        let node = match answer.await {
+            Ok(Ok(node)) => node,
+            failed => {
+                let err = match failed {
+                    Ok(Err(err)) => err,
+                    _ => "the compositor did not answer".to_owned(),
+                };
+                tracing::warn!(err, source = ?stream.source, "cannot record");
+                close_session(conn, shared, compositor, id).await;
+                return Err(fdo::Error::Failed(format!("cannot record: {err}")));
+            }
+        };
+        let path = stream_path(stream_id);
+        if let Ok(emitter) = SignalEmitter::new(conn, path.as_str()) {
+            let _ = Stream::pipe_wire_stream_added(&emitter, node).await;
+        }
+        tracing::info!(stream = stream_id, node, source = ?stream.source, "screen cast started");
+    }
+    Ok(())
+}
+
+/// The stream id of a stream object path, if it is one of session `id`'s.
+pub fn stream_of_session(shared: &Shared, id: u32, path: &str) -> Option<u32> {
+    let stream: u32 = path.strip_prefix(&format!("{OBJECT_PATH}/Stream/u"))?.parse().ok()?;
+    (lock(shared).session_of(stream) == Some(id)).then_some(stream)
 }
 
 /// End session `id`: stop its streams, emit `Closed`, remove the objects.
@@ -293,6 +359,10 @@ impl Session {
         OwnedObjectPath::try_from(path).map_err(|e| fdo::Error::Failed(e.to_string()))
     }
 
+    fn is_remote(&self) -> bool {
+        lock(&self.shared).sessions.get(&self.id).is_some_and(|s| s.remote)
+    }
+
     fn check_owner(&self, header: &Header<'_>) -> fdo::Result<()> {
         if header.sender().is_some_and(|s| s.as_str() == self.owner) {
             Ok(())
@@ -310,46 +380,17 @@ impl Session {
         #[zbus(connection)] conn: &Connection,
     ) -> fdo::Result<()> {
         self.check_owner(&header)?;
-        let streams: Vec<(u32, StreamState)> = {
-            let mut casts = lock(&self.shared);
-            let session = casts.sessions.get_mut(&self.id).ok_or_else(|| fdo::Error::Failed("session closed".into()))?;
-            if session.started {
-                return Err(fdo::Error::Failed("already started".into()));
-            }
-            session.started = true;
-            let ids = session.streams.clone();
-            ids.into_iter().filter_map(|id| casts.streams.get(&id).cloned().map(|s| (id, s))).collect()
-        };
-        active_changed(conn).await;
-        for (id, stream) in streams {
-            let (reply, answer) = oneshot::channel();
-            let request = CastRequest::Start { stream: id, source: stream.source.clone(), cursor: stream.cursor, reply };
-            if self.compositor.send(request).is_err() {
-                return Err(fdo::Error::Failed("the compositor is gone".into()));
-            }
-            let node = match answer.await {
-                Ok(Ok(node)) => node,
-                failed => {
-                    let err = match failed {
-                        Ok(Err(err)) => err,
-                        _ => "the compositor did not answer".to_owned(),
-                    };
-                    tracing::warn!(err, source = ?stream.source, "cannot record");
-                    close_session(conn, &self.shared, &self.compositor, self.id).await;
-                    return Err(fdo::Error::Failed(format!("cannot record: {err}")));
-                }
-            };
-            let path = stream_path(id);
-            if let Ok(emitter) = SignalEmitter::new(conn, path.as_str()) {
-                let _ = Stream::pipe_wire_stream_added(&emitter, node).await;
-            }
-            tracing::info!(stream = id, node, source = ?stream.source, "screen cast started");
+        if self.is_remote() {
+            return Err(fdo::Error::Failed("start the remote desktop session instead".into()));
         }
-        Ok(())
+        start_session(conn, &self.shared, &self.compositor, self.id).await
     }
 
     async fn stop(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<()> {
         self.check_owner(&header)?;
+        if self.is_remote() {
+            return Err(fdo::Error::Failed("stop the remote desktop session instead".into()));
+        }
         close_session(conn, &self.shared, &self.compositor, self.id).await;
         Ok(())
     }
