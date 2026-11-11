@@ -147,8 +147,17 @@ It serves `org.gnome.Mutter.IdleMonitor` and the read side of
 announces its socket with `SessionManager.Setenv("WAYLAND_DISPLAY", ...)`,
 which is what the session launcher waits for.
 
+X11 apps run through Xwayland (the `xwayland` package must be installed):
+the compositor starts it, manages its windows alongside Wayland ones, and
+bridges the clipboard and primary selection. Its `DISPLAY` is announced to
+the session manager before `WAYLAND_DISPLAY`, so the whole session and
+D-Bus-activated services see it; when nested, the host's `DISPLAY` is never
+passed on to Helix's children. Helix draws no title bars yet, so X11 apps
+that rely on the window manager for one can be moved with Super+drag.
+
 Window management: windows open in a cascade below any panels and get
-focus; click to focus; client-side (GTK) decorations; dragging and resizing
+focus, and stay out from under panels when the work area changes; click
+to focus; client-side (GTK) decorations; dragging and resizing
 from the header bar and edges; maximize, fullscreen and minimize requests;
 menus and popovers (popup grabs). Panels and other `wlr-layer-shell`
 surfaces are supported, including exclusive keyboard focus.
@@ -168,6 +177,7 @@ Shortcuts handled by the compositor:
 | Alt+F4 | Close the focused window |
 | Super+Up | Toggle maximize |
 | Super+Down | Restore a maximized window, else minimize |
+| Super+drag | Move the window under the pointer |
 
 When nested, the host desktop's window manager may grab some of these (e.g.
 Alt+Tab under XFCE) before Helix sees them.

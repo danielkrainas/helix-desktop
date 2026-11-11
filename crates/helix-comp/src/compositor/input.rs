@@ -11,6 +11,8 @@ use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
 
 use super::shortcuts::{Action, Mods};
+
+const BTN_LEFT: u32 = 0x110;
 use super::Helix;
 
 impl Helix {
@@ -141,10 +143,32 @@ impl Helix {
 
                 if state == ButtonState::Pressed && !pointer.is_grabbed() {
                     let pos = pointer.current_location();
+                    let super_held = self
+                        .seat
+                        .get_keyboard()
+                        .is_some_and(|k| k.modifier_state().logo);
                     if self.over_panel(pos) {
                         // Clicks on panels don't change window focus.
                     } else if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
                         self.focus_window(&window);
+                        // Super+drag moves any window, including X11 windows
+                        // without a title bar of their own.
+                        if super_held && event.button_code() == BTN_LEFT && !super::wm::is_override_redirect(&window) {
+                            self.restore_window(&window);
+                            let initial_location = self.space.element_location(&window).unwrap_or_default();
+                            let start_data = smithay::input::pointer::GrabStartData {
+                                focus: None,
+                                button: BTN_LEFT,
+                                location: pos,
+                            };
+                            pointer.set_grab(
+                                self,
+                                super::grabs::MoveGrab { start_data, window, initial_location },
+                                serial,
+                                smithay::input::pointer::Focus::Clear,
+                            );
+                            return;
+                        }
                     } else {
                         self.unfocus_all();
                     }

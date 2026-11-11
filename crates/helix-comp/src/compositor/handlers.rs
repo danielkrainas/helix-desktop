@@ -66,6 +66,9 @@ impl CompositorHandler for Helix {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
+        if let Some(xwayland) = client.get_data::<smithay::xwayland::XWaylandClientData>() {
+            return &xwayland.compositor_state;
+        }
         &client.get_data::<ClientState>().unwrap().compositor_state
     }
 
@@ -79,7 +82,7 @@ impl CompositorHandler for Helix {
             if let Some(window) = self
                 .space
                 .elements()
-                .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &root))
+                .find(|w| super::wm::surface_of(w).as_ref() == Some(&root))
             {
                 window.on_commit();
             }
@@ -129,6 +132,36 @@ impl SeatHandler for Helix {
 
 impl SelectionHandler for Helix {
     type SelectionUserData = ();
+
+    /// A Wayland client set the clipboard/primary selection: offer it to X11.
+    fn new_selection(
+        &mut self,
+        ty: smithay::wayland::selection::SelectionTarget,
+        source: Option<smithay::wayland::selection::SelectionSource>,
+        _seat: Seat<Self>,
+    ) {
+        if let Some(xwm) = self.xwm.as_mut() {
+            if let Err(err) = xwm.new_selection(ty, source.map(|s| s.mime_types())) {
+                tracing::warn!(?err, ?ty, "cannot offer selection to X11");
+            }
+        }
+    }
+
+    /// A Wayland client wants the selection an X11 app owns.
+    fn send_selection(
+        &mut self,
+        ty: smithay::wayland::selection::SelectionTarget,
+        mime_type: String,
+        fd: std::os::fd::OwnedFd,
+        _seat: Seat<Self>,
+        _user_data: &(),
+    ) {
+        if let Some(xwm) = self.xwm.as_mut() {
+            if let Err(err) = xwm.send_selection(ty, mime_type, fd, self.loop_handle.clone()) {
+                tracing::warn!(?err, "cannot transfer selection from X11");
+            }
+        }
+    }
 }
 
 impl DataDeviceHandler for Helix {
@@ -457,6 +490,7 @@ impl Helix {
                     && matches!(cached.layer, Layer::Top | Layer::Overlay)
             })
         };
+        self.constrain_to_work_area();
         if initial_configure_sent && wants_keyboard {
             let keyboard = self.seat.get_keyboard().unwrap();
             if keyboard.current_focus().as_ref() != Some(surface) {
@@ -537,6 +571,7 @@ delegate_viewporter!(Helix);
 delegate_fractional_scale!(Helix);
 delegate_cursor_shape!(Helix);
 delegate_dmabuf!(Helix);
+smithay::delegate_xwayland_shell!(Helix);
 
 impl DmabufHandler for Helix {
     fn dmabuf_state(&mut self) -> &mut DmabufState {

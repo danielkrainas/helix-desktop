@@ -86,6 +86,10 @@ impl PointerGrab<Helix> for MoveGrab {
         let delta = event.location - self.start_data.location;
         let location = (self.initial_location.to_f64() + delta).to_i32_round();
         data.space.map_element(self.window.clone(), location, true);
+        // X11 apps need to know where they are (for menus and input).
+        if let Some(x11) = self.window.x11_surface() {
+            let _ = x11.configure(Rectangle::new(location, x11.geometry().size));
+        }
     }
 
     fn button(&mut self, data: &mut Helix, handle: &mut PointerInnerHandle<'_, Helix>, event: &ButtonEvent) {
@@ -109,6 +113,11 @@ impl PointerGrab<Helix> for MoveGrab {
 pub struct Edges(u32);
 
 impl Edges {
+    /// From xdg_toplevel resize edge bits (top 1, bottom 2, left 4, right 8).
+    pub fn from_bits(bits: u32) -> Self {
+        Self(bits)
+    }
+
     const TOP: u32 = 1;
     const BOTTOM: u32 = 2;
     const LEFT: u32 = 4;
@@ -188,13 +197,32 @@ impl PointerGrab<Helix> for ResizeGrab {
         event: &MotionEvent,
     ) {
         handle.motion(data, None, event);
+        let delta = event.location - self.start_data.location;
+        if let Some(x11) = self.window.x11_surface() {
+            // X11: apply the new geometry directly, keeping the opposite
+            // edge in place.
+            let (min, max) = (
+                x11.min_size().unwrap_or_default(),
+                x11.max_size().unwrap_or_default(),
+            );
+            self.last_size = resized(self.initial.size, self.edges, delta, min, max);
+            let mut location = self.initial.loc;
+            if self.edges.left() {
+                location.x += self.initial.size.w - self.last_size.w;
+            }
+            if self.edges.top() {
+                location.y += self.initial.size.h - self.last_size.h;
+            }
+            let _ = x11.configure(Rectangle::new(location, self.last_size));
+            data.space.map_element(self.window.clone(), location, true);
+            return;
+        }
         let Some(toplevel) = self.window.toplevel() else { return };
         let (min, max) = with_states(toplevel.wl_surface(), |states| {
             let mut cached = states.cached_state.get::<SurfaceCachedState>();
             let current = cached.current();
             (current.min_size, current.max_size)
         });
-        let delta = event.location - self.start_data.location;
         self.last_size = resized(self.initial.size, self.edges, delta, min, max);
         toplevel.with_pending_state(|state| {
             state.states.set(xdg_toplevel::State::Resizing);

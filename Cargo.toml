@@ -41,6 +41,7 @@ smithay = { version = "0.7", default-features = false, features = [
     "renderer_gl",
     "wayland_frontend",
     "desktop",
+    "xwayland",
 ] }
 smithay-drm-extras = { version = "0.1", default-features = false }
 helix-settings = { path = "crates/helix-settings" }

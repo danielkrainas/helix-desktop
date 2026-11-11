@@ -12,6 +12,7 @@ mod supervise;
 pub mod udev;
 pub mod winit;
 mod wm;
+mod xwayland;
 
 use std::ffi::OsString;
 use std::sync::Arc;
@@ -35,6 +36,8 @@ use smithay::wayland::selection::primary_selection::PrimarySelectionState;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::xdg_activation::XdgActivationState;
+use smithay::wayland::xwayland_shell::XWaylandShellState;
+use smithay::xwayland::X11Wm;
 use smithay::wayland::output::OutputManagerState;
 use smithay::wayland::selection::data_device::DataDeviceState;
 use smithay::wayland::shell::wlr_layer::{Layer, WlrLayerShellState};
@@ -83,6 +86,8 @@ pub struct Helix {
     pub restore: Vec<(Window, Rectangle<i32, Logical>, wm::Takeover)>,
     /// Interactive resize awaiting the client's commits.
     pub resize: Option<grabs::ResizeTracking>,
+    /// Last known usable area (output minus panels), to notice changes.
+    pub work_area: Option<Rectangle<i32, Logical>>,
     pub shortcuts: shortcuts::Shortcuts,
     pub keybindings: keybindings::Keybindings,
     /// The shell we launched and keep running, if any.
@@ -96,6 +101,11 @@ pub struct Helix {
     pub dmabuf_state: DmabufState,
     /// Set when running on bare hardware (DRM/KMS).
     pub udev: Option<udev::UdevData>,
+    /// The X11 window manager for Xwayland, once it is running.
+    pub xwm: Option<X11Wm>,
+    /// Xwayland's display number (`DISPLAY=:N`), once it is running.
+    pub xdisplay: Option<u32>,
+    pub xwayland_shell_state: XWaylandShellState,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -145,6 +155,7 @@ impl Helix {
             minimized_at: Vec::new(),
             restore: Vec::new(),
             resize: None,
+            work_area: None,
             shortcuts: shortcuts::Shortcuts::default(),
             keybindings: keybindings::Keybindings::default(),
             shell: None,
@@ -153,6 +164,9 @@ impl Helix {
             cursor_status: CursorImageStatus::default_named(),
             dmabuf_state: DmabufState::new(),
             udev: None,
+            xwm: None,
+            xdisplay: None,
+            xwayland_shell_state: XWaylandShellState::new::<Self>(&dh),
             events,
             last_activity_sent: None,
             windows_mapped: 0,
@@ -207,6 +221,7 @@ impl Helix {
         let fd = theirs.as_raw_fd();
         let mut cmd = std::process::Command::new(program);
         cmd.env("WAYLAND_SOCKET", fd.to_string());
+        self.set_child_display(&mut cmd);
         // SAFETY: only async-signal-safe fcntl calls between fork and exec,
         // to let the child inherit its end of the socket.
         unsafe {
@@ -295,6 +310,15 @@ impl Helix {
         if let Some(mut shell) = self.shell.take() {
             shell.terminate();
         }
+    }
+
+    /// Point a child at our Xwayland, never at a host X server (when
+    /// nested, our own DISPLAY is the host's).
+    pub fn set_child_display(&self, cmd: &mut std::process::Command) {
+        match self.xdisplay {
+            Some(n) => cmd.env("DISPLAY", format!(":{n}")),
+            None => cmd.env_remove("DISPLAY"),
+        };
     }
 
     pub fn send(&self, event: Event) {

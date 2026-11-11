@@ -79,19 +79,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: still single-threaded here; children inherit the variable.
     std::env::set_var("WAYLAND_DISPLAY", &socket);
 
-    start_dbus_thread(socket, monitors, events_rx);
+    // Xwayland comes up first; then DISPLAY and WAYLAND_DISPLAY are
+    // announced (in that order) and the shell and --command start.
+    let (xdisplay_tx, xdisplay_rx) = tokio::sync::oneshot::channel();
+    start_dbus_thread(socket, monitors, events_rx, xdisplay_rx);
 
     stop_on_signals(state.loop_signal.clone());
 
-    if let Some(program) = shell {
-        state.supervise_shell(program)?;
-    }
-
-    if let Some(program) = command {
-        if let Err(err) = std::process::Command::new(&program).spawn() {
-            tracing::warn!(%err, program, "failed to start client");
+    state.start_xwayland(move |state, xdisplay| {
+        let _ = xdisplay_tx.send(xdisplay);
+        if let Some(program) = shell {
+            if let Err(err) = state.supervise_shell(program) {
+                tracing::error!(%err, "cannot supervise the shell");
+            }
         }
-    }
+        if let Some(program) = command {
+            let mut cmd = std::process::Command::new(&program);
+            state.set_child_display(&mut cmd);
+            if let Err(err) = cmd.spawn() {
+                tracing::warn!(%err, program, "failed to start client");
+            }
+        }
+    });
 
     let result = event_loop.run(None, &mut state, |_| {});
     state.stop_shell();
@@ -158,6 +167,7 @@ fn start_dbus_thread(
     socket: String,
     monitors: Vec<Monitor>,
     events: mpsc::UnboundedReceiver<Event>,
+    xdisplay: tokio::sync::oneshot::Receiver<Option<u32>>,
 ) {
     std::thread::Builder::new()
         .name("helix-comp-dbus".into())
@@ -185,7 +195,14 @@ fn start_dbus_thread(
                         return;
                     }
                 };
-                announce_socket(services.connection(), &socket).await;
+                // Wait for Xwayland (or its failure) so DISPLAY is set
+                // before the launcher sees WAYLAND_DISPLAY and moves on.
+                let xdisplay = tokio::time::timeout(std::time::Duration::from_secs(10), xdisplay)
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .flatten();
+                announce_socket(services.connection(), &socket, xdisplay).await;
                 services.run(events).await;
             });
         })
@@ -194,9 +211,12 @@ fn start_dbus_thread(
 
 /// Tell the session manager (if any) where clients should connect. This is
 /// also the launcher's readiness signal for the compositor.
-async fn announce_socket(conn: &zbus::Connection, socket: &str) {
+async fn announce_socket(conn: &zbus::Connection, socket: &str, xdisplay: Option<u32>) {
     let result = async {
         let sm = SessionManagerProxy::new(conn).await?;
+        if let Some(n) = xdisplay {
+            sm.setenv("DISPLAY", &format!(":{n}")).await?;
+        }
         sm.setenv("WAYLAND_DISPLAY", socket).await
     }
     .await;
