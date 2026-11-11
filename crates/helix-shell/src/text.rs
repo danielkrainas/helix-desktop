@@ -42,8 +42,8 @@ impl Canvas<'_> {
     pub fn fill(&mut self, color: u32) {
         let [r, g, b, a] = rgba(color);
         let px = [(b * a * 255.0) as u8, (g * a * 255.0) as u8, (r * a * 255.0) as u8, (a * 255.0) as u8];
-        for chunk in self.data.chunks_exact_mut(4) {
-            chunk.copy_from_slice(&px);
+        for chunk in self.data.as_chunks_mut::<4>().0 {
+            *chunk = px;
         }
     }
 

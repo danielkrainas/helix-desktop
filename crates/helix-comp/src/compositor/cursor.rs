@@ -65,7 +65,7 @@ mod tests {
         assert_eq!(&pixels[0..4], &[0, 0, 0, 0xFF]);
         assert_eq!(pixels[(w - 1) * 4 + 3], 0);
         // There is white fill inside.
-        let white = pixels.chunks_exact(4).filter(|p| p == &[0xFF, 0xFF, 0xFF, 0xFF]).count();
+        let white = pixels.as_chunks::<4>().0.iter().filter(|p| **p == [0xFF; 4]).count();
         assert!(white > 30);
     }
 }
