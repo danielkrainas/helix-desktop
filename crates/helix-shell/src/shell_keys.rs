@@ -318,6 +318,52 @@ async fn pactl(args: &[&str]) -> Option<String> {
 const SINK: &str = "@DEFAULT_SINK@";
 const SOURCE: &str = "@DEFAULT_SOURCE@";
 
+/// The default output's (percent, muted), if there is a sound server.
+pub async fn volume_state() -> Option<(u32, bool)> {
+    let percent = parse_volume(&pactl(&["get-sink-volume", SINK]).await?)?;
+    let muted = parse_mute(&pactl(&["get-sink-mute", SINK]).await?)?;
+    Some((percent, muted))
+}
+
+/// Set the default output's volume (and unmute it).
+pub async fn set_volume(percent: u32) {
+    let (_, max) = volume_limits();
+    let _ = pactl(&["set-sink-volume", SINK, &format!("{}%", percent.min(max))]).await;
+    let _ = pactl(&["set-sink-mute", SINK, "0"]).await;
+}
+
+pub async fn toggle_mute() {
+    let _ = pactl(&["set-sink-mute", SINK, "toggle"]).await;
+}
+
+async fn backlight(conn: &Connection) -> Option<(zbus::Proxy<'static>, u32, Vec<Props>)> {
+    let proxy = zbus::Proxy::new(conn, "org.gnome.Mutter.DisplayConfig", "/org/gnome/Mutter/DisplayConfig", "org.gnome.Mutter.DisplayConfig").await.ok()?;
+    let (serial, entries): (u32, Vec<Props>) = proxy.get_property("Backlight").await.ok()?;
+    Some((proxy, serial, entries))
+}
+
+/// The first controllable backlight's level in percent.
+pub async fn brightness_percent(conn: &Connection) -> Option<u32> {
+    let (_, _, entries) = backlight(conn).await?;
+    entries.iter().find_map(|e| {
+        let (min, max, value) = (int(e, "min")?, int(e, "max")?, int(e, "value")?);
+        (max > min).then(|| ((value - min) * 100 / (max - min)) as u32)
+    })
+}
+
+/// Set every controllable backlight to `percent` of its range.
+pub async fn set_brightness_percent(conn: &Connection, percent: u32) {
+    let Some((proxy, serial, entries)) = backlight(conn).await else { return };
+    for e in &entries {
+        let (Some(min), Some(max)) = (int(e, "min"), int(e, "max")) else { continue };
+        let Some(connector) = e.get("connector").and_then(|v| String::try_from(v.clone()).ok()) else { continue };
+        let value = min + (max - min) * percent.min(100) as i32 / 100;
+        if let Err(err) = proxy.call_method("SetBacklight", &(serial, connector.as_str(), value)).await {
+            tracing::warn!(%err, connector, "cannot set the backlight");
+        }
+    }
+}
+
 /// Apply a volume key; the OSD for the result.
 pub async fn change_volume(action: Volume) -> Option<Osd> {
     if action == Volume::MicMute {

@@ -125,10 +125,23 @@ pub enum UiEvent {
     Sharing(bool),
     /// From IBus, for the input method.
     Ime(ibus::ImEvent),
+    /// Quick settings values: volume (percent, muted, max) and brightness
+    /// (percent), each when available.
+    QuickSettings { volume: Option<(u32, bool, u32)>, brightness: Option<u32> },
     /// The remembered answer for a window asking for all shortcuts.
     ShortcutsAnswer { id: u32, allowed: bool },
     /// Ask whether a window may have all shortcuts (no answer stored).
     AskShortcuts { id: u32, app_id: String },
+}
+
+/// What the quick settings menu changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuickChange {
+    /// Nothing: just read the values.
+    Refresh,
+    Volume(u32),
+    Mute,
+    Brightness(u32),
 }
 
 /// Power menu entries.
@@ -178,6 +191,8 @@ pub enum UiRequest {
     ShellKey(shell_keys::KeyAction),
     /// For IBus, from the input method.
     Ime(ibus::ImRequest),
+    /// Quick settings: change something (or nothing), then report.
+    QuickSettings(QuickChange),
     /// Window `id` of app `app_id` asks for all keyboard shortcuts: look
     /// up the remembered answer.
     ShortcutsInhibit { id: u32, app_id: String },
@@ -683,6 +698,22 @@ impl UiBridge {
                 if let Err(err) = &result {
                     tracing::warn!(%err, ?action, "power action failed");
                 }
+                Ok(())
+            }
+            UiRequest::QuickSettings(change) => {
+                let (conn, ui) = (self.conn.clone(), self.ui.clone());
+                tokio::spawn(async move {
+                    match change {
+                        QuickChange::Refresh => {}
+                        QuickChange::Volume(percent) => shell_keys::set_volume(percent).await,
+                        QuickChange::Mute => shell_keys::toggle_mute().await,
+                        QuickChange::Brightness(percent) => shell_keys::set_brightness_percent(&conn, percent).await,
+                    }
+                    let (_, max) = shell_keys::volume_limits();
+                    let volume = shell_keys::volume_state().await.map(|(p, m)| (p, m, max));
+                    let brightness = shell_keys::brightness_percent(&conn).await;
+                    let _ = ui.send(UiEvent::QuickSettings { volume, brightness });
+                });
                 Ok(())
             }
             UiRequest::ShellKey(action) => {

@@ -56,6 +56,7 @@ mod capture;
 mod ime;
 mod notify;
 mod overview;
+mod quick;
 mod scale;
 mod window_menu;
 mod workspace_popup;
@@ -179,6 +180,8 @@ struct Ui {
     /// Full-screen overlays: the end-session dialog and the power menu.
     dialog: Option<Overlay<DialogState>>,
     power_menu: Option<Overlay<()>>,
+    /// What the quick settings menu shows.
+    quick: quick::QuickState,
     window_menu: Option<window_menu::WindowMenu>,
     workspace_popup: Option<workspace_popup::WorkspacePopup>,
     overview: Option<Overlay<overview::OverviewState>>,
@@ -212,6 +215,13 @@ enum OverlayHit {
     /// A window in the switcher.
     Window(u32),
     Power(PowerAction),
+    /// Quick settings: the volume slider, the mute toggle (the "Volume"
+    /// label), the brightness slider, a switch, the menu's background.
+    VolumeSlider,
+    Mute,
+    BrightnessSlider,
+    Switch(quick::Switch),
+    Inside,
     /// A monitor in the share dialog, by index.
     Monitor(usize),
     Outside,
@@ -1578,49 +1588,6 @@ impl Ui {
         }
     }
 
-    fn toggle_power_menu(&mut self) {
-        if self.power_menu.take().is_some() {
-            return;
-        }
-        self.close_launcher(true);
-        let overlay = self.new_overlay("helix-power-menu", KeyboardInteractivity::OnDemand, ());
-        self.power_menu = Some(overlay);
-    }
-
-    fn draw_power_menu(&mut self) {
-        let Some(mut overlay) = self.power_menu.take() else { return };
-        if overlay.configured && overlay.width > 0 {
-            let (w, h) = (overlay.width as usize, overlay.height as usize);
-            let scale = self.scales.of(overlay.layer.wl_surface());
-            if let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) {
-                let mut canvas = Canvas::scaled(data, w, h, scale);
-                canvas.fill(0x00000000);
-                let text = self.text.as_ref();
-                let items = power_menu_items(self.power);
-                let mw = 200;
-                let mx = w as i32 - mw - 6;
-                let my = PANEL_HEIGHT as i32 + 4;
-                let mh = items.len() as i32 * 36 + 8;
-                canvas.rect(mx - 1, my - 1, mw + 2, mh + 2, BANNER_BORDER);
-                canvas.rect(mx, my, mw, mh, BANNER_BG);
-                overlay.hits.clear();
-                for (i, (name, action)) in items.iter().enumerate() {
-                    let r = Rect { x: mx + 4, y: my + 4 + i as i32 * 36, w: mw - 8, h: 36 };
-                    let base = baseline(text, r.y, r.h, 15.0);
-                    label(text, &mut canvas, name, (r.x + 12) as f32, base, 15.0, FG, (r.w - 24) as f32);
-                    overlay.hits.push((r, OverlayHit::Power(*action)));
-                }
-                overlay.hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, OverlayHit::Outside));
-                let surface = overlay.layer.wl_surface();
-                self.scales.prepare(&self.qh, surface, w as i32, h as i32);
-                if buffer.attach_to(surface).is_ok() {
-                    overlay.layer.commit();
-                }
-            }
-        }
-        self.power_menu = Some(overlay);
-    }
-
     fn handle(&mut self, event: UiEvent) {
         match event {
             UiEvent::Notifications(list) => self.notifications_changed(list),
@@ -1669,6 +1636,7 @@ impl Ui {
                 }
             }
             UiEvent::Ime(event) => self.ime_event(event),
+            UiEvent::QuickSettings { volume, brightness } => self.quick_settings_changed(quick::QuickState { volume, brightness }),
             UiEvent::ShortcutsAnswer { id, allowed } => self.answer_shortcuts(id, allowed),
             UiEvent::AskShortcuts { id, app_id } => self.ask_shortcuts(id, app_id),
             UiEvent::Sharing(on) => {
@@ -1747,6 +1715,7 @@ impl Ui {
             ("shift-overview-down", &["<Super><Alt>Down"][..], Internal::ShiftOverview(false)),
             ("toggle-message-tray", &["<Super>v", "<Super>m"][..], Internal::MessageTray),
             ("focus-active-notification", &["<Super>n"][..], Internal::FocusNotification),
+            ("toggle-quick-settings", &["<Super>s"][..], Internal::QuickSettings),
         ] {
             for text in crate::shell_keys::shell_strv(key, defaults) {
                 let Some(accelerator) = parse(&text, "overview") else { continue };
@@ -1804,6 +1773,10 @@ impl Ui {
             },
             Some(Internal::MessageTray) => self.toggle_notification_list(),
             Some(Internal::FocusNotification) => self.focus_banner(true),
+            Some(Internal::QuickSettings) => {
+                self.toggle_power_menu();
+                self.draw_panel();
+            }
             Some(Internal::Launcher) => {
                 if self.launcher.is_some() {
                     self.close_launcher(true);
@@ -1964,6 +1937,7 @@ pub fn run(
         banner: None,
         dialog: None,
         power_menu: None,
+        quick: Default::default(),
         window_menu: None,
         workspace_popup: None,
         overview: None,
@@ -2307,13 +2281,12 @@ impl Ui {
                     self.finish_switching(false);
                 }
             } else if self.power_menu.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
-                let hit = self.power_menu.as_ref().and_then(|m| hit_in(&m.hits));
-                self.power_menu = None;
-                if let Some(OverlayHit::Power(action)) = hit {
-                    tracing::info!(?action, "power menu");
-                    let _ = self.requests.send(UiRequest::Power(action));
+                let hit = self.power_menu.as_ref().and_then(|m| m.hits.iter().find(|(r, _)| r.contains(x, y)).copied());
+                let keep = hit.is_some_and(|(rect, hit)| self.quick_click(hit, x, rect));
+                if !keep {
+                    self.power_menu = None;
+                    self.draw_panel();
                 }
-                self.draw_panel();
             } else if self.banner.as_ref().is_some_and(|b| b.layer.wl_surface() == &event.surface) {
                 self.banner_click(x, y);
             } else if &event.surface == self.panel.wl_surface() {
@@ -2475,6 +2448,8 @@ enum Internal {
     MessageTray,
     /// `focus-active-notification`
     FocusNotification,
+    /// `toggle-quick-settings`
+    QuickSettings,
 }
 
 /// Presses this close continue a window cycle.

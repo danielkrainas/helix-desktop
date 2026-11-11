@@ -430,8 +430,9 @@ are started again at the next login through their desktop file, with
 
 ## Logging out
 
-The panel's **Power** button opens a menu: Lock Screen, Suspend, Log Out…,
-Restart…, Power Off…. Suspend, Restart and Power Off appear only when
+The panel's **Power** button (or Super+S) opens the quick settings menu:
+volume and brightness sliders, Night Light, Dark Style and Do Not Disturb
+switches, and Lock Screen, Suspend, Log Out…, Restart…, Power Off…. Suspend, Restart and Power Off appear only when
 logind allows them without a password (`CanSuspend` etc. answer `yes`).
 The entries call `SessionManager`'s `Suspend`, `Logout(0)`, `Reboot` and
 `Shutdown`, like any other caller would.
