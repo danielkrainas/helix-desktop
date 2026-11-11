@@ -3,6 +3,7 @@
 //! Structure follows Smithay's `smallvil` example (MIT licensed).
 
 mod actions;
+mod alive;
 mod capture;
 mod cursor;
 mod frames;
@@ -153,6 +154,7 @@ pub struct Helix {
     /// Where a dragged window would go if released now (edge tiling).
     pub tile_target: Option<wm::Takeover>,
     pub wm: wm_behavior::WmState,
+    pub alive: alive::AliveState,
     pub gamma: gamma::GammaState,
     pub screencast: screencast::CastState,
 
@@ -176,7 +178,7 @@ impl Helix {
 
         // Private protocol for the shell (visible to privileged clients only).
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
-        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(4, ());
+        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(5, ());
         dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(3, ());
         let socket_name = Self::listen(display, event_loop)?;
         let mut helix = Self {
@@ -244,6 +246,7 @@ impl Helix {
             wm_settings: Default::default(),
             tile_target: None,
             wm: Default::default(),
+            alive: Default::default(),
             gamma: Default::default(),
             screencast: Default::default(),
         };

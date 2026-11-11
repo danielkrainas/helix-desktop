@@ -139,6 +139,8 @@ impl Helix {
             Action::ShowDesktop => self.toggle_show_desktop(),
             Action::ToggleTiledLeft => self.toggle_tiled(&window, Takeover::TiledLeft),
             Action::ToggleTiledRight => self.toggle_tiled(&window, Takeover::TiledRight),
+            Action::ForceQuit => self.force_quit(&window),
+            Action::Wait => self.wait_for(&window),
             _ => {}
         }
         self.sync_window_list();

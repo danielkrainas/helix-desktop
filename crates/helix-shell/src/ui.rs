@@ -49,7 +49,7 @@ use helix_protocols::client::helix_window_list_v1::{self, HelixWindowListV1};
 use smithay_client_toolkit::reexports::client::{Dispatch, Proxy, WEnum};
 use smithay_client_toolkit::reexports::calloop::LoopHandle;
 use helix_protocols::client::helix_screenshot_manager_v1::HelixScreenshotManagerV1;
-use crate::windows::{SwitchEntry, SwitchMode, Switcher};
+use crate::windows::{SwitchEntry, SwitchMode, Switcher, WindowAction};
 use std::collections::HashMap;
 
 mod capture;
@@ -217,6 +217,8 @@ enum DialogKind {
     /// Keep a display configuration change, or go back
     /// (`org.helix.DisplayChangeDialog`).
     DisplayChange,
+    /// An app does not answer: wait or force it to quit (window id, title).
+    NotResponding { id: u32, title: String },
     /// Which monitor to share with an app (`org.helix.ScreenCastChooser`).
     ShareScreen {
         app: String,
@@ -1123,6 +1125,13 @@ impl Ui {
         }
     }
 
+    /// Window `id`'s app answered (or the window went away).
+    fn close_not_responding(&mut self, id: u32) {
+        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::NotResponding { id: shown, .. } if shown == id)) {
+            self.dialog = None;
+        }
+    }
+
     fn show_dialog(&mut self, state: DialogState) {
         self.power_menu = None;
         self.close_launcher(true);
@@ -1149,6 +1158,13 @@ impl Ui {
         let request = match dialog.state.kind {
             DialogKind::End(_) => UiRequest::EndDialogAnswer(choice),
             DialogKind::DisplayChange => UiRequest::DisplayChangeAnswer { keep: choice == Choice::Confirmed },
+            DialogKind::NotResponding { id, .. } => {
+                let action = if choice == Choice::Confirmed { WindowAction::ForceQuit } else { WindowAction::Wait };
+                if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 5) {
+                    list.window_action(id, action);
+                }
+                return;
+            }
             DialogKind::ShareScreen { sources, reply, .. } => {
                 // Confirm (Enter) shares the first entry.
                 let chosen = (choice == Choice::Confirmed).then(|| sources.first().map(|s| s.0.clone())).flatten();
@@ -1182,7 +1198,7 @@ impl Ui {
     fn dialog_tick(&mut self) {
         let Some(dialog) = self.dialog.as_mut() else { return };
         let on_timeout = match &dialog.state.kind {
-            DialogKind::ShareScreen { .. } => return,
+            DialogKind::ShareScreen { .. } | DialogKind::NotResponding { .. } => return,
             DialogKind::End(data) if !data.blockers.is_empty() => return,
             DialogKind::End(_) => Choice::Confirmed,
             DialogKind::DisplayChange => Choice::Canceled,
@@ -1218,7 +1234,7 @@ impl Ui {
         let text = self.text.as_ref();
         let remaining = overlay.state.remaining;
         let no_blockers = Vec::new();
-        let (title, message, cancel_label, confirm_label, blockers) = match &overlay.state.kind {
+        let (title, message, cancel_label, confirm_label, blockers): (String, String, &str, String, &Vec<_>) = match &overlay.state.kind {
             DialogKind::End(d) => {
                 let (title, verb) = match d.kind {
                     SHUTDOWN => ("Power Off", "Power Off"),
@@ -1227,11 +1243,18 @@ impl Ui {
                 };
                 let confirm = if d.blockers.is_empty() { verb.to_owned() } else { format!("{verb} Anyway") };
                 let message = format!("The session will end automatically in {remaining} seconds.");
-                (title, message, "Cancel", confirm, &d.blockers)
+                (title.to_owned(), message, "Cancel", confirm, &d.blockers)
             }
             DialogKind::ShareScreen { .. } => return,
+            DialogKind::NotResponding { title, .. } => (
+                format!("“{title}” is not responding."),
+                "You may choose to wait a short while for it to continue or force the app to quit entirely.".to_owned(),
+                "Wait",
+                "Force Quit".to_owned(),
+                &no_blockers,
+            ),
             DialogKind::DisplayChange => (
-                "Keep the new display settings?",
+                "Keep the new display settings?".to_owned(),
                 format!("The previous settings come back in {remaining} seconds."),
                 "Revert",
                 "Keep".to_owned(),
@@ -1241,14 +1264,15 @@ impl Ui {
         let blocked = !blockers.is_empty();
         let bw = 460.min(w as i32 - 40);
         let rows = blockers.len().min(6) as i32;
-        let bh = if blocked { 150 + 26 + rows * 40 } else { 160 };
+        let message_lines = text.map_or(1, |t| t.wrap(&message, 14.0, (bw - 48) as f32, 2).len().max(1)) as i32;
+        let bh = if blocked { 150 + 26 + rows * 40 } else { 160 + (message_lines - 1) * 19 };
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
         canvas.rect(bx, by, bw, bh, BANNER_BG);
         let inner = (bw - 48) as f32;
         let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
-        label(text, &mut canvas, title, center(title, 20.0), (by + 44) as f32, 20.0, FG, inner);
+        label(text, &mut canvas, &title, center(&title, 20.0), (by + 44) as f32, 20.0, FG, inner);
         let mut y = by + 78;
         if blocked {
             let msg = "Some applications are busy or have unsaved work:";
@@ -1260,7 +1284,10 @@ impl Ui {
                 y += 40;
             }
         } else {
-            label(text, &mut canvas, &message, center(&message, 14.0), y as f32, 14.0, DIM_FG, inner);
+            let lines = text.map_or_else(|| vec![message.clone()], |t| t.wrap(&message, 14.0, inner, 2));
+            for (i, line) in lines.iter().enumerate() {
+                label(text, &mut canvas, line, center(line, 14.0), (y + i as i32 * 19) as f32, 14.0, DIM_FG, inner);
+            }
         }
         // Buttons: Cancel and the action.
         let by2 = by + bh - 56;
@@ -1651,7 +1678,7 @@ pub fn run(
     let shm = Shm::bind(&globals, &qh)?;
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=4, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=5, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=3, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
@@ -2264,6 +2291,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
         match event {
             helix_window_list_v1::Event::Window { id, app_id, title } => ui.windows.update(id, app_id, title),
             helix_window_list_v1::Event::Closed { id } => {
+                ui.close_not_responding(id);
                 ui.windows.close(id);
                 ui.window_sources.remove(&id);
                 // A window that went away can't be switched to.
@@ -2293,6 +2321,14 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                 }
             }
             helix_window_list_v1::Event::Menu { id, x, y, state: WEnum::Value(state) } => ui.show_window_menu(id, x, y, state),
+            helix_window_list_v1::Event::NotResponding { id, responding } => {
+                if responding != 0 {
+                    ui.close_not_responding(id);
+                } else if ui.lock.session.is_none() && ui.dialog.is_none() {
+                    let title = ui.windows.mru().iter().find(|e| e.id == id).map_or_else(|| "The app".to_owned(), |e| e.label().to_owned());
+                    ui.show_dialog(DialogState { kind: DialogKind::NotResponding { id, title }, remaining: 0 });
+                }
+            }
             helix_window_list_v1::Event::Workspaces { count, active } => {
                 ui.windows.set_workspaces(count, active);
                 ui.draw_panel();

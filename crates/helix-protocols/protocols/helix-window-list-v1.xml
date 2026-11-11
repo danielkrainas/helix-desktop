@@ -10,7 +10,7 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="4">
+  <interface name="helix_window_list_v1" version="5">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
       open window, topmost first, then a focused event (and, since version
@@ -114,6 +114,8 @@
       <entry name="show_desktop" value="28"/>
       <entry name="toggle_tiled_left" value="29"/>
       <entry name="toggle_tiled_right" value="30"/>
+      <entry name="force_quit" value="31" summary="kill an unresponsive app (since 5)"/>
+      <entry name="wait" value="32" summary="keep waiting for an unresponsive app (since 5)"/>
     </enum>
     <request name="window_action" since="4">
       <description summary="act on a window">
@@ -133,6 +135,14 @@
       <entry name="monitor_up" value="64"/>
       <entry name="monitor_down" value="128"/>
     </enum>
+    <event name="not_responding" since="5">
+      <description summary="an app stopped (or resumed) answering">
+        The app of window id did not answer a ping in time (responding 0),
+        or answered after all (responding 1).
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="responding" type="uint"/>
+    </event>
     <event name="menu" since="4">
       <description summary="show the window menu">
         Show the window menu of window id at x, y (layout coordinates,

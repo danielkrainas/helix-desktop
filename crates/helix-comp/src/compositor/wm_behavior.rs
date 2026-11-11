@@ -289,6 +289,7 @@ impl Helix {
                 }
             }
         }
+        self.alive_tick(now);
         if self.frames.animate(now) {
             self.render_all();
         }

@@ -300,6 +300,10 @@ attached with `attach-modal-dialogs`), the `overlay-key`, audible and
 visual bells for apps using `xdg_system_bell_v1`, and locate pointer
 (`locate-pointer`, Ctrl).
 
+When a Wayland app stops answering (no reply to a ping within
+`check-alive-timeout` after its window gets focus), the shell asks
+whether to wait or force it to quit.
+
 Super+Left / Super+Right (`org.gnome.mutter.keybindings`) tile the
 focused window to half the screen; with `org.gnome.mutter edge-tiling`,
 dragging a window against a monitor's left or right edge tiles it (top

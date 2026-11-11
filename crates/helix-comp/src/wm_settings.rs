@@ -83,6 +83,8 @@ pub struct WmSettings {
     pub fullscreen_flash: bool,
     /// `locate-pointer`'s key, when on.
     pub locate_pointer_key: Option<String>,
+    /// `check-alive-timeout` (ms; 0: off).
+    pub check_alive_ms: u32,
 }
 
 impl Default for WmSettings {
@@ -105,6 +107,7 @@ impl Default for WmSettings {
             visual_bell: false,
             fullscreen_flash: true,
             locate_pointer_key: None,
+            check_alive_ms: 5000,
         }
     }
 }
@@ -149,6 +152,7 @@ pub fn read() -> WmSettings {
         audible_bell: boolean(WM_PREFERENCES, "audible-bell", d.audible_bell),
         visual_bell: boolean(WM_PREFERENCES, "visual-bell", d.visual_bell),
         fullscreen_flash: string(WM_PREFERENCES, "visual-bell-type").as_deref() != Some("frame-flash"),
+        check_alive_ms: settings_with(MUTTER, "check-alive-timeout").map_or(d.check_alive_ms, |s| s.uint("check-alive-timeout")),
         locate_pointer_key: locate.then(|| string(MUTTER, "locate-pointer-key").unwrap_or_else(|| "Control_L".into())),
     }
 }

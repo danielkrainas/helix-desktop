@@ -194,6 +194,10 @@ impl XdgShellHandler for Helix {
         &mut self.xdg_shell_state
     }
 
+    fn client_pong(&mut self, client: smithay::wayland::shell::xdg::ShellClient) {
+        self.pong(&client);
+    }
+
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         tracing::info!("new toplevel window");
         let window = Window::new_wayland_window(surface);
