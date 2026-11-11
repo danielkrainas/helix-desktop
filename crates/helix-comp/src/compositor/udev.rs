@@ -243,10 +243,6 @@ pub fn init(
     Ok(state.describe_outputs())
 }
 
-fn is_builtin(name: &str) -> bool {
-    ["eDP", "LVDS", "DSI"].iter().any(|p| name.starts_with(p))
-}
-
 impl Helix {
     /// Match outputs to the GPU's connected connectors.
     pub fn scan_connectors(&mut self) {
@@ -392,7 +388,7 @@ impl Helix {
                     mode.current = s.current == Some(i);
                 }
                 Monitor {
-                    builtin: is_builtin(&name),
+                    builtin: super::input::is_builtin_connector(&name),
                     primary: self.primary_output.as_deref() == Some(name.as_str()) && s.current.is_some(),
                     connector: name.clone(),
                     vendor: "Unknown".into(),

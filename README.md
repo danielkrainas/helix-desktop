@@ -202,7 +202,10 @@ sources (Chinese, Japanese, Korean and other input methods) work as
 under GNOME, without environment variables: apps use the Wayland
 text-input protocol and the shell is the input method, starting its own
 `ibus-daemon` when needed and showing IBus's candidates next to the text
-cursor.
+cursor. Touchscreens work on bare hardware: touches go to the app under
+the finger (and focus its window), the panel and launcher take a tap as a
+click, and the touchscreen covers the built-in panel, or else the primary
+monitor. No touch gestures yet.
 
 X11 apps run through Xwayland (the `xwayland` package must be installed):
 the compositor starts it, manages its windows alongside Wayland ones, and
@@ -252,10 +255,10 @@ menus and popovers (popup grabs). Panels and other `wlr-layer-shell`
 surfaces are supported, including exclusive keyboard focus.
 
 Protocols beyond the core: xdg-decoration, xdg-activation, viewporter,
-fractional-scale (always 1 for now), primary selection, cursor-shape (named
+fractional-scale (always 1 for now), primary selection, cursor-shape, text-input and
+(for the shell) input-method and virtual-keyboard (named
 cursors are shown on the host window when nested). Not yet: linux-dmabuf
-(GTK falls back to shared-memory rendering), text-input / input methods,
-compositing client-drawn cursor surfaces.
+(GTK falls back to shared-memory rendering), compositing client-drawn cursor surfaces.
 
 Shortcuts handled by the compositor:
 

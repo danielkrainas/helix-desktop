@@ -16,12 +16,13 @@ use smithay_client_toolkit::reexports::calloop::EventLoop;
 use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 use smithay_client_toolkit::reexports::client::globals::registry_queue_init;
 use smithay_client_toolkit::reexports::client::protocol::{
-    wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface,
+    wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface, wl_touch,
 };
 use smithay_client_toolkit::reexports::client::{Connection, QueueHandle};
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers};
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, PointerHandler};
+use smithay_client_toolkit::seat::touch::TouchHandler;
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
 use smithay_client_toolkit::shell::wlr_layer::{
     Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface,
@@ -126,6 +127,9 @@ struct Ui {
 
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
+    touch: Option<wl_touch::WlTouch>,
+    /// The touch point taken as a click: id, surface, last position.
+    touch_point: Option<(i32, wl_surface::WlSurface, (f64, f64))>,
     /// Reports to the D-Bus side (launcher open/close, key presses).
     requests: UnboundedSender<UiRequest>,
     /// Global key bindings; `None` unless the compositor launched us.
@@ -1717,6 +1721,8 @@ pub fn run(
         shown_minute: None,
         keyboard: None,
         pointer: None,
+        touch: None,
+        touch_point: None,
         requests,
         keybindings,
         bindings: HashMap::new(),
@@ -1913,6 +1919,12 @@ impl SeatHandler for Ui {
                 Err(err) => tracing::warn!(%err, "no pointer"),
             }
         }
+        if capability == Capability::Touch && self.touch.is_none() {
+            match self.seat_state.get_touch(qh, &seat) {
+                Ok(t) => self.touch = Some(t),
+                Err(err) => tracing::warn!(%err, "no touch"),
+            }
+        }
     }
     fn remove_capability(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat, capability: Capability) {
         if capability == Capability::Keyboard {
@@ -1924,6 +1936,12 @@ impl SeatHandler for Ui {
             if let Some(p) = self.pointer.take() {
                 p.release();
             }
+        }
+        if capability == Capability::Touch {
+            if let Some(t) = self.touch.take() {
+                t.release();
+            }
+            self.touch_point = None;
         }
     }
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
@@ -1967,6 +1985,54 @@ impl KeyboardHandler for Ui {
 
 impl PointerHandler for Ui {
     fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
+        self.pointer_events(events);
+    }
+}
+
+/// A pointer event standing in for a touch.
+fn touch_as_pointer(surface: &wl_surface::WlSurface, position: (f64, f64), kind: PointerEventKind) -> PointerEvent {
+    PointerEvent { surface: surface.clone(), position, kind }
+}
+
+/// Shell surfaces take a tap as a click (helix-desktop-spec
+/// `contracts/gsettings/input-settings.md`, "Touchscreens"): the first
+/// touch point acts as the left button, others are ignored.
+impl TouchHandler for Ui {
+    fn down(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, serial: u32, time: u32, surface: wl_surface::WlSurface, id: i32, position: (f64, f64)) {
+        if self.touch_point.is_some() {
+            return;
+        }
+        self.touch_point = Some((id, surface.clone(), position));
+        self.pointer_events(&[
+            touch_as_pointer(&surface, position, PointerEventKind::Enter { serial }),
+            touch_as_pointer(&surface, position, PointerEventKind::Motion { time }),
+            touch_as_pointer(&surface, position, PointerEventKind::Press { time, button: BTN_LEFT, serial }),
+        ]);
+    }
+    fn up(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, serial: u32, time: u32, id: i32) {
+        let Some((_, surface, position)) = self.touch_point.take_if(|(t, _, _)| *t == id) else { return };
+        self.pointer_events(&[
+            touch_as_pointer(&surface, position, PointerEventKind::Release { time, button: BTN_LEFT, serial }),
+            touch_as_pointer(&surface, position, PointerEventKind::Leave { serial }),
+        ]);
+    }
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, time: u32, id: i32, position: (f64, f64)) {
+        let Some((_, surface, last)) = self.touch_point.as_mut().filter(|(t, _, _)| *t == id) else { return };
+        *last = position;
+        let surface = surface.clone();
+        self.pointer_events(&[touch_as_pointer(&surface, position, PointerEventKind::Motion { time })]);
+    }
+    fn shape(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _: i32, _: f64, _: f64) {}
+    fn orientation(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _: i32, _: f64) {}
+    fn cancel(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch) {
+        // A cancelled touch is not a click: drop it without the release.
+        self.touch_point = None;
+        self.picker_cancel_drag();
+    }
+}
+
+impl Ui {
+    fn pointer_events(&mut self, events: &[PointerEvent]) {
         for event in events {
             if self.picker_pointer(event) {
                 continue;

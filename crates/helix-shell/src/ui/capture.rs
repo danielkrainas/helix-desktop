@@ -266,6 +266,12 @@ impl Ui {
         true
     }
 
+    /// A touch drag on the picker was cancelled.
+    pub(super) fn picker_cancel_drag(&mut self) {
+        let Some(drag) = self.picker.as_mut().and_then(|p| p.drag.take()) else { return };
+        self.draw_pick_view(drag.view);
+    }
+
     /// Keys while the picker is open.
     pub(super) fn picker_key(&mut self, event: &KeyEvent) {
         let Some(picker) = self.picker.as_ref() else { return };

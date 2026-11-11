@@ -2,7 +2,7 @@
 
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
-    KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
+    KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent,
 };
 use smithay::utils::{Logical, Point};
 use smithay::backend::input::KeyState;
@@ -91,6 +91,8 @@ impl Helix {
                 | InputEvent::PointerMotionAbsolute { .. }
                 | InputEvent::PointerButton { .. }
                 | InputEvent::PointerAxis { .. }
+                | InputEvent::TouchDown { .. }
+                | InputEvent::TouchMotion { .. }
         ) {
             self.note_activity();
         }
@@ -223,7 +225,69 @@ impl Helix {
                 pointer.axis(self, frame);
                 pointer.frame(self);
             }
+            InputEvent::TouchDown { event } => {
+                let Some(area) = self.touch_area() else { return };
+                let pos = event.position_transformed(area.size) + area.loc.to_f64();
+                if !self.lock.locked {
+                    // A touch focuses the window it lands on, as a click does.
+                    if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
+                        self.focus_window(&window);
+                    }
+                }
+                let under = self.surface_under(pos);
+                let touch = self.seat.get_touch().unwrap();
+                let down = smithay::input::touch::DownEvent {
+                    slot: event.slot(),
+                    location: pos,
+                    serial: SERIAL_COUNTER.next_serial(),
+                    time: event.time_msec(),
+                };
+                touch.down(self, under, &down);
+            }
+            InputEvent::TouchMotion { event } => {
+                let Some(area) = self.touch_area() else { return };
+                let pos = event.position_transformed(area.size) + area.loc.to_f64();
+                let under = self.surface_under(pos);
+                let touch = self.seat.get_touch().unwrap();
+                let motion = smithay::input::touch::MotionEvent { slot: event.slot(), location: pos, time: event.time_msec() };
+                touch.motion(self, under, &motion);
+            }
+            InputEvent::TouchUp { event } => {
+                let touch = self.seat.get_touch().unwrap();
+                let up = smithay::input::touch::UpEvent { slot: event.slot(), serial: SERIAL_COUNTER.next_serial(), time: event.time_msec() };
+                touch.up(self, &up);
+            }
+            InputEvent::TouchFrame { .. } => {
+                let touch = self.seat.get_touch().unwrap();
+                touch.frame(self);
+            }
+            InputEvent::TouchCancel { .. } => {
+                let touch = self.seat.get_touch().unwrap();
+                touch.cancel(self);
+            }
             _ => {}
         }
+    }
+
+    /// The monitor touchscreens cover: the built-in panel, else the primary.
+    fn touch_area(&self) -> Option<smithay::utils::Rectangle<i32, Logical>> {
+        let builtin = self.space.outputs().find(|o| is_builtin_connector(&o.name())).cloned();
+        let output = builtin.or_else(|| self.primary())?;
+        self.space.output_geometry(&output)
+    }
+}
+
+/// Connectors of built-in panels.
+pub fn is_builtin_connector(name: &str) -> bool {
+    ["eDP", "LVDS", "DSI"].iter().any(|p| name.starts_with(p))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn builtin_connectors() {
+        assert!(super::is_builtin_connector("eDP-1"));
+        assert!(super::is_builtin_connector("DSI-1"));
+        assert!(!super::is_builtin_connector("HDMI-A-1"));
     }
 }

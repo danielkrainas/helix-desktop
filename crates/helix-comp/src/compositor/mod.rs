@@ -151,6 +151,7 @@ impl Helix {
         let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "seat0");
         seat.add_keyboard(Default::default(), 200, 25)?;
         seat.add_pointer();
+        seat.add_touch();
 
         // Private protocol for the shell (visible to privileged clients only).
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
