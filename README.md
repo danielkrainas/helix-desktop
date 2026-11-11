@@ -221,9 +221,13 @@ shortcuts can't be grabbed. Only the shell the compositor started itself
 see that protocol; a shell started any other way still serves D-Bus and
 draws its UI, but its accelerators never fire.
 
-Because the compositor starts the shell, the session launcher no longer
-supervises it: if the shell exits, the compositor logs it and keeps
-running.
+The compositor also supervises the shell: if it exits, it is restarted on a
+fresh privileged connection after a growing delay (0.5 s, 1 s, 2 s… up to
+8 s). If it exits 5 times within a minute, the compositor stops restarting
+it and logs an error. Clients' accelerator grabs do not survive a restart,
+as in GNOME. When the compositor is stopped (SIGTERM/SIGINT or
+Ctrl+Alt+Backspace) it stops the shell too, and a shell that loses its
+compositor exits instead of lingering.
 
 ## A full nested session
 

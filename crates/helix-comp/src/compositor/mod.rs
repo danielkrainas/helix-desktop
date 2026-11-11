@@ -8,6 +8,7 @@ mod handlers;
 mod input;
 mod keybindings;
 mod shortcuts;
+mod supervise;
 pub mod udev;
 pub mod winit;
 mod wm;
@@ -84,6 +85,10 @@ pub struct Helix {
     pub resize: Option<grabs::ResizeTracking>,
     pub shortcuts: shortcuts::Shortcuts,
     pub keybindings: keybindings::Keybindings,
+    /// The shell we launched and keep running, if any.
+    pub shell: Option<supervise::Shell>,
+    /// Shell process exits, reported by waiter threads.
+    shell_exits: Option<smithay::reexports::calloop::channel::Sender<std::process::ExitStatus>>,
     /// Cursor requested by the focused client, for the host window.
     pub cursor: Option<CursorIcon>,
     /// Full cursor state, drawn by the compositor on bare hardware.
@@ -142,6 +147,8 @@ impl Helix {
             resize: None,
             shortcuts: shortcuts::Shortcuts::default(),
             keybindings: keybindings::Keybindings::default(),
+            shell: None,
+            shell_exits: None,
             cursor: Some(CursorIcon::Default),
             cursor_status: CursorImageStatus::default_named(),
             dmabuf_state: DmabufState::new(),
@@ -214,6 +221,80 @@ impl Helix {
         let child = cmd.spawn()?;
         drop(theirs);
         Ok(child)
+    }
+
+    /// Start `program` as the shell and restart it whenever it exits.
+    pub fn supervise_shell(&mut self, program: String) -> Result<(), Box<dyn std::error::Error>> {
+        let (tx, rx) = smithay::reexports::calloop::channel::channel();
+        self.loop_handle
+            .insert_source(rx, |event, _, state| {
+                if let smithay::reexports::calloop::channel::Event::Msg(status) = event {
+                    state.shell_exited(status);
+                }
+            })
+            .map_err(|e| format!("cannot watch the shell: {e}"))?;
+        self.shell_exits = Some(tx);
+        self.shell = Some(supervise::Shell::new(program));
+        self.start_shell();
+        Ok(())
+    }
+
+    fn start_shell(&mut self) {
+        let Some(program) = self.shell.as_ref().map(|s| s.program.clone()) else { return };
+        match self.spawn_privileged(&program) {
+            Ok(mut child) => {
+                let pid = child.id();
+                tracing::info!(program, pid, "started shell");
+                if let Some(shell) = self.shell.as_mut() {
+                    shell.pid = Some(pid);
+                }
+                let tx = self.shell_exits.clone();
+                std::thread::spawn(move || {
+                    if let (Ok(status), Some(tx)) = (child.wait(), tx) {
+                        let _ = tx.send(status);
+                    }
+                });
+            }
+            Err(err) => {
+                tracing::error!(%err, program, "cannot start shell");
+                // Treat like a crash so the backoff and give-up rules apply.
+                self.schedule_shell_restart();
+            }
+        }
+    }
+
+    fn shell_exited(&mut self, status: std::process::ExitStatus) {
+        if let Some(shell) = self.shell.as_mut() {
+            shell.pid = None;
+        }
+        tracing::warn!(%status, "shell exited");
+        self.schedule_shell_restart();
+    }
+
+    fn schedule_shell_restart(&mut self) {
+        let Some(shell) = self.shell.as_mut() else { return };
+        match shell.policy.next_delay(Instant::now()) {
+            Some(delay) => {
+                tracing::info!(?delay, "restarting shell");
+                let timer = smithay::reexports::calloop::timer::Timer::from_duration(delay);
+                let _ = self.loop_handle.insert_source(timer, |_, _, state| {
+                    state.start_shell();
+                    smithay::reexports::calloop::timer::TimeoutAction::Drop
+                });
+            }
+            None => tracing::error!(
+                "shell exited {} times within {:?}; not restarting it again",
+                supervise::MAX_RESTARTS,
+                supervise::WINDOW
+            ),
+        }
+    }
+
+    /// Stop supervising and ask the shell to exit (compositor shutdown).
+    pub fn stop_shell(&mut self) {
+        if let Some(mut shell) = self.shell.take() {
+            shell.terminate();
+        }
     }
 
     pub fn send(&self, event: Event) {

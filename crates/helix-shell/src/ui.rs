@@ -499,7 +499,12 @@ pub fn run(
 
     tracing::info!("shell UI running");
     while !ui.exit {
-        event_loop.dispatch(None, &mut ui)?;
+        if let Err(err) = event_loop.dispatch(None, &mut ui) {
+            // The compositor went away (it restarts or stops the shell);
+            // exit rather than linger holding org.gnome.Shell.
+            tracing::warn!(%err, "lost the compositor connection; shell UI stopping");
+            break;
+        }
     }
     Ok(())
 }

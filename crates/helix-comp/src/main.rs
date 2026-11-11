@@ -81,17 +81,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     start_dbus_thread(socket, monitors, events_rx);
 
+    stop_on_signals(state.loop_signal.clone());
+
     if let Some(program) = shell {
-        match state.spawn_privileged(&program) {
-            Ok(mut child) => {
-                tracing::info!(program, pid = child.id(), "started shell");
-                std::thread::spawn(move || match child.wait() {
-                    Ok(status) => tracing::warn!(program, %status, "shell exited"),
-                    Err(err) => tracing::warn!(program, %err, "lost track of shell"),
-                });
-            }
-            Err(err) => tracing::error!(%err, program, "cannot start shell"),
-        }
+        state.supervise_shell(program)?;
     }
 
     if let Some(program) = command {
@@ -100,8 +93,37 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    event_loop.run(None, &mut state, |_| {})?;
+    let result = event_loop.run(None, &mut state, |_| {});
+    state.stop_shell();
+    result?;
     Ok(())
+}
+
+/// SIGTERM (as sent by the session launcher) or SIGINT end the event loop,
+/// so shutdown runs normally (including stopping the shell).
+fn stop_on_signals(signal: smithay::reexports::calloop::LoopSignal) {
+    std::thread::Builder::new()
+        .name("helix-comp-signals".into())
+        .spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+                return;
+            };
+            runtime.block_on(async {
+                use tokio::signal::unix::{signal as unix_signal, SignalKind};
+                let (Ok(mut term), Ok(mut int)) =
+                    (unix_signal(SignalKind::terminate()), unix_signal(SignalKind::interrupt()))
+                else {
+                    return;
+                };
+                tokio::select! {
+                    _ = term.recv() => tracing::info!("received SIGTERM"),
+                    _ = int.recv() => tracing::info!("received SIGINT"),
+                }
+            });
+            signal.stop();
+            signal.wakeup();
+        })
+        .expect("spawn signal thread");
 }
 
 fn parse_args() -> Result<Args, String> {
