@@ -6,7 +6,7 @@ This repository is the implementation. The living specification and contracts li
 
 ## Status
 
-Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested, or on bare hardware via DRM/KMS) with `IdleMonitor` and `DisplayConfig`, `helix-shell` serves `org.gnome.Shell` and draws a top panel, `helix-portals` serves the Settings, Inhibit, Screenshot and ScreenCast portal backends, and `helix-settings` reads the system GSettings.
+Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested, or on bare hardware via DRM/KMS) with `IdleMonitor` and `DisplayConfig`, `helix-shell` serves `org.gnome.Shell` and draws a top panel, `helix-portals` serves the Settings, Inhibit, Screenshot, ScreenCast, RemoteDesktop and Clipboard portal backends, and `helix-settings` reads the system GSettings.
 
 ## Target
 
