@@ -65,7 +65,7 @@ impl SessionLockHandler for Helix {
         }
         let keyboard = self.seat.get_keyboard().unwrap();
         keyboard.unset_grab(self);
-        keyboard.set_focus(self, Option::<WlSurface>::None, SERIAL_COUNTER.next_serial());
+        keyboard.set_focus(self, Option::<super::focus::KeyboardFocusTarget>::None, SERIAL_COUNTER.next_serial());
         self.render_all_now();
     }
 
@@ -93,7 +93,7 @@ impl SessionLockHandler for Helix {
         // The (first) lock surface gets the keyboard.
         let keyboard = self.seat.get_keyboard().unwrap();
         if keyboard.current_focus().is_none() {
-            keyboard.set_focus(self, Some(wl_surface), SERIAL_COUNTER.next_serial());
+            keyboard.set_focus(self, Some(wl_surface.into()), SERIAL_COUNTER.next_serial());
         }
     }
 }

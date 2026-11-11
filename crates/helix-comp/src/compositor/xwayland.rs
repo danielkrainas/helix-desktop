@@ -105,14 +105,20 @@ impl XWaylandShellHandler for Helix {
     }
 
     /// The window got its surface: if it was focused when it was mapped
-    /// (before it had one), give it the keyboard now.
+    /// (before it had one), give it the keyboard (properly) now.
     fn surface_associated(&mut self, _xwm: XwmId, wl_surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface, surface: X11Surface) {
         if surface.is_override_redirect() || !surface.is_activated() || self.lock.locked {
             return;
         }
+        // It got focus while it had no surface: enter again, now with it
+        // (the X input focus stays on it).
+        let _ = wl_surface;
+        let target = super::focus::KeyboardFocusTarget::X11(surface);
         let keyboard = self.seat.get_keyboard().unwrap();
-        if keyboard.current_focus().is_none() {
-            keyboard.set_focus(self, Some(wl_surface), SERIAL_COUNTER.next_serial());
+        let focus = keyboard.current_focus();
+        if focus.is_none() || focus.as_ref() == Some(&target) {
+            keyboard.set_focus(self, Option::<super::focus::KeyboardFocusTarget>::None, SERIAL_COUNTER.next_serial());
+            keyboard.set_focus(self, Some(target), SERIAL_COUNTER.next_serial());
         }
     }
 }
@@ -298,7 +304,7 @@ impl XwmHandler for Helix {
         // Only while an X11 window of this Xwayland has keyboard focus.
         let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
         focus
-            .and_then(|surface| self.window_for_surface(&surface))
+            .and_then(|focus| self.window_for_focus(&focus))
             .and_then(|w| w.x11_surface().and_then(|x| x.xwm_id()))
             .is_some_and(|id| id == xwm)
     }

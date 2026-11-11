@@ -109,7 +109,7 @@ impl ShmHandler for Helix {
 }
 
 impl SeatHandler for Helix {
-    type KeyboardFocus = WlSurface;
+    type KeyboardFocus = super::focus::KeyboardFocusTarget;
     type PointerFocus = WlSurface;
     type TouchFocus = WlSurface;
 
@@ -117,9 +117,10 @@ impl SeatHandler for Helix {
         &mut self.seat_state
     }
 
-    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
+    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&super::focus::KeyboardFocusTarget>) {
+        use smithay::wayland::seat::WaylandFocus;
         let dh = &self.display_handle;
-        let client = focused.and_then(|s| dh.get_client(s.id()).ok());
+        let client = focused.and_then(|f| f.wl_surface()).and_then(|s| dh.get_client(s.id()).ok());
         set_data_device_focus(dh, seat, client.clone());
         smithay::wayland::selection::primary_selection::set_primary_focus(dh, seat, client);
     }
@@ -231,7 +232,7 @@ impl XdgShellHandler for Helix {
         if self.window_for_surface(&root).is_none() {
             return;
         }
-        let Ok(mut grab) = self.popups.grab_popup(root, kind, &seat, serial) else {
+        let Ok(mut grab) = self.popups.grab_popup(root.into(), kind, &seat, serial) else {
             return;
         };
         if let Some(keyboard) = seat.get_keyboard() {
@@ -476,8 +477,7 @@ impl WlrLayerShellHandler for Helix {
             layer_map_for_output(&output).unmap_layer(&layer);
         }
         // Give focus back to the windows if the layer surface had it.
-        let keyboard = self.seat.get_keyboard().unwrap();
-        if keyboard.current_focus().as_ref() == Some(surface.wl_surface()) {
+        if self.focused_surface().as_ref() == Some(surface.wl_surface()) {
             match self.top_window() {
                 Some(top) => self.focus_window(&top),
                 None => self.unfocus_all(),
@@ -528,8 +528,8 @@ impl Helix {
         self.constrain_to_work_area();
         if initial_configure_sent && wants_keyboard && !self.lock.locked {
             let keyboard = self.seat.get_keyboard().unwrap();
-            if keyboard.current_focus().as_ref() != Some(surface) {
-                keyboard.set_focus(self, Some(surface.clone()), smithay::utils::SERIAL_COUNTER.next_serial());
+            if self.focused_surface().as_ref() != Some(surface) {
+                keyboard.set_focus(self, Some(surface.clone().into()), smithay::utils::SERIAL_COUNTER.next_serial());
             }
         }
     }

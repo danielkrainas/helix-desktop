@@ -6,6 +6,7 @@ mod actions;
 mod alive;
 mod capture;
 mod cursor;
+mod focus;
 mod frames;
 mod gamma;
 mod grabs;

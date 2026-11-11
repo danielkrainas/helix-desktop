@@ -371,7 +371,7 @@ impl Helix {
         frame: bool,
     ) -> Result<(Rectangle<i32, Logical>, Image), Option<String>> {
         let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
-        let window: Window = focus.and_then(|s| self.window_for_surface(&s)).ok_or(None)?;
+        let window: Window = focus.and_then(|f| self.window_for_focus(&f)).ok_or(None)?;
         self.window_image(renderer, &window, cursor, frame)
     }
 

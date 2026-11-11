@@ -84,7 +84,7 @@ impl Helix {
 
     fn focused_window_id(&self) -> u32 {
         let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
-        let Some(window) = focus.and_then(|s| self.window_for_surface(&s)) else { return 0 };
+        let Some(window) = focus.and_then(|f| self.window_for_focus(&f)) else { return 0 };
         self.window_list.ids.iter().find(|(w, _)| *w == window).map(|(_, id)| *id).unwrap_or(0)
     }
 

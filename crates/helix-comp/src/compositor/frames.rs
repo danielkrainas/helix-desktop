@@ -412,7 +412,7 @@ impl Helix {
     /// The window with keyboard focus.
     pub fn focused_window(&self) -> Option<Window> {
         let focus = self.seat.get_keyboard()?.current_focus()?;
-        self.window_for_surface(&focus)
+        self.window_for_focus(&focus)
     }
 
     /// The frame part under `pos`, if a frame is the topmost thing there.

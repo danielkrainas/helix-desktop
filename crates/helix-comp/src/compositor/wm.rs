@@ -111,7 +111,7 @@ impl Helix {
             }
         }
         let keyboard = self.seat.get_keyboard().unwrap();
-        keyboard.set_focus(self, surface_of(window), SERIAL_COUNTER.next_serial());
+        keyboard.set_focus(self, super::focus::focus_target(window), SERIAL_COUNTER.next_serial());
         self.check_alive(window);
         let managed: Vec<Window> = self.managed().cloned().collect();
         for w in &managed {
@@ -129,7 +129,7 @@ impl Helix {
             return;
         }
         let keyboard = self.seat.get_keyboard().unwrap();
-        keyboard.set_focus(self, Option::<WlSurface>::None, SERIAL_COUNTER.next_serial());
+        keyboard.set_focus(self, Option::<super::focus::KeyboardFocusTarget>::None, SERIAL_COUNTER.next_serial());
         for w in self.space.elements() {
             if is_override_redirect(w) {
                 continue;
@@ -401,7 +401,7 @@ impl Helix {
         let had_focus = {
             let keyboard = self.seat.get_keyboard().unwrap();
             let focus = keyboard.current_focus();
-            focus.is_none() || focus == surface_of(window)
+            focus.is_none() || focus == super::focus::focus_target(window)
         };
         self.space.unmap_elem(window);
         self.workspace_forget(window);
