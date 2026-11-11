@@ -25,6 +25,8 @@ pub struct WindowList {
     sent_workspace: HashMap<u32, u32>,
     /// (count, active)
     sent_workspaces: (u32, u32),
+    /// Window icons apps set, as last sent.
+    sent_icons: HashMap<u32, super::icons::IconKey>,
 }
 
 /// (app id, title)
@@ -151,6 +153,25 @@ impl Helix {
                 }
             }
         }
+        // Icons apps set (version 7).
+        let icons: Vec<(u32, Window, super::icons::IconKey)> = self
+            .listed_windows()
+            .into_iter()
+            .map(|(id, w)| {
+                let key = super::icons::icon_key(&w);
+                (id, w, key)
+            })
+            .collect();
+        let list = &mut self.window_list;
+        list.sent_icons.retain(|id, _| list.sent.contains_key(id));
+        for (id, window, key) in icons {
+            if list.sent_icons.get(&id).unwrap_or(&Default::default()) != &key {
+                for l in &list.listeners {
+                    super::icons::send_icon(l, id, &window);
+                }
+                list.sent_icons.insert(id, key);
+            }
+        }
     }
 
     fn activate_window(&mut self, id: u32) {
@@ -191,6 +212,14 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
                 listener.workspace(*id, *ws);
             }
         }
+        let mut icons = HashMap::new();
+        for (id, window) in &windows {
+            let key = super::icons::icon_key(window);
+            if key != super::icons::IconKey::default() {
+                super::icons::send_icon(&listener, *id, window);
+            }
+            icons.insert(*id, key);
+        }
         state.window_list.listeners.push(listener);
         if state.window_list.listeners.len() == 1 {
             // First listener: what it was told is the baseline.
@@ -198,6 +227,7 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
             state.window_list.sent_focus = state.focused_window_id();
             state.window_list.sent_workspaces = layout;
             state.window_list.sent_workspace = workspaces;
+            state.window_list.sent_icons = icons;
         }
     }
 

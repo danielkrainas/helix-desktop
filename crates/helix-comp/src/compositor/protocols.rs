@@ -32,6 +32,7 @@ pub type Globals = (
     smithay::wayland::fifo::FifoManagerState,
     smithay::wayland::commit_timing::CommitTimingManagerState,
     smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState,
+    smithay::wayland::xdg_toplevel_icon::XdgToplevelIconManager,
 );
 
 pub fn globals(dh: &smithay::reexports::wayland_server::DisplayHandle) -> Globals {
@@ -47,6 +48,13 @@ pub fn globals(dh: &smithay::reexports::wayland_server::DisplayHandle) -> Global
         smithay::wayland::fifo::FifoManagerState::new::<Helix>(dh),
         smithay::wayland::commit_timing::CommitTimingManagerState::new::<Helix>(dh),
         smithay::wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState::new::<Helix>(dh),
+        {
+            let mut icons = smithay::wayland::xdg_toplevel_icon::XdgToplevelIconManager::new::<Helix>(dh);
+            for size in super::icons::ICON_SIZES {
+                icons.add_icon_size(size);
+            }
+            icons
+        },
     )
 }
 

@@ -10,7 +10,7 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="6">
+  <interface name="helix_window_list_v1" version="7">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
       open window, topmost first, then a focused event (and, since version
@@ -159,6 +159,20 @@
       <arg name="id" type="uint"/>
       <arg name="allowed" type="uint"/>
     </request>
+    <event name="icon" since="7">
+      <description summary="the icon a window's app set">
+        Window id's own icon (xdg_toplevel_icon_v1): an icon theme name
+        (empty for none) and, when size is not 0, a size×size image in data
+        (premultiplied ARGB8888 in native byte order, rows without padding).
+        Sent when it changes, and for windows that have one when the list
+        is first sent. A window without its own icon (name empty, size 0)
+        uses its app's icon.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="name" type="string"/>
+      <arg name="size" type="uint"/>
+      <arg name="data" type="fd"/>
+    </event>
     <event name="menu" since="4">
       <description summary="show the window menu">
         Show the window menu of window id at x, y (layout coordinates,

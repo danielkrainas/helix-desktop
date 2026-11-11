@@ -158,6 +158,10 @@ struct Ui {
     panel_focus: Option<usize>,
     /// Each window's input source (`per-window`).
     window_sources: HashMap<u32, crate::input_sources::Source>,
+    /// Icons windows' apps set: theme name and image.
+    window_icons: HashMap<u32, (String, Option<helix_draw::Image>)>,
+    /// Loaded icons by key (and pixel size); None when not found.
+    icon_cache: HashMap<String, Option<helix_draw::Image>>,
     /// Input method globals (privileged shell only) and state.
     im_manager: Option<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2>,
     vk_manager: Option<wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1>,
@@ -783,15 +787,30 @@ impl Ui {
     fn paint_switcher(&mut self, overlay: &mut Overlay<SwitcherState>) {
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
+        let (shown, first) = {
+            let switcher = &overlay.state.switcher;
+            let shown = switcher.entries.len().clamp(1, SWITCHER_ROWS);
+            (shown, switcher.selected.saturating_sub(shown - 1))
+        };
+        // Window entries get their window's icon (input sources none).
+        let windows = matches!(overlay.state.kind, SwitchKind::Windows { .. });
+        let px = (f64::from(ICON_PX) * scale).ceil() as u32;
+        let ids: Vec<u32> = overlay.state.switcher.entries.iter().map(|e| e.id).collect();
+        let icons: Vec<Option<helix_draw::Image>> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| if windows && (first..first + shown).contains(&i) { self.window_icon(*id, px) } else { None })
+            .collect();
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(0x00000000);
-        let text = self.text.as_ref();
         let switcher = &overlay.state.switcher;
         let shown = switcher.entries.len().clamp(1, SWITCHER_ROWS);
         let first = switcher.selected.saturating_sub(shown - 1);
+        let text = self.text.as_ref();
+        let switcher = &overlay.state.switcher;
         let bw = 480.min(w as i32 - 40);
         let bh = shown as i32 * ROW_H + 16;
         let bx = (w as i32 - bw) / 2;
@@ -807,7 +826,13 @@ impl Ui {
             }
             let base = baseline(text, r.y, r.h, 15.0);
             let detail_w = text.map_or(0.0, |t| t.width(&entry.detail, 13.0).min(160.0));
-            label(text, &mut canvas, &entry.label, (r.x + 12) as f32, base, 15.0, FG, r.w as f32 - 36.0 - detail_w);
+            let mut label_x = r.x + 12;
+            if let Some(icon) = icons.get(index).and_then(|i| i.as_ref()) {
+                let y = f64::from(r.y + (r.h - ICON_PX) / 2);
+                canvas.image(f64::from(r.x + 10), y, f64::from(ICON_PX), f64::from(ICON_PX), icon);
+                label_x = r.x + 18 + ICON_PX;
+            }
+            label(text, &mut canvas, &entry.label, label_x as f32, base, 15.0, FG, (r.x + r.w - label_x) as f32 - 24.0 - detail_w);
             let detail_color = if index == switcher.selected { FG } else { DIM_FG };
             label(text, &mut canvas, &entry.detail, r.x as f32 + r.w as f32 - 12.0 - detail_w, base, 13.0, detail_color, 160.0);
             overlay.hits.push((r, OverlayHit::Window(entry.id)));
@@ -817,6 +842,31 @@ impl Ui {
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
+    }
+
+    /// Window `id`'s icon at `px` pixels: its own, else its app's.
+    fn window_icon(&mut self, id: u32, px: u32) -> Option<helix_draw::Image> {
+        if let Some((name, image)) = self.window_icons.get(&id) {
+            if let Some(image) = image {
+                return Some(image.clone());
+            }
+            if !name.is_empty() {
+                let key = format!("name:{name}@{px}");
+                let source = crate::icons::IconSource::Names(vec![name.clone()]);
+                if let Some(found) = self.icon_cache.entry(key).or_insert_with(|| crate::icons::load(&source, px)).clone() {
+                    return Some(found);
+                }
+            }
+        }
+        let app_id = self.windows.mru().iter().find(|e| e.id == id).map(|e| e.app_id.clone())?;
+        let key = format!("app:{app_id}@{px}");
+        self.icon_cache
+            .entry(key)
+            .or_insert_with(|| {
+                let source = crate::icons::IconSource::for_app(&app_id).or_else(|| crate::icons::IconSource::for_app(&app_id.to_lowercase()))?;
+                crate::icons::load(&source, px)
+            })
+            .clone()
     }
 
     fn draw_launcher(&mut self) {
@@ -1786,7 +1836,7 @@ pub fn run(
     let shm = Shm::bind(&globals, &qh)?;
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=6, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=7, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=3, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
@@ -1844,6 +1894,8 @@ pub fn run(
         cycle: None,
         panel_focus: None,
         window_sources: HashMap::new(),
+        window_icons: HashMap::new(),
+        icon_cache: HashMap::new(),
         im_manager,
         vk_manager,
         ime: None,
@@ -2376,6 +2428,26 @@ struct SwitcherState {
 }
 
 const SWITCHER_ROWS: usize = 10;
+/// Icon size in switcher rows (logical pixels).
+const ICON_PX: i32 = 24;
+
+/// A window icon image from the compositor: size×size premultiplied
+/// ARGB8888 (native order) → premultiplied RGBA.
+fn read_icon(data: std::os::fd::OwnedFd, size: u32) -> Option<helix_draw::Image> {
+    use std::io::Read;
+    let len = (size as usize).checked_mul(size as usize)?.checked_mul(4)?;
+    let mut bytes = Vec::with_capacity(len);
+    let mut file = std::fs::File::from(data);
+    std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0)).ok()?;
+    file.take(len as u64).read_to_end(&mut bytes).ok()?;
+    if bytes.len() != len {
+        return None;
+    }
+    for px in bytes.as_chunks_mut::<4>().0 {
+        px.swap(0, 2);
+    }
+    Some(helix_draw::Image { width: size as usize, height: size as usize, rgba: bytes })
+}
 
 /// Power menu entries, offering only what logind allows.
 fn power_menu_items(power: crate::logind::Availability) -> Vec<(&'static str, PowerAction)> {
@@ -2405,7 +2477,17 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
     ) {
         match event {
             helix_window_list_v1::Event::Window { id, app_id, title } => ui.windows.update(id, app_id, title),
+            helix_window_list_v1::Event::Icon { id, name, size, data } => {
+                let image = (size > 0).then(|| read_icon(data, size)).flatten();
+                if name.is_empty() && image.is_none() {
+                    ui.window_icons.remove(&id);
+                } else {
+                    ui.window_icons.insert(id, (name, image));
+                }
+                ui.draw_switcher();
+            }
             helix_window_list_v1::Event::Closed { id } => {
+                ui.window_icons.remove(&id);
                 ui.close_not_responding(id);
                 ui.windows.close(id);
                 ui.window_sources.remove(&id);
