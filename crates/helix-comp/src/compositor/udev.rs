@@ -106,6 +106,11 @@ impl UdevData {
             .map_err(|e| e.to_string())
     }
 
+    /// Outputs that are connected but turned off.
+    pub fn outputs_off(&self) -> Vec<Output> {
+        self.surfaces.values().filter(|s| s.current.is_none()).map(|s| s.output.clone()).collect()
+    }
+
     /// The image drawn for named cursors.
     pub fn cursor_buffer(&self) -> &MemoryRenderBuffer {
         &self.cursor
@@ -368,6 +373,8 @@ impl Helix {
             tracing::info!(name = surface.output.name(), "output disconnected");
             self.space.unmap_output(&surface.output);
             self.display_handle.remove_global::<Helix>(surface._global);
+            self.close_layers(&surface.output);
+            self.rescue_windows();
         }
     }
 

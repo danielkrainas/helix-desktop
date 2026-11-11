@@ -53,6 +53,11 @@ impl Helix {
             layer_map_for_output(output).arrange();
         }
         if result.is_ok() {
+            // Monitors that are now off lose their shell surfaces.
+            let off: Vec<_> = self.udev.as_ref().map(|u| u.outputs_off()).unwrap_or_default();
+            for output in &off {
+                self.close_layers(output);
+            }
             // A mode change may reset the CRTC's gamma.
             self.reapply_gamma();
             self.primary_output = config
@@ -61,6 +66,9 @@ impl Helix {
                 .find(|l| l.primary)
                 .and_then(|l| l.monitors.first())
                 .map(|c| c.connector.clone());
+        }
+        if result.is_ok() {
+            self.rescue_windows();
         }
         result
     }

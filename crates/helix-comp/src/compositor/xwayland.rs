@@ -214,7 +214,7 @@ impl XwmHandler for Helix {
 
     fn fullscreen_request(&mut self, _xwm: XwmId, surface: X11Surface) {
         if let Some(window) = self.x11_window(&surface) {
-            self.fullscreen(&window);
+            self.fullscreen(&window, None);
         }
     }
 

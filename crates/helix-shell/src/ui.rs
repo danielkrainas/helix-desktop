@@ -1461,6 +1461,18 @@ impl Ui {
     }
 }
 
+/// The top panel (on the primary monitor: no output is named).
+fn make_panel(compositor: &CompositorState, layer_shell: &LayerShell, qh: &QueueHandle<Ui>) -> LayerSurface {
+    let surface = compositor.create_surface(qh);
+    let panel = layer_shell.create_layer_surface(qh, surface, Layer::Top, Some("helix-panel"), None);
+    panel.set_anchor(Anchor::TOP | Anchor::LEFT | Anchor::RIGHT);
+    panel.set_size(0, PANEL_HEIGHT);
+    panel.set_exclusive_zone(PANEL_HEIGHT as i32);
+    panel.set_keyboard_interactivity(KeyboardInteractivity::None);
+    panel.commit();
+    panel
+}
+
 /// Run the UI until the compositor goes away. Blocks the calling thread.
 pub fn run(
     events: Channel<UiEvent>,
@@ -1482,13 +1494,7 @@ pub fn run(
         tracing::warn!("compositor offers no key bindings to this process; accelerators will not fire");
     }
 
-    let surface = compositor.create_surface(&qh);
-    let panel = layer_shell.create_layer_surface(&qh, surface, Layer::Top, Some("helix-panel"), None);
-    panel.set_anchor(Anchor::TOP | Anchor::LEFT | Anchor::RIGHT);
-    panel.set_size(0, PANEL_HEIGHT);
-    panel.set_exclusive_zone(PANEL_HEIGHT as i32);
-    panel.set_keyboard_interactivity(KeyboardInteractivity::None);
-    panel.commit();
+    let panel = make_panel(&compositor, &layer_shell, &qh);
 
     let text = Text::load();
     if text.is_none() {
@@ -1610,7 +1616,11 @@ impl LayerShellHandler for Ui {
             return;
         }
         if layer == &self.panel {
-            self.exit = true;
+            // Its monitor went away: the compositor puts a new one on the
+            // primary monitor.
+            tracing::info!("panel closed; making a new one");
+            self.panel = make_panel(&self.compositor, &self.layer_shell, &self.qh);
+            self.panel_configured = false;
         } else if self.banner.as_ref().is_some_and(|b| &b.layer == layer) {
             self.banner = None;
         } else if self.dialog.as_ref().is_some_and(|d| &d.layer == layer) {

@@ -96,8 +96,8 @@ pub struct Helix {
     pub restore: Vec<(Window, Rectangle<i32, Logical>, wm::Takeover)>,
     /// Interactive resize awaiting the client's commits.
     pub resize: Option<grabs::ResizeTracking>,
-    /// Last known usable area (output minus panels), to notice changes.
-    pub work_area: Option<Rectangle<i32, Logical>>,
+    /// Last known usable areas (outputs minus panels), to notice changes.
+    pub work_areas: Vec<(String, Rectangle<i32, Logical>)>,
     pub shortcuts: shortcuts::Shortcuts,
     pub keybindings: keybindings::Keybindings,
     /// The shell we launched and keep running, if any.
@@ -182,7 +182,7 @@ impl Helix {
             minimized_at: Vec::new(),
             restore: Vec::new(),
             resize: None,
-            work_area: None,
+            work_areas: Vec::new(),
             shortcuts: shortcuts::Shortcuts::default(),
             keybindings: keybindings::Keybindings::default(),
             shell: None,
@@ -387,10 +387,9 @@ impl Helix {
     /// not reserved by panels.
     pub fn next_window_position(&mut self) -> (i32, i32) {
         let origin = self
-            .space
-            .outputs()
-            .next()
-            .map(|o| layer_map_for_output(o).non_exclusive_zone().loc)
+            .pointer_output()
+            .and_then(|o| self.usable_area_of(&o))
+            .map(|a| a.loc)
             .unwrap_or_default();
         let n = (self.windows_mapped % 10) as i32;
         self.windows_mapped += 1;

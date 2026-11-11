@@ -318,9 +318,10 @@ impl XdgShellHandler for Helix {
         }
     }
 
-    fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<WlOutput>) {
+    fn fullscreen_request(&mut self, surface: ToplevelSurface, output: Option<WlOutput>) {
         if let Some(window) = self.window_for_surface(surface.wl_surface()) {
-            self.fullscreen(&window);
+            let on = output.as_ref().and_then(Output::from_resource);
+            self.fullscreen(&window, on);
         }
     }
 
@@ -426,7 +427,7 @@ impl WlrLayerShellHandler for Helix {
         let output = output
             .as_ref()
             .and_then(Output::from_resource)
-            .or_else(|| self.space.outputs().next().cloned());
+            .or_else(|| self.primary());
         let Some(output) = output else {
             tracing::warn!(namespace, "layer surface without an output; ignoring");
             return;
@@ -546,11 +547,11 @@ impl Helix {
         else {
             return;
         };
-        let Some(output) = self.space.outputs().next() else {
+        let Some(output) = self.output_of(window) else {
             return;
         };
         let (Some(output_geo), Some(window_geo)) = (
-            self.space.output_geometry(output),
+            self.space.output_geometry(&output),
             self.space.element_geometry(window),
         ) else {
             return;

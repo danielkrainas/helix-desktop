@@ -225,6 +225,11 @@ the primary monitor. Super+Page Up/Down (and the other
 focused window along; the panel shows a dot per workspace. The window
 switcher lists only the current workspace's windows by default.
 
+With several monitors, new windows open on the one under the pointer,
+maximize and fullscreen use the monitor a window is mostly on, the panel
+sits on the primary monitor, and windows (and the panel) of a monitor that
+is unplugged or turned off move to the remaining ones.
+
 Window management: windows open in a cascade below any panels and get
 focus, and stay out from under panels when the work area changes; click
 to focus; client-side (GTK) decorations; dragging and resizing
