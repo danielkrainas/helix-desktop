@@ -6,8 +6,11 @@
 //!   the shell UI.
 
 pub mod accel;
+pub mod auth;
 pub mod font;
+pub mod idle;
 pub mod launcher;
+pub mod screensaver;
 pub mod state;
 pub mod text;
 pub mod ui;
@@ -71,6 +74,8 @@ pub enum UiEvent {
     /// Ask the compositor to deliver this accelerator for `action`.
     Bind { action: u32, accelerator: accel::Accelerator },
     Unbind { action: u32 },
+    /// Lock the session now.
+    Lock,
 }
 
 /// Reports from the shell UI back to the D-Bus side.
@@ -82,6 +87,12 @@ pub enum UiRequest {
     Accelerator { action: u32, pressed: bool, time: u32 },
     /// The compositor refused (or cannot offer) the binding.
     GrabFailed { action: u32 },
+    /// The lock is in place.
+    Locked,
+    /// The user unlocked.
+    Unlocked,
+    /// The lock was refused or taken away.
+    LockGone,
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -315,6 +326,7 @@ pub struct ShellService {
     conn: Connection,
     state: Arc<Mutex<ShellState>>,
     watcher: JoinHandle<()>,
+    auth: Arc<dyn auth::Authenticator>,
 }
 
 impl ShellService {
@@ -325,8 +337,15 @@ impl ShellService {
         let state = Arc::new(Mutex::new(ShellState::new()));
         let (ui, ui_rx) = mpsc::unbounded_channel();
         let ui_for_watcher = ui.clone();
+        let auth = auth::authenticator();
+        let saver = screensaver::ScreenSaver {
+            status: Default::default(),
+            ui: ui.clone(),
+            auth: auth.clone(),
+        };
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui })?
+            .serve_at(screensaver::OBJECT_PATH, saver)?
             .build()
             .await?;
         match conn
@@ -337,6 +356,17 @@ impl ShellService {
             _ => return Err(zbus::Error::NameTaken),
         }
         tracing::info!(name = BUS_NAME, "shell ready");
+        match conn
+            .request_name_with_flags(screensaver::BUS_NAME, RequestNameFlags::DoNotQueue.into())
+            .await
+        {
+            Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => {
+                if let Err(err) = auth.available() {
+                    tracing::warn!(%err, "screen locking unavailable");
+                }
+            }
+            other => tracing::warn!(?other, "cannot own org.gnome.ScreenSaver; screen locking unavailable"),
+        }
 
         let mut changes = DBusProxy::new(&conn).await?.receive_name_owner_changed().await?;
         let watched = state.clone();
@@ -359,11 +389,21 @@ impl ShellService {
                 }
             }
         });
-        Ok((Self { conn, state, watcher }, ui_rx))
+        Ok((Self { conn, state, watcher, auth }, ui_rx))
     }
 
     pub fn connection(&self) -> &Connection {
         &self.conn
+    }
+
+    /// The password checker the lock screen uses.
+    pub fn authenticator(&self) -> Arc<dyn auth::Authenticator> {
+        self.auth.clone()
+    }
+
+    /// Lock now (e.g. the compositor restarted us while locked).
+    pub async fn lock(&self) -> zbus::Result<()> {
+        lock_via(&self.conn).await
     }
 
     /// Accelerators currently grabbed, as (action, normalized accelerator).
@@ -414,6 +454,30 @@ impl UiBridge {
                 shell.grab_failed(action);
                 Ok(())
             }
+            UiRequest::Locked | UiRequest::Unlocked | UiRequest::LockGone => {
+                let saver = self
+                    .conn
+                    .object_server()
+                    .interface::<_, screensaver::ScreenSaver>(screensaver::OBJECT_PATH)
+                    .await?;
+                let locked = request == UiRequest::Locked;
+                let object = saver.get().await;
+                let result = object.set_locked(locked, saver.signal_emitter()).await;
+                result
+            }
         }
     }
+}
+
+/// Ask our own ScreenSaver object to lock.
+pub async fn lock_via(conn: &Connection) -> zbus::Result<()> {
+    let saver = conn
+        .object_server()
+        .interface::<_, screensaver::ScreenSaver>(screensaver::OBJECT_PATH)
+        .await?;
+    let object = saver.get().await;
+    let result = object
+        .request_lock()
+        .map_err(|e| zbus::Error::Failure(format!("cannot lock: {e}")));
+    result
 }

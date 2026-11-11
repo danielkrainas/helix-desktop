@@ -7,6 +7,7 @@ mod grabs;
 mod handlers;
 mod input;
 mod keybindings;
+mod lock;
 mod shortcuts;
 mod supervise;
 pub mod udev;
@@ -35,6 +36,7 @@ use smithay::wayland::fractional_scale::FractionalScaleManagerState;
 use smithay::wayland::selection::primary_selection::PrimarySelectionState;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 use smithay::wayland::viewporter::ViewporterState;
+use smithay::wayland::session_lock::SessionLockManagerState;
 use smithay::wayland::xdg_activation::XdgActivationState;
 use smithay::wayland::xwayland_shell::XWaylandShellState;
 use smithay::xwayland::X11Wm;
@@ -106,6 +108,8 @@ pub struct Helix {
     /// Xwayland's display number (`DISPLAY=:N`), once it is running.
     pub xdisplay: Option<u32>,
     pub xwayland_shell_state: XWaylandShellState,
+    pub session_lock_state: SessionLockManagerState,
+    pub lock: lock::LockState,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -167,6 +171,8 @@ impl Helix {
             xwm: None,
             xdisplay: None,
             xwayland_shell_state: XWaylandShellState::new::<Self>(&dh),
+            session_lock_state: SessionLockManagerState::new::<Self, _>(&dh, lock::can_lock),
+            lock: lock::LockState::default(),
             events,
             last_activity_sent: None,
             windows_mapped: 0,
@@ -221,6 +227,12 @@ impl Helix {
         let fd = theirs.as_raw_fd();
         let mut cmd = std::process::Command::new(program);
         cmd.env("WAYLAND_SOCKET", fd.to_string());
+        // A shell (re)started while locked must lock again straight away.
+        if self.lock.locked {
+            cmd.env("HELIX_LOCKED", "1");
+        } else {
+            cmd.env_remove("HELIX_LOCKED");
+        }
         self.set_child_display(&mut cmd);
         // SAFETY: only async-signal-safe fcntl calls between fork and exec,
         // to let the child inherit its end of the socket.
@@ -362,6 +374,9 @@ impl Helix {
     }
 
     pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
+        if self.lock.locked {
+            return self.lock_surface_under(pos);
+        }
         let output = self.space.outputs().next()?;
         let output_loc = self.space.output_geometry(output)?.loc;
         let layers = layer_map_for_output(output);

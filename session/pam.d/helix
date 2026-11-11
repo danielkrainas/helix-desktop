@@ -1,0 +1,7 @@
+# PAM service for the Helix lock screen. Install as /etc/pam.d/helix:
+#   sudo install -m 644 session/pam.d/helix /etc/pam.d/helix
+# Helix refuses to lock the screen until this file exists.
+# (Debian/Ubuntu syntax; other distributions name these includes differently.)
+@include common-auth
+@include common-account
+auth optional pam_gnome_keyring.so

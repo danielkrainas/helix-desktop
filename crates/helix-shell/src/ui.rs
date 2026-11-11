@@ -35,7 +35,12 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::launcher::{self, Launcher};
 use crate::text::{Canvas, Style, Text};
+use crate::auth::{AuthError, Authenticator, Secret};
 use crate::{font, Osd, UiEvent, UiRequest};
+use smithay_client_toolkit::session_lock::{
+    SessionLock, SessionLockHandler, SessionLockState, SessionLockSurface, SessionLockSurfaceConfigure,
+};
+use std::sync::Arc;
 use helix_protocols::client::helix_keybinding_v1::{self, HelixKeybindingV1};
 use helix_protocols::client::helix_keybindings_manager_v1::{self, HelixKeybindingsManagerV1};
 use smithay_client_toolkit::reexports::client::{Dispatch, WEnum};
@@ -114,7 +119,35 @@ struct Ui {
     /// Global key bindings; `None` unless the compositor launched us.
     keybindings: Option<HelixKeybindingsManagerV1>,
     bindings: HashMap<u32, HelixKeybindingV1>,
+    lock: LockScreen,
     exit: bool,
+}
+
+/// The lock screen: one surface per output while the session is locked.
+struct LockScreen {
+    state: SessionLockState,
+    session: Option<SessionLock>,
+    surfaces: Vec<LockView>,
+    password: String,
+    message: Option<String>,
+    checking: bool,
+    auth: Arc<dyn Authenticator>,
+    user: String,
+    /// Results of password checks, from the worker thread.
+    results: channel::Sender<Result<(), AuthError>>,
+}
+
+struct LockView {
+    surface: SessionLockSurface,
+    width: u32,
+    height: u32,
+}
+
+/// Clear a password buffer, overwriting its bytes first.
+fn wipe(s: &mut String) {
+    // SAFETY: zero bytes are valid UTF-8, and the string is cleared after.
+    unsafe { s.as_mut_vec().iter_mut().for_each(|b| std::ptr::write_volatile(b, 0)) };
+    s.clear();
 }
 
 /// Local time as "HH:MM".
@@ -377,8 +410,139 @@ impl Ui {
         self.draw_launcher();
     }
 
+    // ----- Lock screen -------------------------------------------------------
+
+    fn start_lock(&mut self) {
+        if self.lock.session.is_some() {
+            return;
+        }
+        self.close_launcher(true);
+        match self.lock.state.lock(&self.qh) {
+            Ok(session) => self.lock.session = Some(session),
+            Err(err) => {
+                tracing::error!(%err, "compositor does not let this process lock the session");
+                let _ = self.requests.send(UiRequest::LockGone);
+            }
+        }
+    }
+
+    fn lock_key(&mut self, event: &KeyEvent) {
+        if self.lock.checking {
+            return;
+        }
+        match event.keysym {
+            Keysym::Return | Keysym::KP_Enter => self.submit_password(),
+            Keysym::Escape => {
+                wipe(&mut self.lock.password);
+                self.lock.message = None;
+            }
+            Keysym::BackSpace => {
+                self.lock.password.pop();
+            }
+            _ => {
+                if let Some(text) = &event.utf8 {
+                    self.lock.password.extend(text.chars().filter(|c| !c.is_control()));
+                }
+            }
+        }
+        self.draw_lock();
+    }
+
+    fn submit_password(&mut self) {
+        if self.lock.password.is_empty() {
+            return;
+        }
+        let secret = Secret::new(std::mem::take(&mut self.lock.password));
+        self.lock.checking = true;
+        self.lock.message = Some("Checking…".into());
+        let auth = self.lock.auth.clone();
+        let user = self.lock.user.clone();
+        let results = self.lock.results.clone();
+        std::thread::spawn(move || {
+            let result = auth.authenticate(&user, &secret);
+            drop(secret);
+            let _ = results.send(result);
+        });
+    }
+
+    fn password_checked(&mut self, result: Result<(), AuthError>) {
+        self.lock.checking = false;
+        match result {
+            Ok(()) => {
+                tracing::info!("unlocking");
+                if let Some(session) = self.lock.session.take() {
+                    session.unlock();
+                }
+                self.lock.surfaces.clear();
+                self.lock.message = None;
+                let _ = self.requests.send(UiRequest::Unlocked);
+            }
+            Err(AuthError::Denied) => {
+                self.lock.message = Some("Incorrect password. Try again.".into());
+                self.draw_lock();
+            }
+            Err(AuthError::Unavailable(err)) => {
+                tracing::error!(%err, "cannot check passwords");
+                self.lock.message = Some(format!("Cannot check password: {err}"));
+                self.draw_lock();
+            }
+        }
+    }
+
+    fn draw_lock(&mut self) {
+        let mut views = std::mem::take(&mut self.lock.surfaces);
+        for view in &mut views {
+            self.paint_lock(view);
+        }
+        self.lock.surfaces = views;
+    }
+
+    fn paint_lock(&mut self, view: &mut LockView) {
+        let (w, h) = (view.width as usize, view.height as usize);
+        if w == 0 || h == 0 {
+            return;
+        }
+        let Ok((buffer, data)) =
+            self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888)
+        else {
+            tracing::warn!("cannot allocate lock screen buffer");
+            return;
+        };
+        let mut canvas = Canvas { data, width: w, height: h };
+        canvas.fill(0xFF101014);
+        let text = self.text.as_ref();
+        let center = |s: &str, px: f32| -> f32 { (w as f32 - text.map_or(0.0, |t| t.width(s, px))) / 2.0 };
+
+        let clock = clock_text();
+        let top = (h as i32) / 4;
+        label(text, &mut canvas, &clock, center(&clock, 64.0), top as f32, 64.0, FG, w as f32);
+        label(text, &mut canvas, &self.lock.user, center(&self.lock.user, 18.0), (top + 70) as f32, 18.0, DIM_FG, w as f32);
+
+        let fw = 360.min(w as i32 - 40);
+        let fx = (w as i32 - fw) / 2;
+        let fy = top + 100;
+        canvas.rect(fx, fy, fw, 44, FIELD_BG);
+        let (shown, color) = if self.lock.password.is_empty() {
+            ("Password".to_owned(), DIM_FG)
+        } else {
+            ("●".repeat(self.lock.password.chars().count()), FG)
+        };
+        let base = baseline(text, fy, 44, 17.0);
+        label(text, &mut canvas, &shown, (fx + 14) as f32, base, 17.0, color, (fw - 28) as f32);
+        if let Some(message) = &self.lock.message {
+            label(text, &mut canvas, message, center(message, 15.0), (fy + 76) as f32, 15.0, DIM_FG, w as f32);
+        }
+
+        let surface = view.surface.wl_surface();
+        surface.damage_buffer(0, 0, w as i32, h as i32);
+        if buffer.attach_to(surface).is_ok() {
+            surface.commit();
+        }
+    }
+
     fn handle(&mut self, event: UiEvent) {
         match event {
+            UiEvent::Lock => self.start_lock(),
             UiEvent::Osd(osd) => {
                 self.osd = Some((osd, Instant::now() + OSD_DURATION));
                 self.draw_panel();
@@ -426,6 +590,7 @@ impl Ui {
 pub fn run(
     events: Channel<UiEvent>,
     requests: UnboundedSender<UiRequest>,
+    auth: Arc<dyn Authenticator>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::connect_to_env()?;
     let (globals, event_queue) = registry_queue_init(&conn)?;
@@ -454,6 +619,7 @@ pub fn run(
     }
 
     let pool = SlotPool::new((1920 * PANEL_HEIGHT * 4) as usize, &shm)?;
+    let (auth_tx, auth_rx) = channel::channel();
     let mut ui = Ui {
         registry_state: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &qh),
@@ -475,6 +641,17 @@ pub fn run(
         requests,
         keybindings,
         bindings: HashMap::new(),
+        lock: LockScreen {
+            state: SessionLockState::new(&globals, &qh),
+            session: None,
+            surfaces: Vec::new(),
+            password: String::new(),
+            message: None,
+            checking: false,
+            auth,
+            user: crate::auth::current_user(),
+            results: auth_tx,
+        },
         exit: false,
     };
 
@@ -490,6 +667,13 @@ pub fn run(
             }
         })
         .map_err(|e| format!("cannot watch UI events: {e}"))?;
+    handle
+        .insert_source(auth_rx, |event, _, ui| {
+            if let channel::Event::Msg(result) = event {
+                ui.password_checked(result);
+            }
+        })
+        .map_err(|e| format!("cannot watch password checks: {e}"))?;
     handle
         .insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, ui| {
             ui.tick();
@@ -596,10 +780,18 @@ impl KeyboardHandler for Ui {
     fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32, _: &[u32], _: &[Keysym]) {}
     fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32) {}
     fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
-        self.launcher_key(&event);
+        if self.lock.session.is_some() {
+            self.lock_key(&event);
+        } else {
+            self.launcher_key(&event);
+        }
     }
     fn repeat_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
-        self.launcher_key(&event);
+        if self.lock.session.is_some() {
+            self.lock_key(&event);
+        } else {
+            self.launcher_key(&event);
+        }
     }
     fn release_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent) {}
     fn update_modifiers(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, _: Modifiers, _: RawModifiers, _: u32) {}
@@ -695,5 +887,44 @@ impl Dispatch<HelixKeybindingV1, u32> for Ui {
             }
             _ => {}
         }
+    }
+}
+
+impl SessionLockHandler for Ui {
+    fn locked(&mut self, _: &Connection, qh: &QueueHandle<Self>, session_lock: SessionLock) {
+        // One lock surface per output.
+        for output in self.output_state.outputs() {
+            let surface = self.compositor.create_surface(qh);
+            let lock_surface = session_lock.create_lock_surface(surface, &output, qh);
+            self.lock.surfaces.push(LockView { surface: lock_surface, width: 0, height: 0 });
+        }
+        tracing::info!(surfaces = self.lock.surfaces.len(), "session locked");
+        let _ = self.requests.send(UiRequest::Locked);
+    }
+
+    fn finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _: SessionLock) {
+        // Refused by the compositor (or the lock was taken away).
+        tracing::warn!("session lock finished by the compositor");
+        self.lock.session = None;
+        self.lock.surfaces.clear();
+        wipe(&mut self.lock.password);
+        let _ = self.requests.send(UiRequest::LockGone);
+    }
+
+    fn configure(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        surface: SessionLockSurface,
+        configure: SessionLockSurfaceConfigure,
+        _: u32,
+    ) {
+        let mut views = std::mem::take(&mut self.lock.surfaces);
+        if let Some(view) = views.iter_mut().find(|v| v.surface.wl_surface() == surface.wl_surface()) {
+            view.width = configure.new_size.0;
+            view.height = configure.new_size.1;
+            self.paint_lock(view);
+        }
+        self.lock.surfaces = views;
     }
 }

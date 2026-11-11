@@ -134,6 +134,21 @@ impl SessionManager {
         Self::session_running(emitter).await
     }
 
+    /// The screensaver reported a lock change.
+    pub async fn set_locked(&self, locked: bool, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
+        let changed = {
+            let mut state = self.state();
+            let changed = state.is_locked() != locked;
+            state.set_locked(locked);
+            changed
+        };
+        if changed {
+            tracing::info!(locked, "session lock state");
+            self.session_is_locked_changed(emitter).await?;
+        }
+        Ok(())
+    }
+
     /// Release everything owned by a bus peer that left the bus, and announce
     /// the removals.
     pub async fn release_owner(&self, owner: &str, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {

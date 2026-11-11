@@ -209,6 +209,9 @@ impl XdgShellHandler for Helix {
     }
 
     fn grab(&mut self, surface: PopupSurface, seat: WlSeat, serial: Serial) {
+        if self.lock.locked {
+            return;
+        }
         let Some(seat) = Seat::<Self>::from_resource(&seat) else { return };
         let kind = PopupKind::Xdg(surface);
         let Ok(root) = find_popup_root_surface(&kind) else { return };
@@ -491,7 +494,7 @@ impl Helix {
             })
         };
         self.constrain_to_work_area();
-        if initial_configure_sent && wants_keyboard {
+        if initial_configure_sent && wants_keyboard && !self.lock.locked {
             let keyboard = self.seat.get_keyboard().unwrap();
             if keyboard.current_focus().as_ref() != Some(surface) {
                 keyboard.set_focus(self, Some(surface.clone()), smithay::utils::SERIAL_COUNTER.next_serial());
@@ -571,6 +574,7 @@ delegate_viewporter!(Helix);
 delegate_fractional_scale!(Helix);
 delegate_cursor_shape!(Helix);
 delegate_dmabuf!(Helix);
+smithay::delegate_session_lock!(Helix);
 smithay::delegate_xwayland_shell!(Helix);
 
 impl DmabufHandler for Helix {

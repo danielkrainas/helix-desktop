@@ -149,3 +149,18 @@ async fn org_gnome_shell() {
     )
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn org_gnome_screensaver() {
+    let Some(bus) = TestBus::start() else { return };
+    let (service, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
+    assert_matches_contract(
+        service.connection(),
+        helix_shell::screensaver::BUS_NAME,
+        helix_shell::screensaver::OBJECT_PATH,
+        "org.gnome.ScreenSaver",
+        "org.gnome.ScreenSaver.xml",
+        &[],
+    )
+    .await;
+}

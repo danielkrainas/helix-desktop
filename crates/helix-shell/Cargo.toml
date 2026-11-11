@@ -15,9 +15,16 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 smithay-client-toolkit.workspace = true
 libc.workspace = true
+libloading.workspace = true
+helix-settings.workspace = true
 ab_glyph.workspace = true
 gio.workspace = true
 helix-protocols = { workspace = true, features = ["client"] }
+
+[features]
+# DEVELOPMENT ONLY: the lock screen accepts the password "helix-test"
+# instead of using PAM. Never enable for real use.
+insecure-test-auth = []
 
 [[bin]]
 name = "helix-shell"

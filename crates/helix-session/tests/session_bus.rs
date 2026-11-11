@@ -225,3 +225,32 @@ async fn fatal_initialization_error_ends_session() {
     let end = service.await.unwrap().unwrap();
     assert_eq!(end, SessionEnd::Requested(EndSessionAction::InitializationFailed));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn session_is_locked_follows_the_screensaver() {
+    let Some(bus) = TestBus::start() else { return };
+    let (_service, _stop) = spawn_service(&bus).await;
+    let conn = bus.connect().await;
+    let sm = proxy(&conn).await;
+    assert!(!sm.session_is_locked().await.unwrap());
+
+    // A screensaver announces the lock.
+    let saver = bus.connect().await;
+    saver
+        .emit_signal(None::<()>, "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver", "ActiveChanged", &(true,))
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !sm.session_is_locked().await.unwrap() {
+        assert!(Instant::now() < deadline, "SessionIsLocked did not follow");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    saver
+        .emit_signal(None::<()>, "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver", "ActiveChanged", &(false,))
+        .await
+        .unwrap();
+    while sm.session_is_locked().await.unwrap() {
+        assert!(Instant::now() < deadline, "SessionIsLocked did not clear");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}

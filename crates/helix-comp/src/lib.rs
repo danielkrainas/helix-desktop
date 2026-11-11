@@ -32,6 +32,8 @@ pub enum Event {
     Monitors(Vec<Monitor>),
     /// The user asked for the application launcher (Super alone).
     ShowApplications,
+    /// The user asked to lock the screen (Super+L).
+    Lock,
 }
 
 /// The running D-Bus services of the compositor.
@@ -106,6 +108,22 @@ impl CompositorServices {
                     let emitter = iface.signal_emitter();
                     DisplayConfig::monitors_changed(emitter).await?;
                     iface.get().await.has_external_monitor_changed(emitter).await?;
+                }
+                Ok(())
+            }
+            Event::Lock => {
+                let reply = self
+                    .conn
+                    .call_method(
+                        Some("org.gnome.ScreenSaver"),
+                        "/org/gnome/ScreenSaver",
+                        Some("org.gnome.ScreenSaver"),
+                        "Lock",
+                        &(),
+                    )
+                    .await;
+                if let Err(err) = reply {
+                    tracing::warn!(%err, "cannot ask the shell to lock");
                 }
                 Ok(())
             }

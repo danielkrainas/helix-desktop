@@ -178,9 +178,38 @@ Shortcuts handled by the compositor:
 | Super+Up | Toggle maximize |
 | Super+Down | Restore a maximized window, else minimize |
 | Super+drag | Move the window under the pointer |
+| Super+L | Lock the screen |
 
 When nested, the host desktop's window manager may grab some of these (e.g.
 Alt+Tab under XFCE) before Helix sees them.
+
+## Screen locking
+
+The shell serves `org.gnome.ScreenSaver` and draws the lock screen on the
+standard `ext-session-lock-v1` protocol; the compositor then shows nothing
+of the session and sends input only to the lock screen, and stays locked
+(blank) if the shell crashes until the restarted shell takes the lock back.
+`SessionManager`'s `SessionIsLocked` follows it.
+
+It locks on Super+L, `org.gnome.ScreenSaver.Lock`, and after GNOME's idle
+settings (`org.gnome.desktop.session idle-delay` +
+`org.gnome.desktop.screensaver lock-delay`, if `lock-enabled`; default 5
+minutes) unless an app holds an idle inhibitor.
+
+Unlocking checks your password with PAM, through the `helix` service.
+**Install it before relying on locking**:
+
+```sh
+sudo install -m 644 session/pam.d/helix /etc/pam.d/helix
+```
+
+Until that file exists Helix refuses to lock rather than showing a lock
+screen nobody could unlock. (PAM is loaded at run time; building needs no
+PAM development package.)
+
+For development only, building helix-shell with the `insecure-test-auth`
+feature makes the lock screen accept the password `helix-test` instead of
+using PAM. Never use such a build for real.
 
 ## Running on real hardware
 

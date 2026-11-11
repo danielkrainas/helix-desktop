@@ -5,7 +5,8 @@ use std::time::Duration;
 use helix_comp::display_config::{Mode as MonitorMode, Monitor};
 use helix_comp::Event;
 use smithay::backend::renderer::damage::OutputDamageTracker;
-use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
+use smithay::backend::renderer::element::surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement};
+use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::winit::{self, WinitEvent};
 use smithay::desktop::layer_map_for_output;
@@ -105,7 +106,32 @@ pub fn init(
                             return;
                         }
                     };
-                    if let Err(err) = smithay::desktop::space::render_output::<
+                    if state.lock.locked {
+                        // Locked: only the lock surface (if any), on black.
+                        let elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = state
+                            .lock
+                            .surface_for(&output)
+                            .map(|s| {
+                                render_elements_from_surface_tree(
+                                    renderer,
+                                    s.wl_surface(),
+                                    (0, 0),
+                                    1.0,
+                                    1.0,
+                                    Kind::Unspecified,
+                                )
+                            })
+                            .unwrap_or_default();
+                        if let Err(err) = damage_tracker.render_output(
+                            renderer,
+                            &mut framebuffer,
+                            0,
+                            &elements,
+                            [0.0, 0.0, 0.0, 1.0],
+                        ) {
+                            tracing::warn!(?err, "render failed");
+                        }
+                    } else if let Err(err) = smithay::desktop::space::render_output::<
                         _,
                         WaylandSurfaceRenderElement<GlesRenderer>,
                         _,
@@ -126,6 +152,13 @@ pub fn init(
                 }
                 if let Err(err) = backend.submit(Some(&[damage])) {
                     tracing::warn!(%err, "submit failed");
+                }
+                if state.lock.locked {
+                    state.lock_frame_shown();
+                    state.lock_send_frames(&output);
+                    let _ = state.display_handle.flush_clients();
+                    backend.window().request_redraw();
+                    return;
                 }
 
                 for window in state.space.elements() {

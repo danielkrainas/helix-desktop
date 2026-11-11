@@ -60,8 +60,19 @@ fn main() -> ExitCode {
         }
     });
 
-    let panel_result = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        ui::run(ui_channel, request_tx)
+    runtime.spawn(helix_shell::idle::run(service.connection().clone()));
+
+    // Restarted by the compositor while the session was locked: lock again
+    // at once (the compositor keeps the screen blank until we do).
+    if std::env::var_os("HELIX_LOCKED").is_some() {
+        tracing::info!("session is locked; showing the lock screen");
+        if let Err(err) = runtime.block_on(service.lock()) {
+            tracing::error!(%err, "cannot relock");
+        }
+    }
+
+    let panel_result = if std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("WAYLAND_SOCKET").is_some() {
+        ui::run(ui_channel, request_tx, service.authenticator())
     } else {
         tracing::warn!("WAYLAND_DISPLAY not set; running without a panel");
         Err("no compositor".into())

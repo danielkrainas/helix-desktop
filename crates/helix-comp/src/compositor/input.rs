@@ -43,7 +43,12 @@ impl Helix {
 
     fn run_shortcut(&mut self, action: Action, time: u32) {
         tracing::debug!(?action, "shortcut");
+        // While locked only the escape hatches work.
+        if self.lock.locked && !matches!(action, Action::Quit | Action::SwitchVt(_)) {
+            return;
+        }
         match action {
+            Action::Lock => self.send(helix_comp::Event::Lock),
             Action::Binding(id, pressed) => {
                 if let Some(obj) = self.keybindings.object(id) {
                     if pressed {
@@ -141,7 +146,7 @@ impl Helix {
                 let serial = SERIAL_COUNTER.next_serial();
                 let state = event.state();
 
-                if state == ButtonState::Pressed && !pointer.is_grabbed() {
+                if state == ButtonState::Pressed && !pointer.is_grabbed() && !self.lock.locked {
                     let pos = pointer.current_location();
                     let super_held = self
                         .seat

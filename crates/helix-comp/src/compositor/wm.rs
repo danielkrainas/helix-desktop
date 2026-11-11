@@ -48,7 +48,8 @@ impl Helix {
 
     /// Raise `window`, give it keyboard focus, and mark only it activated.
     pub fn focus_window(&mut self, window: &Window) {
-        if is_override_redirect(window) {
+        // Nothing gets focus while the session is locked.
+        if is_override_redirect(window) || self.lock.locked {
             return;
         }
         if let Some(pos) = self.minimized.iter().position(|w| w == window) {
@@ -73,6 +74,10 @@ impl Helix {
 
     /// Clear keyboard focus and deactivate every window.
     pub fn unfocus_all(&mut self) {
+        // While locked the lock surface keeps the keyboard.
+        if self.lock.locked {
+            return;
+        }
         let keyboard = self.seat.get_keyboard().unwrap();
         keyboard.set_focus(self, Option::<WlSurface>::None, SERIAL_COUNTER.next_serial());
         for w in self.space.elements() {

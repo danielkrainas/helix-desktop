@@ -397,6 +397,7 @@ impl Helix {
             space,
             cursor_status,
             start_time,
+            lock,
             ..
         } = self;
         let Some(udev) = udev.as_mut() else { return };
@@ -447,12 +448,24 @@ impl Helix {
                 }
             }
         }
-        match space_render_elements(renderer, [&*space], &output, 1.0) {
-            Ok(space_elements) => elements.extend(space_elements.into_iter().map(OutputElements::Space)),
-            Err(err) => tracing::warn!(?err, "output has no mode"),
+        if lock.locked {
+            // Locked: only the lock surface (if any); nothing of the session.
+            if let Some(lock_surface) = lock.surface_for(&output) {
+                elements.extend(
+                    render_elements_from_surface_tree(renderer, lock_surface.wl_surface(), (0, 0), Scale::from(1.0), 1.0, Kind::Unspecified)
+                        .into_iter()
+                        .map(OutputElements::CursorSurface),
+                );
+            }
+        } else {
+            match space_render_elements(renderer, [&*space], &output, 1.0) {
+                Ok(space_elements) => elements.extend(space_elements.into_iter().map(OutputElements::Space)),
+                Err(err) => tracing::warn!(?err, "output has no mode"),
+            }
         }
 
-        let rendered = match surface.drm_output.render_frame(renderer, &elements, CLEAR_COLOR, FrameFlags::DEFAULT) {
+        let clear = if lock.locked { [0.0, 0.0, 0.0, 1.0] } else { CLEAR_COLOR };
+        let rendered = match surface.drm_output.render_frame(renderer, &elements, clear, FrameFlags::DEFAULT) {
             Ok(result) => !result.is_empty,
             Err(err) => {
                 tracing::warn!(?err, "render failed");
@@ -466,12 +479,13 @@ impl Helix {
             }
         }
 
+        let locked = lock.locked;
         // Frame callbacks let clients draw their next frame.
         let elapsed = start_time.elapsed();
-        for window in space.elements() {
+        for window in space.elements().filter(|_| !locked) {
             window.send_frame(&output, elapsed, Some(Duration::ZERO), |_, _| Some(output.clone()));
         }
-        for layer in layer_map_for_output(&output).layers() {
+        for layer in layer_map_for_output(&output).layers().filter(|_| !locked) {
             layer.send_frame(&output, elapsed, Some(Duration::ZERO), |_, _| Some(output.clone()));
         }
 
@@ -489,6 +503,12 @@ impl Helix {
             });
         }
 
+        if locked {
+            if rendered {
+                self.lock_frame_shown();
+            }
+            self.lock_send_frames(&output);
+        }
         self.space.refresh();
         self.popups.cleanup();
         let _ = self.display_handle.flush_clients();

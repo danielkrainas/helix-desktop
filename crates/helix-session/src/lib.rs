@@ -43,6 +43,7 @@ pub struct SessionService {
     state: Arc<Mutex<SessionState>>,
     end_rx: mpsc::UnboundedReceiver<EndSessionAction>,
     watcher: JoinHandle<()>,
+    lock_watcher: JoinHandle<()>,
 }
 
 impl SessionService {
@@ -79,11 +80,13 @@ impl SessionService {
         tracing::info!(name = BUS_NAME, unique = ?conn.unique_name(), "owning bus name");
 
         let watcher = spawn_owner_watcher(&conn).await?;
+        let lock_watcher = spawn_lock_watcher(&conn).await?;
         Ok(Self {
             conn,
             state,
             end_rx,
             watcher,
+            lock_watcher,
         })
     }
 
@@ -134,6 +137,7 @@ impl SessionService {
         }
 
         self.watcher.abort();
+        self.lock_watcher.abort();
         // A round trip to the bus also ensures the end-request reply has
         // been flushed before we disconnect.
         self.conn.release_name(BUS_NAME).await?;
@@ -141,6 +145,30 @@ impl SessionService {
         self.conn.graceful_shutdown().await;
         Ok(end)
     }
+}
+
+/// `SessionIsLocked` follows the screensaver's `ActiveChanged` signal
+/// (helix-desktop-spec/contracts/dbus/org.gnome.ScreenSaver.md).
+async fn spawn_lock_watcher(conn: &Connection) -> zbus::Result<JoinHandle<()>> {
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.gnome.ScreenSaver")?
+        .member("ActiveChanged")?
+        .build();
+    let mut signals = zbus::MessageStream::for_match_rule(rule, conn, None).await?;
+    let iface = conn
+        .object_server()
+        .interface::<_, SessionManager>(OBJECT_PATH)
+        .await?;
+    Ok(tokio::spawn(async move {
+        while let Some(Ok(message)) = signals.next().await {
+            let Ok(locked) = message.body().deserialize::<bool>() else { continue };
+            let manager = iface.get().await;
+            if let Err(err) = manager.set_locked(locked, iface.signal_emitter()).await {
+                tracing::warn!(%err, "cannot publish SessionIsLocked");
+            }
+        }
+    }))
 }
 
 /// Watch for peers leaving the bus so their clients and inhibitors don't leak

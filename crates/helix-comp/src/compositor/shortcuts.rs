@@ -8,6 +8,7 @@
 //! | Alt+F4 | Close the focused window |
 //! | Super+Up | Toggle maximize |
 //! | Super+Down | Restore a maximized window, else minimize |
+//! | Super+L | Lock the screen (asks the shell) |
 //! | Ctrl+Alt+F1..F12 | Switch VT (bare hardware only) |
 //! | Ctrl+Alt+Backspace | Quit Helix (always available escape hatch) |
 //!
@@ -25,6 +26,7 @@ pub enum Action {
     RestoreOrMinimize,
     SwitchVt(i32),
     Quit,
+    Lock,
     /// A shell binding was pressed (`true`) or released (`false`).
     Binding(u32, bool),
 }
@@ -95,6 +97,7 @@ fn builtin(mods: Mods, sym: Keysym) -> Option<Action> {
         Keysym::F4 if mods.alt && !mods.logo && !mods.ctrl => Some(Action::CloseWindow),
         Keysym::Up if mods.logo && !mods.alt && !mods.ctrl => Some(Action::ToggleMaximize),
         Keysym::Down if mods.logo && !mods.alt && !mods.ctrl => Some(Action::RestoreOrMinimize),
+        Keysym::l if mods.logo && !mods.alt && !mods.ctrl => Some(Action::Lock),
         _ => None,
     }
 }
