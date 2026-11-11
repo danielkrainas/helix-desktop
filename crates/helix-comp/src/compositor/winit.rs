@@ -8,6 +8,7 @@ use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::winit::{self, WinitEvent};
+use smithay::desktop::layer_map_for_output;
 use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
 use smithay::reexports::calloop::EventLoop;
 use smithay::utils::{Physical, Rectangle, Size, Transform};
@@ -86,6 +87,7 @@ pub fn init(
                     None,
                     None,
                 );
+                layer_map_for_output(&output).arrange();
                 state.send(Event::Monitors(describe(size)));
             }
             WinitEvent::Input(event) => state.process_input_event(event),
@@ -125,6 +127,14 @@ pub fn init(
 
                 for window in state.space.elements() {
                     window.send_frame(
+                        &output,
+                        state.start_time.elapsed(),
+                        Some(Duration::ZERO),
+                        |_, _| Some(output.clone()),
+                    );
+                }
+                for layer in layer_map_for_output(&output).layers() {
+                    layer.send_frame(
                         &output,
                         state.start_time.elapsed(),
                         Some(Duration::ZERO),

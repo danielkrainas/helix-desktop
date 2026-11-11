@@ -2,7 +2,14 @@
 
 use smithay::backend::renderer::utils::on_commit_buffer_handler;
 use smithay::desktop::{
-    find_popup_root_surface, get_popup_toplevel_coords, PopupKind, Window,
+    find_popup_root_surface, get_popup_toplevel_coords, layer_map_for_output, LayerSurface,
+    PopupKind, Window, WindowSurfaceType,
+};
+use smithay::output::Output;
+use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
+use smithay::wayland::shell::wlr_layer::{
+    Layer, LayerSurface as WlrLayerSurface, LayerSurfaceData, WlrLayerShellHandler,
+    WlrLayerShellState,
 };
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
@@ -27,8 +34,8 @@ use smithay::wayland::shell::xdg::{
 };
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::{
-    delegate_compositor, delegate_data_device, delegate_output, delegate_seat, delegate_shm,
-    delegate_xdg_shell,
+    delegate_compositor, delegate_data_device, delegate_layer_shell, delegate_output,
+    delegate_seat, delegate_shm, delegate_xdg_shell,
 };
 
 use super::{ClientState, Helix};
@@ -58,6 +65,7 @@ impl CompositorHandler for Helix {
             }
         }
         self.handle_xdg_commit(surface);
+        self.handle_layer_commit(surface);
     }
 }
 
@@ -136,7 +144,76 @@ impl XdgShellHandler for Helix {
     }
 }
 
+impl WlrLayerShellHandler for Helix {
+    fn shell_state(&mut self) -> &mut WlrLayerShellState {
+        &mut self.layer_shell_state
+    }
+
+    fn new_layer_surface(
+        &mut self,
+        surface: WlrLayerSurface,
+        output: Option<WlOutput>,
+        _layer: Layer,
+        namespace: String,
+    ) {
+        let output = output
+            .as_ref()
+            .and_then(Output::from_resource)
+            .or_else(|| self.space.outputs().next().cloned());
+        let Some(output) = output else {
+            tracing::warn!(namespace, "layer surface without an output; ignoring");
+            return;
+        };
+        tracing::info!(namespace, "new layer surface");
+        let mut map = layer_map_for_output(&output);
+        if let Err(err) = map.map_layer(&LayerSurface::new(surface, namespace)) {
+            tracing::warn!(?err, "failed to map layer surface");
+        }
+    }
+
+    fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
+        let found = self.space.outputs().find_map(|o| {
+            let map = layer_map_for_output(o);
+            let layer = map.layers().find(|l| l.layer_surface() == &surface).cloned();
+            layer.map(|layer| (o.clone(), layer))
+        });
+        if let Some((output, layer)) = found {
+            layer_map_for_output(&output).unmap_layer(&layer);
+        }
+    }
+}
+
 impl Helix {
+    /// Lay out layer surfaces and send their first configure.
+    fn handle_layer_commit(&mut self, surface: &WlSurface) {
+        let Some(output) = self
+            .space
+            .outputs()
+            .find(|o| {
+                layer_map_for_output(o)
+                    .layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
+                    .is_some()
+            })
+            .cloned()
+        else {
+            return;
+        };
+        let initial_configure_sent = with_states(surface, |states| {
+            states
+                .data_map
+                .get::<LayerSurfaceData>()
+                .map(|data| data.lock().unwrap().initial_configure_sent)
+                .unwrap_or(true)
+        });
+        let mut map = layer_map_for_output(&output);
+        map.arrange();
+        if !initial_configure_sent {
+            if let Some(layer) = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL) {
+                layer.layer_surface().send_configure();
+            }
+        }
+    }
+
     fn handle_xdg_commit(&mut self, surface: &WlSurface) {
         if let Some(window) = self
             .space
@@ -201,3 +278,4 @@ delegate_seat!(Helix);
 delegate_data_device!(Helix);
 delegate_output!(Helix);
 delegate_xdg_shell!(Helix);
+delegate_layer_shell!(Helix);

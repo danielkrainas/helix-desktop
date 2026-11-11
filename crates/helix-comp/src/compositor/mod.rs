@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use helix_comp::Event;
-use smithay::desktop::{PopupManager, Space, Window, WindowSurfaceType};
+use smithay::desktop::{layer_map_for_output, PopupManager, Space, Window, WindowSurfaceType};
 use smithay::input::{Seat, SeatState};
 use smithay::reexports::calloop::generic::Generic;
 use smithay::reexports::calloop::{EventLoop, Interest, LoopSignal, Mode, PostAction};
@@ -22,6 +22,7 @@ use smithay::utils::{Logical, Point};
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
 use smithay::wayland::output::OutputManagerState;
 use smithay::wayland::selection::data_device::DataDeviceState;
+use smithay::wayland::shell::wlr_layer::{Layer, WlrLayerShellState};
 use smithay::wayland::shell::xdg::XdgShellState;
 use smithay::wayland::shm::ShmState;
 use smithay::wayland::socket::ListeningSocketSource;
@@ -39,6 +40,7 @@ pub struct Helix {
 
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
+    pub layer_shell_state: WlrLayerShellState,
     pub shm_state: ShmState,
     /// Kept alive so the wl_output / xdg-output globals stay registered.
     #[allow(dead_code)]
@@ -71,6 +73,7 @@ impl Helix {
             socket_name,
             compositor_state: CompositorState::new::<Self>(&dh),
             xdg_shell_state: XdgShellState::new::<Self>(&dh),
+            layer_shell_state: WlrLayerShellState::new::<Self>(&dh),
             shm_state: ShmState::new::<Self>(&dh, vec![]),
             output_manager_state: OutputManagerState::new_with_xdg_output::<Self>(&dh),
             data_device_state: DataDeviceState::new::<Self>(&dh),
@@ -131,19 +134,43 @@ impl Helix {
         }
     }
 
-    /// Where to put the next new window: a simple cascade.
+    /// Where to put the next new window: a simple cascade inside the area
+    /// not reserved by panels.
     pub fn next_window_position(&mut self) -> (i32, i32) {
+        let origin = self
+            .space
+            .outputs()
+            .next()
+            .map(|o| layer_map_for_output(o).non_exclusive_zone().loc)
+            .unwrap_or_default();
         let n = (self.windows_mapped % 10) as i32;
         self.windows_mapped += 1;
-        (32 * n, 32 * n)
+        (origin.x + 32 * n, origin.y + 32 * n)
     }
 
     pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
-        self.space.element_under(pos).and_then(|(window, location)| {
-            window
-                .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
-                .map(|(s, p)| (s, (p + location).to_f64()))
-        })
+        let output = self.space.outputs().next()?;
+        let output_loc = self.space.output_geometry(output)?.loc;
+        let layers = layer_map_for_output(output);
+        let layer_hit = |layer: Layer| {
+            let surface = layers.layer_under(layer, pos - output_loc.to_f64())?;
+            let geo = layers.layer_geometry(surface)?;
+            let loc = geo.loc + output_loc;
+            surface
+                .surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL)
+                .map(|(s, p)| (s, (p + loc).to_f64()))
+        };
+        layer_hit(Layer::Overlay)
+            .or_else(|| layer_hit(Layer::Top))
+            .or_else(|| {
+                self.space.element_under(pos).and_then(|(window, location)| {
+                    window
+                        .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
+                        .map(|(s, p)| (s, (p + location).to_f64()))
+                })
+            })
+            .or_else(|| layer_hit(Layer::Bottom))
+            .or_else(|| layer_hit(Layer::Background))
     }
 }
 

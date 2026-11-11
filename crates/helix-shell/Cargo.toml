@@ -5,6 +5,20 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Helix shell UI"
+description = "Helix shell: org.gnome.Shell and the shell UI"
 
 [dependencies]
+zbus.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+smithay-client-toolkit.workspace = true
+libc.workspace = true
+
+[[bin]]
+name = "helix-shell"
+path = "src/main.rs"
+
+[dev-dependencies]
+helix-test-support.workspace = true

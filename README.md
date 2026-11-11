@@ -6,7 +6,7 @@ This repository is the implementation. The living specification and contracts li
 
 ## Status
 
-Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested only, for now) with `IdleMonitor` and `DisplayConfig`, `helix-portals` serves the Settings and Inhibit portal backends, and `helix-settings` reads the system GSettings. The shell is still scaffolding.
+Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested only, for now) with `IdleMonitor` and `DisplayConfig`, `helix-shell` serves `org.gnome.Shell` and draws a top panel, `helix-portals` serves the Settings and Inhibit portal backends, and `helix-settings` reads the system GSettings.
 
 ## Target
 
@@ -136,4 +136,32 @@ It serves `org.gnome.Mutter.IdleMonitor` and the read side of
 `org.gnome.Mutter.DisplayConfig` (`ApplyMonitorsConfigAllowed` is false), and
 announces its socket with `SessionManager.Setenv("WAYLAND_DISPLAY", ...)`,
 which is what the session launcher waits for. Windows open in a cascade;
-click to focus. Moving and resizing windows are not implemented yet.
+click to focus. Moving and resizing windows are not implemented yet. Panels
+and other `wlr-layer-shell` surfaces are supported, and windows open outside
+the space they reserve.
+
+## Running the shell
+
+`helix-shell` serves `org.gnome.Shell` (overview state, OSD requests,
+accelerator grabs; `Eval` is always refused) and, when `WAYLAND_DISPLAY`
+points at the compositor, draws a top panel with a clock. `ShowOSD` level
+requests show as a level bar in the panel for two seconds.
+
+Accelerator grabs are recorded and validated, but `AcceleratorActivated` is
+not emitted yet: the compositor and shell are separate processes and the
+key-grab hand-off between them is still open (see the spec's `gaps.md`).
+
+## A full nested session
+
+With every binary built (`cargo build`), a session config pointing at
+`target/debug/helix-comp`, `helix-portals` and `helix-shell` (see
+`session/helix-session.toml`) can run nested:
+
+```sh
+dbus-run-session -- target/debug/helix-session --config my-session.toml
+```
+
+When testing nested inside a non-GNOME host desktop, leave `GNOME` out of
+`XDG_CURRENT_DESKTOP` in the test config. Otherwise xdg-desktop-portal
+follows the installed `gnome-portals.conf`, tries to start gnome-keyring on
+the throwaway bus, and GTK apps wait ~25 s for that activation to time out.

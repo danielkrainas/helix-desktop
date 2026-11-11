@@ -133,3 +133,18 @@ async fn mutter_idle_monitor_and_display_config() {
     )
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn org_gnome_shell() {
+    let Some(bus) = TestBus::start() else { return };
+    let (service, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
+    assert_matches_contract(
+        service.connection(),
+        helix_shell::BUS_NAME,
+        helix_shell::OBJECT_PATH,
+        "org.gnome.Shell",
+        "org.gnome.Shell.xml",
+        &[],
+    )
+    .await;
+}

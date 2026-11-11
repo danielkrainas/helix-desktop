@@ -14,5 +14,6 @@ helix-session.workspace = true
 helix-portals.workspace = true
 helix-settings.workspace = true
 helix-comp.workspace = true
+helix-shell.workspace = true
 zbus.workspace = true
 tokio.workspace = true
