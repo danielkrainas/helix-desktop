@@ -250,7 +250,9 @@ Workspaces follow GNOME's settings: a fixed number (`num-workspaces`) or
 dynamic ones (always one empty workspace at the end), optionally only on
 the primary monitor. Super+Page Up/Down (and the other
 `switch-to-workspace-*` keys) switch, Super+Shift+Page Up/Down move the
-focused window along; the panel shows a dot per workspace. The window
+focused window along, with a popup showing the workspaces and the
+active one's name (`workspace-names`); the panel shows a dot per
+workspace. The window
 switcher lists only the current workspace's windows by default.
 
 With several monitors, new windows open on the one under the pointer,

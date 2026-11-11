@@ -57,6 +57,7 @@ mod ime;
 mod notify;
 mod scale;
 mod window_menu;
+mod workspace_popup;
 use notify::BannerHit;
 
 pub const PANEL_HEIGHT: u32 = 32;
@@ -174,6 +175,7 @@ struct Ui {
     dialog: Option<Overlay<DialogState>>,
     power_menu: Option<Overlay<()>>,
     window_menu: Option<window_menu::WindowMenu>,
+    workspace_popup: Option<workspace_popup::WorkspacePopup>,
     /// Numbers identifying monitors (`ShowMonitorLabels`), one per output.
     monitor_labels: Vec<Overlay<i32>>,
     /// Which power actions logind allows (entries shown in the menu).
@@ -1620,6 +1622,7 @@ impl Ui {
         }
         tracing::debug!(target, moving = key.move_window, "workspace key");
         list.switch_workspace(target);
+        self.show_workspace_popup(target);
     }
 
     fn bind(&mut self, action: u32, accelerator: &crate::accel::Accelerator) {
@@ -1747,6 +1750,7 @@ pub fn run(
         dialog: None,
         power_menu: None,
         window_menu: None,
+        workspace_popup: None,
         monitor_labels: Vec::new(),
         power: Default::default(),
         sharing: false,
@@ -1824,7 +1828,12 @@ impl OutputHandler for Ui {
 
 impl LayerShellHandler for Ui {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
-        if self.picker_closed(layer) || self.flash_closed(layer) || self.notify_closed(layer) || self.window_menu_closed(layer) {
+        if self.picker_closed(layer)
+            || self.flash_closed(layer)
+            || self.notify_closed(layer)
+            || self.window_menu_closed(layer)
+            || self.workspace_popup_closed(layer)
+        {
             return;
         }
         if layer == &self.panel {
@@ -1860,6 +1869,7 @@ impl LayerShellHandler for Ui {
             || self.flash_configured(layer, configure.new_size)
             || self.notify_configured(layer, configure.new_size)
             || self.window_menu_configured(layer, configure.new_size)
+            || self.workspace_popup_configured(layer, configure.new_size)
         {
             return;
         }
@@ -2332,6 +2342,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
             helix_window_list_v1::Event::Workspaces { count, active } => {
                 ui.windows.set_workspaces(count, active);
                 ui.draw_panel();
+                ui.workspaces_changed();
             }
             helix_window_list_v1::Event::Workspace { id, workspace } => ui.windows.set_workspace(id, workspace),
             _ => {}
