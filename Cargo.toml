@@ -33,6 +33,7 @@ gio = "0.22"
 smithay-client-toolkit = { version = "0.21", default-features = false, features = ["calloop", "xkbcommon"] }
 ab_glyph = "0.2"
 png = "0.17"
+resvg = { version = "0.45", default-features = false }
 # The libinput bindings smithay uses, with 1.23 for custom acceleration curves.
 input-sys = { version = "1.19", features = ["libinput_1_23"] }
 pipewire = { version = "0.9", features = ["v0_3_44"] }

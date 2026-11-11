@@ -306,13 +306,19 @@ apps) and `org.gtk.Notifications` (GLib's `GNotification`, used by GNOME
 apps when that name is owned). They share one queue: a banner below the
 panel shows one notification at a time with its action buttons; clicking
 it runs the default action (for GLib apps, by activating the app over
-`org.freedesktop.Application`), × dismisses it. Banners expire after the
-app's timeout or 5 seconds; critical/urgent ones stay until handled.
+`org.freedesktop.Application`), × dismisses it. Banners show the app's
+icon (from the icon theme, PNG or SVG, or image data), body markup (bold,
+underline, links that open in the default app) and play the sound the app
+asks for. They go after the app's timeout or 5 seconds (critical/urgent
+ones stay until handled), but the notification stays in the list:
+clicking the clock opens it (newest first, × to dismiss, Clear, and a
+Do Not Disturb switch), and a dot next to the clock means there is
+something new in it.
 
 `org.gnome.desktop.notifications show-banners` = false acts as do not
-disturb (only critical notifications show). While the screen is locked
-banners wait and appear after unlocking. Not yet: icons, body markup,
-sounds, and a notification list to review missed ones.
+disturb (only critical notifications show a banner; the rest go straight
+to the list). While the screen is locked banners wait and appear after
+unlocking.
 
 ## Screen locking
 

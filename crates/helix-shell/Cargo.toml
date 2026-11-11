@@ -19,6 +19,7 @@ libloading.workspace = true
 helix-settings.workspace = true
 ab_glyph.workspace = true
 helix-draw.workspace = true
+resvg.workspace = true
 gio.workspace = true
 png.workspace = true
 serde.workspace = true

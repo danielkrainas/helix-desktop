@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use helix_shell::notifications::Banner;
 use helix_shell::{ShellService, UiEvent, UiRequest};
 use helix_test_support::TestBus;
@@ -62,6 +62,19 @@ async fn next_banner(ui: &mut UnboundedReceiver<UiEvent>) -> Option<Banner> {
     }
 }
 
+/// The notification list as of the next list event.
+async fn next_list(ui: &mut UnboundedReceiver<UiEvent>) -> helix_shell::notifications::List {
+    loop {
+        let event = tokio::time::timeout(Duration::from_secs(5), ui.recv())
+            .await
+            .expect("list event")
+            .expect("ui channel open");
+        if let UiEvent::Notifications(list) = event {
+            return list;
+        }
+    }
+}
+
 async fn next_signal<T>(s: &mut (impl futures_util::Stream<Item = T> + Unpin)) -> T {
     tokio::time::timeout(Duration::from_secs(5), s.next()).await.expect("signal").expect("stream")
 }
@@ -74,7 +87,10 @@ async fn freedesktop_lifecycle() {
     let n = NotificationsProxy::new(&conn).await.unwrap();
     let mut closed = n.receive_notification_closed().await.unwrap();
 
-    assert_eq!(n.get_capabilities().await.unwrap(), ["actions", "body"]);
+    assert_eq!(
+        n.get_capabilities().await.unwrap(),
+        ["actions", "body", "body-hyperlinks", "body-markup", "icon-static", "persistence", "sound"]
+    );
     let info = n.get_server_information().await.unwrap();
     assert_eq!((info.0.as_str(), info.3.as_str()), ("Helix", "1.2"));
 
@@ -94,11 +110,31 @@ async fn freedesktop_lifecycle() {
     assert_eq!((args.id, args.reason), (id, 3));
     assert_eq!(next_banner(&mut ui).await, None);
 
-    // Expiry.
-    let short = n.notify("App", 0, "", "Brief", "", &[], HashMap::new(), 300).await.unwrap();
+    // A banner timing out leaves the notification in the list...
+    let kept = n.notify("App", 0, "mail-unread", "Kept", "<b>bold</b>", &[], HashMap::new(), 300).await.unwrap();
+    let banner = next_banner(&mut ui).await.unwrap();
+    assert_eq!(banner.icon, Some(helix_shell::icons::IconSource::Names(vec!["mail-unread".into()])));
+    assert!(banner.markup);
+    let list = next_list(&mut ui).await;
+    assert_eq!(list.entries.iter().map(|e| e.id).collect::<Vec<_>>(), [kept]);
+    assert!(list.unseen);
+    assert_eq!(next_banner(&mut ui).await, None, "the banner goes");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(closed.next().now_or_never().is_none(), "but it is not closed");
+    // ...until the user dismisses it.
+    service.ui_bridge().handle(UiRequest::NotificationListOpened).await.unwrap();
+    assert!(!next_list(&mut ui).await.unseen);
+    // Transient notifications close when their banner times out.
+    let hints = HashMap::from([("transient", Value::from(true))]);
+    let short = n.notify("App", 0, "", "Brief", "", &[], hints, 300).await.unwrap();
     let args = next_signal(&mut closed).await;
     let args = args.args().unwrap();
     assert_eq!((args.id, args.reason), (short, 1));
+    // Clear dismisses the rest.
+    service.ui_bridge().handle(UiRequest::NotificationsCleared).await.unwrap();
+    let args = next_signal(&mut closed).await;
+    let args = args.args().unwrap();
+    assert_eq!((args.id, args.reason), (kept, 2));
     drop(service);
 }
 

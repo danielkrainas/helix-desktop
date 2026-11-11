@@ -329,3 +329,244 @@ mod shape_tests {
         assert_eq!(alpha(&data, 16, 4), 0, "off it");
     }
 }
+
+/// A decoded image: premultiplied RGBA, row by row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Image {
+    pub width: usize,
+    pub height: usize,
+    pub rgba: Vec<u8>,
+}
+
+impl Canvas<'_> {
+    /// Draw `image` scaled into the logical rectangle (x, y, w, h)
+    /// (bilinear sampling).
+    pub fn image(&mut self, x: f64, y: f64, w: f64, h: f64, image: &Image) {
+        if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 {
+            return;
+        }
+        let s = self.scale;
+        let (px0, py0) = ((x * s).round() as i32, (y * s).round() as i32);
+        let (px1, py1) = (((x + w) * s).round() as i32, ((y + h) * s).round() as i32);
+        let (dw, dh) = (f64::from((px1 - px0).max(1)), f64::from((py1 - py0).max(1)));
+        let texel = |ix: usize, iy: usize| -> [f32; 4] {
+            let i = (iy * image.width + ix) * 4;
+            let p = &image.rgba[i..i + 4];
+            [f32::from(p[0]), f32::from(p[1]), f32::from(p[2]), f32::from(p[3])]
+        };
+        for py in py0.max(0)..py1.min(self.height as i32) {
+            for px in px0.max(0)..px1.min(self.width as i32) {
+                // Source position of this pixel's center.
+                let sx = ((f64::from(px - px0) + 0.5) / dw * image.width as f64 - 0.5).clamp(0.0, (image.width - 1) as f64);
+                let sy = ((f64::from(py - py0) + 0.5) / dh * image.height as f64 - 0.5).clamp(0.0, (image.height - 1) as f64);
+                let (x0, y0) = (sx.floor() as usize, sy.floor() as usize);
+                let (x1, y1) = ((x0 + 1).min(image.width - 1), (y0 + 1).min(image.height - 1));
+                let (fx, fy) = ((sx - x0 as f64) as f32, (sy - y0 as f64) as f32);
+                let mix = |a: [f32; 4], b: [f32; 4], t: f32| [0, 1, 2, 3].map(|k| a[k] + (b[k] - a[k]) * t);
+                let top = mix(texel(x0, y0), texel(x1, y0), fx);
+                let bottom = mix(texel(x0, y1), texel(x1, y1), fx);
+                let [r, g, b, a] = mix(top, bottom, fy);
+                if a <= 0.0 {
+                    continue;
+                }
+                // Premultiplied source over the (premultiplied BGRA) pixel.
+                let i = (py as usize * self.width + px as usize) * 4;
+                let dst = &mut self.data[i..i + 4];
+                let inv = 1.0 - a / 255.0;
+                for (k, src) in [b, g, r, a].into_iter().enumerate() {
+                    dst[k] = (src + f32::from(dst[k]) * inv).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+}
+
+/// A run of text with one style.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Span {
+    pub text: String,
+    pub bold: bool,
+    pub underline: bool,
+    /// A link's URI.
+    pub link: Option<String>,
+}
+
+/// Fonts for rich text.
+pub struct Fonts<'a> {
+    pub regular: &'a Text,
+    /// Falls back to the regular face.
+    pub bold: Option<&'a Text>,
+}
+
+impl Fonts<'_> {
+    fn face(&self, bold: bool) -> &Text {
+        if bold {
+            self.bold.unwrap_or(self.regular)
+        } else {
+            self.regular
+        }
+    }
+}
+
+/// A piece of a laid-out line: text, the span it came from, x and width.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Piece {
+    pub text: String,
+    pub span: usize,
+    pub x: f32,
+    pub width: f32,
+}
+
+/// Word-wrap `spans` into at most `max_lines` lines of `max_width`; the
+/// last line ends in an ellipsis if text remains. Newlines break lines.
+pub fn wrap_spans(fonts: &Fonts, spans: &[Span], px: f32, max_width: f32, max_lines: usize) -> Vec<Vec<Piece>> {
+    // Words and the spaces before them, with their span.
+    let mut tokens: Vec<(String, usize, bool)> = Vec::new(); // (text, span, newline before)
+    let mut newline = false;
+    for (i, span) in spans.iter().enumerate() {
+        let mut word = String::new();
+        for c in span.text.chars() {
+            if c == '\n' {
+                if !word.is_empty() {
+                    tokens.push((std::mem::take(&mut word), i, newline));
+                }
+                newline = true;
+            } else if c.is_whitespace() {
+                word.push(' ');
+                tokens.push((std::mem::take(&mut word), i, newline));
+                newline = false;
+            } else {
+                word.push(c);
+            }
+        }
+        if !word.is_empty() {
+            tokens.push((word, i, newline));
+            newline = false;
+        }
+    }
+    let mut lines: Vec<Vec<Piece>> = vec![Vec::new()];
+    let mut x = 0.0f32;
+    let mut truncated = false;
+    for (text, span, break_before) in tokens {
+        let face = fonts.face(spans[span].bold);
+        let trimmed = text.trim_end();
+        let width = face.width(&text, px);
+        let fits = x + face.width(trimmed, px) <= max_width;
+        if break_before || (!fits && x > 0.0) {
+            if lines.len() == max_lines {
+                truncated = true;
+                break;
+            }
+            lines.push(Vec::new());
+            x = 0.0;
+        }
+        let text = if x == 0.0 { text.trim_start().to_owned() } else { text };
+        if text.is_empty() {
+            continue;
+        }
+        let width = if x == 0.0 { face.width(&text, px) } else { width };
+        lines.last_mut().unwrap().push(Piece { text, span, x, width });
+        x += width;
+    }
+    // Shorten the last line to fit, with an ellipsis if text was cut.
+    if let Some(last) = lines.last_mut() {
+        let overflow = last.last().is_some_and(|p| p.x + p.width > max_width);
+        if truncated || overflow {
+            let ellipsis = "…";
+            while let Some(piece) = last.last_mut() {
+                let face = fonts.face(spans[piece.span].bold);
+                let room = max_width - piece.x - face.width(ellipsis, px);
+                if face.width(piece.text.trim_end(), px) <= room {
+                    piece.text = format!("{}{ellipsis}", piece.text.trim_end());
+                    piece.width = face.width(&piece.text, px);
+                    break;
+                }
+                piece.text.pop();
+                if piece.text.trim_end().is_empty() {
+                    last.pop();
+                    if last.is_empty() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    lines.retain(|l| !l.is_empty());
+    lines
+}
+
+/// Where a link was drawn: logical rectangle (x, y, w, h) and URI.
+pub type LinkArea = ((f32, f32, f32, f32), String);
+
+/// Draw lines from [`wrap_spans`] at (x, first baseline), `line_height`
+/// apart; links get `link_color` and an underline. Returns the links'
+/// areas.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_lines(
+    canvas: &mut Canvas,
+    fonts: &Fonts,
+    spans: &[Span],
+    lines: &[Vec<Piece>],
+    (x, baseline): (f32, f32),
+    px: f32,
+    line_height: f32,
+    (color, link_color): (u32, u32),
+) -> Vec<LinkArea> {
+    let mut links = Vec::new();
+    for (row, line) in lines.iter().enumerate() {
+        let base = baseline + row as f32 * line_height;
+        for (i, piece) in line.iter().enumerate() {
+            let span = &spans[piece.span];
+            let face = fonts.face(span.bold);
+            let c = if span.link.is_some() { link_color } else { color };
+            face.draw(canvas, &piece.text, x + piece.x, base, Style { px, color: c, max_width: f32::MAX });
+            // Underlines run across spaces between words of the same span.
+            let continues = line.get(i + 1).is_some_and(|next| next.span == piece.span);
+            let drawn = if continues { piece.width } else { face.width(piece.text.trim_end(), px) };
+            if span.underline || span.link.is_some() {
+                canvas.rect((x + piece.x) as i32, (base + 2.0) as i32, drawn.ceil() as i32, 1, c);
+            }
+            if let Some(uri) = &span.link {
+                links.push(((x + piece.x, base - px, drawn, line_height), uri.clone()));
+            }
+        }
+    }
+    links
+}
+
+#[cfg(test)]
+mod rich_tests {
+    use super::*;
+
+    #[test]
+    fn images_scale() {
+        // A 2×1 image (red, blue) drawn 4×2: left half red, right half blue.
+        let image = Image { width: 2, height: 1, rgba: vec![255, 0, 0, 255, 0, 0, 255, 255] };
+        let mut data = vec![0u8; 4 * 2 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 4, 2, 1.0);
+        canvas.image(0.0, 0.0, 4.0, 2.0, &image);
+        assert_eq!(&data[0..4], &[0, 0, 255, 255], "red at the left (BGRA)");
+        assert_eq!(&data[12..16], &[255, 0, 0, 255], "blue at the right");
+    }
+
+    #[test]
+    fn wrapping_spans() {
+        let Some(text) = Text::load() else { return };
+        let fonts = Fonts { regular: &text, bold: None };
+        let spans = vec![
+            Span { text: "Hello ".into(), bold: true, ..Default::default() },
+            Span { text: "world, this is a long message that wraps".into(), ..Default::default() },
+        ];
+        let lines = wrap_spans(&fonts, &spans, 14.0, 120.0, 2);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0][0].text, "Hello ");
+        assert_eq!(lines[0][0].span, 0);
+        assert!(lines[1].last().unwrap().text.ends_with('…'), "{lines:?}");
+        for line in &lines {
+            let end = line.last().unwrap();
+            assert!(end.x + text.width(end.text.trim_end(), 14.0) <= 120.5, "{line:?}");
+        }
+        let breaks = wrap_spans(&fonts, &[Span { text: "one\ntwo".into(), ..Default::default() }], 14.0, 500.0, 3);
+        assert_eq!(breaks.len(), 2, "{breaks:?}");
+    }
+}

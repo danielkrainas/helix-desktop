@@ -13,7 +13,9 @@ use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedValue, Value};
 use zbus::{fdo, interface, Connection};
 
+use crate::icons::IconSource;
 use crate::notify_store::{CloseReason, Notification, Origin, Store, Urgency};
+use crate::sound::Sound;
 use crate::screensaver::{self, SharedStatus};
 use crate::UiEvent;
 
@@ -31,6 +33,9 @@ pub struct Banner {
     pub body: String,
     /// Buttons as (key, label).
     pub buttons: Vec<(String, String)>,
+    pub icon: Option<IconSource>,
+    /// `body` uses notification markup.
+    pub markup: bool,
 }
 
 impl From<&Notification> for Banner {
@@ -41,8 +46,19 @@ impl From<&Notification> for Banner {
             summary: n.summary.clone(),
             body: n.body.clone(),
             buttons: n.actions.iter().filter(|(k, _)| k != "default").cloned().collect(),
+            icon: n.icon.clone(),
+            markup: n.markup,
         }
     }
+}
+
+/// What the notification list shows.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct List {
+    /// Newest first (buttons are not shown in the list).
+    pub entries: Vec<Banner>,
+    /// Posted since the list was last opened.
+    pub unseen: bool,
 }
 
 /// Shared by both D-Bus objects, the expiry ticker and the UI bridge.
@@ -56,6 +72,9 @@ pub struct Center {
     /// `org.gnome.desktop.notifications show-banners` (false = do not disturb).
     pub show_banners: Arc<AtomicBool>,
     shown: Arc<Mutex<Option<u32>>>,
+    listed: Arc<Mutex<Option<List>>>,
+    /// Freedesktop notifications closed for the list limit, to signal.
+    overflowed: Arc<Mutex<Vec<u32>>>,
 }
 
 impl Center {
@@ -67,6 +86,8 @@ impl Center {
             lock,
             show_banners: Arc::new(AtomicBool::new(true)),
             shown: Default::default(),
+            listed: Default::default(),
+            overflowed: Default::default(),
         }
     }
 
@@ -89,12 +110,38 @@ impl Center {
                     .map(Banner::from)
             }
         };
-        let mut shown = self.shown.lock().unwrap_or_else(|e| e.into_inner());
-        let id = banner.as_ref().map(|b| b.id);
-        if *shown != id || banner.is_some() {
-            *shown = id;
-            let _ = self.ui.send(UiEvent::Banner(banner));
+        {
+            let mut shown = self.shown.lock().unwrap_or_else(|e| e.into_inner());
+            let id = banner.as_ref().map(|b| b.id);
+            if *shown != id || banner.is_some() {
+                *shown = id;
+                let _ = self.ui.send(UiEvent::Banner(banner));
+            }
         }
+        let list = {
+            let store = self.store();
+            List { entries: store.list().into_iter().map(Banner::from).collect(), unseen: store.unseen }
+        };
+        let mut listed = self.listed.lock().unwrap_or_else(|e| e.into_inner());
+        if listed.as_ref() != Some(&list) {
+            *listed = Some(list.clone());
+            let _ = self.ui.send(UiEvent::Notifications(list));
+        }
+    }
+
+    /// The user opened the list: nothing is unseen any more.
+    pub fn mark_seen(&self) {
+        self.store().unseen = false;
+        self.refresh();
+    }
+
+    /// "Clear": dismiss everything in the list.
+    pub async fn clear(&self, conn: &Connection) -> zbus::Result<()> {
+        let ids: Vec<u32> = self.store().list().iter().map(|n| n.id).collect();
+        for id in ids {
+            self.close(conn, id, CloseReason::Dismissed).await?;
+        }
+        Ok(())
     }
 
     /// "Screenshot captured", for a screenshot the user took.
@@ -108,14 +155,40 @@ impl Center {
             has_default: true,
             urgency: Urgency::Normal,
             timeout: Notification::timeout_from(-1, Urgency::Normal),
+            icon: Some(IconSource::File(path.clone())),
             origin: Origin::Screenshot { path },
-        })
+            markup: false,
+            transient: false,
+        }, None)
     }
 
-    fn post(&self, notification: Notification) -> u32 {
-        let id = self.store().add(notification);
+    /// Show (or, with do not disturb, only list) a notification; play its
+    /// sound if it gets a banner. Closes the oldest beyond the list's limit.
+    fn post(&self, notification: Notification, sound: Option<Sound>) -> u32 {
+        let banner = self.show_banners.load(Ordering::Relaxed) || notification.urgency == Urgency::Critical;
+        let (id, overflow) = {
+            let mut store = self.store();
+            let id = store.add(notification, banner);
+            (id, store.overflow())
+        };
+        if let Some(sound) = sound.filter(|_| banner) {
+            crate::sound::play(&sound);
+        }
+        for old in overflow {
+            self.expire_quietly(old);
+        }
         self.refresh();
         id
+    }
+
+    /// Close `id` as expired from a context without a connection (the
+    /// list limit): the signal goes out from the ticker's connection.
+    fn expire_quietly(&self, id: u32) {
+        if let Some(n) = self.remove(id) {
+            if matches!(n.origin, Origin::Freedesktop { .. }) {
+                self.overflowed.lock().unwrap_or_else(|e| e.into_inner()).push(id);
+            }
+        }
     }
 
     /// Remove a notification; returns it so callers can signal.
@@ -202,17 +275,31 @@ impl Center {
         Ok(())
     }
 
-    /// Expire what is shown when its time is up.
+    /// End banners whose time is up: transient notifications close, the
+    /// rest stay in the list.
     pub async fn tick(&self, conn: &Connection) -> zbus::Result<()> {
         let expired = self.store().expired(Instant::now());
         if let Some(id) = expired {
-            self.close(conn, id, CloseReason::Expired).await?;
+            let transient = self.store().get(id).is_some_and(|n| n.transient);
+            if transient {
+                self.close(conn, id, CloseReason::Expired).await?;
+            } else {
+                self.store().banner_done(id);
+                self.refresh();
+            }
+        }
+        let overflowed = std::mem::take(&mut *self.overflowed.lock().unwrap_or_else(|e| e.into_inner()));
+        if !overflowed.is_empty() {
+            let emitter = SignalEmitter::new(conn, FDO_PATH)?;
+            for id in overflowed {
+                FdoNotifications::notification_closed(&emitter, id, CloseReason::Expired as u32).await?;
+            }
         }
         Ok(())
     }
 }
 
-fn open_uri(uri: &str) {
+pub fn open_uri(uri: &str) {
     if let Err(err) = gio::AppInfo::launch_default_for_uri(uri, None::<&gio::AppLaunchContext>) {
         tracing::warn!(%err, uri, "cannot open");
     }
@@ -291,7 +378,7 @@ impl FdoNotifications {
         &self,
         app_name: String,
         replaces_id: u32,
-        _app_icon: String,
+        app_icon: String,
         summary: String,
         body: String,
         actions: Vec<String>,
@@ -303,7 +390,22 @@ impl FdoNotifications {
             Some(Value::U8(2)) => Urgency::Critical,
             _ => Urgency::Normal,
         };
-        let resident = matches!(hints.get("resident").map(|v| &**v), Some(Value::Bool(true)));
+        let flag = |key: &str| matches!(hints.get(key).map(|v| &**v), Some(Value::Bool(true)));
+        let resident = flag("resident");
+        let transient = flag("transient");
+        let icon = ["image-data", "image_data", "icon_data"]
+            .iter()
+            .find_map(|k| hints.get(*k).and_then(|v| IconSource::from_image_data(v)))
+            .or_else(|| ["image-path", "image_path"].iter().find_map(|k| hint_str(&hints, k).and_then(|p| IconSource::from_string(&p))))
+            .or_else(|| IconSource::from_string(&app_icon))
+            .or_else(|| hint_str(&hints, "desktop-entry").and_then(|d| IconSource::for_app(&d)));
+        let sound = if flag("suppress-sound") {
+            None
+        } else {
+            hint_str(&hints, "sound-file")
+                .map(|f| Sound::File(f.strip_prefix("file://").unwrap_or(&f).into()))
+                .or_else(|| hint_str(&hints, "sound-name").map(Sound::Name))
+        };
         let pairs: Vec<(String, String)> = actions
             .chunks(2)
             .filter(|c| c.len() == 2)
@@ -325,7 +427,10 @@ impl FdoNotifications {
             urgency,
             timeout: Notification::timeout_from(expire_timeout, urgency),
             origin: Origin::Freedesktop { resident },
-        });
+            icon,
+            markup: true,
+            transient,
+        }, sound);
         tracing::debug!(id, "notification");
         id
     }
@@ -335,9 +440,9 @@ impl FdoNotifications {
     }
 
     async fn get_capabilities(&self) -> Vec<String> {
-        // No markup, icons, sounds or persistence yet: clients send plain
-        // text and don't rely on the rest.
-        vec!["actions".into(), "body".into()]
+        ["actions", "body", "body-hyperlinks", "body-markup", "icon-static", "persistence", "sound"]
+            .map(String::from)
+            .to_vec()
     }
 
     #[zbus(out_args("name", "vendor", "version", "spec_version"))]
@@ -415,8 +520,11 @@ impl GtkNotifications {
             has_default: true,
             urgency,
             timeout: Notification::timeout_from(-1, urgency),
+            icon: notification.get("icon").and_then(|v| IconSource::from_gicon(v)).or_else(|| IconSource::for_app(&app_id)),
             origin: Origin::Gtk { app_id, id, default_action, buttons: button_actions },
-        });
+            markup: false,
+            transient: false,
+        }, None);
         let mut map = self.center.targets.lock().unwrap_or_else(|e| e.into_inner());
         map.retain(|(n, _), _| *n != nid);
         for (key, target) in targets {
@@ -442,9 +550,23 @@ impl GtkNotifications {
     ) -> zbus::Result<()>;
 }
 
+const SETTINGS_SCHEMA: &str = "org.gnome.desktop.notifications";
+
+/// Turn do not disturb on or off (`show-banners`, inverted).
+pub fn set_do_not_disturb(on: bool) {
+    if !helix_settings::has_schema(SETTINGS_SCHEMA) {
+        return;
+    }
+    let settings = gio::Settings::new(SETTINGS_SCHEMA);
+    if let Err(err) = settings.set_boolean("show-banners", !on) {
+        tracing::warn!(%err, "cannot change show-banners");
+    }
+    gio::Settings::sync();
+}
+
 /// Follow `org.gnome.desktop.notifications show-banners` (do not disturb).
 pub async fn follow_settings(center: Center) {
-    const SCHEMA: &str = "org.gnome.desktop.notifications";
+    const SCHEMA: &str = SETTINGS_SCHEMA;
     if !helix_settings::has_schema(SCHEMA) {
         return;
     }
@@ -453,6 +575,7 @@ pub async fn follow_settings(center: Center) {
         gio::Settings::new(SCHEMA).boolean("show-banners")
     };
     center.show_banners.store(read(), Ordering::Relaxed);
+    let _ = center.ui.send(UiEvent::DoNotDisturb(!read()));
     center.refresh();
     let settings = helix_settings::GSettings::new(&[SCHEMA]);
     let (mut changes, _watch) = settings.watch();
@@ -460,6 +583,7 @@ pub async fn follow_settings(center: Center) {
         let on = read();
         tracing::info!(show_banners = on, "notification banners setting changed");
         center.show_banners.store(on, Ordering::Relaxed);
+        let _ = center.ui.send(UiEvent::DoNotDisturb(!on));
         center.refresh();
     }
 }

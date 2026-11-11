@@ -16,9 +16,12 @@ pub mod input_sources;
 pub mod launcher;
 pub mod logind;
 pub mod night_light;
+pub mod icons;
+pub mod markup;
 pub mod notifications;
 pub mod notify_store;
 pub mod screensaver;
+pub mod sound;
 pub mod screencast_chooser;
 pub mod screenshot;
 pub mod shell_keys;
@@ -95,6 +98,10 @@ pub enum UiEvent {
     Lock,
     /// The notification banner to show, or none.
     Banner(Option<notifications::Banner>),
+    /// The notification list changed.
+    Notifications(notifications::List),
+    /// `org.gnome.desktop.notifications show-banners` changed.
+    DoNotDisturb(bool),
     /// The end-session confirmation dialog to show, or none.
     EndDialog(Option<end_dialog::EndDialog>),
     /// Which power actions the Power menu may offer.
@@ -139,8 +146,16 @@ pub enum UiRequest {
     LockGone,
     /// A banner was clicked (`action` None) or one of its buttons pressed.
     NotificationActivated { id: u32, action: Option<String> },
-    /// A banner's close button was pressed.
+    /// A banner's (or list entry's) close button was pressed.
     NotificationDismissed { id: u32 },
+    /// The notification list was opened.
+    NotificationListOpened,
+    /// "Clear" in the notification list.
+    NotificationsCleared,
+    /// The Do Not Disturb switch was flipped (true = on).
+    SetDoNotDisturb(bool),
+    /// A link in a notification was clicked.
+    OpenUri(String),
     /// The user answered the end-session dialog.
     EndDialogAnswer(end_dialog::Choice),
     /// A power menu entry was chosen.
@@ -664,6 +679,19 @@ impl UiBridge {
                 self.center
                     .close(&self.conn, id, notify_store::CloseReason::Dismissed)
                     .await
+            }
+            UiRequest::NotificationListOpened => {
+                self.center.mark_seen();
+                Ok(())
+            }
+            UiRequest::NotificationsCleared => self.center.clear(&self.conn).await,
+            UiRequest::SetDoNotDisturb(on) => {
+                notifications::set_do_not_disturb(on);
+                Ok(())
+            }
+            UiRequest::OpenUri(uri) => {
+                notifications::open_uri(&uri);
+                Ok(())
             }
         }
     }

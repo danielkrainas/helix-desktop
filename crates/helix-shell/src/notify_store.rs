@@ -1,5 +1,6 @@
-//! Notifications, independent of D-Bus: the queue of banners, replacement,
-//! expiry and close reasons. Behavior:
+//! Notifications, independent of D-Bus: the queue of banners, the list
+//! notifications stay in after their banner, replacement, expiry and close
+//! reasons. Behavior:
 //! `helix-desktop-spec/contracts/dbus/org.freedesktop.Notifications.md` and
 //! `org.gtk.Notifications.md`.
 
@@ -8,6 +9,8 @@ use std::time::{Duration, Instant};
 
 /// Banners last this long unless the app asks otherwise.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+/// The most notifications kept in the list.
+pub const LIST_LIMIT: usize = 50;
 
 /// `NotificationClosed` reasons.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,9 +57,14 @@ pub struct Notification {
     pub actions: Vec<(String, String)>,
     pub has_default: bool,
     pub urgency: Urgency,
-    /// `None`: never expires.
+    /// How long the banner shows; `None`: until dismissed.
     pub timeout: Option<Duration>,
     pub origin: Origin,
+    pub icon: Option<crate::icons::IconSource>,
+    /// The body uses notification markup (else plain text).
+    pub markup: bool,
+    /// Not kept in the list once its banner goes.
+    pub transient: bool,
 }
 
 impl Notification {
@@ -81,26 +89,58 @@ pub struct Store {
     /// On screen now, and since when.
     current: Option<(u32, Instant)>,
     next_id: u32,
+    /// List order: when each notification was posted or last replaced.
+    order: BTreeMap<u32, u64>,
+    posted: u64,
+    /// Posted since the list was last looked at.
+    pub unseen: bool,
 }
 
 impl Store {
     /// Add, or replace in place if `notification.id` is a live id. Returns
-    /// the id (fresh ids are never 0).
-    pub fn add(&mut self, mut notification: Notification) -> u32 {
+    /// the id (fresh ids are never 0). With `banner` false (do not disturb)
+    /// it only goes to the list.
+    pub fn add(&mut self, mut notification: Notification, banner: bool) -> u32 {
         if notification.id == 0 || !self.items.contains_key(&notification.id) {
             self.next_id = self.next_id.wrapping_add(1).max(1);
             while self.items.contains_key(&self.next_id) {
                 self.next_id = self.next_id.wrapping_add(1).max(1);
             }
             notification.id = self.next_id;
-            self.queue.push(notification.id);
+            if banner {
+                self.queue.push(notification.id);
+            }
         } else if self.current.is_some_and(|(id, _)| id == notification.id) {
             // Replacing what is on screen restarts its timer.
             self.current = Some((notification.id, Instant::now()));
         }
         let id = notification.id;
         self.items.insert(id, notification);
+        self.posted += 1;
+        self.order.insert(id, self.posted);
+        self.unseen = true;
         id
+    }
+
+    /// The list, newest first.
+    pub fn list(&self) -> Vec<&Notification> {
+        let mut ids: Vec<(&u32, &u64)> = self.order.iter().collect();
+        ids.sort_by(|a, b| b.1.cmp(a.1));
+        ids.into_iter().filter_map(|(id, _)| self.items.get(id)).collect()
+    }
+
+    /// The oldest notifications beyond [`LIST_LIMIT`], to close.
+    pub fn overflow(&self) -> Vec<u32> {
+        let list = self.list();
+        list.iter().skip(LIST_LIMIT).map(|n| n.id).collect()
+    }
+
+    /// The banner of `id` is done (timed out); the notification stays in
+    /// the list.
+    pub fn banner_done(&mut self, id: u32) {
+        if self.current.is_some_and(|(c, _)| c == id) {
+            self.current = None;
+        }
     }
 
     pub fn get(&self, id: u32) -> Option<&Notification> {
@@ -118,6 +158,7 @@ impl Store {
     /// Remove a notification (from the screen or the queue).
     pub fn close(&mut self, id: u32) -> Option<Notification> {
         let n = self.items.remove(&id)?;
+        self.order.remove(&id);
         self.queue.retain(|q| *q != id);
         if self.current.is_some_and(|(c, _)| c == id) {
             self.current = None;
@@ -178,6 +219,9 @@ mod tests {
             urgency,
             timeout,
             origin: Origin::Freedesktop { resident: false },
+            icon: None,
+            markup: false,
+            transient: false,
         }
     }
 
@@ -195,8 +239,8 @@ mod tests {
     fn queue_is_fifo_one_at_a_time() {
         let mut s = Store::default();
         let t = Instant::now();
-        let a = s.add(n("a", Urgency::Normal, Some(DEFAULT_TIMEOUT)));
-        let b = s.add(n("b", Urgency::Normal, Some(DEFAULT_TIMEOUT)));
+        let a = s.add(n("a", Urgency::Normal, Some(DEFAULT_TIMEOUT)), true);
+        let b = s.add(n("b", Urgency::Normal, Some(DEFAULT_TIMEOUT)), true);
         assert!(a != 0 && b != a);
         assert_eq!(s.current(t, ALL).unwrap().id, a);
         assert_eq!(s.current(t, ALL).unwrap().id, a, "stays until closed");
@@ -211,29 +255,29 @@ mod tests {
     fn replace_keeps_id_and_restarts_timer() {
         let mut s = Store::default();
         let t = Instant::now();
-        let a = s.add(n("v1", Urgency::Normal, Some(Duration::from_secs(1))));
+        let a = s.add(n("v1", Urgency::Normal, Some(Duration::from_secs(1))), true);
         s.current(t, ALL);
         let mut v2 = n("v2", Urgency::Normal, Some(Duration::from_secs(1)));
         v2.id = a;
-        assert_eq!(s.add(v2), a);
+        assert_eq!(s.add(v2, true), a);
         assert_eq!(s.get(a).unwrap().summary, "v2");
         assert_eq!(s.len(), 1);
         // Unknown replaces_id: a new notification.
         let mut v3 = n("v3", Urgency::Normal, None);
         v3.id = 999;
-        assert_ne!(s.add(v3), 999);
+        assert_ne!(s.add(v3, true), 999);
     }
 
     #[test]
     fn expiry_and_critical() {
         let mut s = Store::default();
         let t = Instant::now();
-        let a = s.add(n("a", Urgency::Normal, Some(Duration::from_secs(5))));
+        let a = s.add(n("a", Urgency::Normal, Some(Duration::from_secs(5))), true);
         s.current(t, ALL);
         assert_eq!(s.expired(t + Duration::from_secs(4)), None);
         assert_eq!(s.expired(t + Duration::from_secs(5)), Some(a));
         s.close(a);
-        let c = s.add(n("c", Urgency::Critical, None));
+        let c = s.add(n("c", Urgency::Critical, None), true);
         s.current(t, ALL);
         assert_eq!(s.expired(t + Duration::from_secs(3600)), None);
         assert_eq!(s.current(t, ALL).unwrap().id, c);
@@ -243,8 +287,8 @@ mod tests {
     fn hidden_notifications_wait() {
         let mut s = Store::default();
         let t = Instant::now();
-        let low = s.add(n("low", Urgency::Low, Some(DEFAULT_TIMEOUT)));
-        let crit = s.add(n("crit", Urgency::Critical, None));
+        let low = s.add(n("low", Urgency::Low, Some(DEFAULT_TIMEOUT)), true);
+        let crit = s.add(n("crit", Urgency::Critical, None), true);
         // Do-not-disturb: only critical shows, skipping ahead of the queue.
         let dnd = |n: &Notification| n.urgency == Urgency::Critical;
         assert_eq!(s.current(t, dnd).unwrap().id, crit);
@@ -258,11 +302,34 @@ mod tests {
     }
 
     #[test]
+    fn list_and_banners() {
+        let mut s = Store::default();
+        let t = Instant::now();
+        let a = s.add(n("a", Urgency::Normal, Some(DEFAULT_TIMEOUT)), true);
+        let quiet = s.add(n("quiet", Urgency::Normal, Some(DEFAULT_TIMEOUT)), false);
+        assert!(s.unseen);
+        assert_eq!(s.list().iter().map(|n| n.id).collect::<Vec<_>>(), [quiet, a], "newest first");
+        assert_eq!(s.current(t, ALL).unwrap().id, a);
+        s.banner_done(a);
+        assert!(s.current(t, ALL).is_none(), "the quiet one never gets a banner");
+        assert_eq!(s.list().len(), 2, "both stay listed");
+        // Replacing moves it to the top.
+        let mut again = n("a2", Urgency::Normal, None);
+        again.id = a;
+        s.add(again, false);
+        assert_eq!(s.list()[0].id, a);
+        for i in 0..LIST_LIMIT {
+            s.add(n(&format!("{i}"), Urgency::Normal, None), false);
+        }
+        assert_eq!(s.overflow(), [a, quiet], "the oldest two, newest first");
+    }
+
+    #[test]
     fn gtk_lookup() {
         let mut s = Store::default();
         let mut g = n("g", Urgency::Normal, None);
         g.origin = Origin::Gtk { app_id: "org.example.App".into(), id: "x".into(), default_action: None, buttons: vec![] };
-        let id = s.add(g);
+        let id = s.add(g, true);
         assert_eq!(s.find_gtk("org.example.App", "x"), Some(id));
         assert_eq!(s.find_gtk("org.example.App", "y"), None);
     }
