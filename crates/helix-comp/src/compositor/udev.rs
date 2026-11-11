@@ -32,7 +32,7 @@ use smithay::input::pointer::{CursorImageStatus, CursorImageSurfaceData};
 use smithay::output::{Mode as WlMode, Output, PhysicalProperties};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::EventLoop;
-use smithay::reexports::drm::control::{connector, crtc, Mode as DrmMode, ModeTypeFlags};
+use smithay::reexports::drm::control::{connector, crtc, Device as _, Mode as DrmMode, ModeTypeFlags};
 use smithay::reexports::drm::Device as _;
 use smithay::reexports::input::Libinput;
 use smithay::reexports::rustix::fs::OFlags;
@@ -85,6 +85,25 @@ pub struct UdevData {
 impl UdevData {
     pub fn renderer(&mut self) -> &mut GlesRenderer {
         &mut self.renderer
+    }
+
+    fn crtc_of(&self, connector: &str) -> Option<crtc::Handle> {
+        self.surfaces.iter().find(|(_, s)| s.output.name() == connector && s.current.is_some()).map(|(c, _)| *c)
+    }
+
+    /// Gamma ramp length of the CRTC showing `connector`.
+    pub fn gamma_size(&self, connector: &str) -> Option<usize> {
+        let crtc = self.crtc_of(connector)?;
+        let info = self.manager.device().get_crtc(crtc).ok()?;
+        Some(info.gamma_length() as usize)
+    }
+
+    pub fn set_gamma(&mut self, connector: &str, ramps: &helix_comp::display_config::Ramps) -> Result<(), String> {
+        let crtc = self.crtc_of(connector).ok_or("monitor is off")?;
+        self.manager
+            .device()
+            .set_gamma(crtc, &ramps.0, &ramps.1, &ramps.2)
+            .map_err(|e| e.to_string())
     }
 
     /// The image drawn for named cursors.
@@ -189,6 +208,7 @@ pub fn init(
                     surface.frame_pending = false;
                 }
             }
+            state.reapply_gamma();
             state.render_all();
         }
     })?;

@@ -23,7 +23,7 @@ mod compositor;
 
 use std::process::ExitCode;
 
-use helix_comp::display_config::{ApplyRequest, Monitor, Store};
+use helix_comp::display_config::{ApplyRequest, GammaRequest, Monitor, Store};
 use helix_comp::{CompositorServices, Event, MonitorControl};
 use helix_session::client::SessionManagerProxy;
 use smithay::reexports::calloop::EventLoop;
@@ -131,6 +131,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         })
         .map_err(|e| format!("cannot listen for monitor changes: {e}"))?;
 
+    // GetCrtcGamma / SetCrtcGamma, also from the D-Bus thread.
+    let (gamma_tx, gamma_rx) = smithay::reexports::calloop::channel::channel::<GammaRequest>();
+    event_loop
+        .handle()
+        .insert_source(gamma_rx, |event, _, state| {
+            if let smithay::reexports::calloop::channel::Event::Msg(request) = event {
+                state.gamma_request(request);
+            }
+        })
+        .map_err(|e| format!("cannot listen for gamma changes: {e}"))?;
+
     let socket = state.socket_name.to_string_lossy().into_owned();
     tracing::info!(socket, "listening for Wayland clients");
     // SAFETY: still single-threaded here; children inherit the variable.
@@ -139,7 +150,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Xwayland comes up first; then DISPLAY and WAYLAND_DISPLAY are
     // announced (in that order) and the shell and --command start.
     let (xdisplay_tx, xdisplay_rx) = tokio::sync::oneshot::channel();
-    start_dbus_thread(socket, monitors, events_rx, xdisplay_rx, apply_tx);
+    start_dbus_thread(socket, monitors, events_rx, xdisplay_rx, apply_tx, gamma_tx);
 
     stop_on_signals(state.loop_signal.clone());
 
@@ -226,6 +237,7 @@ fn start_dbus_thread(
     events: mpsc::UnboundedReceiver<Event>,
     xdisplay: tokio::sync::oneshot::Receiver<Option<u32>>,
     to_compositor: smithay::reexports::calloop::channel::Sender<ApplyRequest>,
+    gamma_to_compositor: smithay::reexports::calloop::channel::Sender<GammaRequest>,
 ) {
     std::thread::Builder::new()
         .name("helix-comp-dbus".into())
@@ -250,8 +262,17 @@ fn start_dbus_thread(
                         }
                     }
                 });
+                let (gamma, mut gamma_requests) = mpsc::unbounded_channel::<GammaRequest>();
+                tokio::spawn(async move {
+                    while let Some(request) = gamma_requests.recv().await {
+                        if gamma_to_compositor.send(request).is_err() {
+                            break;
+                        }
+                    }
+                });
                 let control = MonitorControl {
                     applier: Some(applier),
+                    gamma: Some(gamma),
                     store: Store::user(),
                     backlight: Some(helix_comp::backlight::Backlight::system().await),
                     ..MonitorControl::default()

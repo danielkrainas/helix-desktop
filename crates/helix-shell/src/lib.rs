@@ -14,6 +14,7 @@ pub mod idle;
 pub mod input_sources;
 pub mod launcher;
 pub mod logind;
+pub mod night_light;
 pub mod notifications;
 pub mod notify_store;
 pub mod screensaver;

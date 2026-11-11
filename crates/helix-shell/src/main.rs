@@ -62,6 +62,7 @@ fn main() -> ExitCode {
     });
 
     runtime.spawn(helix_shell::idle::run(service.connection().clone()));
+    runtime.spawn(helix_shell::night_light::run(service.connection().clone()));
     runtime.spawn(helix_shell::notifications::follow_settings(service.notifications()));
 
     // logind: which power actions to offer, and locking before sleep.

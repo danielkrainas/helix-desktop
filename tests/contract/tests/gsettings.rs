@@ -33,6 +33,7 @@ fn installed_schemas_match_contracts() {
         .chain(helix_comp::input_settings::SCHEMAS.iter())
         .chain(helix_shell::shell_keys::SCHEMAS.iter())
         .chain(helix_comp::workspaces::SCHEMAS.iter())
+        .chain([helix_shell::night_light::SCHEMA].iter())
         .chain(["org.gnome.desktop.wm.keybindings"].iter());
     for schema in read_by_helix {
         let keys = contract_keys(schema);

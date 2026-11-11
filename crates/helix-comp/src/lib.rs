@@ -70,6 +70,8 @@ pub struct MonitorControl {
     pub confirm_seconds: u32,
     /// The built-in panel's backlight (`None`: no backlight control).
     pub backlight: Option<backlight::Backlight>,
+    /// Where gamma requests go (`None`: no gamma control).
+    pub gamma: Option<mpsc::UnboundedSender<display_config::GammaRequest>>,
 }
 
 impl Default for MonitorControl {
@@ -79,6 +81,7 @@ impl Default for MonitorControl {
             store: Store::default(),
             confirm_seconds: display_config::CONFIRM_SECONDS,
             backlight: None,
+            gamma: None,
         }
     }
 }
@@ -103,6 +106,7 @@ impl CompositorServices {
             control.store,
             control.confirm_seconds,
             control.backlight,
+            control.gamma,
         );
         let conn = builder
             .serve_at(idle_monitor::MANAGER_PATH, ObjectManager)?

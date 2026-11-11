@@ -53,6 +53,8 @@ impl Helix {
             layer_map_for_output(output).arrange();
         }
         if result.is_ok() {
+            // A mode change may reset the CRTC's gamma.
+            self.reapply_gamma();
             self.primary_output = config
                 .logical
                 .iter()

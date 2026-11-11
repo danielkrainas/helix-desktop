@@ -195,6 +195,12 @@ D-Bus-activated services see it; when nested, the host's `DISPLAY` is never
 passed on to Helix's children. Helix draws no title bars yet, so X11 apps
 that rely on the window manager for one can be moved with Super+drag.
 
+Night Light follows GNOME's settings (enabled, temperature, manual
+schedule, or sunset to sunrise at the last known location): the shell
+fades every monitor's gamma through DisplayConfig's `SetCrtcGamma`, which
+the compositor applies to the DRM CRTCs (nested, the ramps are accepted
+but have no visible effect).
+
 Workspaces follow GNOME's settings: a fixed number (`num-workspaces`) or
 dynamic ones (always one empty workspace at the end), optionally only on
 the primary monitor. Super+Page Up/Down (and the other

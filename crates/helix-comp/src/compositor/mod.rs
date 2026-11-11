@@ -4,6 +4,7 @@
 
 mod capture;
 mod cursor;
+mod gamma;
 mod grabs;
 mod handlers;
 mod input;
@@ -126,6 +127,7 @@ pub struct Helix {
     /// Screen captures asked for by the shell.
     pub captures: capture::Captures,
     pub workspaces: workspaces::WorkspaceState,
+    pub gamma: gamma::GammaState,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -200,6 +202,7 @@ impl Helix {
             window_list: Default::default(),
             captures: Default::default(),
             workspaces: Default::default(),
+            gamma: Default::default(),
         };
         helix.init_captures();
         Ok(helix)

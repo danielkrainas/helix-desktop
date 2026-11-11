@@ -617,6 +617,26 @@ impl Store {
     }
 }
 
+/// Gamma ramps: red, green, blue.
+pub type Ramps = (Vec<u16>, Vec<u16>, Vec<u16>);
+
+/// Ask the compositor for a monitor's gamma ramps (`set` None) or to set
+/// them; the reply is the ramps in effect.
+#[derive(Debug)]
+pub struct GammaRequest {
+    pub connector: String,
+    pub set: Option<Ramps>,
+    pub reply: oneshot::Sender<Result<Ramps, String>>,
+}
+
+/// Identity ramps of `size` entries.
+pub fn identity_ramps(size: usize) -> Ramps {
+    let ramp: Vec<u16> = (0..size)
+        .map(|i| if size > 1 { (i * 65535 / (size - 1)) as u16 } else { 65535 })
+        .collect();
+    (ramp.clone(), ramp.clone(), ramp)
+}
+
 /// A persistent change waiting for the user to keep it.
 #[derive(Debug)]
 struct Pending {
@@ -639,6 +659,8 @@ pub struct DisplayConfig {
     generation: std::sync::atomic::AtomicU64,
     /// The built-in panel's backlight, if it can be controlled.
     backlight: Option<crate::backlight::Backlight>,
+    /// The compositor, if it handles gamma.
+    gamma: Option<mpsc::UnboundedSender<GammaRequest>>,
     /// The value last published, to notice outside changes.
     backlight_shown: Mutex<Option<i32>>,
 }
@@ -650,6 +672,7 @@ impl DisplayConfig {
         store: Store,
         confirm_seconds: u32,
         backlight: Option<crate::backlight::Backlight>,
+        gamma: Option<mpsc::UnboundedSender<GammaRequest>>,
     ) -> Self {
         Self {
             layout,
@@ -661,7 +684,29 @@ impl DisplayConfig {
             generation: Default::default(),
             backlight,
             backlight_shown: Mutex::new(None),
+            gamma,
         }
+    }
+
+    /// Send a gamma request for `crtc` (a `GetResources` id) to the compositor.
+    async fn gamma(&self, serial: u32, crtc: u32, set: Option<Ramps>) -> fdo::Result<Ramps> {
+        let connector = {
+            let layout = self.layout();
+            if serial != layout.serial {
+                return Err(fdo::Error::InvalidArgs(format!("stale serial {serial}")));
+            }
+            let monitor = layout.monitors.get(crtc as usize);
+            monitor.map(|m| m.connector.clone()).ok_or_else(|| fdo::Error::InvalidArgs(format!("unknown CRTC {crtc}")))?
+        };
+        let sender = self.gamma.as_ref().ok_or_else(|| fdo::Error::NotSupported("no gamma control".into()))?;
+        let (reply, answer) = oneshot::channel();
+        sender
+            .send(GammaRequest { connector, set, reply })
+            .map_err(|_| fdo::Error::Failed("the compositor is gone".into()))?;
+        answer
+            .await
+            .map_err(|_| fdo::Error::Failed("the compositor did not answer".into()))?
+            .map_err(fdo::Error::InvalidArgs)
     }
 
     /// The controllable built-in monitor's connector, its device and value.
@@ -917,6 +962,22 @@ impl DisplayConfig {
     #[zbus(property)]
     async fn backlight(&self) -> (u32, Vec<Props>) {
         self.backlight_entries()
+    }
+
+    #[zbus(out_args("red", "green", "blue"))]
+    async fn get_crtc_gamma(&self, serial: u32, crtc: u32) -> fdo::Result<(Vec<u16>, Vec<u16>, Vec<u16>)> {
+        self.gamma(serial, crtc, None).await
+    }
+
+    async fn set_crtc_gamma(
+        &self,
+        serial: u32,
+        crtc: u32,
+        red: Vec<u16>,
+        green: Vec<u16>,
+        blue: Vec<u16>,
+    ) -> fdo::Result<()> {
+        self.gamma(serial, crtc, Some((red, green, blue))).await.map(drop)
     }
 
     async fn set_backlight(
