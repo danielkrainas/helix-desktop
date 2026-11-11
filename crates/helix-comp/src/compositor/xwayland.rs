@@ -31,10 +31,13 @@ impl Helix {
     /// Start Xwayland. `ready` runs once it is up (with its display number)
     /// or has failed (`None`).
     pub fn start_xwayland(&mut self, ready: impl FnOnce(&mut Helix, Option<u32>) + 'static) {
+        // Smithay starts `Xwayland` from PATH with fixed options: a wrapper
+        // first in PATH adds the ones the settings ask for.
+        let envs = xwayland_wrapper(&self.wm_settings).unwrap_or_default();
         let spawned = XWayland::spawn(
             &self.display_handle,
             None,
-            std::iter::empty::<(String, String)>(),
+            envs,
             true,
             Stdio::null(),
             Stdio::null(),
@@ -52,6 +55,10 @@ impl Helix {
         let result = self.loop_handle.insert_source(xwayland, move |event, _, state| {
             let display = match event {
                 XWaylandEvent::Ready { x11_socket, display_number } => {
+                    // The wrapper has run Xwayland by now.
+                    if let Some(dir) = wrapper_dir() {
+                        let _ = std::fs::remove_dir_all(dir);
+                    }
                     match X11Wm::start_wm(state.loop_handle.clone(), x11_socket, client.clone()) {
                         Ok(mut wm) => {
                             let (pixels, w, h) = super::cursor::arrow();
@@ -380,4 +387,34 @@ impl XwmHandler for Helix {
             }
         }
     }
+}
+
+/// Environment that runs `Xwayland` through a wrapper adding the options of
+/// `org.gnome.mutter.wayland` (helix-desktop-spec `contracts/wayland/README.md`,
+/// "Xwayland options").
+fn xwayland_wrapper(settings: &helix_comp::wm_settings::WmSettings) -> Option<Vec<(String, String)>> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into());
+    let help = std::process::Command::new("Xwayland").arg("-help").output().ok()?;
+    let help = String::from_utf8_lossy(&help.stderr).into_owned() + &String::from_utf8_lossy(&help.stdout);
+    let switchable = helix_comp::wm_settings::switchable_extensions(&help);
+    let args = helix_comp::wm_settings::xwayland_args(settings.xwayland_disable_extension, settings.xwayland_byte_swapped, &switchable);
+    let dir = wrapper_dir()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    let script = dir.join("Xwayland");
+    let quoted: Vec<String> = args.iter().map(|a| format!("'{a}'")).collect();
+    let body = format!("#!/bin/sh\nPATH=\"$HELIX_XWAYLAND_PATH\" exec Xwayland \"$@\" {}\n", quoted.join(" "));
+    std::fs::write(&script, body).ok()?;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).ok()?;
+    tracing::info!(?args, "Xwayland options");
+    Some(vec![
+        ("PATH".to_owned(), format!("{}:{path}", dir.display())),
+        ("HELIX_XWAYLAND_PATH".to_owned(), path),
+    ])
+}
+
+/// Where the Xwayland wrapper is written.
+fn wrapper_dir() -> Option<std::path::PathBuf> {
+    let runtime = std::env::var("XDG_RUNTIME_DIR").ok().filter(|d| !d.is_empty())?;
+    Some(std::path::Path::new(&runtime).join(format!("helix-xwayland-{}", std::process::id())))
 }

@@ -70,6 +70,33 @@ pub fn parse_accelerator(value: &str) -> Option<(Modifiers, String)> {
     (!rest.is_empty()).then(|| (mods, rest.to_owned()))
 }
 
+/// Extra Xwayland options for the settings: `switchable` lists the
+/// extensions this Xwayland can switch off (from its `-help`).
+pub fn xwayland_args(disable: u32, byte_swapped: bool, switchable: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (bit, name) in [(1, "SECURITY"), (2, "XTEST")] {
+        if disable & bit != 0 {
+            if switchable.iter().any(|s| s.eq_ignore_ascii_case(name)) {
+                out.extend(["-extension".to_owned(), name.to_owned()]);
+            } else {
+                tracing::info!(name, "Xwayland cannot switch off this extension; ignored");
+            }
+        }
+    }
+    out.push(if byte_swapped { "+byteswappedclients" } else { "-byteswappedclients" }.to_owned());
+    out
+}
+
+/// The extensions an Xwayland `-help` text lists as switchable.
+pub fn switchable_extensions(help: &str) -> Vec<String> {
+    help.lines()
+        .skip_while(|l| !l.contains("can be run-time enabled/disabled"))
+        .skip(1)
+        .take_while(|l| l.starts_with('\t'))
+        .map(|l| l.trim().to_owned())
+        .collect()
+}
+
 /// Whether `xwayland-grab-access-rules` let an X11 app with this WM_CLASS
 /// name and class grab the keyboard: some entry matches (`*`, `?`
 /// wildcards) and no `!` entry does.
@@ -136,6 +163,10 @@ pub struct WmSettings {
     pub xwayland_allow_grabs: bool,
     /// `xwayland-grab-access-rules`.
     pub xwayland_grab_rules: Vec<String>,
+    /// `xwayland-disable-extension` (bits: 1 Security, 2 Xtest).
+    pub xwayland_disable_extension: u32,
+    /// `xwayland-allow-byte-swapped-clients`.
+    pub xwayland_byte_swapped: bool,
     /// `cursor-theme`.
     pub cursor_theme: String,
     /// `cursor-size` (logical pixels).
@@ -169,6 +200,8 @@ impl Default for WmSettings {
             restore_shortcuts: parse_accelerator("<Super>Escape").into_iter().collect(),
             xwayland_allow_grabs: false,
             xwayland_grab_rules: Vec::new(),
+            xwayland_disable_extension: 0,
+            xwayland_byte_swapped: false,
             cursor_theme: "Adwaita".into(),
             cursor_size: 24,
             output_luminance: Vec::new(),
@@ -221,6 +254,8 @@ pub fn read() -> WmSettings {
             s.strv("restore-shortcuts").iter().filter_map(|a| parse_accelerator(a.as_str())).collect()
         }),
         xwayland_allow_grabs: boolean(MUTTER_WAYLAND, "xwayland-allow-grabs", d.xwayland_allow_grabs),
+        xwayland_disable_extension: settings_with(MUTTER_WAYLAND, "xwayland-disable-extension").map_or(0, |s| s.flags("xwayland-disable-extension")),
+        xwayland_byte_swapped: boolean(MUTTER_WAYLAND, "xwayland-allow-byte-swapped-clients", d.xwayland_byte_swapped),
         xwayland_grab_rules: settings_with(MUTTER_WAYLAND, "xwayland-grab-access-rules")
             .map_or(d.xwayland_grab_rules, |s| s.strv("xwayland-grab-access-rules").iter().map(|r| r.to_string()).collect()),
         output_luminance: settings_with(MUTTER, "output-luminance")
@@ -252,6 +287,15 @@ mod tests {
         assert_eq!(parse_accelerator("<Primary><Alt>F1").map(|a| a.0.ctrl && a.0.alt), Some(true));
         assert_eq!(parse_accelerator("<Super>"), None);
         assert_eq!(parse_accelerator("<Bogus>a"), None);
+    }
+
+    #[test]
+    fn xwayland_options() {
+        let help = "-foo\n Only the following extensions can be run-time enabled/disabled:\n\tSHAPE\n\tXTEST\n-query host\n";
+        let switchable = switchable_extensions(help);
+        assert_eq!(switchable, ["SHAPE", "XTEST"]);
+        assert_eq!(xwayland_args(3, false, &switchable), ["-extension", "XTEST", "-byteswappedclients"], "SECURITY can't be switched off here");
+        assert_eq!(xwayland_args(0, true, &switchable), ["+byteswappedclients"]);
     }
 
     #[test]

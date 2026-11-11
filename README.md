@@ -302,7 +302,8 @@ single-pixel-buffer, linux-drm-syncobj (explicit sync, when the GPU
 supports syncobj eventfd waits; GPU buffers otherwise wait for their
 implicit fences) and, for Xwayland, xwayland-keyboard-grab (off
 unless `org.gnome.mutter.wayland xwayland-allow-grabs` and the access
-rules allow it), and color-management (sRGB only: Helix does not convert
+rules allow it); `xwayland-disable-extension` and
+`xwayland-allow-byte-swapped-clients` are passed to Xwayland, and color-management (sRGB only: Helix does not convert
 colors and has no HDR output; `output-luminance` dims a monitor through its
 gamma ramps on bare hardware), xdg-toplevel-icon (window icons, shown in the
 switchers; X11 windows' `_NET_WM_ICON` too; otherwise the app's icon). Not yet: HDR.
