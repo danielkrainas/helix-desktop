@@ -18,7 +18,7 @@ use smithay::input::keyboard::Keysym;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    ShowApplications,
+    ToggleOverview,
     /// Escape during a window menu Move/Resize.
     CancelFollow,
     /// An arrow key during Move/Resize: move the pointer by this much.
@@ -184,7 +184,7 @@ impl Shortcuts {
                 let alone = std::mem::take(&mut self.super_alone);
                 return Decision {
                     intercept: suppressed.is_some(),
-                    action: alone.then_some(Action::ShowApplications),
+                    action: alone.then_some(Action::ToggleOverview),
                 };
             }
             return Decision {
@@ -258,7 +258,7 @@ mod tests {
         let mut s = Shortcuts::default();
         assert_eq!(s.key(SUPER, true, Mods::default(), Keysym::Super_L), Decision { intercept: true, action: None });
         let release = s.key(SUPER, false, logo(), Keysym::Super_L);
-        assert_eq!(release, Decision { intercept: true, action: Some(Action::ShowApplications) });
+        assert_eq!(release, Decision { intercept: true, action: Some(Action::ToggleOverview) });
     }
 
     #[test]

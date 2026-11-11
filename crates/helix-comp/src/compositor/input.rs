@@ -67,7 +67,7 @@ impl Helix {
                     }
                 }
             }
-            Action::ShowApplications => self.send(helix_comp::Event::ShowApplications),
+            Action::ToggleOverview => self.send(helix_comp::Event::ToggleOverview),
             Action::RestoreShortcuts => self.restore_shortcuts(),
             Action::CancelFollow => self.cancel_follow(),
             Action::FollowStep(dx, dy) => {

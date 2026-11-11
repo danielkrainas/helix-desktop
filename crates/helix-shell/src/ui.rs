@@ -55,6 +55,7 @@ use std::collections::HashMap;
 mod capture;
 mod ime;
 mod notify;
+mod overview;
 mod scale;
 mod window_menu;
 mod workspace_popup;
@@ -83,7 +84,7 @@ const WORKSPACE_DOT: i32 = 6;
 const ROW_H: i32 = 40;
 const MAX_ROWS: usize = 10;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct Rect {
     x: i32,
     y: i32,
@@ -180,6 +181,11 @@ struct Ui {
     power_menu: Option<Overlay<()>>,
     window_menu: Option<window_menu::WindowMenu>,
     workspace_popup: Option<workspace_popup::WorkspacePopup>,
+    overview: Option<Overlay<overview::OverviewState>>,
+    /// Where windows are, from the compositor (window list v8).
+    window_geometry: HashMap<u32, overview::Geometry>,
+    /// The primary monitor's area (x, y, w, h).
+    primary_area: (i32, i32, i32, i32),
     /// Numbers identifying monitors (`ShowMonitorLabels`), one per output.
     monitor_labels: Vec<Overlay<i32>>,
     /// Which power actions logind allows (entries shown in the menu).
@@ -473,6 +479,9 @@ impl Ui {
         if self.launcher.is_some() {
             return;
         }
+        let was_shown = self.overview_shown();
+        self.close_overview(false);
+        let notify = notify && !was_shown;
         let surface = self.compositor.create_surface(&self.qh);
         let layer = self.layer_shell.create_layer_surface(
             &self.qh,
@@ -1676,8 +1685,12 @@ impl Ui {
                 self.osd = Some((osd, Instant::now() + OSD_DURATION));
                 self.draw_panel();
             }
-            UiEvent::Overview(true) => self.open_launcher(false),
-            UiEvent::Overview(false) => self.close_launcher(false),
+            UiEvent::Overview(true) => self.open_overview(false),
+            UiEvent::Overview(false) => {
+                self.close_overview(false);
+                self.close_launcher(false);
+            }
+            UiEvent::Launcher => self.open_launcher(false),
             UiEvent::MonitorLabels(labels) => self.show_monitor_labels(&labels),
             UiEvent::HideMonitorLabels => self.monitor_labels.clear(),
             UiEvent::Bind { action, accelerator, when_locked } => {
@@ -1725,6 +1738,14 @@ impl Ui {
             }
             next += 1;
         }
+        for (key, defaults, internal) in [("toggle-overview", &[][..], Internal::Overview), ("toggle-application-view", &["<Super>a"][..], Internal::Launcher)] {
+            for text in crate::shell_keys::shell_strv(key, defaults) {
+                let Some(accelerator) = parse(&text, "overview") else { continue };
+                self.internal.insert(next, internal);
+                self.bind(next, &accelerator);
+                next += 1;
+            }
+        }
         if self.window_list.is_none() {
             return;
         }
@@ -1758,6 +1779,20 @@ impl Ui {
                 let _ = self.requests.send(UiRequest::ShellKey(key));
             }
             Some(Internal::Workspace(key)) => self.workspace_key(key),
+            Some(Internal::Overview) => {
+                if self.overview_shown() {
+                    self.close_overview(true);
+                } else {
+                    self.open_overview(true);
+                }
+            }
+            Some(Internal::Launcher) => {
+                if self.launcher.is_some() {
+                    self.close_launcher(true);
+                } else {
+                    self.open_launcher(true);
+                }
+            }
             Some(Internal::Wm(crate::windows::WmKey::Cycle { group, backward })) => self.cycle_windows(group, backward),
             Some(Internal::Wm(crate::windows::WmKey::Panels { backward })) => self.focus_panel(backward),
             Some(Internal::Wm(crate::windows::WmKey::ToggleOnAllWorkspaces)) => self.toggle_on_all_workspaces(),
@@ -1841,8 +1876,8 @@ pub fn run(
     let shm = Shm::bind(&globals, &qh)?;
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=7, ()).ok();
-    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=4, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=8, ()).ok();
+    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=5, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
         .ok();
@@ -1913,6 +1948,9 @@ pub fn run(
         power_menu: None,
         window_menu: None,
         workspace_popup: None,
+        overview: None,
+        window_geometry: HashMap::new(),
+        primary_area: (0, 0, 1920, 1080),
         monitor_labels: Vec::new(),
         power: Default::default(),
         sharing: false,
@@ -1991,6 +2029,7 @@ impl OutputHandler for Ui {
 impl LayerShellHandler for Ui {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
         if self.picker_closed(layer)
+            || self.overview_closed(layer)
             || self.flash_closed(layer)
             || self.notify_closed(layer)
             || self.window_menu_closed(layer)
@@ -2028,6 +2067,7 @@ impl LayerShellHandler for Ui {
         _: u32,
     ) {
         if self.picker_configured(layer, configure.new_size)
+            || self.overview_configured(layer, configure.new_size)
             || self.flash_configured(layer, configure.new_size)
             || self.notify_configured(layer, configure.new_size)
             || self.window_menu_configured(layer, configure.new_size)
@@ -2140,6 +2180,8 @@ impl KeyboardHandler for Ui {
             self.dialog_key(&event);
         } else if self.switcher.is_some() {
             self.switcher_key(&event);
+        } else if self.overview.is_some() {
+            self.overview_key(&event);
         } else if self.panel_focus.is_some() {
             self.panel_key(&event);
         } else if self.notify.view.is_some() && event.keysym == Keysym::Escape {
@@ -2217,7 +2259,7 @@ impl TouchHandler for Ui {
 impl Ui {
     fn pointer_events(&mut self, events: &[PointerEvent]) {
         for event in events {
-            if self.picker_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) {
+            if self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
@@ -2403,6 +2445,10 @@ enum Internal {
     ShellKey(crate::shell_keys::KeyAction),
     Workspace(crate::windows::WorkspaceKey),
     Wm(crate::windows::WmKey),
+    /// `toggle-overview`
+    Overview,
+    /// `toggle-application-view`
+    Launcher,
 }
 
 /// Presses this close continue a window cycle.
@@ -2481,7 +2527,11 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
         _: &QueueHandle<Self>,
     ) {
         match event {
-            helix_window_list_v1::Event::Window { id, app_id, title } => ui.windows.update(id, app_id, title),
+            helix_window_list_v1::Event::Window { id, app_id, title } => {
+                ui.windows.update(id, app_id, title);
+                ui.request_shots();
+                ui.draw_overview();
+            }
             helix_window_list_v1::Event::Icon { id, name, size, data } => {
                 let image = (size > 0).then(|| read_icon(data, size)).flatten();
                 if name.is_empty() && image.is_none() {
@@ -2493,6 +2543,13 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
             }
             helix_window_list_v1::Event::Closed { id } => {
                 ui.window_icons.remove(&id);
+                ui.window_geometry.remove(&id);
+                if let Some(overview) = ui.overview.as_mut() {
+                    if overview.state.selected == Some(id) {
+                        overview.state.selected = None;
+                    }
+                }
+                ui.draw_overview();
                 ui.close_not_responding(id);
                 ui.windows.close(id);
                 ui.window_sources.remove(&id);
@@ -2533,11 +2590,28 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
             }
             helix_window_list_v1::Event::ShortcutsInhibit { id } => ui.shortcuts_inhibit(id),
             helix_window_list_v1::Event::Workspaces { count, active } => {
+                let switched = active != ui.windows.active;
                 ui.windows.set_workspaces(count, active);
                 ui.draw_panel();
                 ui.workspaces_changed();
+                if switched {
+                    ui.refresh_shots();
+                } else {
+                    ui.draw_overview();
+                }
             }
-            helix_window_list_v1::Event::Workspace { id, workspace } => ui.windows.set_workspace(id, workspace),
+            helix_window_list_v1::Event::Workspace { id, workspace } => {
+                ui.windows.set_workspace(id, workspace);
+                ui.draw_overview();
+            }
+            helix_window_list_v1::Event::Geometry { id, x, y, width, height, minimized } => {
+                ui.window_geometry.insert(id, (x, y, width, height, minimized != 0));
+                ui.draw_overview();
+            }
+            helix_window_list_v1::Event::Primary { x, y, width, height } => {
+                ui.primary_area = (x, y, width, height);
+                ui.draw_overview();
+            }
             _ => {}
         }
     }

@@ -27,7 +27,13 @@ pub struct WindowList {
     sent_workspaces: (u32, u32),
     /// Window icons apps set, as last sent.
     sent_icons: HashMap<u32, super::icons::IconKey>,
+    /// Window geometry (x, y, w, h, minimized), as last sent.
+    sent_geometry: HashMap<u32, Geometry>,
+    /// The primary monitor's area, as last sent.
+    sent_primary: Option<(i32, i32, i32, i32)>,
 }
+
+type Geometry = (i32, i32, i32, i32, u32);
 
 /// (app id, title)
 fn describe(window: &Window) -> (String, String) {
@@ -50,6 +56,33 @@ fn describe(window: &Window) -> (String, String) {
 }
 
 impl Helix {
+    /// The primary monitor's area (x, y, w, h).
+    fn primary_area(&self) -> (i32, i32, i32, i32) {
+        let g = self.primary().and_then(|o| self.space.output_geometry(&o)).unwrap_or_default();
+        (g.loc.x, g.loc.y, g.size.w, g.size.h)
+    }
+
+    /// Where `window` is (or will be shown).
+    pub fn window_geometry_location(&self, window: &Window) -> smithay::utils::Point<i32, smithay::utils::Logical> {
+        let g = self.window_geometry(window);
+        (g.0, g.1).into()
+    }
+
+    /// Where `window` is (or will be shown), and whether it is minimized.
+    fn window_geometry(&self, window: &Window) -> Geometry {
+        let size = window.geometry().size;
+        let (at, minimized) = if let Some(at) = self.space.element_location(window) {
+            (at, false)
+        } else if let Some(at) = self.workspaces.parked_at(window) {
+            (at, false)
+        } else if let Some(i) = self.minimized.iter().position(|w| w == window) {
+            (self.minimized_at.get(i).copied().unwrap_or_default(), true)
+        } else {
+            Default::default()
+        };
+        (at.x, at.y, size.w, size.h, u32::from(minimized))
+    }
+
     /// Windows the shell may list, topmost first, with their ids.
     fn listed_windows(&mut self) -> Vec<(u32, Window)> {
         let windows: Vec<Window> = self
@@ -153,6 +186,26 @@ impl Helix {
                 }
             }
         }
+        // The primary monitor (version 8).
+        let primary = self.primary_area();
+        if self.window_list.sent_primary != Some(primary) {
+            self.window_list.sent_primary = Some(primary);
+            for l in self.window_list.listeners.iter().filter(|l| l.version() >= 8) {
+                l.primary(primary.0, primary.1, primary.2, primary.3);
+            }
+        }
+        // Where windows are (version 8).
+        let geometry: Vec<(u32, Geometry)> = self.listed_windows().into_iter().map(|(id, w)| (id, self.window_geometry(&w))).collect();
+        let list = &mut self.window_list;
+        list.sent_geometry.retain(|id, _| list.sent.contains_key(id));
+        for (id, g) in geometry {
+            if list.sent_geometry.get(&id) != Some(&g) {
+                for l in list.listeners.iter().filter(|l| l.version() >= 8) {
+                    l.geometry(id, g.0, g.1, g.2, g.3, g.4);
+                }
+                list.sent_geometry.insert(id, g);
+            }
+        }
         // Icons apps set (version 7).
         let icons: Vec<(u32, Window, super::icons::IconKey)> = self
             .listed_windows()
@@ -212,6 +265,18 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
                 listener.workspace(*id, *ws);
             }
         }
+        let primary = state.primary_area();
+        if listener.version() >= 8 {
+            listener.primary(primary.0, primary.1, primary.2, primary.3);
+        }
+        let mut geometry = HashMap::new();
+        for (id, window) in &windows {
+            let g = state.window_geometry(window);
+            if listener.version() >= 8 {
+                listener.geometry(*id, g.0, g.1, g.2, g.3, g.4);
+            }
+            geometry.insert(*id, g);
+        }
         let mut icons = HashMap::new();
         for (id, window) in &windows {
             let key = super::icons::icon_key(window);
@@ -228,6 +293,8 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
             state.window_list.sent_workspaces = layout;
             state.window_list.sent_workspace = workspaces;
             state.window_list.sent_icons = icons;
+            state.window_list.sent_geometry = geometry;
+            state.window_list.sent_primary = Some(primary);
         }
     }
 

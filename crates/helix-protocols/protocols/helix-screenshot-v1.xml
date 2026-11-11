@@ -11,7 +11,7 @@
     The global is only advertised to privileged clients (the shell the
     compositor launched itself).
   </description>
-  <interface name="helix_screenshot_manager_v1" version="4">
+  <interface name="helix_screenshot_manager_v1" version="5">
     <description summary="takes captures">
       Each request captures the scene as it is when the compositor handles
       the request, so surfaces the shell destroyed before sending it are
@@ -73,6 +73,17 @@
       <arg name="x" type="int"/>
       <arg name="y" type="int"/>
       <arg name="cursor" type="uint" enum="cursor"/>
+      <arg name="fd" type="fd"/>
+    </request>
+    <request name="capture_window_id" since="5">
+      <description summary="capture a window by its window list id">
+        The surfaces of window (its id in helix_window_list_v1), cropped to
+        its window geometry, whether or not it is shown (on another
+        workspace, minimized); no title bar or cursor. Drawn at the primary
+        monitor's scale. Failed with no_window for an unknown window.
+      </description>
+      <arg name="id" type="new_id" interface="helix_screenshot_frame_v1"/>
+      <arg name="window" type="uint"/>
       <arg name="fd" type="fd"/>
     </request>
     <request name="copy_image" since="2">

@@ -29,6 +29,11 @@ impl WorkspaceState {
         self.parked.iter().map(|(w, _)| w)
     }
 
+    /// Where a parked window will be shown again.
+    pub fn parked_at(&self, window: &Window) -> Option<Point<i32, Logical>> {
+        self.parked.iter().find(|(w, _)| w == window).map(|(_, at)| *at)
+    }
+
     pub fn is_sticky(&self, window: &Window) -> bool {
         self.sticky.contains(window)
     }

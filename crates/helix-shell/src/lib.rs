@@ -98,6 +98,8 @@ pub enum UiEvent {
     Unbind { action: u32 },
     /// Lock the session now.
     Lock,
+    /// Show the application launcher (`ShowApplications`, `FocusSearch`).
+    Launcher,
     /// The notification banner to show, or none.
     Banner(Option<notifications::Banner>),
     /// The notification list changed.
@@ -258,9 +260,10 @@ impl Shell {
         Ok(())
     }
 
+    /// Show the launcher (part of the overview state, `OverviewActive`).
     async fn show_overview(&self, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
+        let _ = self.ui.send(UiEvent::Launcher);
         if self.state().set_overview_active(true) {
-            let _ = self.ui.send(UiEvent::Overview(true));
             self.overview_active_changed(emitter).await?;
         }
         Ok(())

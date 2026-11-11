@@ -474,6 +474,15 @@ impl WindowPicker {
     }
 }
 
+/// An anonymous file for a capture.
+pub fn memfd() -> Option<File> {
+    use std::os::fd::FromRawFd;
+    // SAFETY: memfd_create returns a new fd we own, or -1.
+    let fd = unsafe { libc::memfd_create(c"helix-capture".as_ptr(), libc::MFD_CLOEXEC) };
+    // SAFETY: just created.
+    (fd >= 0).then(|| unsafe { File::from_raw_fd(fd) })
+}
+
 /// Screenshot keys of `org.gnome.shell.keybindings`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScreenshotKey {

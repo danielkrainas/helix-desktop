@@ -132,6 +132,11 @@ fn strv(schema: &str, key: &str, defaults: &[&str]) -> Vec<String> {
     }
 }
 
+/// An `org.gnome.shell.keybindings` key's accelerators (empty ones left out).
+pub fn shell_strv(key: &str, defaults: &[&str]) -> Vec<String> {
+    strv(SHELL_KEYS, key, defaults).into_iter().filter(|a| !a.is_empty()).collect()
+}
+
 /// The accelerators to bind and what they do; the first binding of an
 /// accelerator wins.
 pub fn accelerators() -> Vec<(String, KeyAction)> {

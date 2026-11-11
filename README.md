@@ -317,7 +317,7 @@ Shortcuts handled by the compositor:
 
 | Keys | Action |
 |------|--------|
-| Super (alone) | Show applications (asks the shell over `org.gnome.Shell`) |
+| Super (alone) | Show or hide the overview (asks the shell over `org.gnome.Shell`) |
 | Super+L | Lock the screen |
 
 Alt+Tab (the application switcher), Alt+\` (windows of the current
@@ -493,11 +493,15 @@ points at the compositor, draws:
 - a top panel with an **Apps** button, a clock and a **Power** menu (see
   "Logging out"); `ShowOSD` level requests show as a level bar in the panel
   for two seconds;
-- an application launcher, opened by the Apps button, Super, or
+- an overview, opened by Super (or `toggle-overview`): workspace
+  thumbnails (click to switch, drop a window there to move it) above
+  pictures of the active workspace's windows (click to activate, × to
+  close, arrows and Enter); typing searches in the launcher;
+- an application launcher, opened by the Apps button, Super+A, or
   `ShowApplications`: open windows first, then installed apps (from their
   `.desktop` files); type to search, arrows to select, Enter or click to
   switch to the window or launch the app, Escape or a click outside to
-  close. Its open state is `OverviewActive`;
+  close. `OverviewActive` is true while it or the overview is open;
 - switchers (Tab again, Shift for backward, to move; let go of the
   modifier to switch; Escape cancels): applications on Alt+Tab and
   Super+Tab (`switch-applications`, one entry per app with its window

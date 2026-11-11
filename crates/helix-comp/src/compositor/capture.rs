@@ -48,6 +48,8 @@ pub enum Target {
     Window { frame: bool },
     /// The window shown at a point, with its title bar.
     WindowAt(Point<i32, Logical>),
+    /// A window by its window list id, shown or not.
+    WindowId(u32),
 }
 
 pub struct Pending {
@@ -304,6 +306,20 @@ impl Helix {
                 Some(err) => failed(err),
             });
         }
+        if let Target::WindowId(id) = target {
+            let window = self.window_by_list_id(id).ok_or(Reason::NoWindow)?;
+            let geometry = window.geometry();
+            let scale = self.primary().map_or(1.0, |o| o.current_scale().fractional_scale());
+            let at: Point<i32, Physical> = Point::<i32, Logical>::from((-geometry.loc.x, -geometry.loc.y)).to_physical_precise_round(scale);
+            let elements: Vec<CaptureElement> = window
+                .render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(renderer, at, Scale::from(scale), 1.0)
+                .into_iter()
+                .map(CaptureElement::Surface)
+                .collect();
+            let image = render(renderer, geometry.size, scale, &elements).map_err(failed)?;
+            let location = self.window_geometry_location(&window);
+            return Ok((Rectangle::new(location, geometry.size), image));
+        }
         if let Target::WindowAt(point) = target {
             let at = point.to_f64();
             // The window under the point, or the one whose title bar it is.
@@ -500,6 +516,7 @@ impl Dispatch<HelixScreenshotManagerV1, ()> for Helix {
             Request::CaptureWindow { id, cursor, fd } => (id, Target::Window { frame: false }, shown(cursor), fd),
             Request::CaptureWindowWithFrame { id, cursor, fd } => (id, Target::Window { frame: true }, shown(cursor), fd),
             Request::CaptureWindowAt { id, x, y, cursor, fd } => (id, Target::WindowAt((x, y).into()), shown(cursor), fd),
+            Request::CaptureWindowId { id, window, fd } => (id, Target::WindowId(window), false, fd),
             Request::CopyImage { fd } => {
                 state.copy_image(fd);
                 return;

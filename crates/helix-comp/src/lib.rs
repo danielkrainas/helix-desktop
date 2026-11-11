@@ -40,8 +40,8 @@ pub enum Event {
     IdleInhibited(bool),
     /// The output layout is now this.
     Monitors(Vec<Monitor>),
-    /// The user asked for the application launcher (Super alone).
-    ShowApplications,
+    /// The overlay key (Super alone): show or hide the overview.
+    ToggleOverview,
     /// The user asked to lock the screen (Super+L).
     Lock,
     /// A screen cast stream ended on the compositor's side (monitor gone,
@@ -258,20 +258,15 @@ impl CompositorServices {
                 }
                 Ok(())
             }
-            Event::ShowApplications => {
-                // The launcher belongs to the shell; ask it over its contract.
-                let reply = self
-                    .conn
-                    .call_method(
-                        Some("org.gnome.Shell"),
-                        "/org/gnome/Shell",
-                        Some("org.gnome.Shell"),
-                        "ShowApplications",
-                        &(),
-                    )
-                    .await;
-                if let Err(err) = reply {
-                    tracing::info!(%err, "no shell to show applications");
+            Event::ToggleOverview => {
+                // The overview belongs to the shell; ask it over its contract.
+                let toggled = async {
+                    let shell = zbus::Proxy::new(&self.conn, "org.gnome.Shell", "/org/gnome/Shell", "org.gnome.Shell").await?;
+                    let active: bool = shell.get_property("OverviewActive").await?;
+                    shell.set_property("OverviewActive", !active).await.map_err(zbus::Error::from)
+                };
+                if let Err(err) = toggled.await {
+                    tracing::info!(%err, "no shell to show the overview");
                 }
                 Ok(())
             }

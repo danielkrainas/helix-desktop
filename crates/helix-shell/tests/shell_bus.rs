@@ -52,11 +52,17 @@ async fn properties_eval_overview_and_osd() {
     assert_eq!(shell.eval("1 + 1").await.unwrap(), (false, String::new()));
 
     assert!(!shell.overview_active().await.unwrap());
+    // FocusSearch: the launcher, which counts as the overview.
     shell.focus_search().await.unwrap();
     assert!(shell.overview_active().await.unwrap());
-    assert_eq!(ui.recv().await, Some(UiEvent::Overview(true)));
+    assert_eq!(ui.recv().await, Some(UiEvent::Launcher));
     shell.set_overview_active(false).await.unwrap();
     assert!(!shell.overview_active().await.unwrap());
+    assert_eq!(ui.recv().await, Some(UiEvent::Overview(false)));
+    // Setting OverviewActive shows the overview itself.
+    shell.set_overview_active(true).await.unwrap();
+    assert_eq!(ui.recv().await, Some(UiEvent::Overview(true)));
+    shell.set_overview_active(false).await.unwrap();
     assert_eq!(ui.recv().await, Some(UiEvent::Overview(false)));
 
     shell
