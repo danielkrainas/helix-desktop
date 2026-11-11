@@ -21,6 +21,10 @@ pub enum Action {
     ShowApplications,
     /// Escape during a window menu Move/Resize.
     CancelFollow,
+    /// An arrow key during Move/Resize: move the pointer by this much.
+    FollowStep(i32, i32),
+    /// Return / Space during Move/Resize: end it, as a click does.
+    EndFollow,
     /// The locate-pointer key was pressed and released alone.
     LocatePointer,
     SwitchVt(i32),

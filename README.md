@@ -347,7 +347,9 @@ edge: maximize), with a preview of where it will go.
 
 The window menu (Alt+Space, a right click on a GTK header bar or on an X11
 title bar) offers minimize, maximize, move, resize, Always on Top, Always
-on Visible Workspace, moving to another workspace or monitor, and close. Volume and brightness keys keep working while the screen is
+on Visible Workspace, moving to another workspace or monitor, and close.
+Move and Resize follow the pointer or the arrow keys (10 pixels, 1 with
+Control); a click, Return or Space ends them and Escape undoes them. Volume and brightness keys keep working while the screen is
 locked.
 
 On laptops, DisplayConfig's `Backlight` and `SetBacklight` control the

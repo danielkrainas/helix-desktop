@@ -70,6 +70,18 @@ impl Helix {
             Action::ShowApplications => self.send(helix_comp::Event::ShowApplications),
             Action::RestoreShortcuts => self.restore_shortcuts(),
             Action::CancelFollow => self.cancel_follow(),
+            Action::FollowStep(dx, dy) => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let pos = self.clamp_to_outputs(pointer.current_location() + Point::from((f64::from(dx), f64::from(dy))));
+                self.pointer_to(pos, time);
+            }
+            Action::EndFollow => {
+                // The follow grab ends on a press, which it keeps from apps.
+                let pointer = self.seat.get_pointer().unwrap();
+                let serial = SERIAL_COUNTER.next_serial();
+                pointer.button(self, &ButtonEvent { button: BTN_LEFT, state: ButtonState::Pressed, serial, time });
+                pointer.frame(self);
+            }
             Action::LocatePointer => self.locate_pointer(),
             Action::SwitchVt(vt) => self.switch_vt(vt),
             Action::Quit => {
@@ -215,8 +227,23 @@ impl Helix {
                 let sym = handle
                     .raw_latin_sym_or_raw_current_sym()
                     .unwrap_or_else(|| handle.modified_sym());
-                if pressed && state.follow.is_some() && handle.modified_sym() == smithay::input::keyboard::Keysym::Escape {
-                    return FilterResult::Intercept(Some(Action::CancelFollow));
+                if state.follow.is_some() {
+                    // Move/Resize from the window menu: keys drive it.
+                    if !pressed {
+                        return FilterResult::Forward;
+                    }
+                    use smithay::input::keyboard::Keysym;
+                    let step = if mods.ctrl { 1 } else { 10 };
+                    let action = match handle.modified_sym() {
+                        Keysym::Escape => Some(Action::CancelFollow),
+                        Keysym::Left | Keysym::KP_Left => Some(Action::FollowStep(-step, 0)),
+                        Keysym::Right | Keysym::KP_Right => Some(Action::FollowStep(step, 0)),
+                        Keysym::Up | Keysym::KP_Up => Some(Action::FollowStep(0, -step)),
+                        Keysym::Down | Keysym::KP_Down => Some(Action::FollowStep(0, step)),
+                        Keysym::Return | Keysym::KP_Enter | Keysym::space => Some(Action::EndFollow),
+                        _ => None,
+                    };
+                    return FilterResult::Intercept(action);
                 }
                 if state.shortcuts_inhibited() {
                     // The app gets every key but restore-shortcuts and VT
