@@ -298,7 +298,9 @@ single-pixel-buffer, linux-drm-syncobj (explicit sync, when the GPU
 supports syncobj eventfd waits; GPU buffers otherwise wait for their
 implicit fences) and, for Xwayland, xwayland-keyboard-grab (off
 unless `org.gnome.mutter.wayland xwayland-allow-grabs` and the access
-rules allow it). Not yet: xdg-toplevel-icon.
+rules allow it), and color-management (sRGB only: Helix does not convert
+colors and has no HDR output; `output-luminance` dims a monitor through its
+gamma ramps on bare hardware). Not yet: xdg-toplevel-icon, HDR.
 
 The pointer: apps' own cursor images are drawn by Helix (nested too, with
 the host's pointer hidden over the window) and get frame callbacks; named

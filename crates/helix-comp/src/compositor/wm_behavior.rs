@@ -91,7 +91,11 @@ impl Helix {
             tracing::info!(?settings.focus_mode, "window-management settings");
         }
         self.cursors.set_theme(&settings.cursor_theme, settings.cursor_size);
+        let luminance_changed = settings.output_luminance != self.wm_settings.output_luminance;
         self.wm_settings = settings;
+        if luminance_changed {
+            self.apply_luminance();
+        }
     }
 
     /// Focus the window the pointer is over, as `focus-mode` says.

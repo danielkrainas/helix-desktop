@@ -125,6 +125,9 @@ type WireCrtc = (u32, i64, i32, i32, i32, i32, i32, u32, Vec<u32>, Props);
 type WireOutput = (u32, i64, i32, Vec<u32>, String, Vec<u32>, Vec<u32>, Props);
 type WireLegacyMode = (u32, i64, u32, u32, f64, u32);
 
+/// The default (SDR) color mode; the only one Helix drives monitors in.
+pub const COLOR_MODE_DEFAULT: u32 = 0;
+
 fn props<const N: usize>(entries: [(&str, OwnedValue); N]) -> Props {
     entries.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
 }
@@ -189,7 +192,12 @@ impl Layout {
         let mut config = MonitorsConfig::default();
         for (x, y, scale, transform, primary, monitors) in logical {
             let mut choices = Vec::new();
-            for (connector, mode_id, _properties) in monitors {
+            for (connector, mode_id, monitor_properties) in monitors {
+                if let Some(mode) = monitor_properties.get("color-mode") {
+                    if u32::try_from(&**mode) != Ok(COLOR_MODE_DEFAULT) {
+                        return Err(format!("{connector} cannot use that color mode"));
+                    }
+                }
                 let monitor = self
                     .monitor(connector)
                     .ok_or_else(|| format!("no monitor is connected at {connector}"))?;
@@ -375,6 +383,12 @@ impl Layout {
                 let mprops = props([
                     ("is-builtin", OwnedValue::from(m.builtin)),
                     ("display-name", string(&m.display_name)),
+                    // SDR only (no HDR output).
+                    ("color-mode", OwnedValue::from(COLOR_MODE_DEFAULT)),
+                    (
+                        "supported-color-modes",
+                        OwnedValue::try_from(zbus::zvariant::Value::from(vec![COLOR_MODE_DEFAULT])).expect("array"),
+                    ),
                 ]);
                 (m.spec(), modes, mprops)
             })
@@ -1285,6 +1299,10 @@ mod tests {
         let config = layout.parse(&wire("1920x1080@60.000"), &Props::new()).unwrap();
         assert_eq!(config, side_by_side(1920, 0));
         assert!(layout.parse(&wire("800x600@60.000"), &Props::new()).unwrap_err().contains("no mode"));
+        let hdr = vec![(0, 0, 1.0, 0, true, vec![("DP-1".to_owned(), "1920x1080@60.000".to_owned(), props([("color-mode", OwnedValue::from(1u32))]))])];
+        assert!(layout.parse(&hdr, &Props::new()).unwrap_err().contains("color mode"));
+        let sdr = vec![(0, 0, 1.0, 0, true, vec![("DP-1".to_owned(), "1920x1080@60.000".to_owned(), props([("color-mode", OwnedValue::from(0u32))]))])];
+        assert!(layout.parse(&sdr, &Props::new()).is_ok());
         let physical = props([("layout-mode", OwnedValue::from(2u32))]);
         assert!(layout.parse(&wire("1920x1080@60.000"), &physical).unwrap_err().contains("layout mode 2"));
         assert_eq!(Method::try_from(2), Ok(Method::Persistent));

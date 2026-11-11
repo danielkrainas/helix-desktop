@@ -5,6 +5,7 @@
 mod actions;
 mod alive;
 mod capture;
+mod color;
 mod cursor;
 mod focus;
 mod frames;
@@ -141,6 +142,8 @@ pub struct Helix {
     pub cursor_status: CursorImageStatus,
     /// Named cursors from the theme.
     pub cursors: cursor::Cursors,
+    /// `wp_color_manager_v1`.
+    pub color: color::ColorState,
     /// Explicit sync, when the GPU supports it.
     pub syncobj_state: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
     /// Remote desktop clipboard sharing and keymaps.
@@ -253,6 +256,7 @@ impl Helix {
             cursors: cursor::Cursors::new("Adwaita", 24),
             remote_share: Default::default(),
             syncobj_state: None,
+            color: color::ColorState::new::<Self>(&dh),
             cursor_status: CursorImageStatus::default_named(),
             dmabuf_state: DmabufState::new(),
             pending_dmabufs: Vec::new(),

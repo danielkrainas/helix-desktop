@@ -18,6 +18,22 @@ const NESTED_SIZE: usize = 256;
 pub struct GammaState {
     ramps: HashMap<String, Ramps>,
     ctm: HashMap<String, Ctm>,
+    /// `output-luminance` factors in effect (absent: 1).
+    luminance: HashMap<String, f64>,
+}
+
+/// The factor for an `output-luminance` percentage (10–100 %).
+pub fn luminance_factor(percent: f64) -> f64 {
+    if percent.is_nan() {
+        return 1.0;
+    }
+    percent.clamp(10.0, 100.0) / 100.0
+}
+
+/// `ramps` dimmed by `factor`.
+pub fn scale_ramps(ramps: &Ramps, factor: f64) -> Ramps {
+    let scale = |r: &Vec<u16>| r.iter().map(|v| (f64::from(*v) * factor).round().clamp(0.0, 65535.0) as u16).collect();
+    (scale(&ramps.0), scale(&ramps.1), scale(&ramps.2))
 }
 
 impl Helix {
@@ -53,10 +69,47 @@ impl Helix {
     }
 
     fn apply_gamma(&mut self, connector: &str) {
-        let Some(ramps) = self.gamma.ramps.get(connector) else { return };
+        let factor = self.gamma.luminance.get(connector).copied();
+        let ramps = match (self.gamma.ramps.get(connector), factor) {
+            (Some(ramps), _) => ramps.clone(),
+            (None, Some(_)) => match self.gamma_size(connector) {
+                Some(size) => identity_ramps(size),
+                None => return,
+            },
+            (None, None) => return,
+        };
+        let ramps = scale_ramps(&ramps, factor.unwrap_or(1.0));
         if let Some(udev) = self.udev.as_mut() {
-            if let Err(err) = udev.set_gamma(connector, ramps) {
+            if let Err(err) = udev.set_gamma(connector, &ramps) {
                 tracing::warn!(%err, connector, "cannot set gamma");
+            }
+        }
+    }
+
+    /// Apply `output-luminance` (color mode 0) to the monitors.
+    pub fn apply_luminance(&mut self) {
+        let entries = self.wm_settings.output_luminance.clone();
+        for m in self.describe_outputs() {
+            let percent = entries
+                .iter()
+                .find(|(c, v, p, s, mode, _)| (c, v, p, s) == (&m.connector, &m.vendor, &m.product, &m.serial) && *mode == 0)
+                .map(|e| e.5);
+            let old = self.gamma.luminance.get(&m.connector).copied();
+            let new = percent.map(luminance_factor);
+            if old != new {
+                match new {
+                    Some(f) => self.gamma.luminance.insert(m.connector.clone(), f),
+                    None => self.gamma.luminance.remove(&m.connector),
+                };
+                tracing::info!(connector = m.connector, factor = new.unwrap_or(1.0), "output luminance");
+                if new.is_none() && !self.gamma.ramps.contains_key(&m.connector) {
+                    // Back to full: the identity ramp.
+                    if let (Some(size), Some(udev)) = (self.gamma_size(&m.connector), self.udev.as_mut()) {
+                        let _ = udev.set_gamma(&m.connector, &identity_ramps(size));
+                    }
+                } else {
+                    self.apply_gamma(&m.connector);
+                }
             }
         }
     }
@@ -72,11 +125,15 @@ impl Helix {
     /// Set the kept ramps and matrices again (after mode changes or a VT
     /// switch back); forget monitors that are gone.
     pub fn reapply_gamma(&mut self) {
-        let connectors: Vec<String> = self.gamma.ramps.keys().chain(self.gamma.ctm.keys()).cloned().collect();
+        let mut connectors: Vec<String> =
+            self.gamma.ramps.keys().chain(self.gamma.ctm.keys()).chain(self.gamma.luminance.keys()).cloned().collect();
+        connectors.sort();
+        connectors.dedup();
         for connector in connectors {
             if self.gamma_size(&connector).is_none() {
                 self.gamma.ramps.remove(&connector);
                 self.gamma.ctm.remove(&connector);
+                self.gamma.luminance.remove(&connector);
                 continue;
             }
             self.apply_gamma(&connector);
@@ -86,5 +143,22 @@ impl Helix {
                 }
             }
         }
+        // Newly connected monitors may have a luminance setting.
+        self.apply_luminance();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn luminance() {
+        assert_eq!(luminance_factor(50.0), 0.5);
+        assert_eq!(luminance_factor(150.0), 1.0);
+        assert_eq!(luminance_factor(1.0), 0.1);
+        assert_eq!(luminance_factor(f64::NAN), 1.0);
+        let r = scale_ramps(&identity_ramps(3), 0.5);
+        assert_eq!(r.0, vec![0, 16384, 32768]);
     }
 }

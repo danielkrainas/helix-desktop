@@ -140,6 +140,9 @@ pub struct WmSettings {
     pub cursor_theme: String,
     /// `cursor-size` (logical pixels).
     pub cursor_size: u32,
+    /// `output-luminance`: (connector, vendor, product, serial, color mode,
+    /// percent).
+    pub output_luminance: Vec<(String, String, String, String, u32, f64)>,
 }
 
 impl Default for WmSettings {
@@ -168,6 +171,7 @@ impl Default for WmSettings {
             xwayland_grab_rules: Vec::new(),
             cursor_theme: "Adwaita".into(),
             cursor_size: 24,
+            output_luminance: Vec::new(),
         }
     }
 }
@@ -219,6 +223,9 @@ pub fn read() -> WmSettings {
         xwayland_allow_grabs: boolean(MUTTER_WAYLAND, "xwayland-allow-grabs", d.xwayland_allow_grabs),
         xwayland_grab_rules: settings_with(MUTTER_WAYLAND, "xwayland-grab-access-rules")
             .map_or(d.xwayland_grab_rules, |s| s.strv("xwayland-grab-access-rules").iter().map(|r| r.to_string()).collect()),
+        output_luminance: settings_with(MUTTER, "output-luminance")
+            .and_then(|s| s.value("output-luminance").get())
+            .unwrap_or_default(),
         cursor_theme: string(INTERFACE, "cursor-theme").filter(|t| !t.is_empty()).unwrap_or(d.cursor_theme),
         cursor_size: settings_with(INTERFACE, "cursor-size").map_or(d.cursor_size, |s| s.int("cursor-size").clamp(1, 512) as u32),
         locate_pointer_key: locate.then(|| string(MUTTER, "locate-pointer-key").unwrap_or_else(|| "Control_L".into())),
