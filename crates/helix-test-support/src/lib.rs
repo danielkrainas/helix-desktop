@@ -1,10 +1,12 @@
 //! Test helpers shared across Helix crates.
 //!
 //! - [`TestBus`]: a private `dbus-daemon` per test.
+//! - [`logind`]: a fake systemd-logind.
 //! - [`conformance`]: compare an exported D-Bus interface against the
 //!   contract XML in helix-desktop-spec.
 
 pub mod conformance;
+pub mod logind;
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};

@@ -10,6 +10,11 @@ name = "helix"
 XDG_CURRENT_DESKTOP = "Helix:GNOME"
 XDG_SESSION_DESKTOP = "helix"
 
+[power]
+# Power off, restart and suspend through systemd-logind. Use "none" for a
+# nested test session, so its Power Off doesn't power off your machine.
+system = "logind"
+
 [[component]]
 name = "compositor"
 # The compositor starts the shell itself, on a privileged connection that

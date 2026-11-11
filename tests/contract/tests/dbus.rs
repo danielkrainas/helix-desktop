@@ -10,7 +10,6 @@ async fn org_gnome_session_manager() {
     const IFACE: &str = "org.gnome.SessionManager";
     // Tracked in helix-desktop-spec/gaps.md.
     const KNOWN_UNIMPLEMENTED: &[&str] = &[
-        "method Suspend",
         "method CanShutdown",
         "method CanReboot",
         "method CanSuspend",
@@ -213,4 +212,20 @@ async fn end_session_dialog_and_session_objects() {
     assert_matches_contract(conn, "org.gnome.SessionManager", client_path.as_str(), "org.gnome.SessionManager.ClientPrivate", "org.gnome.SessionManager.ClientPrivate.xml", &[]).await;
     let inhibitor = format!("/org/gnome/SessionManager/Inhibitor{cookie}");
     assert_matches_contract(conn, "org.gnome.SessionManager", &inhibitor, "org.gnome.SessionManager.Inhibitor", "org.gnome.SessionManager.Inhibitor.xml", &[]).await;
+}
+
+/// The fake logind the tests use must match the logind subset in the spec,
+/// so that what Helix calls is what the spec says logind offers.
+#[tokio::test(flavor = "multi_thread")]
+async fn fake_logind_matches_the_login1_contract() {
+    use helix_test_support::logind::{FakeLogind, BUS_NAME, MANAGER_PATH, SESSION_PATH};
+    let Some(bus) = TestBus::start() else { return };
+    let _fake = FakeLogind::start(&bus).await;
+    let conn = bus.connect().await;
+    for (path, iface) in [
+        (MANAGER_PATH, "org.freedesktop.login1.Manager"),
+        (SESSION_PATH, "org.freedesktop.login1.Session"),
+    ] {
+        assert_matches_contract(&conn, BUS_NAME, path, iface, "org.freedesktop.login1.xml", &[]).await;
+    }
 }

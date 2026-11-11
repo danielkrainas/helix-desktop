@@ -12,6 +12,7 @@ pub mod client;
 pub mod end_session;
 pub mod launcher;
 pub mod locale;
+pub mod logind;
 pub mod manager;
 pub mod objects;
 pub mod state;
@@ -46,6 +47,17 @@ pub struct SessionService {
     end_rx: mpsc::UnboundedReceiver<EndSessionAction>,
     watcher: JoinHandle<()>,
     lock_watcher: JoinHandle<()>,
+    active_watcher: Option<JoinHandle<()>>,
+}
+
+/// How to run the service (see [`SessionService::start_with_options`]).
+#[derive(Debug, Clone, Default)]
+pub struct ServiceOptions {
+    pub info: SessionInfo,
+    pub timeouts: end_session::Timeouts,
+    /// Where to reach logind; `None` disables power actions and leaves
+    /// `SessionIsActive` true.
+    pub logind: Option<logind::Logind>,
 }
 
 impl SessionService {
@@ -72,11 +84,17 @@ impl SessionService {
         info: SessionInfo,
         timeouts: end_session::Timeouts,
     ) -> zbus::Result<Self> {
+        Self::start_with_options(builder, ServiceOptions { info, timeouts, logind: None }).await
+    }
+
+    /// Start with every option explicit.
+    pub async fn start_with_options(builder: connection::Builder<'_>, options: ServiceOptions) -> zbus::Result<Self> {
+        let ServiceOptions { info, timeouts, logind } = options;
         let state = Arc::new(Mutex::new(SessionState::new()));
         let (end_tx, end_rx) = mpsc::unbounded_channel();
 
         let conn = builder
-            .serve_at(OBJECT_PATH, SessionManager::new(state.clone(), end_tx, info, timeouts))?
+            .serve_at(OBJECT_PATH, SessionManager::new(state.clone(), end_tx, info, timeouts, logind.clone()))?
             .build()
             .await?;
 
@@ -93,12 +111,17 @@ impl SessionService {
 
         let watcher = spawn_owner_watcher(&conn).await?;
         let lock_watcher = spawn_lock_watcher(&conn).await?;
+        let active_watcher = match &logind {
+            Some(logind) => spawn_active_watcher(&conn, logind).await,
+            None => None,
+        };
         Ok(Self {
             conn,
             state,
             end_rx,
             watcher,
             lock_watcher,
+            active_watcher,
         })
     }
 
@@ -150,12 +173,42 @@ impl SessionService {
 
         self.watcher.abort();
         self.lock_watcher.abort();
+        if let Some(task) = &self.active_watcher {
+            task.abort();
+        }
         // A round trip to the bus also ensures the end-request reply has
         // been flushed before we disconnect.
         self.conn.release_name(BUS_NAME).await?;
         self.conn.object_server().remove::<SessionManager, _>(OBJECT_PATH).await?;
         self.conn.graceful_shutdown().await;
         Ok(end)
+    }
+}
+
+/// `SessionIsActive` follows logind's session `Active` property.
+async fn spawn_active_watcher(conn: &Connection, logind: &logind::Logind) -> Option<JoinHandle<()>> {
+    let iface = conn
+        .object_server()
+        .interface::<_, SessionManager>(OBJECT_PATH)
+        .await
+        .ok()?;
+    let watch = logind
+        .watch_active(move |active| {
+            let iface = iface.clone();
+            async move {
+                let manager = iface.get().await;
+                if let Err(err) = manager.set_active(active, iface.signal_emitter()).await {
+                    tracing::warn!(%err, "cannot publish SessionIsActive");
+                }
+            }
+        })
+        .await;
+    match watch {
+        Ok(task) => Some(task),
+        Err(err) => {
+            tracing::warn!(%err, "cannot follow the logind session; SessionIsActive stays true");
+            None
+        }
     }
 }
 

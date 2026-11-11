@@ -125,6 +125,8 @@ struct Ui {
     /// Full-screen overlays: the end-session dialog and the power menu.
     dialog: Option<Overlay<DialogState>>,
     power_menu: Option<Overlay<()>>,
+    /// Which power actions logind allows (entries shown in the menu).
+    power: crate::logind::Availability,
     exit: bool,
 }
 
@@ -860,12 +862,7 @@ impl Ui {
                 let mut canvas = Canvas { data, width: w, height: h };
                 canvas.fill(0x00000000);
                 let text = self.text.as_ref();
-                let items = [
-                    ("Lock Screen", PowerAction::Lock),
-                    ("Log Out…", PowerAction::LogOut),
-                    ("Restart…", PowerAction::Restart),
-                    ("Power Off…", PowerAction::PowerOff),
-                ];
+                let items = power_menu_items(self.power);
                 let mw = 200;
                 let mx = w as i32 - mw - 6;
                 let my = PANEL_HEIGHT as i32 + 4;
@@ -893,6 +890,7 @@ impl Ui {
     fn handle(&mut self, event: UiEvent) {
         match event {
             UiEvent::EndDialog(dialog) => self.show_end_dialog(dialog),
+            UiEvent::PowerAvailability(power) => self.power = power,
             UiEvent::Lock => self.start_lock(),
             UiEvent::Banner(banner) => self.show_banner(banner),
             UiEvent::Osd(osd) => {
@@ -997,6 +995,7 @@ pub fn run(
         banner: None,
         dialog: None,
         power_menu: None,
+        power: Default::default(),
         lock: LockScreen {
             state: SessionLockState::new(&globals, &qh),
             session: None,
@@ -1329,5 +1328,35 @@ impl SessionLockHandler for Ui {
             self.paint_lock(view);
         }
         self.lock.surfaces = views;
+    }
+}
+
+/// Power menu entries, offering only what logind allows.
+fn power_menu_items(power: crate::logind::Availability) -> Vec<(&'static str, PowerAction)> {
+    let mut items = vec![("Lock Screen", PowerAction::Lock)];
+    if power.suspend {
+        items.push(("Suspend", PowerAction::Suspend));
+    }
+    items.push(("Log Out…", PowerAction::LogOut));
+    if power.restart {
+        items.push(("Restart…", PowerAction::Restart));
+    }
+    if power.power_off {
+        items.push(("Power Off…", PowerAction::PowerOff));
+    }
+    items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logind::Availability;
+
+    #[test]
+    fn power_menu_entries_follow_logind() {
+        let names = |power| power_menu_items(power).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+        assert_eq!(names(Availability::default()), ["Lock Screen", "Log Out…"]);
+        let all = Availability { suspend: true, restart: true, power_off: true };
+        assert_eq!(names(all), ["Lock Screen", "Suspend", "Log Out…", "Restart…", "Power Off…"]);
     }
 }

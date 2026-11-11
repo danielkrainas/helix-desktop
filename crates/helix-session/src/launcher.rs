@@ -11,6 +11,9 @@
 //! [environment]
 //! XDG_CURRENT_DESKTOP = "Helix:GNOME"
 //!
+//! [power]
+//! system = "logind"                  # or "none": never power off / suspend
+//!
 //! [[component]]
 //! name = "compositor"
 //! command = ["helix-comp"]
@@ -45,6 +48,27 @@ pub struct SessionConfig {
     /// Started in order.
     #[serde(default, rename = "component")]
     pub components: Vec<Component>,
+    #[serde(default)]
+    pub power: PowerSection,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PowerSection {
+    /// Who powers off, restarts and suspends the machine.
+    #[serde(default)]
+    pub system: PowerSystem,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PowerSystem {
+    /// systemd-logind on the system bus.
+    #[default]
+    Logind,
+    /// Nobody: Shutdown and Reboot only end the session, Suspend fails
+    /// (for nested test sessions, which must not power off the host).
+    None,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]

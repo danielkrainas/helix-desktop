@@ -11,6 +11,7 @@ pub mod end_dialog;
 pub mod font;
 pub mod idle;
 pub mod launcher;
+pub mod logind;
 pub mod notifications;
 pub mod notify_store;
 pub mod screensaver;
@@ -83,12 +84,15 @@ pub enum UiEvent {
     Banner(Option<notifications::Banner>),
     /// The end-session confirmation dialog to show, or none.
     EndDialog(Option<end_dialog::EndDialog>),
+    /// Which power actions the Power menu may offer.
+    PowerAvailability(logind::Availability),
 }
 
 /// Power menu entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PowerAction {
     Lock,
+    Suspend,
     LogOut,
     Restart,
     PowerOff,
@@ -541,6 +545,7 @@ impl UiBridge {
                 };
                 let result = match action {
                     PowerAction::Lock => lock_via(&self.conn).await,
+                    PowerAction::Suspend => call("Suspend", None).await,
                     PowerAction::LogOut => call("Logout", Some(0)).await,
                     PowerAction::Restart => call("Reboot", None).await,
                     PowerAction::PowerOff => call("Shutdown", None).await,
@@ -560,6 +565,33 @@ impl UiBridge {
 }
 
 /// Ask our own ScreenSaver object to lock.
+/// Lock, then wait (up to `timeout`) until the lock screen is shown.
+/// Returns whether the session is locked.
+pub async fn lock_and_wait(conn: &Connection, timeout: std::time::Duration) -> bool {
+    if let Err(err) = lock_via(conn).await {
+        tracing::warn!(%err, "cannot lock");
+        return false;
+    }
+    let Ok(saver) = conn
+        .object_server()
+        .interface::<_, screensaver::ScreenSaver>(screensaver::OBJECT_PATH)
+        .await
+    else {
+        return false;
+    };
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if screensaver::status(&saver.get().await.status).locked() {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            tracing::warn!("the lock screen did not appear in time");
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 pub async fn lock_via(conn: &Connection) -> zbus::Result<()> {
     let saver = conn
         .object_server()

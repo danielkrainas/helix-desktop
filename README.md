@@ -88,7 +88,12 @@ Current behavior worth knowing:
   logout flag (1). `Logout(2)` ignores inhibitors and client refusals, and
   takes over a sequence still waiting for confirmation. Inhibitors without
   the logout flag (e.g. idle) never block ending the session.
-- `Shutdown`/`Reboot` only end the session; they never power off the machine.
+- After `Shutdown`/`Reboot` end the session, systemd-logind powers off or
+  restarts the machine; `Suspend` asks logind to suspend. While any
+  inhibitor has the suspend flag (4), the session manager blocks system
+  sleep through logind. `SessionIsActive` follows the logind session.
+  With `[power] system = "none"` (or no config at all) logind is never
+  called.
 - Clients and inhibitors are tied to the caller's bus connection and are
   released when it disconnects. A one-shot `busctl call Inhibit ...` therefore
   holds its inhibitor only for the duration of that call.
@@ -232,9 +237,11 @@ using PAM. Never use such a build for real.
 
 ## Logging out
 
-The panel's **Power** button opens a menu: Lock Screen, Log Out…,
-Restart…, Power Off…. The last three call `SessionManager`'s `Logout(0)`,
-`Reboot` and `Shutdown`, like any other caller would.
+The panel's **Power** button opens a menu: Lock Screen, Suspend, Log Out…,
+Restart…, Power Off…. Suspend, Restart and Power Off appear only when
+logind allows them without a password (`CanSuspend` etc. answer `yes`).
+The entries call `SessionManager`'s `Suspend`, `Logout(0)`, `Reboot` and
+`Shutdown`, like any other caller would.
 
 The session manager then asks the shell's
 `org.gnome.SessionManager.EndSessionDialog` to confirm. The dialog counts
@@ -254,8 +261,13 @@ helix-portals registers as a client, so the Inhibit portal's session
 monitors see the query (state 2, "query end") and can answer it with
 `QueryEndResponse`.
 
-`Shutdown` and `Reboot` still only end the session; they do not power off
-or restart the machine yet.
+Once the session is over, the session manager asks logind to power off
+(`Shutdown`) or restart (`Reboot`).
+
+Before the system sleeps, the shell locks the screen if
+`org.gnome.desktop.screensaver lock-enabled` is on (the default). It holds
+a logind sleep delay inhibitor and lets the system sleep only once the lock
+screen is shown.
 
 ## Running on real hardware
 
@@ -324,6 +336,10 @@ With every binary built (`cargo build`), a session config pointing at
 ```sh
 dbus-run-session -- target/debug/helix-session --config my-session.toml
 ```
+
+**Set `system = "none"` under `[power]` in a nested test config.** The
+default, `logind`, really powers off or restarts the machine when you
+confirm Power Off or Restart in the nested session.
 
 The nested session runs as you, with your real home directory, so apps you
 start in it restore their usual sessions and open your real files. For

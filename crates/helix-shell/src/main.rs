@@ -41,6 +41,7 @@ fn main() -> ExitCode {
     };
 
     let (ui_tx, ui_channel) = channel::channel();
+    let power_ui = ui_tx.clone();
     runtime.spawn(async move {
         while let Some(event) = ui_rx.recv().await {
             if ui_tx.send(event).is_err() {
@@ -62,6 +63,30 @@ fn main() -> ExitCode {
 
     runtime.spawn(helix_shell::idle::run(service.connection().clone()));
     runtime.spawn(helix_shell::notifications::follow_settings(service.notifications()));
+
+    // logind: which power actions to offer, and locking before sleep.
+    let shell_conn = service.connection().clone();
+    runtime.spawn(async move {
+        let system = match zbus::Connection::system().await {
+            Ok(conn) => conn,
+            Err(err) => {
+                tracing::warn!(%err, "no system bus; no suspend, restart or power off in the menu");
+                return;
+            }
+        };
+        let power = helix_shell::logind::availability(&system).await;
+        tracing::info!(?power, "power actions");
+        let _ = power_ui.send(helix_shell::UiEvent::PowerAvailability(power));
+        helix_shell::logind::lock_before_sleep(system, move || {
+            let conn = shell_conn.clone();
+            async move {
+                if helix_shell::idle::lock_on_suspend() {
+                    helix_shell::lock_and_wait(&conn, std::time::Duration::from_secs(3)).await;
+                }
+            }
+        })
+        .await;
+    });
 
     // Restarted by the compositor while the session was locked: lock again
     // at once (the compositor keeps the screen blank until we do).

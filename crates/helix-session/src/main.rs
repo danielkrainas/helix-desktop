@@ -10,16 +10,18 @@
 //! Without `--config`, the config is looked up in
 //! `$XDG_CONFIG_HOME/helix/session.toml` and `$XDG_CONFIG_DIRS`. With no
 //! config at all, only the SessionManager service runs and a client must
-//! call `Initialized` (handy for testing under `dbus-run-session`).
+//! call `Initialized` (handy for testing under `dbus-run-session`); logind
+//! is then not used, so nothing can power off the machine.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use helix_session::launcher::{self, SessionConfig};
+use helix_session::launcher::{self, PowerSystem, SessionConfig};
+use helix_session::logind::{self, Logind};
 use helix_session::manager::SessionInfo;
-use helix_session::{SessionEnd, SessionService};
+use helix_session::{ServiceOptions, SessionEnd, SessionService};
 use tokio::signal::unix::{signal, SignalKind};
 use tracing_subscriber::EnvFilter;
 
@@ -70,7 +72,19 @@ async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
     if let Some(config) = &config {
         info.name = config.session.name.clone();
     }
-    let service = SessionService::start_with(zbus::connection::Builder::session()?, info).await?;
+    let logind = match config.as_ref().map(|c| c.power.system) {
+        Some(PowerSystem::Logind) => Logind::system().await,
+        Some(PowerSystem::None) | None => {
+            tracing::info!("power actions disabled (no logind)");
+            None
+        }
+    };
+    let options = ServiceOptions {
+        info,
+        logind: logind.clone(),
+        ..Default::default()
+    };
+    let service = SessionService::start_with_options(zbus::connection::Builder::session()?, options).await?;
 
     let mut sigterm = signal(SignalKind::terminate())?;
     let mut sigint = signal(SignalKind::interrupt())?;
@@ -106,6 +120,9 @@ async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
 
     if let Some(children) = children {
         children.terminate(Duration::from_secs(5)).await;
+    }
+    if let SessionEnd::Requested(action) = end {
+        logind::after_session(action, logind.as_ref()).await;
     }
     Ok(end)
 }

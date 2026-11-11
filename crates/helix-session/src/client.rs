@@ -21,6 +21,7 @@ pub trait SessionManager {
     fn get_inhibitors(&self) -> zbus::Result<Vec<OwnedObjectPath>>;
     fn shutdown(&self) -> zbus::Result<()>;
     fn reboot(&self) -> zbus::Result<()>;
+    fn suspend(&self) -> zbus::Result<()>;
     fn can_reboot_to_firmware_setup(&self) -> zbus::Result<bool>;
     fn logout(&self, mode: u32) -> zbus::Result<()>;
     fn is_session_running(&self) -> zbus::Result<bool>;

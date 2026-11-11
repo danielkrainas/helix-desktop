@@ -31,6 +31,12 @@ pub fn lock_timeout(idle_delay: u32, lock_enabled: bool, lock_delay: u32) -> Opt
         .then(|| Duration::from_secs(u64::from(idle_delay) + u64::from(lock_delay)))
 }
 
+/// Whether to lock before the system sleeps (`lock-enabled`; GNOME's
+/// default, true, when the schema is missing).
+pub fn lock_on_suspend() -> bool {
+    !helix_settings::has_schema(SCREENSAVER) || gio::Settings::new(SCREENSAVER).boolean("lock-enabled")
+}
+
 fn read_timeout() -> Option<Duration> {
     if !helix_settings::has_schema(SESSION) || !helix_settings::has_schema(SCREENSAVER) {
         return None;

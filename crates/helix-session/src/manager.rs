@@ -14,9 +14,10 @@ use zbus::zvariant::{ObjectPath, OwnedObjectPath};
 use zbus::{interface, Connection, DBusError, ObjectServer};
 
 use crate::end_session::{self, needs_confirmation, Dialog, ForceSignal, Sequence, Timeouts, REFUSAL_FLAGS};
+use crate::logind::Logind;
 use crate::objects::{ClientObject, InhibitorObject, Responses};
 
-use crate::state::{EndSessionAction, LogoutMode, OwnerCleanup, SessionError, SessionState};
+use crate::state::{inhibit_flags, EndSessionAction, LogoutMode, OwnerCleanup, SessionError, SessionState};
 
 /// Well-known bus name.
 pub const BUS_NAME: &str = "org.gnome.SessionManager";
@@ -90,6 +91,9 @@ pub struct SessionManager {
     responses: Responses,
     timeouts: Timeouts,
     force: ForceSignal,
+    logind: Option<Logind>,
+    /// logind `sleep` block inhibitor, held while a suspend inhibitor exists.
+    sleep_block: tokio::sync::Mutex<Option<zbus::zvariant::OwnedFd>>,
 }
 
 impl SessionManager {
@@ -98,6 +102,7 @@ impl SessionManager {
         end_tx: mpsc::UnboundedSender<EndSessionAction>,
         info: SessionInfo,
         timeouts: Timeouts,
+        logind: Option<Logind>,
     ) -> Self {
         Self {
             state,
@@ -106,7 +111,46 @@ impl SessionManager {
             responses: Responses::default(),
             timeouts,
             force: ForceSignal::default(),
+            logind,
+            sleep_block: tokio::sync::Mutex::new(None),
         }
+    }
+
+    /// Hold logind's sleep inhibitor exactly while some inhibitor has the
+    /// suspend flag.
+    async fn sync_sleep_block(&self) {
+        let Some(logind) = &self.logind else { return };
+        let wanted = self.state().inhibited_actions() & inhibit_flags::SUSPEND != 0;
+        let mut held = self.sleep_block.lock().await;
+        match (wanted, held.is_some()) {
+            (true, false) => match logind.inhibit("sleep", "An application is preventing suspend", "block").await {
+                Ok(fd) => {
+                    tracing::info!("blocking system sleep for a suspend inhibitor");
+                    *held = Some(fd);
+                }
+                Err(err) => tracing::warn!(%err, "cannot block system sleep"),
+            },
+            (false, true) => {
+                tracing::info!("no suspend inhibitors left; system sleep allowed");
+                *held = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// logind reported the session's `Active` state.
+    pub async fn set_active(&self, active: bool, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
+        let changed = {
+            let mut state = self.state();
+            let changed = state.is_active() != active;
+            state.set_active(active);
+            changed
+        };
+        if changed {
+            tracing::info!(active, "session active state");
+            self.session_is_active_changed(emitter).await?;
+        }
+        Ok(())
     }
 
     fn state(&self) -> MutexGuard<'_, SessionState> {
@@ -265,6 +309,7 @@ impl SessionManager {
         }
         if !inhibitors.is_empty() {
             self.inhibited_actions_changed(emitter).await?;
+            self.sync_sleep_block().await;
         }
         Ok(())
     }
@@ -390,6 +435,7 @@ impl SessionManager {
         tracing::info!(app_id, reason, flags, cookie = inhibitor.cookie, "inhibit");
         Self::inhibitor_added(&emitter, path(&inhibitor.object_path())).await?;
         self.inhibited_actions_changed(&emitter).await?;
+        self.sync_sleep_block().await;
         Ok(inhibitor.cookie)
     }
 
@@ -404,6 +450,7 @@ impl SessionManager {
         tracing::info!(app_id = %inhibitor.app_id, cookie = inhibit_cookie, "uninhibit");
         Self::inhibitor_removed(&emitter, path(&inhibitor.object_path())).await?;
         self.inhibited_actions_changed(&emitter).await?;
+        self.sync_sleep_block().await;
         Ok(())
     }
 
@@ -429,6 +476,18 @@ impl SessionManager {
     async fn logout(&self, mode: u32, #[zbus(connection)] conn: &Connection) -> Result<()> {
         let mode = LogoutMode::try_from(mode)?;
         self.end_session(EndSessionAction::Logout(mode), conn).await
+    }
+
+    async fn suspend(&self) -> Result<()> {
+        let logind = self
+            .logind
+            .as_ref()
+            .ok_or_else(|| ManagerError::General("suspend needs logind, which is unavailable".into()))?;
+        tracing::info!("asking logind to suspend");
+        logind
+            .suspend()
+            .await
+            .map_err(|e| ManagerError::General(format!("logind refused to suspend: {e}")))
     }
 
     async fn is_session_running(&self) -> bool {
