@@ -27,7 +27,8 @@ serde = { version = "1", features = ["derive"] }
 toml = "1"
 zbus_xml = "5.2"
 gio = "0.22"
-smithay-client-toolkit = { version = "0.21", default-features = false, features = ["calloop"] }
+smithay-client-toolkit = { version = "0.21", default-features = false, features = ["calloop", "xkbcommon"] }
+ab_glyph = "0.2"
 smithay = { version = "0.7", default-features = false, features = ["backend_winit", "wayland_frontend", "desktop"] }
 helix-settings = { path = "crates/helix-settings" }
 helix-test-support = { path = "crates/helix-test-support" }

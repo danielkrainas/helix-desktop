@@ -4,14 +4,34 @@ use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
     KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
 };
+use smithay::backend::input::KeyState;
 use smithay::input::keyboard::FilterResult;
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
-use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::SERIAL_COUNTER;
 
+use super::shortcuts::{Action, Mods};
 use super::Helix;
 
 impl Helix {
+    fn run_shortcut(&mut self, action: Action) {
+        tracing::debug!(?action, "shortcut");
+        match action {
+            Action::ShowApplications => self.send(helix_comp::Event::ShowApplications),
+            Action::CycleWindows => self.cycle_windows(),
+            Action::CloseWindow => self.close_focused(),
+            Action::ToggleMaximize => self.toggle_maximize_focused(),
+            Action::RestoreOrMinimize => {
+                if let Some(window) = self.top_window() {
+                    if self.is_taken_over(&window, super::wm::Takeover::Maximized) {
+                        self.restore_window(&window);
+                    } else {
+                        self.minimize(&window);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
         if matches!(
             event,
@@ -28,14 +48,35 @@ impl Helix {
             InputEvent::Keyboard { event, .. } => {
                 let serial = SERIAL_COUNTER.next_serial();
                 let time = Event::time_msec(&event);
-                self.seat.get_keyboard().unwrap().input::<(), _>(
+                let pressed = event.state() == KeyState::Pressed;
+                let keycode = event.key_code();
+                let action = self.seat.get_keyboard().unwrap().input::<Option<Action>, _>(
                     self,
-                    event.key_code(),
+                    keycode,
                     event.state(),
                     serial,
                     time,
-                    |_, _, _| FilterResult::Forward,
+                    |state, modifiers, handle| {
+                        let mods = Mods {
+                            alt: modifiers.alt,
+                            logo: modifiers.logo,
+                            ctrl: modifiers.ctrl,
+                            shift: modifiers.shift,
+                        };
+                        let sym = handle
+                            .raw_latin_sym_or_raw_current_sym()
+                            .unwrap_or_else(|| handle.modified_sym());
+                        let decision = state.shortcuts.key(keycode.raw(), pressed, mods, sym);
+                        if decision.intercept {
+                            FilterResult::Intercept(decision.action)
+                        } else {
+                            FilterResult::Forward
+                        }
+                    },
                 );
+                if let Some(Some(action)) = action {
+                    self.run_shortcut(action);
+                }
             }
             InputEvent::PointerMotionAbsolute { event, .. } => {
                 let Some(output) = self.space.outputs().next() else {
@@ -61,29 +102,17 @@ impl Helix {
             }
             InputEvent::PointerButton { event, .. } => {
                 let pointer = self.seat.get_pointer().unwrap();
-                let keyboard = self.seat.get_keyboard().unwrap();
                 let serial = SERIAL_COUNTER.next_serial();
                 let state = event.state();
 
                 if state == ButtonState::Pressed && !pointer.is_grabbed() {
-                    let clicked = self
-                        .space
-                        .element_under(pointer.current_location())
-                        .map(|(w, _)| w.clone());
-                    if let Some(window) = clicked {
-                        self.space.raise_element(&window, true);
-                        let surface = window.toplevel().map(|t| t.wl_surface().clone());
-                        keyboard.set_focus(self, surface, serial);
+                    let pos = pointer.current_location();
+                    if self.over_panel(pos) {
+                        // Clicks on panels don't change window focus.
+                    } else if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
+                        self.focus_window(&window);
                     } else {
-                        for window in self.space.elements() {
-                            window.set_activated(false);
-                        }
-                        keyboard.set_focus(self, Option::<WlSurface>::None, serial);
-                    }
-                    for window in self.space.elements() {
-                        if let Some(toplevel) = window.toplevel() {
-                            toplevel.send_pending_configure();
-                        }
+                        self.unfocus_all();
                     }
                 }
 

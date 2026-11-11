@@ -1,4 +1,4 @@
-//! `helix-shell`: serves `org.gnome.Shell` and draws the top panel.
+//! `helix-shell`: serves `org.gnome.Shell` and draws the panel and launcher.
 //!
 //! The D-Bus service runs on a tokio thread; the panel (a layer-shell client
 //! of the compositor at `$WAYLAND_DISPLAY`) runs on the main thread. Without
@@ -6,7 +6,7 @@
 
 use std::process::ExitCode;
 
-use helix_shell::{panel, ShellService};
+use helix_shell::{ui, ShellService};
 use smithay_client_toolkit::reexports::calloop::channel;
 use tracing_subscriber::EnvFilter;
 
@@ -49,8 +49,19 @@ fn main() -> ExitCode {
         }
     });
 
+    // The UI reports launcher open/close back to the D-Bus state.
+    let (overview_tx, mut overview_rx) = tokio::sync::mpsc::unbounded_channel();
+    let overview = service.overview_handle();
+    runtime.spawn(async move {
+        while let Some(active) = overview_rx.recv().await {
+            if let Err(err) = overview.set(active).await {
+                tracing::warn!(%err, "cannot update OverviewActive");
+            }
+        }
+    });
+
     let panel_result = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        panel::run(ui_channel)
+        ui::run(ui_channel, overview_tx)
     } else {
         tracing::warn!("WAYLAND_DISPLAY not set; running without a panel");
         Err("no compositor".into())

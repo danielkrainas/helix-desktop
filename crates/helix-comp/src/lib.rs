@@ -30,6 +30,8 @@ pub enum Event {
     Activity,
     /// The output layout is now this.
     Monitors(Vec<Monitor>),
+    /// The user asked for the application launcher (Super alone).
+    ShowApplications,
 }
 
 /// The running D-Bus services of the compositor.
@@ -104,6 +106,23 @@ impl CompositorServices {
                     let emitter = iface.signal_emitter();
                     DisplayConfig::monitors_changed(emitter).await?;
                     iface.get().await.has_external_monitor_changed(emitter).await?;
+                }
+                Ok(())
+            }
+            Event::ShowApplications => {
+                // The launcher belongs to the shell; ask it over its contract.
+                let reply = self
+                    .conn
+                    .call_method(
+                        Some("org.gnome.Shell"),
+                        "/org/gnome/Shell",
+                        Some("org.gnome.Shell"),
+                        "ShowApplications",
+                        &(),
+                    )
+                    .await;
+                if let Err(err) = reply {
+                    tracing::info!(%err, "no shell to show applications");
                 }
                 Ok(())
             }

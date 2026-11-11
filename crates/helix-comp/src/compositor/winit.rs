@@ -92,6 +92,9 @@ pub fn init(
             }
             WinitEvent::Input(event) => state.process_input_event(event),
             WinitEvent::Redraw => {
+                if let Some(icon) = state.cursor.take() {
+                    backend.window().set_cursor(icon);
+                }
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
                 {

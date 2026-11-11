@@ -7,8 +7,10 @@
 
 pub mod accel;
 pub mod font;
-pub mod panel;
+pub mod launcher;
 pub mod state;
+pub mod text;
+pub mod ui;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -77,6 +79,14 @@ pub struct Shell {
 impl Shell {
     fn state(&self) -> MutexGuard<'_, ShellState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Overview state changed by the shell UI itself (no echo to the UI).
+    pub async fn set_overview_from_ui(&self, active: bool, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
+        if self.state().set_overview_active(active) {
+            self.overview_active_changed(emitter).await?;
+        }
+        Ok(())
     }
 
     async fn show_overview(&self, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
@@ -283,9 +293,35 @@ impl ShellService {
             .collect()
     }
 
+    /// Lets the UI report overview changes it made (e.g. the launcher was
+    /// closed with Escape).
+    pub fn overview_handle(&self) -> OverviewHandle {
+        OverviewHandle {
+            conn: self.conn.clone(),
+        }
+    }
+
     pub async fn shutdown(self) -> zbus::Result<()> {
         self.watcher.abort();
         self.conn.release_name(BUS_NAME).await?;
         Ok(())
+    }
+}
+
+/// See [`ShellService::overview_handle`].
+#[derive(Clone)]
+pub struct OverviewHandle {
+    conn: Connection,
+}
+
+impl OverviewHandle {
+    pub async fn set(&self, active: bool) -> zbus::Result<()> {
+        let iface = self
+            .conn
+            .object_server()
+            .interface::<_, Shell>(OBJECT_PATH)
+            .await?;
+        let shell = iface.get().await;
+        shell.set_overview_from_ui(active, iface.signal_emitter()).await
     }
 }

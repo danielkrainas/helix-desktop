@@ -2,9 +2,12 @@
 //!
 //! Structure follows Smithay's `smallvil` example (MIT licensed).
 
+mod grabs;
 mod handlers;
 mod input;
+mod shortcuts;
 pub mod winit;
+mod wm;
 
 use std::ffi::OsString;
 use std::sync::Arc;
@@ -12,14 +15,21 @@ use std::time::Instant;
 
 use helix_comp::Event;
 use smithay::desktop::{layer_map_for_output, PopupManager, Space, Window, WindowSurfaceType};
+use smithay::input::pointer::CursorIcon;
 use smithay::input::{Seat, SeatState};
 use smithay::reexports::calloop::generic::Generic;
 use smithay::reexports::calloop::{EventLoop, Interest, LoopSignal, Mode, PostAction};
 use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
-use smithay::utils::{Logical, Point};
+use smithay::utils::{Logical, Point, Rectangle};
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
+use smithay::wayland::cursor_shape::CursorShapeManagerState;
+use smithay::wayland::fractional_scale::FractionalScaleManagerState;
+use smithay::wayland::selection::primary_selection::PrimarySelectionState;
+use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
+use smithay::wayland::viewporter::ViewporterState;
+use smithay::wayland::xdg_activation::XdgActivationState;
 use smithay::wayland::output::OutputManagerState;
 use smithay::wayland::selection::data_device::DataDeviceState;
 use smithay::wayland::shell::wlr_layer::{Layer, WlrLayerShellState};
@@ -49,6 +59,27 @@ pub struct Helix {
     pub data_device_state: DataDeviceState,
     pub popups: PopupManager,
     pub seat: Seat<Self>,
+    pub primary_selection_state: PrimarySelectionState,
+    pub activation_state: XdgActivationState,
+    /// Kept alive so their globals stay registered.
+    #[allow(dead_code)]
+    globals: (
+        ViewporterState,
+        FractionalScaleManagerState,
+        CursorShapeManagerState,
+        XdgDecorationState,
+    ),
+
+    /// Minimized windows (unmapped) and where they were.
+    pub minimized: Vec<Window>,
+    pub minimized_at: Vec<Point<i32, Logical>>,
+    /// Geometry to restore after maximize/fullscreen.
+    pub restore: Vec<(Window, Rectangle<i32, Logical>, wm::Takeover)>,
+    /// Interactive resize awaiting the client's commits.
+    pub resize: Option<grabs::ResizeTracking>,
+    pub shortcuts: shortcuts::Shortcuts,
+    /// Cursor requested by the focused client, for the host window.
+    pub cursor: Option<CursorIcon>,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -77,12 +108,26 @@ impl Helix {
             shm_state: ShmState::new::<Self>(&dh, vec![]),
             output_manager_state: OutputManagerState::new_with_xdg_output::<Self>(&dh),
             data_device_state: DataDeviceState::new::<Self>(&dh),
-            display_handle: dh,
+            display_handle: dh.clone(),
             space: Space::default(),
             loop_signal: event_loop.get_signal(),
+            primary_selection_state: PrimarySelectionState::new::<Self>(&dh),
+            activation_state: XdgActivationState::new::<Self>(&dh),
+            globals: (
+                ViewporterState::new::<Self>(&dh),
+                FractionalScaleManagerState::new::<Self>(&dh),
+                CursorShapeManagerState::new::<Self>(&dh),
+                XdgDecorationState::new::<Self>(&dh),
+            ),
             seat_state,
             popups: PopupManager::default(),
             seat,
+            minimized: Vec::new(),
+            minimized_at: Vec::new(),
+            restore: Vec::new(),
+            resize: None,
+            shortcuts: shortcuts::Shortcuts::default(),
+            cursor: Some(CursorIcon::Default),
             events,
             last_activity_sent: None,
             windows_mapped: 0,
@@ -146,6 +191,15 @@ impl Helix {
         let n = (self.windows_mapped % 10) as i32;
         self.windows_mapped += 1;
         (origin.x + 32 * n, origin.y + 32 * n)
+    }
+
+    /// Whether `pos` is over a panel-like layer surface (top or overlay).
+    pub fn over_panel(&self, pos: Point<f64, Logical>) -> bool {
+        let Some(output) = self.space.outputs().next() else { return false };
+        let Some(geo) = self.space.output_geometry(output) else { return false };
+        let layers = layer_map_for_output(output);
+        let local = pos - geo.loc.to_f64();
+        layers.layer_under(Layer::Overlay, local).is_some() || layers.layer_under(Layer::Top, local).is_some()
     }
 
     pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {

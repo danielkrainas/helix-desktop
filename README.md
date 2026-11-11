@@ -135,17 +135,47 @@ dbus-run-session -- bash -c '
 It serves `org.gnome.Mutter.IdleMonitor` and the read side of
 `org.gnome.Mutter.DisplayConfig` (`ApplyMonitorsConfigAllowed` is false), and
 announces its socket with `SessionManager.Setenv("WAYLAND_DISPLAY", ...)`,
-which is what the session launcher waits for. Windows open in a cascade;
-click to focus. Moving and resizing windows are not implemented yet. Panels
-and other `wlr-layer-shell` surfaces are supported, and windows open outside
-the space they reserve.
+which is what the session launcher waits for.
+
+Window management: windows open in a cascade below any panels and get
+focus; click to focus; client-side (GTK) decorations; dragging and resizing
+from the header bar and edges; maximize, fullscreen and minimize requests;
+menus and popovers (popup grabs). Panels and other `wlr-layer-shell`
+surfaces are supported, including exclusive keyboard focus.
+
+Protocols beyond the core: xdg-decoration, xdg-activation, viewporter,
+fractional-scale (always 1 for now), primary selection, cursor-shape (named
+cursors are shown on the host window when nested). Not yet: linux-dmabuf
+(GTK falls back to shared-memory rendering), text-input / input methods,
+compositing client-drawn cursor surfaces.
+
+Shortcuts handled by the compositor:
+
+| Keys | Action |
+|------|--------|
+| Super (alone) | Show applications (asks the shell over `org.gnome.Shell`) |
+| Alt+Tab | Cycle windows (includes minimized ones) |
+| Alt+F4 | Close the focused window |
+| Super+Up | Toggle maximize |
+| Super+Down | Restore a maximized window, else minimize |
+
+When nested, the host desktop's window manager may grab some of these (e.g.
+Alt+Tab under XFCE) before Helix sees them.
 
 ## Running the shell
 
 `helix-shell` serves `org.gnome.Shell` (overview state, OSD requests,
 accelerator grabs; `Eval` is always refused) and, when `WAYLAND_DISPLAY`
-points at the compositor, draws a top panel with a clock. `ShowOSD` level
-requests show as a level bar in the panel for two seconds.
+points at the compositor, draws:
+
+- a top panel with an **Apps** button and a clock; `ShowOSD` level requests
+  show as a level bar in the panel for two seconds;
+- an application launcher, opened by the Apps button, Super, or
+  `ShowApplications`: type to search installed apps (from their `.desktop`
+  files), arrows to select, Enter or click to launch, Escape or a click
+  outside to close. Its open state is `OverviewActive`.
+
+Text uses the system sans-serif font (via `fc-match`).
 
 Accelerator grabs are recorded and validated, but `AcceleratorActivated` is
 not emitted yet: the compositor and shell are separate processes and the
@@ -160,6 +190,11 @@ With every binary built (`cargo build`), a session config pointing at
 ```sh
 dbus-run-session -- target/debug/helix-session --config my-session.toml
 ```
+
+The nested session runs as you, with your real home directory, so apps you
+start in it restore their usual sessions and open your real files. For
+throwaway testing, point `HOME` (or the `XDG_*_HOME` variables) at a scratch
+directory.
 
 When testing nested inside a non-GNOME host desktop, leave `GNOME` out of
 `XDG_CURRENT_DESKTOP` in the test config. Otherwise xdg-desktop-portal
