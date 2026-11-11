@@ -16,12 +16,17 @@ pub const CLIENT_PATH_PREFIX: &str = "/org/gnome/SessionManager/Client";
 /// Object path prefix for inhibitors (returned by `GetInhibitors`).
 pub const INHIBITOR_PATH_PREFIX: &str = "/org/gnome/SessionManager/Inhibitor";
 
-/// Inhibit flags that block an end-of-session request.
-///
-/// The meaning of individual flag bits is an open gap in the spec, so for now
-/// *any* active inhibitor blocks logout / shutdown / reboot. Once the bitmask
-/// is documented, narrow this to the logout bit.
-pub const END_SESSION_BLOCKING_FLAGS: u32 = u32::MAX;
+/// Inhibit flag bits, as documented in
+/// `helix-desktop-spec/contracts/dbus/org.gnome.SessionManager.md`.
+pub mod inhibit_flags {
+    /// Logout, shutdown and reboot.
+    pub const LOGOUT: u32 = 1;
+    pub const SWITCH_USER: u32 = 2;
+    pub const SUSPEND: u32 = 4;
+    /// The session being marked idle.
+    pub const IDLE: u32 = 8;
+    pub const AUTOMOUNT: u32 = 16;
+}
 
 /// Lifecycle phase of the session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +70,8 @@ pub enum EndSessionAction {
     Logout(LogoutMode),
     Shutdown,
     Reboot,
+    /// A component reported a fatal `InitializationError`.
+    InitializationFailed,
 }
 
 /// Rule violations reported back to D-Bus callers.
@@ -88,11 +95,21 @@ pub enum SessionError {
     CookiesExhausted,
 }
 
+impl EndSessionAction {
+    /// Whether active logout inhibitors can block this action.
+    pub fn respects_inhibitors(self) -> bool {
+        !matches!(
+            self,
+            Self::Logout(LogoutMode::Force) | Self::InitializationFailed
+        )
+    }
+}
+
 impl fmt::Display for SessionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotInInitialization => {
-                write!(f, "Setenv is only allowed during the initialization phase")
+                write!(f, "only allowed during the initialization phase")
             }
             Self::AlreadyInitialized => write!(f, "session is already initialized"),
             Self::NotRunning => write!(f, "session is not in the running phase"),
@@ -304,24 +321,40 @@ impl SessionState {
 
     /// Accept or refuse a request to end the session.
     ///
-    /// On success the session moves to [`Phase::Ending`]. All logout modes
-    /// currently take the same path; they will diverge once a confirmation UI
-    /// exists.
+    /// Inhibitors with the logout bit block every action except a forced
+    /// logout. There is no confirmation UI yet, so "normal" and "no
+    /// confirmation" behave the same. On success the session moves to
+    /// [`Phase::Ending`].
     pub fn request_end(&mut self, action: EndSessionAction) -> Result<(), SessionError> {
         if self.phase != Phase::Running {
             return Err(SessionError::NotRunning);
         }
-        let count = self
-            .inhibitors
-            .values()
-            .filter(|i| i.flags & END_SESSION_BLOCKING_FLAGS != 0)
-            .count();
-        if count > 0 {
-            return Err(SessionError::Inhibited { count });
+        if action.respects_inhibitors() {
+            let count = self
+                .inhibitors
+                .values()
+                .filter(|i| i.flags & inhibit_flags::LOGOUT != 0)
+                .count();
+            if count > 0 {
+                return Err(SessionError::Inhibited { count });
+            }
         }
-        let _ = action;
         self.phase = Phase::Ending;
         Ok(())
+    }
+
+    /// A session component failed to start (`InitializationError`).
+    ///
+    /// Returns `true` if the session must now end (`fatal`), in which case it
+    /// has moved to [`Phase::Ending`].
+    pub fn initialization_error(&mut self, fatal: bool) -> Result<bool, SessionError> {
+        if self.phase != Phase::Initializing {
+            return Err(SessionError::NotInInitialization);
+        }
+        if fatal {
+            self.phase = Phase::Ending;
+        }
+        Ok(fatal)
     }
 
     /// Move to [`Phase::Ending`] unconditionally (external termination such
@@ -490,14 +523,17 @@ mod tests {
     }
 
     #[test]
-    fn end_session_refused_while_inhibited() {
+    fn end_session_refused_while_logout_inhibited() {
         let mut s = SessionState::new();
         assert_eq!(s.request_end(EndSessionAction::Shutdown), Err(SessionError::NotRunning));
         s.initialized().unwrap();
 
-        let i = s.inhibit("a", "busy", 8, None).unwrap();
+        let i = s
+            .inhibit("a", "busy", inhibit_flags::LOGOUT | inhibit_flags::IDLE, None)
+            .unwrap();
         for action in [
-            EndSessionAction::Logout(LogoutMode::Force),
+            EndSessionAction::Logout(LogoutMode::Normal),
+            EndSessionAction::Logout(LogoutMode::NoConfirmation),
             EndSessionAction::Shutdown,
             EndSessionAction::Reboot,
         ] {
@@ -510,5 +546,34 @@ mod tests {
         assert_eq!(s.phase(), Phase::Ending);
         assert!(!s.is_running());
         assert_eq!(s.request_end(EndSessionAction::Reboot), Err(SessionError::NotRunning));
+    }
+
+    #[test]
+    fn non_logout_inhibitors_do_not_block_ending() {
+        let mut s = running();
+        s.inhibit("player", "video", inhibit_flags::IDLE | inhibit_flags::SUSPEND, None)
+            .unwrap();
+        s.request_end(EndSessionAction::Shutdown).unwrap();
+        assert_eq!(s.phase(), Phase::Ending);
+    }
+
+    #[test]
+    fn force_logout_ignores_inhibitors() {
+        let mut s = running();
+        s.inhibit("editor", "unsaved", inhibit_flags::LOGOUT, None).unwrap();
+        s.request_end(EndSessionAction::Logout(LogoutMode::Force)).unwrap();
+        assert_eq!(s.phase(), Phase::Ending);
+    }
+
+    #[test]
+    fn initialization_error() {
+        let mut s = SessionState::new();
+        assert_eq!(s.initialization_error(false), Ok(false));
+        assert_eq!(s.phase(), Phase::Initializing);
+        assert_eq!(s.initialization_error(true), Ok(true));
+        assert_eq!(s.phase(), Phase::Ending);
+
+        let mut s = running();
+        assert_eq!(s.initialization_error(true), Err(SessionError::NotInInitialization));
     }
 }

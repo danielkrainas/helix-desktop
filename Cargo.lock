@@ -217,6 +217,7 @@ name = "helix-session"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "libc",
  "tokio",
  "tracing",
  "tracing-subscriber",

@@ -35,6 +35,9 @@ trait SessionManager {
     fn shutdown(&self) -> zbus::Result<()>;
     fn reboot(&self) -> zbus::Result<()>;
     fn is_session_running(&self) -> zbus::Result<bool>;
+    fn get_locale(&self, category: i32) -> zbus::Result<String>;
+    fn initialization_error(&self, message: &str, fatal: bool) -> zbus::Result<()>;
+    fn can_reboot_to_firmware_setup(&self) -> zbus::Result<bool>;
 
     #[zbus(signal)]
     fn session_over(&self) -> zbus::Result<()>;
@@ -45,6 +48,10 @@ trait SessionManager {
     fn session_is_locked(&self) -> zbus::Result<bool>;
     #[zbus(property)]
     fn inhibited_actions(&self) -> zbus::Result<u32>;
+    #[zbus(property)]
+    fn session_name(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn restore_supported(&self) -> zbus::Result<bool>;
 }
 
 /// A private `dbus-daemon` that is killed on drop.
@@ -158,6 +165,13 @@ async fn session_lifecycle_over_dbus() {
     assert!(!sm.is_session_running().await.unwrap());
     assert!(sm.session_is_active().await.unwrap());
     assert!(!sm.session_is_locked().await.unwrap());
+    assert_eq!(sm.session_name().await.unwrap(), "helix");
+    assert!(!sm.restore_supported().await.unwrap());
+    assert!(!sm.can_reboot_to_firmware_setup().await.unwrap());
+    assert!(!sm.get_locale(libc::LC_MESSAGES).await.unwrap().is_empty());
+    let err = sm.get_locale(-1).await.unwrap_err();
+    assert_eq!(error_name(&err), "org.gnome.SessionManager.Error.InvalidArgs");
+    sm.initialization_error("non-fatal hiccup", false).await.unwrap();
     sm.setenv("HELIX_TEST", "1").await.unwrap();
     sm.initialized().await.unwrap();
     assert!(sm.is_session_running().await.unwrap());
@@ -180,8 +194,8 @@ async fn session_lifecycle_over_dbus() {
     assert_eq!(sm.inhibited_actions().await.unwrap(), 0b101);
     assert_eq!(sm.get_inhibitors().await.unwrap().len(), 1);
 
-    // Ending the session is refused while inhibited, for every mode.
-    for mode in 0..=2 {
+    // Ending the session is refused while logout-inhibited (except force).
+    for mode in 0..=1 {
         let err = sm.logout(mode).await.unwrap_err();
         assert_eq!(error_name(&err), "org.gnome.SessionManager.Error.Inhibited");
     }
@@ -281,4 +295,32 @@ async fn external_stop_emits_session_over() {
         .expect("signal stream open");
     let end = service.await.unwrap().unwrap();
     assert_eq!(end, SessionEnd::Stopped);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn force_logout_overrides_inhibitors() {
+    let Some(bus) = TestBus::start() else { return };
+    let (service, _stop) = spawn_service(&bus).await;
+    let conn = bus.connect().await;
+    let sm = proxy(&conn).await;
+    sm.initialized().await.unwrap();
+    // Idle-only inhibitors never block; logout inhibitors block all but force.
+    sm.inhibit("org.example.Player", 0, "video", 8).await.unwrap();
+    sm.inhibit("org.example.Editor", 0, "unsaved", 1).await.unwrap();
+    let err = sm.logout(0).await.unwrap_err();
+    assert_eq!(error_name(&err), "org.gnome.SessionManager.Error.Inhibited");
+    sm.logout(2).await.unwrap();
+    let end = service.await.unwrap().unwrap();
+    assert_eq!(end, SessionEnd::Requested(EndSessionAction::Logout(LogoutMode::Force)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fatal_initialization_error_ends_session() {
+    let Some(bus) = TestBus::start() else { return };
+    let (service, _stop) = spawn_service(&bus).await;
+    let conn = bus.connect().await;
+    let sm = proxy(&conn).await;
+    sm.initialization_error("compositor crashed", true).await.unwrap();
+    let end = service.await.unwrap().unwrap();
+    assert_eq!(end, SessionEnd::Requested(EndSessionAction::InitializationFailed));
 }

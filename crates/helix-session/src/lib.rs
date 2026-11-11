@@ -8,6 +8,7 @@
 //! - [`SessionService`]: connects to a bus, owns the name, and runs until the
 //!   session ends.
 
+pub mod locale;
 pub mod manager;
 pub mod state;
 
@@ -21,7 +22,7 @@ use zbus::fdo::{DBusProxy, RequestNameFlags, RequestNameReply};
 use zbus::object_server::SignalEmitter;
 use zbus::{connection, Connection};
 
-use crate::manager::{SessionManager, BUS_NAME, OBJECT_PATH};
+use crate::manager::{SessionInfo, SessionManager, BUS_NAME, OBJECT_PATH};
 use crate::state::{EndSessionAction, Phase, SessionState};
 
 /// Why [`SessionService::run`] returned.
@@ -47,11 +48,19 @@ impl SessionService {
     ///
     /// Fails if another process already owns the name.
     pub async fn start(builder: connection::Builder<'_>) -> zbus::Result<Self> {
+        Self::start_with(builder, SessionInfo::default()).await
+    }
+
+    /// Like [`start`](Self::start), with explicit session properties.
+    pub async fn start_with(
+        builder: connection::Builder<'_>,
+        info: SessionInfo,
+    ) -> zbus::Result<Self> {
         let state = Arc::new(Mutex::new(SessionState::new()));
         let (end_tx, end_rx) = mpsc::unbounded_channel();
 
         let conn = builder
-            .serve_at(OBJECT_PATH, SessionManager::new(state.clone(), end_tx))?
+            .serve_at(OBJECT_PATH, SessionManager::new(state.clone(), end_tx, info))?
             .build()
             .await?;
 

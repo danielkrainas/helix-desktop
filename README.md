@@ -59,19 +59,22 @@ dbus-run-session -- bash -c '
 Set `RUST_LOG=debug` for more detail. SIGTERM/SIGINT also end the session
 cleanly (emitting `SessionOver`).
 
-Implemented: `Setenv`, `Initialized`, `RegisterClient`, `UnregisterClient`,
-`Inhibit`, `Uninhibit`, `IsInhibited`, `GetInhibitors`, `Logout`, `Shutdown`,
-`Reboot`, `IsSessionRunning`; the `SessionIsActive`, `SessionIsLocked` and
-`InhibitedActions` properties; and all six signals.
+Implemented: everything in the contract except `Suspend`, the `Can*`
+availability methods except `CanRebootToFirmwareSetup`,
+`SetRebootToFirmwareSetup` and the session-restore methods (see the spec's
+`gaps.md`). `RestoreSupported` is false.
 
 Current behavior worth knowing:
 
-- `Setenv` is only accepted before `Initialized`.
+- `Setenv` and `InitializationError` are only accepted before `Initialized`.
+  A fatal `InitializationError` ends the session.
 - `Logout` accepts modes 0 (normal), 1 (no confirmation), 2 (force) and
-  rejects anything else. All three modes behave the same for now.
-- `Logout`/`Shutdown`/`Reboot` are refused with
-  `org.gnome.SessionManager.Error.Inhibited` while any inhibitor is active.
-  `Shutdown`/`Reboot` only end the session; they never power off the machine.
+  rejects anything else.
+- `Logout(0|1)`/`Shutdown`/`Reboot` are refused with
+  `org.gnome.SessionManager.Error.Inhibited` while an inhibitor holds the
+  logout flag (1). `Logout(2)` ignores inhibitors. Inhibitors without the
+  logout flag (e.g. idle) never block ending the session.
+- `Shutdown`/`Reboot` only end the session; they never power off the machine.
 - Clients and inhibitors are tied to the caller's bus connection and are
   released when it disconnects. A one-shot `busctl call Inhibit ...` therefore
   holds its inhibitor only for the duration of that call.

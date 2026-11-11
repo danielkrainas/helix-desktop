@@ -20,6 +20,27 @@ pub const BUS_NAME: &str = "org.gnome.SessionManager";
 /// Object path of the manager.
 pub const OBJECT_PATH: &str = "/org/gnome/SessionManager";
 
+/// Static facts about the session, exposed as properties.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionInfo {
+    /// `SessionName`.
+    pub name: String,
+    /// `SessionClass` (the logind session class, e.g. "user").
+    pub class: String,
+}
+
+impl Default for SessionInfo {
+    fn default() -> Self {
+        Self {
+            name: "helix".to_owned(),
+            class: std::env::var("XDG_SESSION_CLASS")
+                .ok()
+                .filter(|c| !c.is_empty())
+                .unwrap_or_else(|| "user".to_owned()),
+        }
+    }
+}
+
 /// Errors returned to D-Bus callers.
 ///
 /// Error names are not part of the spec yet (see `gaps.md`); they are
@@ -61,14 +82,16 @@ type Result<T> = std::result::Result<T, ManagerError>;
 pub struct SessionManager {
     state: Arc<Mutex<SessionState>>,
     end_tx: mpsc::UnboundedSender<EndSessionAction>,
+    info: SessionInfo,
 }
 
 impl SessionManager {
     pub fn new(
         state: Arc<Mutex<SessionState>>,
         end_tx: mpsc::UnboundedSender<EndSessionAction>,
+        info: SessionInfo,
     ) -> Self {
-        Self { state, end_tx }
+        Self { state, end_tx, info }
     }
 
     fn state(&self) -> MutexGuard<'_, SessionState> {
@@ -83,6 +106,16 @@ impl SessionManager {
         emitter: &SignalEmitter<'_>,
     ) -> Result<()> {
         self.state().request_end(action)?;
+        self.announce_end(action, emitter).await
+    }
+
+    /// The state has already moved to `Ending`: tell listeners and the
+    /// service loop.
+    async fn announce_end(
+        &self,
+        action: EndSessionAction,
+        emitter: &SignalEmitter<'_>,
+    ) -> Result<()> {
         tracing::info!(?action, "ending session");
         Self::session_over(emitter).await?;
         // The receiver lives as long as the service; if it is gone the
@@ -126,6 +159,28 @@ impl SessionManager {
     async fn setenv(&self, variable: &str, value: &str) -> Result<()> {
         self.state().setenv(variable, value)?;
         tracing::debug!(variable, "setenv");
+        Ok(())
+    }
+
+    async fn get_locale(&self, category: i32) -> Result<String> {
+        crate::locale::current(category)
+            .ok_or_else(|| ManagerError::InvalidArgs(format!("unknown locale category {category}")))
+    }
+
+    async fn initialization_error(
+        &self,
+        message: &str,
+        fatal: bool,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> Result<()> {
+        let must_end = self.state().initialization_error(fatal)?;
+        if must_end {
+            tracing::error!(message, "fatal session initialization error");
+            self.announce_end(EndSessionAction::InitializationFailed, &emitter)
+                .await?;
+        } else {
+            tracing::warn!(message, "session initialization error");
+        }
         Ok(())
     }
 
@@ -225,6 +280,11 @@ impl SessionManager {
         self.state().is_running()
     }
 
+    async fn can_reboot_to_firmware_setup(&self) -> bool {
+        // Requires a system power backend, which Helix does not have yet.
+        false
+    }
+
     // --- Signals ----------------------------------------------------------
 
     #[zbus(signal)]
@@ -249,6 +309,27 @@ impl SessionManager {
     pub async fn session_over(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 
     // --- Properties -------------------------------------------------------
+
+    #[zbus(property)]
+    async fn session_name(&self) -> String {
+        self.info.name.clone()
+    }
+
+    /// Deprecated in the contract; kept for introspection compatibility.
+    #[zbus(property)]
+    async fn renderer(&self) -> String {
+        String::new()
+    }
+
+    #[zbus(property)]
+    async fn session_class(&self) -> String {
+        self.info.class.clone()
+    }
+
+    #[zbus(property)]
+    async fn restore_supported(&self) -> bool {
+        false
+    }
 
     #[zbus(property)]
     async fn session_is_active(&self) -> bool {
