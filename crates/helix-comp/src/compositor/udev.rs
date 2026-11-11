@@ -151,6 +151,7 @@ pub fn init(
         OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
     )?;
     let fd = DrmDeviceFd::new(DeviceFd::from(fd));
+    state.enable_syncobj(fd.clone());
     let (drm, drm_notifier) = DrmDevice::new(fd.clone(), true)?;
     let gbm = GbmDevice::new(fd)?;
 

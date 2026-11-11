@@ -293,7 +293,9 @@ pointer-constraints and relative-pointer (for games), pointer-gestures,
 keyboard-shortcuts-inhibit (the shell asks once per app and remembers
 the answer in the permission store; Super+Escape takes the shortcuts
 back), xdg-foreign, presentation-time, fifo, commit-timing,
-single-pixel-buffer and, for Xwayland, xwayland-keyboard-grab (off
+single-pixel-buffer, linux-drm-syncobj (explicit sync, when the GPU
+supports syncobj eventfd waits; GPU buffers otherwise wait for their
+implicit fences) and, for Xwayland, xwayland-keyboard-grab (off
 unless `org.gnome.mutter.wayland xwayland-allow-grabs` and the access
 rules allow it). Not yet: xdg-toplevel-icon.
 

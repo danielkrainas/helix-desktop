@@ -16,6 +16,7 @@ mod remote;
 mod protocols;
 mod remote_share;
 mod scales;
+mod sync;
 mod timing;
 mod tiling;
 mod wm_behavior;
@@ -140,6 +141,8 @@ pub struct Helix {
     pub cursor_status: CursorImageStatus,
     /// Named cursors from the theme.
     pub cursors: cursor::Cursors,
+    /// Explicit sync, when the GPU supports it.
+    pub syncobj_state: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
     /// Remote desktop clipboard sharing and keymaps.
     pub remote_share: remote_share::RemoteShare,
     pub dmabuf_state: DmabufState,
@@ -249,6 +252,7 @@ impl Helix {
             host_cursor: None,
             cursors: cursor::Cursors::new("Adwaita", 24),
             remote_share: Default::default(),
+            syncobj_state: None,
             cursor_status: CursorImageStatus::default_named(),
             dmabuf_state: DmabufState::new(),
             pending_dmabufs: Vec::new(),

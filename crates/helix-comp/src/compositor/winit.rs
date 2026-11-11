@@ -95,6 +95,13 @@ pub fn init(
     let feedback = render_node.and_then(|node| {
         smithay::wayland::dmabuf::DmabufFeedbackBuilder::new(node.dev_id(), formats.clone()).build().ok()
     });
+    // Explicit sync through the host GPU's render node.
+    if let Some(path) = render_node.and_then(|n| n.dev_path()) {
+        match std::fs::OpenOptions::new().read(true).write(true).open(&path) {
+            Ok(file) => state.enable_syncobj(smithay::backend::drm::DrmDeviceFd::new(std::os::fd::OwnedFd::from(file).into())),
+            Err(err) => tracing::info!(%err, path = %path.display(), "cannot open the render node"),
+        }
+    }
     match feedback {
         Some(feedback) => {
             tracing::info!(?render_node, "dmabuf with feedback");
