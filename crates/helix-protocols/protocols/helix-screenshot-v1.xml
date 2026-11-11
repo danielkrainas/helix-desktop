@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="helix_screenshot_v1">
+  <copyright>
+    SPDX-License-Identifier: CC0-1.0
+  </copyright>
+  <description summary="screen captures for the Helix shell">
+    A private protocol between the Helix compositor and the Helix shell.
+    The shell serves org.gnome.Shell.Screenshot on D-Bus; in GNOME the
+    shell and the compositor are one process, in Helix they are separate,
+    so the shell asks the compositor for the pixels with this protocol.
+    The global is only advertised to privileged clients (the shell the
+    compositor launched itself).
+  </description>
+  <interface name="helix_screenshot_manager_v1" version="1">
+    <description summary="takes captures">
+      Each request captures the scene as it is when the compositor handles
+      the request, so surfaces the shell destroyed before sending it are
+      not in the image. The compositor writes a PNG image to the given
+      file descriptor (from its current offset) and closes its copy, then
+      sends done or failed on the new object. Coordinates are logical
+      layout pixels; the image has as many pixels per logical pixel as the
+      highest scale among the monitors it covers.
+    </description>
+    <enum name="cursor">
+      <entry name="hidden" value="0" summary="leave the pointer out"/>
+      <entry name="shown" value="1" summary="draw the pointer when it is inside"/>
+    </enum>
+    <request name="capture_screen">
+      <description summary="capture every monitor">
+        One image covering the bounding box of the layout; parts no
+        monitor shows are transparent.
+      </description>
+      <arg name="id" type="new_id" interface="helix_screenshot_frame_v1"/>
+      <arg name="cursor" type="uint" enum="cursor"/>
+      <arg name="fd" type="fd"/>
+    </request>
+    <request name="capture_area">
+      <description summary="capture a rectangle of the layout">
+        Width and height must be positive.
+      </description>
+      <arg name="id" type="new_id" interface="helix_screenshot_frame_v1"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="cursor" type="uint" enum="cursor"/>
+      <arg name="fd" type="fd"/>
+    </request>
+    <request name="capture_window">
+      <description summary="capture the focused window">
+        The window's surfaces, cropped to its window geometry.
+      </description>
+      <arg name="id" type="new_id" interface="helix_screenshot_frame_v1"/>
+      <arg name="cursor" type="uint" enum="cursor"/>
+      <arg name="fd" type="fd"/>
+    </request>
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager">
+        Captures in progress are not affected.
+      </description>
+    </request>
+  </interface>
+  <interface name="helix_screenshot_frame_v1" version="1">
+    <description summary="one capture">
+      Receives exactly one done or failed event.
+    </description>
+    <enum name="reason">
+      <entry name="locked" value="0" summary="the session is locked"/>
+      <entry name="no_window" value="1" summary="no window has focus"/>
+      <entry name="invalid" value="2" summary="empty area or nothing to capture"/>
+      <entry name="failed" value="3" summary="rendering or writing the image failed"/>
+    </enum>
+    <event name="done">
+      <description summary="the image was written">
+        The rectangle captured, in logical layout coordinates.
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+    <event name="failed">
+      <arg name="reason" type="uint" enum="reason"/>
+    </event>
+    <request name="destroy" type="destructor">
+      <description summary="destroy the frame"/>
+    </request>
+  </interface>
+</protocol>

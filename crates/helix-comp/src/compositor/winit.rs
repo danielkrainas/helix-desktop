@@ -161,6 +161,8 @@ pub fn init(
                 if let Err(err) = backend.submit(Some(&[damage])) {
                     tracing::warn!(%err, "submit failed");
                 }
+                // The host draws the pointer, so named cursors can't be captured.
+                state.run_captures(backend.renderer(), None);
                 if state.lock.locked {
                     state.lock_frame_shown();
                     state.lock_send_frames(&output);

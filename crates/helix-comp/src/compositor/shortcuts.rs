@@ -4,7 +4,6 @@
 //! | Keys | Action |
 //! |------|--------|
 //! | Super (alone) | Show applications (asks the shell) |
-//! | Alt+Tab | Cycle windows |
 //! | Alt+F4 | Close the focused window |
 //! | Super+Up | Toggle maximize |
 //! | Super+Down | Restore a maximized window, else minimize |
@@ -41,8 +40,22 @@ pub enum BindError {
 struct Binding {
     id: u32,
     mods: Mods,
-    sym: Keysym,
+    key: Key,
+    /// Delivered while the session is locked too.
+    when_locked: bool,
 }
+
+/// The key of a binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    /// Whatever key produces this symbol.
+    Sym(Keysym),
+    /// A physical key (XKB keycode), whatever symbol the layout gives it.
+    Code(u32),
+}
+
+/// XKB keycode of the key above Tab (evdev KEY_GRAVE + 8).
+pub const ABOVE_TAB: u32 = 49;
 
 /// F1..F12 → 1..12.
 fn function_key(sym: Keysym) -> Option<i32> {
@@ -101,15 +114,29 @@ fn builtin(mods: Mods, sym: Keysym) -> Option<Action> {
 }
 
 impl Shortcuts {
-    /// Bind `mods`+`sym` for the shell under `id`.
-    pub fn bind(&mut self, id: u32, mods: Mods, sym: Keysym) -> Result<(), BindError> {
-        let reserved = is_super(sym) || builtin(mods, sym).is_some();
-        let duplicate = self.bindings.iter().any(|b| b.mods == mods && b.sym == sym);
+    /// Bind `mods`+`key` for the shell under `id`.
+    pub fn bind(&mut self, id: u32, mods: Mods, key: Key) -> Result<(), BindError> {
+        let reserved = match key {
+            Key::Sym(sym) => is_super(sym) || builtin(mods, sym).is_some(),
+            Key::Code(_) => false,
+        };
+        let duplicate = self.bindings.iter().any(|b| b.mods == mods && b.key == key);
         if reserved || duplicate {
             return Err(BindError::Taken);
         }
-        self.bindings.push(Binding { id, mods, sym });
+        self.bindings.push(Binding { id, mods, key, when_locked: false });
         Ok(())
+    }
+
+    /// Let binding `id` work while the session is locked.
+    pub fn allow_when_locked(&mut self, id: u32) {
+        for b in self.bindings.iter_mut().filter(|b| b.id == id) {
+            b.when_locked = true;
+        }
+    }
+
+    pub fn works_when_locked(&self, id: u32) -> bool {
+        self.bindings.iter().any(|b| b.id == id && b.when_locked)
     }
 
     pub fn unbind(&mut self, id: u32) {
@@ -149,7 +176,14 @@ impl Shortcuts {
                 action: Some(action),
             };
         }
-        let binding = self.bindings.iter().find(|b| b.mods == mods && b.sym == sym).map(|b| b.id);
+        let matches = |b: &&Binding| {
+            b.mods == mods
+                && match b.key {
+                    Key::Sym(s) => s == sym,
+                    Key::Code(c) => c == keycode,
+                }
+        };
+        let binding = self.bindings.iter().find(matches).map(|b| b.id);
         let action = binding.map(|id| Action::Binding(id, true));
         if let Some(id) = binding {
             self.suppressed.push((keycode, Some(id)));
@@ -210,7 +244,7 @@ mod tests {
         // switcher), and then presses and releases go to the binding.
         assert_eq!(s.key(TAB, true, alt(), Keysym::Tab), FORWARD);
         assert_eq!(s.key(TAB, false, alt(), Keysym::Tab), FORWARD);
-        assert_eq!(s.bind(7, alt(), Keysym::Tab), Ok(()));
+        assert_eq!(s.bind(7, alt(), Key::Sym(Keysym::Tab)), Ok(()));
         assert_eq!(s.key(TAB, true, alt(), Keysym::Tab), Decision { intercept: true, action: Some(Action::Binding(7, true)) });
         assert_eq!(s.key(TAB, false, alt(), Keysym::Tab), Decision { intercept: true, action: Some(Action::Binding(7, false)) });
         // A plain Tab goes to the client.
@@ -235,10 +269,10 @@ mod tests {
     fn shell_bindings() {
         let mut s = Shortcuts::default();
         let ctrl_shift = Mods { ctrl: true, shift: true, ..Mods::default() };
-        assert_eq!(s.bind(7, ctrl_shift, Keysym::F9), Ok(()));
-        assert_eq!(s.bind(8, ctrl_shift, Keysym::F9), Err(BindError::Taken), "duplicate");
-        assert_eq!(s.bind(9, alt(), Keysym::F4), Err(BindError::Taken), "compositor shortcut");
-        assert_eq!(s.bind(10, Mods::default(), Keysym::Super_L), Err(BindError::Taken), "Super");
+        assert_eq!(s.bind(7, ctrl_shift, Key::Sym(Keysym::F9)), Ok(()));
+        assert_eq!(s.bind(8, ctrl_shift, Key::Sym(Keysym::F9)), Err(BindError::Taken), "duplicate");
+        assert_eq!(s.bind(9, alt(), Key::Sym(Keysym::F4)), Err(BindError::Taken), "compositor shortcut");
+        assert_eq!(s.bind(10, Mods::default(), Key::Sym(Keysym::Super_L)), Err(BindError::Taken), "Super");
 
         let d = s.key(75, true, ctrl_shift, Keysym::F9);
         assert_eq!(d, Decision { intercept: true, action: Some(Action::Binding(7, true)) });
@@ -251,6 +285,21 @@ mod tests {
 
         s.unbind(7);
         assert_eq!(s.key(75, true, ctrl_shift, Keysym::F9), FORWARD);
+    }
+
+    #[test]
+    fn physical_keys_and_locked() {
+        let mut s = Shortcuts::default();
+        assert_eq!(s.bind(3, alt(), Key::Code(ABOVE_TAB)), Ok(()));
+        assert_eq!(s.bind(4, alt(), Key::Code(ABOVE_TAB)), Err(BindError::Taken));
+        // Whatever the layout makes of the key.
+        let d = s.key(ABOVE_TAB, true, alt(), Keysym::dead_circumflex);
+        assert_eq!(d.action, Some(Action::Binding(3, true)));
+        assert_eq!(s.key(ABOVE_TAB, false, alt(), Keysym::dead_circumflex).action, Some(Action::Binding(3, false)));
+        assert!(!s.works_when_locked(3));
+        s.allow_when_locked(3);
+        assert!(s.works_when_locked(3));
+        assert!(!s.works_when_locked(99));
     }
 
     #[test]

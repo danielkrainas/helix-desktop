@@ -637,6 +637,10 @@ pub struct DisplayConfig {
     confirm_seconds: u32,
     pending: Mutex<Option<Pending>>,
     generation: std::sync::atomic::AtomicU64,
+    /// The built-in panel's backlight, if it can be controlled.
+    backlight: Option<crate::backlight::Backlight>,
+    /// The value last published, to notice outside changes.
+    backlight_shown: Mutex<Option<i32>>,
 }
 
 impl DisplayConfig {
@@ -645,6 +649,7 @@ impl DisplayConfig {
         applier: Option<mpsc::UnboundedSender<ApplyRequest>>,
         store: Store,
         confirm_seconds: u32,
+        backlight: Option<crate::backlight::Backlight>,
     ) -> Self {
         Self {
             layout,
@@ -654,7 +659,54 @@ impl DisplayConfig {
             confirm_seconds,
             pending: Mutex::new(None),
             generation: Default::default(),
+            backlight,
+            backlight_shown: Mutex::new(None),
         }
+    }
+
+    /// The controllable built-in monitor's connector, its device and value.
+    fn builtin_backlight(&self) -> Option<(String, crate::backlight::Device, i32)> {
+        let backlight = self.backlight.as_ref()?;
+        let connector = {
+            let layout = self.layout();
+            let monitor = layout.monitors.iter().find(|m| m.builtin && m.current_mode().is_some())?;
+            monitor.connector.clone()
+        };
+        let device = backlight.device()?;
+        let value = backlight.value(&device)?;
+        Some((connector, device, value))
+    }
+
+    /// `Backlight`: one entry per monitor.
+    pub fn backlight_entries(&self) -> (u32, Vec<Props>) {
+        let controlled = self.builtin_backlight();
+        *self.backlight_shown.lock().unwrap_or_else(|e| e.into_inner()) = controlled.as_ref().map(|c| c.2);
+        let layout = self.layout();
+        let entries = layout
+            .monitors
+            .iter()
+            .map(|m| {
+                let mut entry = props([
+                    ("connector", string(&m.connector)),
+                    ("active", OwnedValue::from(m.current_mode().is_some())),
+                ]);
+                if let Some((connector, device, value)) = &controlled {
+                    if *connector == m.connector {
+                        entry.insert("min".into(), OwnedValue::from(crate::backlight::MIN));
+                        entry.insert("max".into(), OwnedValue::from(device.max));
+                        entry.insert("value".into(), OwnedValue::from(*value));
+                    }
+                }
+                entry
+            })
+            .collect();
+        (layout.serial, entries)
+    }
+
+    /// Whether the brightness changed since it was last published.
+    pub fn backlight_moved(&self) -> bool {
+        let now = self.builtin_backlight().map(|c| c.2);
+        *self.backlight_shown.lock().unwrap_or_else(|e| e.into_inner()) != now
     }
 
     fn layout(&self) -> MutexGuard<'_, Layout> {
@@ -724,6 +776,7 @@ impl DisplayConfig {
         if changed {
             Self::monitors_changed(emitter).await.map_err(|e| e.to_string())?;
             self.has_external_monitor_changed(emitter).await.map_err(|e| e.to_string())?;
+            self.backlight_changed(emitter).await.map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -863,8 +916,34 @@ impl DisplayConfig {
 
     #[zbus(property)]
     async fn backlight(&self) -> (u32, Vec<Props>) {
-        // No backlight control yet.
-        (self.layout().serial, Vec::new())
+        self.backlight_entries()
+    }
+
+    async fn set_backlight(
+        &self,
+        serial: u32,
+        connector: &str,
+        value: i32,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        if serial != self.layout().serial {
+            return Err(fdo::Error::InvalidArgs(format!("stale backlight serial {serial}")));
+        }
+        let Some((builtin, device, _)) = self.builtin_backlight().filter(|c| c.0 == connector) else {
+            return Err(fdo::Error::InvalidArgs(format!("no backlight control for {connector:?}")));
+        };
+        if !(crate::backlight::MIN..=device.max).contains(&value) {
+            return Err(fdo::Error::InvalidArgs(format!(
+                "backlight value {value} outside {}..={}",
+                crate::backlight::MIN,
+                device.max
+            )));
+        }
+        let backlight = self.backlight.as_ref().expect("checked above");
+        backlight.set(&device, value).await.map_err(fdo::Error::Failed)?;
+        tracing::debug!(connector = builtin, value, "backlight set");
+        self.backlight_changed(&emitter).await?;
+        Ok(())
     }
 
     #[zbus(property)]

@@ -72,6 +72,16 @@ impl Logind {
         reply.body().deserialize::<OwnedObjectPath>()
     }
 
+    /// Set a `/sys/class/<subsystem>/<name>` device's brightness through
+    /// our session (no sysfs write access needed).
+    pub async fn set_brightness(&self, subsystem: &str, name: &str, value: u32) -> zbus::Result<()> {
+        let path = self.own_session().await?;
+        self.conn
+            .call_method(Some(BUS_NAME), path, Some(SESSION_IFACE), "SetBrightness", &(subsystem, name, value))
+            .await
+            .map(drop)
+    }
+
     /// Follow the session's `Active` property: `on_change` gets the current
     /// value, then every change.
     pub async fn watch_active<F, Fut>(&self, mut on_change: F) -> zbus::Result<JoinHandle<()>>

@@ -246,6 +246,7 @@ fn start_dbus_thread(
                 let control = MonitorControl {
                     applier: Some(applier),
                     store: Store::user(),
+                    backlight: Some(helix_comp::backlight::Backlight::system().await),
                     ..MonitorControl::default()
                 };
                 let services = match zbus::connection::Builder::session() {

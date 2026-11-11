@@ -19,6 +19,7 @@ libloading.workspace = true
 helix-settings.workspace = true
 ab_glyph.workspace = true
 gio.workspace = true
+png.workspace = true
 helix-protocols = { workspace = true, features = ["client"] }
 
 [features]
@@ -33,3 +34,4 @@ path = "src/main.rs"
 [dev-dependencies]
 helix-test-support.workspace = true
 helix-session.workspace = true
+serde.workspace = true

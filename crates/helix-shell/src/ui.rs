@@ -45,8 +45,13 @@ use std::sync::Arc;
 use helix_protocols::client::helix_keybinding_v1::{self, HelixKeybindingV1};
 use helix_protocols::client::helix_keybindings_manager_v1::{self, HelixKeybindingsManagerV1};
 use helix_protocols::client::helix_window_list_v1::{self, HelixWindowListV1};
-use smithay_client_toolkit::reexports::client::{Dispatch, WEnum};
+use smithay_client_toolkit::reexports::client::{Dispatch, Proxy, WEnum};
+use smithay_client_toolkit::reexports::calloop::LoopHandle;
+use helix_protocols::client::helix_screenshot_manager_v1::HelixScreenshotManagerV1;
+use crate::windows::{SwitchEntry, SwitchMode, Switcher};
 use std::collections::HashMap;
+
+mod capture;
 
 pub const PANEL_HEIGHT: u32 = 32;
 const OSD_DURATION: Duration = Duration::from_secs(2);
@@ -125,8 +130,14 @@ struct Ui {
     /// Open windows, from the compositor (privileged shell only).
     window_list: Option<HelixWindowListV1>,
     windows: crate::windows::Windows,
-    /// The Alt+Tab window switcher, while open.
+    /// The window or input source switcher, while open.
     switcher: Option<Overlay<SwitcherState>>,
+    /// Screen captures (privileged shell only).
+    screenshots: Option<HelixScreenshotManagerV1>,
+    /// Picking an area, a point or what to capture, while open.
+    picker: Option<capture::Picker>,
+    flashes: Vec<capture::Flash>,
+    loop_handle: Option<LoopHandle<'static, Ui>>,
     bindings: HashMap<u32, HelixKeybindingV1>,
     lock: LockScreen,
     banner: Option<BannerView>,
@@ -264,14 +275,45 @@ fn label(text: Option<&Text>, canvas: &mut Canvas, s: &str, x: f32, base: f32, p
     }
 }
 
+/// Words for the OSD icons the shell uses itself.
+fn osd_caption(osd: &Osd) -> Option<String> {
+    if let Some(label) = &osd.label {
+        return Some(label.clone());
+    }
+    let caption = match osd.icon.as_deref()? {
+        "audio-volume-muted-symbolic" => "Muted",
+        i if i.starts_with("audio-volume-") => "Volume",
+        "display-brightness-symbolic" => "Brightness",
+        "microphone-sensitivity-muted-symbolic" => "Microphone off",
+        i if i.starts_with("microphone-sensitivity-") => "Microphone on",
+        _ => return None,
+    };
+    Some(caption.to_owned())
+}
+
 fn draw_osd(text: Option<&Text>, canvas: &mut Canvas, osd: &Osd, w: usize, h: usize) {
-    let fraction = osd
-        .level
-        .map(|l| (l / osd.max_level.max(f64::EPSILON)).clamp(0.0, 1.0))
-        .unwrap_or(0.0);
-    let percent = format!("{}%", (fraction * 100.0).round() as u32);
+    let caption = osd_caption(osd);
+    let Some(level) = osd.level else {
+        // Just words (e.g. "Microphone off").
+        if let (Some(t), Some(caption)) = (text, &caption) {
+            let cw = t.width(caption, 14.0);
+            let base = baseline(text, 0, h as i32, 14.0);
+            label(text, canvas, caption, (w as f32 - cw) / 2.0, base, 14.0, FG, cw + 1.0);
+        }
+        return;
+    };
+    let fraction = (level / osd.max_level.max(f64::EPSILON)).clamp(0.0, 1.0);
+    let percent = format!("{}%", (level * 100.0).round() as u32);
     let bar_w = 200.min(w.saturating_sub(160)) as i32;
-    let x0 = (w as i32 - bar_w - 56) / 2;
+    let caption_w = match (text, &caption) {
+        (Some(t), Some(c)) => t.width(c, 14.0) as i32 + 12,
+        _ => 0,
+    };
+    let x0 = (w as i32 - bar_w - 56 + caption_w) / 2;
+    if let (Some(caption), true) = (&caption, caption_w > 0) {
+        let base = baseline(text, 0, h as i32, 14.0);
+        label(text, canvas, caption, (x0 - caption_w) as f32, base, 14.0, FG, caption_w as f32);
+    }
     let bar_y = h as i32 / 2 - 3;
     canvas.rect(x0, bar_y, bar_w, 6, TRACK);
     canvas.rect(x0, bar_y, (fraction * f64::from(bar_w)) as i32, 6, ACCENT);
@@ -425,29 +467,66 @@ impl Ui {
 
     // ----- Window switcher ---------------------------------------------------
 
-    fn switch_windows(&mut self, backward: bool, hold: u32) {
-        if let Some(open) = self.switcher.as_mut() {
-            open.state.switcher.step(backward);
-            self.draw_switcher();
+    /// Move the open switcher's selection; false if none is open.
+    fn step_switcher(&mut self, backward: bool) -> bool {
+        let Some(open) = self.switcher.as_mut() else { return false };
+        open.state.switcher.step(backward);
+        self.draw_switcher();
+        true
+    }
+
+    fn switch_windows(&mut self, backward: bool, hold: u32, mode: SwitchMode) {
+        if self.step_switcher(backward) {
             return;
         }
-        let Some(switcher) = crate::windows::Switcher::open(&self.windows, backward) else { return };
+        let names = if mode == SwitchMode::Apps { crate::windows::app_names() } else { HashMap::new() };
+        let name = |app_id: &str| names.get(&app_id.to_lowercase()).cloned();
+        let Some(switcher) = Switcher::open(&self.windows, mode, backward, name) else { return };
+        self.open_switcher(switcher, hold, SwitchKind::Windows);
+    }
+
+    fn switch_input_source(&mut self, backward: bool, hold: u32) {
+        if self.step_switcher(backward) {
+            return;
+        }
+        let sources = crate::input_sources::current();
+        let entries = sources
+            .iter()
+            .enumerate()
+            .map(|(i, s)| SwitchEntry { id: i as u32, label: s.1.clone(), detail: String::new() })
+            .collect();
+        let Some(switcher) = Switcher::new(entries, true, backward) else { return };
+        self.open_switcher(switcher, hold, SwitchKind::InputSources(sources));
+    }
+
+    fn open_switcher(&mut self, switcher: Switcher, hold: u32, kind: SwitchKind) {
         if hold == 0 {
             // Nothing to let go of: switch at once.
-            self.activate_window(switcher.selected_id());
+            self.commit_switch(&kind, switcher.selected_id());
             return;
         }
         self.close_launcher(true);
         self.power_menu = None;
-        let overlay = self.new_overlay("helix-switcher", KeyboardInteractivity::Exclusive, SwitcherState { switcher, hold });
+        let overlay = self.new_overlay("helix-switcher", KeyboardInteractivity::Exclusive, SwitcherState { switcher, hold, kind });
         self.switcher = Some(overlay);
     }
 
-    /// Activate the selected window (or just close, `commit` false).
+    fn commit_switch(&mut self, kind: &SwitchKind, id: u32) {
+        match kind {
+            SwitchKind::Windows => self.activate_window(id),
+            SwitchKind::InputSources(sources) => {
+                if let Some(source) = sources.get(id as usize) {
+                    crate::input_sources::activate(source);
+                }
+            }
+        }
+    }
+
+    /// Activate the selected entry (or just close, `commit` false).
     fn finish_switching(&mut self, commit: bool) {
         let Some(overlay) = self.switcher.take() else { return };
         if commit {
-            self.activate_window(overlay.state.switcher.selected_id());
+            self.commit_switch(&overlay.state.kind, overlay.state.switcher.selected_id());
         }
     }
 
@@ -455,8 +534,12 @@ impl Ui {
         match event.keysym {
             Keysym::Escape => self.finish_switching(false),
             Keysym::Return | Keysym::KP_Enter => self.finish_switching(true),
-            Keysym::Right | Keysym::Down | Keysym::Tab => self.switch_windows(false, 1),
-            Keysym::Left | Keysym::Up | Keysym::ISO_Left_Tab => self.switch_windows(true, 1),
+            Keysym::Right | Keysym::Down | Keysym::Tab => {
+                self.step_switcher(false);
+            }
+            Keysym::Left | Keysym::Up | Keysym::ISO_Left_Tab => {
+                self.step_switcher(true);
+            }
             _ => {}
         }
     }
@@ -489,7 +572,7 @@ impl Ui {
         canvas.fill(0x00000000);
         let text = self.text.as_ref();
         let switcher = &overlay.state.switcher;
-        let shown = switcher.entries.len().min(SWITCHER_ROWS);
+        let shown = switcher.entries.len().clamp(1, SWITCHER_ROWS);
         let first = switcher.selected.saturating_sub(shown - 1);
         let bw = 480.min(w as i32 - 40);
         let bh = shown as i32 * ROW_H + 16;
@@ -505,10 +588,10 @@ impl Ui {
                 canvas.rect(r.x, r.y, r.w, r.h, ACCENT);
             }
             let base = baseline(text, r.y, r.h, 15.0);
-            let app_w = text.map_or(0.0, |t| t.width(&entry.app_id, 13.0).min(160.0));
-            label(text, &mut canvas, entry.label(), (r.x + 12) as f32, base, 15.0, FG, r.w as f32 - 36.0 - app_w);
-            let app_color = if index == switcher.selected { FG } else { DIM_FG };
-            label(text, &mut canvas, &entry.app_id, r.x as f32 + r.w as f32 - 12.0 - app_w, base, 13.0, app_color, 160.0);
+            let detail_w = text.map_or(0.0, |t| t.width(&entry.detail, 13.0).min(160.0));
+            label(text, &mut canvas, &entry.label, (r.x + 12) as f32, base, 15.0, FG, r.w as f32 - 36.0 - detail_w);
+            let detail_color = if index == switcher.selected { FG } else { DIM_FG };
+            label(text, &mut canvas, &entry.detail, r.x as f32 + r.w as f32 - 12.0 - detail_w, base, 13.0, detail_color, 160.0);
             overlay.hits.push((r, OverlayHit::Window(entry.id)));
         }
         let surface = overlay.layer.wl_surface();
@@ -628,6 +711,8 @@ impl Ui {
         if self.lock.session.is_some() {
             return;
         }
+        self.finish_pick(crate::screenshot::Picked::Cancelled);
+        self.finish_switching(false);
         self.close_launcher(true);
         match self.lock.state.lock(&self.qh) {
             Ok(session) => self.lock.session = Some(session),
@@ -1129,6 +1214,11 @@ impl Ui {
         match event {
             UiEvent::EndDialog(dialog) => self.show_end_dialog(dialog),
             UiEvent::DisplayChange(seconds) => self.show_display_change(seconds),
+            UiEvent::Screenshot(slot) => {
+                if let Some(job) = slot.take() {
+                    self.screenshot_job(job);
+                }
+            }
             UiEvent::PowerAvailability(power) => self.power = power,
             UiEvent::Lock => self.start_lock(),
             UiEvent::Banner(banner) => self.show_banner(banner),
@@ -1152,26 +1242,38 @@ impl Ui {
     /// Bind the keys the shell handles itself.
     fn bind_internal(&mut self) {
         let mut next = INTERNAL_ACTIONS;
+        let parse = |text: &str, what: &str| {
+            let parsed = crate::accel::Accelerator::parse(text);
+            if parsed.is_none() {
+                tracing::warn!(text, what, "cannot parse key");
+            }
+            parsed
+        };
+        // Modifiers to hold while switching (Shift only means backward).
+        let hold = |a: &crate::accel::Accelerator| a.to_wire().map(|(mods, _)| mods & !1).unwrap_or(0);
         for (text, backward) in crate::input_sources::accelerators() {
-            let Some(accelerator) = crate::accel::Accelerator::parse(&text) else {
-                tracing::warn!(text, "cannot parse input source switch key");
-                continue;
-            };
-            self.internal.insert(next, Internal::InputSource { backward });
+            let Some(accelerator) = parse(&text, "input source switching") else { continue };
+            self.internal.insert(next, Internal::InputSource { backward, hold: hold(&accelerator) });
             self.bind(next, &accelerator);
+            next += 1;
+        }
+        for (text, action) in crate::shell_keys::accelerators() {
+            let Some(accelerator) = parse(&text, "shell key") else { continue };
+            self.internal.insert(next, Internal::ShellKey(action));
+            self.bind(next, &accelerator);
+            if action.works_when_locked() {
+                if let Some(binding) = self.bindings.get(&next).filter(|b| b.version() >= 2) {
+                    binding.allow_when_locked();
+                }
+            }
             next += 1;
         }
         if self.window_list.is_none() {
             return;
         }
-        for (text, backward) in crate::windows::accelerators() {
-            let Some(accelerator) = crate::accel::Accelerator::parse(&text) else {
-                tracing::warn!(text, "cannot parse window switching key");
-                continue;
-            };
-            // Modifiers to hold while switching (Shift only means backward).
-            let hold = accelerator.to_wire().map(|(mods, _)| mods & !1).unwrap_or(0);
-            self.internal.insert(next, Internal::SwitchWindows { backward, hold });
+        for (text, backward, mode) in crate::windows::accelerators() {
+            let Some(accelerator) = parse(&text, "window switching") else { continue };
+            self.internal.insert(next, Internal::SwitchWindows { backward, hold: hold(&accelerator), mode });
             self.bind(next, &accelerator);
             next += 1;
         }
@@ -1179,14 +1281,11 @@ impl Ui {
 
     fn internal_pressed(&mut self, action: u32) {
         match self.internal.get(&action).copied() {
-            Some(Internal::InputSource { backward }) => {
-                if let Some(id) = crate::input_sources::switch(backward) {
-                    let osd = Osd { icon: None, label: Some(id), level: None, max_level: 1.0, connector: None };
-                    self.osd = Some((osd, Instant::now() + OSD_DURATION));
-                    self.draw_panel();
-                }
+            Some(Internal::InputSource { backward, hold }) => self.switch_input_source(backward, hold),
+            Some(Internal::SwitchWindows { backward, hold, mode }) => self.switch_windows(backward, hold, mode),
+            Some(Internal::ShellKey(key)) => {
+                let _ = self.requests.send(UiRequest::ShellKey(key));
             }
-            Some(Internal::SwitchWindows { backward, hold }) => self.switch_windows(backward, hold),
             None => {}
         }
     }
@@ -1232,8 +1331,9 @@ pub fn run(
     let layer_shell = LayerShell::bind(&globals, &qh)?;
     let shm = Shm::bind(&globals, &qh)?;
     // Only advertised to the shell the compositor launched itself.
-    let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=1, ()).ok();
+    let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
     let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=1, ()).ok();
+    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=1, ()).ok();
     if keybindings.is_none() {
         tracing::warn!("compositor offers no key bindings to this process; accelerators will not fire");
     }
@@ -1278,6 +1378,10 @@ pub fn run(
         window_list,
         windows: Default::default(),
         switcher: None,
+        screenshots,
+        picker: None,
+        flashes: Vec::new(),
+        loop_handle: None,
         banner: None,
         dialog: None,
         power_menu: None,
@@ -1301,6 +1405,7 @@ pub fn run(
 
     let mut event_loop: EventLoop<Ui> = EventLoop::try_new()?;
     let handle = event_loop.handle();
+    ui.loop_handle = Some(handle.clone());
     WaylandSource::new(conn, event_queue)
         .insert(handle.clone())
         .map_err(|e| format!("cannot watch the Wayland connection: {e}"))?;
@@ -1356,6 +1461,9 @@ impl OutputHandler for Ui {
 
 impl LayerShellHandler for Ui {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
+        if self.picker_closed(layer) || self.flash_closed(layer) {
+            return;
+        }
         if layer == &self.panel {
             self.exit = true;
         } else if self.banner.as_ref().is_some_and(|b| &b.layer == layer) {
@@ -1381,6 +1489,9 @@ impl LayerShellHandler for Ui {
         configure: LayerSurfaceConfigure,
         _: u32,
     ) {
+        if self.picker_configured(layer, configure.new_size) || self.flash_configured(layer, configure.new_size) {
+            return;
+        }
         if layer == &self.panel {
             if configure.new_size.0 > 0 {
                 self.panel_width = configure.new_size.0;
@@ -1463,6 +1574,8 @@ impl KeyboardHandler for Ui {
     fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
         if self.lock.session.is_some() {
             self.lock_key(&event);
+        } else if self.picker.is_some() {
+            self.picker_key(&event);
         } else if self.dialog.is_some() {
             self.dialog_key(&event);
         } else if self.switcher.is_some() {
@@ -1492,6 +1605,9 @@ impl KeyboardHandler for Ui {
 impl PointerHandler for Ui {
     fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
         for event in events {
+            if self.picker_pointer(event) {
+                continue;
+            }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
                 continue;
             };
@@ -1664,15 +1780,25 @@ const INTERNAL_ACTIONS: u32 = 0xFFFF_0000;
 /// What a shell-internal binding does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Internal {
-    InputSource { backward: bool },
-    /// Open the window switcher or move its selection. `hold`: modifier
-    /// bits (keybinding wire values) whose release picks the window.
-    SwitchWindows { backward: bool, hold: u32 },
+    /// Open a switcher or move its selection. `hold`: modifier bits
+    /// (keybinding wire values) whose release picks the entry.
+    InputSource { backward: bool, hold: u32 },
+    SwitchWindows { backward: bool, hold: u32, mode: SwitchMode },
+    /// Screenshot, brightness and volume keys (run on the D-Bus side).
+    ShellKey(crate::shell_keys::KeyAction),
+}
+
+/// What an open switcher switches.
+enum SwitchKind {
+    Windows,
+    /// The sources listed, by entry id.
+    InputSources(Vec<crate::input_sources::Source>),
 }
 
 struct SwitcherState {
-    switcher: crate::windows::Switcher,
+    switcher: Switcher,
     hold: u32,
+    kind: SwitchKind,
 }
 
 const SWITCHER_ROWS: usize = 10;
@@ -1708,7 +1834,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
             helix_window_list_v1::Event::Closed { id } => {
                 ui.windows.close(id);
                 // A window that went away can't be switched to.
-                if let Some(open) = ui.switcher.as_mut() {
+                if let Some(open) = ui.switcher.as_mut().filter(|o| matches!(o.state.kind, SwitchKind::Windows)) {
                     let entries = &mut open.state.switcher.entries;
                     entries.retain(|e| e.id != id);
                     if entries.len() < 2 {

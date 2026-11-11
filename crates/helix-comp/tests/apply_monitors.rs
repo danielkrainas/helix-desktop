@@ -90,7 +90,7 @@ async fn start(bus: &TestBus, store: &Path, monitors: Vec<Monitor>) -> Running {
 
 async fn start_confirming(bus: &TestBus, store: &Path, monitors: Vec<Monitor>, confirm_seconds: u32) -> Running {
     let (applier, applied) = fake_compositor(monitors.clone());
-    let control = MonitorControl { applier: Some(applier), store: Store::at(store.to_path_buf()), confirm_seconds };
+    let control = MonitorControl { applier: Some(applier), store: Store::at(store.to_path_buf()), confirm_seconds, backlight: None };
     let services = CompositorServices::start_with(bus.builder(), monitors, control).await.unwrap();
     let (events, rx) = mpsc::unbounded_channel();
     tokio::spawn(services.run(rx));

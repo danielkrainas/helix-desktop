@@ -17,6 +17,8 @@ pub mod logind;
 pub mod notifications;
 pub mod notify_store;
 pub mod screensaver;
+pub mod screenshot;
+pub mod shell_keys;
 pub mod state;
 pub mod text;
 pub mod ui;
@@ -92,6 +94,8 @@ pub enum UiEvent {
     /// Ask whether to keep a display change (countdown seconds), or stop
     /// asking.
     DisplayChange(Option<u32>),
+    /// Screenshot work for the UI (capture, picking, flash).
+    Screenshot(screenshot::JobSlot),
 }
 
 /// Power menu entries.
@@ -129,6 +133,8 @@ pub enum UiRequest {
     Power(PowerAction),
     /// The user kept or reverted a display change (or time ran out).
     DisplayChangeAnswer { keep: bool },
+    /// A screenshot, brightness or volume key was pressed.
+    ShellKey(shell_keys::KeyAction),
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -365,6 +371,7 @@ pub struct ShellService {
     auth: Arc<dyn auth::Authenticator>,
     center: notifications::Center,
     ticker: JoinHandle<()>,
+    ui: mpsc::UnboundedSender<UiEvent>,
 }
 
 impl ShellService {
@@ -392,6 +399,7 @@ impl ShellService {
                 end_dialog::OBJECT_PATH,
                 end_dialog::EndSessionDialog { ui: ui.clone(), open_kind: Default::default() },
             )?
+            .serve_at(screenshot::OBJECT_PATH, screenshot::Screenshot { screens: screenshot::Screens::new(ui.clone()) })?
             .serve_at(
                 display_change::OBJECT_PATH,
                 display_change::DisplayChangeDialog { ui: ui.clone(), open: Default::default() },
@@ -446,7 +454,7 @@ impl ShellService {
                 }
             }
         });
-        Ok((Self { conn, state, watcher, auth, center, ticker }, ui_rx))
+        Ok((Self { conn, state, watcher, auth, center, ticker, ui }, ui_rx))
     }
 
     pub fn connection(&self) -> &Connection {
@@ -478,6 +486,7 @@ impl ShellService {
         UiBridge {
             conn: self.conn.clone(),
             center: self.center.clone(),
+            ui: self.ui.clone(),
         }
     }
 
@@ -499,6 +508,7 @@ impl ShellService {
 pub struct UiBridge {
     conn: Connection,
     center: notifications::Center,
+    ui: mpsc::UnboundedSender<UiEvent>,
 }
 
 impl UiBridge {
@@ -575,6 +585,24 @@ impl UiBridge {
                 if let Err(err) = &result {
                     tracing::warn!(%err, ?action, "power action failed");
                 }
+                Ok(())
+            }
+            UiRequest::ShellKey(action) => {
+                // Runs on its own: the screenshot UI waits for the user.
+                let (conn, ui) = (self.conn.clone(), self.ui.clone());
+                tokio::spawn(async move {
+                    let osd = match action {
+                        shell_keys::KeyAction::Screenshot(key) => {
+                            screenshot::run_key(&screenshot::Screens::new(ui.clone()), key).await;
+                            None
+                        }
+                        shell_keys::KeyAction::Brightness(step) => shell_keys::change_brightness(&conn, step).await,
+                        shell_keys::KeyAction::Volume(change) => shell_keys::change_volume(change).await,
+                    };
+                    if let Some(osd) = osd {
+                        let _ = ui.send(UiEvent::Osd(osd));
+                    }
+                });
                 Ok(())
             }
             UiRequest::NotificationDismissed { id } => {

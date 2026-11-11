@@ -2,6 +2,7 @@
 //!
 //! Structure follows Smithay's `smallvil` example (MIT licensed).
 
+mod capture;
 mod cursor;
 mod grabs;
 mod handlers;
@@ -121,6 +122,8 @@ pub struct Helix {
     pub input_devices: Vec<smithay::reexports::input::Device>,
     /// What the shell knows about open windows.
     pub window_list: window_list::WindowList,
+    /// Screen captures asked for by the shell.
+    pub captures: capture::Captures,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -140,10 +143,11 @@ impl Helix {
         seat.add_pointer();
 
         // Private protocol for the shell (visible to privileged clients only).
-        dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(1, ());
+        dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
         dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(1, ());
+        dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(1, ());
         let socket_name = Self::listen(display, event_loop)?;
-        Ok(Self {
+        let mut helix = Self {
             start_time: Instant::now(),
             socket_name,
             compositor_state: CompositorState::new::<Self>(&dh),
@@ -192,7 +196,10 @@ impl Helix {
             input_settings: None,
             input_devices: Vec::new(),
             window_list: Default::default(),
-        })
+            captures: Default::default(),
+        };
+        helix.init_captures();
+        Ok(helix)
     }
 
     fn listen(
@@ -380,9 +387,14 @@ impl Helix {
         (origin.x + 32 * n, origin.y + 32 * n)
     }
 
+    /// The output at `pos`, else the first one.
+    fn output_at(&self, pos: Point<f64, Logical>) -> Option<&smithay::output::Output> {
+        self.space.output_under(pos).next().or_else(|| self.space.outputs().next())
+    }
+
     /// Whether `pos` is over a panel-like layer surface (top or overlay).
     pub fn over_panel(&self, pos: Point<f64, Logical>) -> bool {
-        let Some(output) = self.space.outputs().next() else { return false };
+        let Some(output) = self.output_at(pos) else { return false };
         let Some(geo) = self.space.output_geometry(output) else { return false };
         let layers = layer_map_for_output(output);
         let local = pos - geo.loc.to_f64();
@@ -393,7 +405,7 @@ impl Helix {
         if self.lock.locked {
             return self.lock_surface_under(pos);
         }
-        let output = self.space.outputs().next()?;
+        let output = self.output_at(pos)?;
         let output_loc = self.space.output_geometry(output)?.loc;
         let layers = layer_map_for_output(output);
         let layer_hit = |layer: Layer| {

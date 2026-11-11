@@ -6,7 +6,7 @@ This repository is the implementation. The living specification and contracts li
 
 ## Status
 
-Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested, or on bare hardware via DRM/KMS) with `IdleMonitor` and `DisplayConfig`, `helix-shell` serves `org.gnome.Shell` and draws a top panel, `helix-portals` serves the Settings and Inhibit portal backends, and `helix-settings` reads the system GSettings.
+Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested, or on bare hardware via DRM/KMS) with `IdleMonitor` and `DisplayConfig`, `helix-shell` serves `org.gnome.Shell` and draws a top panel, `helix-portals` serves the Settings, Inhibit and Screenshot portal backends, and `helix-settings` reads the system GSettings.
 
 ## Target
 
@@ -109,12 +109,16 @@ installed).
 
 ## Running the portal backends
 
-`helix-portals` serves `org.freedesktop.impl.portal.Settings` and
-`org.freedesktop.impl.portal.Inhibit` as
+`helix-portals` serves `org.freedesktop.impl.portal.Settings`,
+`org.freedesktop.impl.portal.Inhibit` and
+`org.freedesktop.impl.portal.Screenshot` as
 `org.freedesktop.impl.portal.desktop.helix`. Settings come from the system's
 GSettings (dconf + installed GNOME schemas); `org.freedesktop.appearance` is
 derived from them (`color-scheme`, `contrast`, `reduced-motion`). Portal
-inhibitions are forwarded to `org.gnome.SessionManager`.
+inhibitions are forwarded to `org.gnome.SessionManager`. Screenshots and
+color picking go through the shell's `org.gnome.Shell.Screenshot`: unless
+the portal frontend says the app's permission was already checked, the user
+picks what to capture in the shell's screenshot UI.
 
 To try it without touching your real settings:
 
@@ -175,8 +179,9 @@ monitors off have only been tried in tests, not on real hardware.
 
 Keyboard and pointer settings follow GNOME's GSettings live: keyboard
 layouts from `org.gnome.desktop.input-sources` (switch with Super+Space or
-whatever `switch-input-source` says; the panel briefly shows the new
-layout), key repeat, and, on bare hardware, mouse and touchpad settings
+whatever `switch-input-source` says: a switcher lists the layouts most
+recently used first, and a quick press goes back to the previous one), key
+repeat, and, on bare hardware, mouse and touchpad settings
 (speed, acceleration, natural scrolling, tap-to-click, left-handed and
 more). IBus input methods and per-window layouts are not supported yet.
 
@@ -212,8 +217,19 @@ Shortcuts handled by the compositor:
 | Super+drag | Move the window under the pointer |
 | Super+L | Lock the screen |
 
-Alt+Tab (the window switcher) and Super+Space (switch keyboard layout)
-belong to the shell, which binds them from GSettings. When nested, the host
+Alt+Tab (the application switcher), Alt+\` (windows of the current
+application), Super+Space (keyboard layouts), Print (screenshots) and the
+volume and brightness keys belong to the shell, which binds them from
+GSettings. Volume and brightness keys keep working while the screen is
+locked.
+
+On laptops, DisplayConfig's `Backlight` and `SetBacklight` control the
+built-in panel through the kernel backlight device (written via logind's
+`SetBrightness`, so no extra permissions are needed); brightness changed
+elsewhere shows up within two seconds. The shell asks the compositor for
+screenshots over a private protocol
+(`crates/helix-protocols/protocols/helix-screenshot-v1.xml`); the image
+has the resolution of the highest-scale monitor it covers. When nested, the host
 desktop's window manager may grab some of these keys (e.g. Alt+Tab and
 Super+Space under XFCE) before Helix sees them.
 
@@ -333,10 +349,19 @@ points at the compositor, draws:
   `.desktop` files); type to search, arrows to select, Enter or click to
   switch to the window or launch the app, Escape or a click outside to
   close. Its open state is `OverviewActive`;
-- a window switcher on Alt+Tab and Super+Tab (or whatever
-  `switch-applications` / `switch-windows` say): windows most recently
-  used first, Tab again (Shift for backward) to move, let go of Alt or
-  Super to switch, Escape to cancel.
+- switchers (Tab again, Shift for backward, to move; let go of the
+  modifier to switch; Escape cancels): applications on Alt+Tab and
+  Super+Tab (`switch-applications`, one entry per app with its window
+  count, most recently used first), windows on `switch-windows`, the
+  current application's windows on Alt+\` (`switch-group`), and keyboard
+  layouts on Super+Space;
+- screenshots: Print opens the screenshot UI (drag an area, or Enter for
+  the whole screen), Shift+Print captures the screen and Alt+Print the
+  focused window at once. Images go to `~/Pictures/Screenshots`.
+  `org.gnome.Shell.Screenshot` serves the Screenshot portal and the GNOME
+  Screenshot app; other callers are refused;
+- volume keys (through `pactl`, which PipeWire and PulseAudio both serve)
+  and brightness keys, with the new level shown in the panel.
 
 Text uses the system sans-serif font (via `fc-match`).
 

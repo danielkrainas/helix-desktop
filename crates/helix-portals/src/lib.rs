@@ -1,11 +1,13 @@
 //! Helix XDG desktop portal backends.
 //!
-//! Serves `org.freedesktop.impl.portal.Settings` and
-//! `org.freedesktop.impl.portal.Inhibit` as
+//! Serves `org.freedesktop.impl.portal.Settings`,
+//! `org.freedesktop.impl.portal.Inhibit` and
+//! `org.freedesktop.impl.portal.Screenshot` as
 //! `org.freedesktop.impl.portal.desktop.helix`, for the xdg-desktop-portal
 //! frontend to use (see `session/helix.portal`).
 
 pub mod inhibit;
+pub mod screenshot;
 pub mod settings;
 
 use std::sync::{Arc, Mutex};
@@ -40,6 +42,7 @@ impl PortalService {
     ) -> zbus::Result<Self> {
         let conn = builder
             .serve_at(OBJECT_PATH, SettingsBackend::new(settings))?
+            .serve_at(OBJECT_PATH, screenshot::ScreenshotBackend)?
             .build()
             .await?;
 
@@ -108,6 +111,7 @@ impl PortalService {
         let server = self.conn.object_server();
         server.remove::<InhibitBackend, _>(OBJECT_PATH).await?;
         server.remove::<SettingsBackend, _>(OBJECT_PATH).await?;
+        server.remove::<screenshot::ScreenshotBackend, _>(OBJECT_PATH).await?;
         self.conn.graceful_shutdown().await;
         Ok(())
     }

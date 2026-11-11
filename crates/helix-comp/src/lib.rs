@@ -8,6 +8,7 @@
 //! - [`display_config`] — `org.gnome.Mutter.DisplayConfig`
 //! - [`input_settings`] — keyboard, mouse and touchpad GSettings
 
+pub mod backlight;
 pub mod display_config;
 pub mod idle;
 pub mod idle_monitor;
@@ -66,6 +67,8 @@ pub struct MonitorControl {
     /// Seconds the user has to keep a persistent change (the shell asks);
     /// 0 keeps changes without asking.
     pub confirm_seconds: u32,
+    /// The built-in panel's backlight (`None`: no backlight control).
+    pub backlight: Option<backlight::Backlight>,
 }
 
 impl Default for MonitorControl {
@@ -74,6 +77,7 @@ impl Default for MonitorControl {
             applier: None,
             store: Store::default(),
             confirm_seconds: display_config::CONFIRM_SECONDS,
+            backlight: None,
         }
     }
 }
@@ -91,7 +95,14 @@ impl CompositorServices {
     ) -> zbus::Result<Self> {
         let idle = Shared::new();
         let layout = Arc::new(Mutex::new(Layout::new(monitors)));
-        let display_config = DisplayConfig::new(layout.clone(), control.applier, control.store, control.confirm_seconds);
+        let watch_backlight = control.backlight.is_some();
+        let display_config = DisplayConfig::new(
+            layout.clone(),
+            control.applier,
+            control.store,
+            control.confirm_seconds,
+            control.backlight,
+        );
         let conn = builder
             .serve_at(idle_monitor::MANAGER_PATH, ObjectManager)?
             .serve_at(idle_monitor::CORE_PATH, IdleMonitor::new(idle.clone()))?
@@ -102,10 +113,13 @@ impl CompositorServices {
         own(&conn, display_config::BUS_NAME).await?;
         tracing::info!("IdleMonitor and DisplayConfig ready");
 
-        let tasks = vec![
+        let mut tasks = vec![
             spawn_idle_timer(&conn, idle.clone())?,
             spawn_owner_watcher(&conn, idle.clone()).await?,
         ];
+        if watch_backlight {
+            tasks.push(spawn_backlight_watcher(&conn));
+        }
         Ok(Self {
             conn,
             idle,
@@ -140,6 +154,7 @@ impl CompositorServices {
                     let emitter = iface.signal_emitter();
                     DisplayConfig::monitors_changed(emitter).await?;
                     iface.get().await.has_external_monitor_changed(emitter).await?;
+                    iface.get().await.backlight_changed(emitter).await?;
                     if set_changed {
                         iface.get().await.restore_saved(emitter).await;
                     }
@@ -208,6 +223,32 @@ impl CompositorServices {
             task.abort();
         }
     }
+}
+
+/// How often the backlight is re-read for changes made elsewhere.
+const BACKLIGHT_POLL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Publish brightness changes made outside DisplayConfig.
+fn spawn_backlight_watcher(conn: &Connection) -> JoinHandle<()> {
+    let conn = conn.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(BACKLIGHT_POLL).await;
+            let Ok(iface) = conn
+                .object_server()
+                .interface::<_, DisplayConfig>(display_config::OBJECT_PATH)
+                .await
+            else {
+                return;
+            };
+            let dc = iface.get().await;
+            if dc.backlight_moved() {
+                if let Err(err) = dc.backlight_changed(iface.signal_emitter()).await {
+                    tracing::warn!(%err, "cannot publish the backlight");
+                }
+            }
+        }
+    })
 }
 
 /// Fire idle watches when they come due.

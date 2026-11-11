@@ -26,6 +26,8 @@ pub struct Record {
     pub inhibitors: Vec<(String, String, UnixStream)>,
     /// Refuse `Suspend` (as logind does when sleep is blocked).
     pub refuse_suspend: bool,
+    /// Where `SetBrightness` writes, like sysfs: `<dir>/<name>/brightness`.
+    pub brightness_dir: Option<std::path::PathBuf>,
 }
 
 pub type Shared = Arc<Mutex<Record>>;
@@ -100,10 +102,21 @@ impl Manager {
 
 struct Session {
     active: bool,
+    shared: Shared,
 }
 
 #[interface(name = "org.freedesktop.login1.Session")]
 impl Session {
+    async fn set_brightness(&self, subsystem: &str, name: &str, brightness: u32) -> fdo::Result<()> {
+        let mut rec = record(&self.shared);
+        rec.calls.push(format!("SetBrightness {subsystem} {name} {brightness}"));
+        if let Some(dir) = &rec.brightness_dir {
+            std::fs::write(dir.join(name).join("brightness"), format!("{brightness}\n"))
+                .map_err(|e| fdo::Error::Failed(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     #[zbus(property)]
     async fn id(&self) -> String {
         "1".into()
@@ -128,7 +141,7 @@ impl FakeLogind {
             .builder()
             .serve_at(MANAGER_PATH, Manager { shared: shared.clone() })
             .expect("serve manager")
-            .serve_at(SESSION_PATH, Session { active: true })
+            .serve_at(SESSION_PATH, Session { active: true, shared: shared.clone() })
             .expect("serve session")
             .name(BUS_NAME)
             .expect("valid name")
@@ -144,6 +157,11 @@ impl FakeLogind {
 
     pub fn set_can(&self, method: &str, answer: &str) {
         record(&self.shared).can.insert(method.into(), answer.into());
+    }
+
+    /// Make `SetBrightness` write into `dir` (a fake `/sys/class/backlight`).
+    pub fn write_brightness_to(&self, dir: std::path::PathBuf) {
+        record(&self.shared).brightness_dir = Some(dir);
     }
 
     pub fn refuse_suspend(&self, refuse: bool) {

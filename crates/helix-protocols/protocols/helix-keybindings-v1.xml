@@ -18,7 +18,7 @@
     (WAYLAND_SOCKET). Ordinary clients cannot see it.
   </description>
 
-  <interface name="helix_keybindings_manager_v1" version="1">
+  <interface name="helix_keybindings_manager_v1" version="2">
     <description summary="binds global key combinations">
       Bound keys are taken away from the focused client: their presses and
       releases are delivered only as helix_keybinding_v1 events. Shortcuts
@@ -50,7 +50,7 @@
     </request>
   </interface>
 
-  <interface name="helix_keybinding_v1" version="1">
+  <interface name="helix_keybinding_v1" version="2">
     <description summary="one bound key combination"/>
 
     <enum name="error_reason">
@@ -81,6 +81,13 @@
 
     <request name="destroy" type="destructor">
       <description summary="unbind and destroy"/>
+    </request>
+    <request name="allow_when_locked" since="2">
+      <description summary="keep the binding working while locked">
+        By default a binding does nothing while the session is locked.
+        After this request its presses and releases are delivered while
+        locked too (for volume and brightness keys).
+      </description>
     </request>
   </interface>
 </protocol>

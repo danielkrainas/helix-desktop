@@ -63,7 +63,7 @@ async fn portal_backends() {
         .unwrap();
     let conn = portals.connection();
 
-    for iface in ["Settings", "Inhibit"] {
+    for iface in ["Settings", "Inhibit", "Screenshot"] {
         let name = format!("org.freedesktop.impl.portal.{iface}");
         assert_matches_contract(conn, BUS_NAME, OBJECT_PATH, &name, &format!("{name}.xml"), &[]).await;
     }
@@ -123,7 +123,6 @@ async fn mutter_idle_monitor_and_display_config() {
         "org.gnome.Mutter.DisplayConfig.xml",
         &[
             "method ApplyConfiguration",
-            "method SetBacklight",
             "method ChangeBacklight",
             "method GetCrtcGamma",
             "method SetCrtcGamma",
@@ -152,6 +151,15 @@ async fn org_gnome_shell() {
         helix_shell::display_change::OBJECT_PATH,
         "org.helix.DisplayChangeDialog",
         "org.helix.DisplayChangeDialog.xml",
+        &[],
+    )
+    .await;
+    assert_matches_contract(
+        service.connection(),
+        helix_shell::BUS_NAME,
+        helix_shell::screenshot::OBJECT_PATH,
+        "org.gnome.Shell.Screenshot",
+        "org.gnome.Shell.Screenshot.xml",
         &[],
     )
     .await;

@@ -8,12 +8,12 @@ use helix_protocols::server::helix_keybinding_v1::{self, HelixKeybindingV1};
 use helix_protocols::server::helix_keybindings_manager_v1::{
     self, HelixKeybindingsManagerV1, Modifier,
 };
-use smithay::input::keyboard::{xkb, Keysym};
+use smithay::input::keyboard::xkb;
 use smithay::reexports::wayland_server::{
     Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
 };
 
-use super::shortcuts::{BindError, Mods};
+use super::shortcuts::{BindError, Key, Mods, ABOVE_TAB};
 use super::{ClientState, Helix};
 
 /// Live bindings by id.
@@ -33,10 +33,14 @@ impl Keybindings {
 pub struct BindingId(pub u32);
 
 /// Resolve an XKB keysym name; single letters are matched unshifted.
-pub fn keysym_from_name(name: &str) -> Option<Keysym> {
+/// `Above_Tab` (as in GNOME accelerators) is the key above Tab.
+pub fn key_from_name(name: &str) -> Option<Key> {
+    if name == "Above_Tab" {
+        return Some(Key::Code(ABOVE_TAB));
+    }
     let name = if name.chars().count() == 1 { name.to_lowercase() } else { name.to_owned() };
     let sym = xkb::keysym_from_name(&name, xkb::KEYSYM_NO_FLAGS);
-    (sym.raw() != 0).then_some(sym)
+    (sym.raw() != 0).then_some(Key::Sym(sym))
 }
 
 pub fn mods_from_wire(bits: u32) -> Mods {
@@ -83,7 +87,7 @@ impl Dispatch<HelixKeybindingsManagerV1, ()> for Helix {
                     smithay::reexports::wayland_server::WEnum::Value(m) => mods_from_wire(m.bits()),
                     smithay::reexports::wayland_server::WEnum::Unknown(bits) => mods_from_wire(bits),
                 };
-                let Some(sym) = keysym_from_name(&keysym) else {
+                let Some(key) = key_from_name(&keysym) else {
                     let obj = data_init.init(id, BindingId(0));
                     obj.failed(helix_keybinding_v1::ErrorReason::UnknownKey);
                     tracing::info!(keysym, "keybinding refused: unknown key");
@@ -92,7 +96,7 @@ impl Dispatch<HelixKeybindingsManagerV1, ()> for Helix {
                 state.keybindings.next_id = state.keybindings.next_id.wrapping_add(1).max(1);
                 let binding = state.keybindings.next_id;
                 let obj = data_init.init(id, BindingId(binding));
-                match state.shortcuts.bind(binding, mods, sym) {
+                match state.shortcuts.bind(binding, mods, key) {
                     Ok(()) => {
                         tracing::info!(keysym, ?mods, binding, "keybinding bound");
                         state.keybindings.objects.insert(binding, obj.clone());
@@ -112,15 +116,18 @@ impl Dispatch<HelixKeybindingsManagerV1, ()> for Helix {
 
 impl Dispatch<HelixKeybindingV1, BindingId> for Helix {
     fn request(
-        _state: &mut Self,
+        state: &mut Self,
         _client: &Client,
         _resource: &HelixKeybindingV1,
-        _request: helix_keybinding_v1::Request,
-        _data: &BindingId,
+        request: helix_keybinding_v1::Request,
+        data: &BindingId,
         _dh: &DisplayHandle,
         _data_init: &mut DataInit<'_, Self>,
     ) {
-        // Only `destroy`; cleanup happens in `destroyed`.
+        // `destroy` cleanup happens in `destroyed`.
+        if let helix_keybinding_v1::Request::AllowWhenLocked = request {
+            state.shortcuts.allow_when_locked(data.0);
+        }
     }
 
     fn destroyed(
@@ -139,14 +146,17 @@ impl Dispatch<HelixKeybindingV1, BindingId> for Helix {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use smithay::input::keyboard::Keysym;
 
     #[test]
     fn keysym_names() {
-        assert_eq!(keysym_from_name("a"), Some(Keysym::a));
-        assert_eq!(keysym_from_name("A"), Some(Keysym::a), "letters are matched unshifted");
-        assert_eq!(keysym_from_name("F9"), Some(Keysym::F9));
-        assert_eq!(keysym_from_name("XF86AudioMute"), Some(Keysym::XF86_AudioMute));
-        assert_eq!(keysym_from_name("NotAKey"), None);
+        let sym = |s| Some(Key::Sym(s));
+        assert_eq!(key_from_name("a"), sym(Keysym::a));
+        assert_eq!(key_from_name("A"), sym(Keysym::a), "letters are matched unshifted");
+        assert_eq!(key_from_name("F9"), sym(Keysym::F9));
+        assert_eq!(key_from_name("XF86AudioMute"), sym(Keysym::XF86_AudioMute));
+        assert_eq!(key_from_name("Above_Tab"), Some(Key::Code(ABOVE_TAB)));
+        assert_eq!(key_from_name("NotAKey"), None);
     }
 
     #[test]

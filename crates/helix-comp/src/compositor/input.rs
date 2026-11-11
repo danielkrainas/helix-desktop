@@ -44,7 +44,12 @@ impl Helix {
     fn run_shortcut(&mut self, action: Action, time: u32) {
         tracing::debug!(?action, "shortcut");
         // While locked only the escape hatches work.
-        if self.lock.locked && !matches!(action, Action::Quit | Action::SwitchVt(_)) {
+        let allowed = match action {
+            Action::Quit | Action::SwitchVt(_) => true,
+            Action::Binding(id, _) => self.shortcuts.works_when_locked(id),
+            _ => false,
+        };
+        if self.lock.locked && !allowed {
             return;
         }
         match action {

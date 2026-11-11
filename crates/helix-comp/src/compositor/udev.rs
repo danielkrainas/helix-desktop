@@ -86,6 +86,11 @@ impl UdevData {
     pub fn renderer(&mut self) -> &mut GlesRenderer {
         &mut self.renderer
     }
+
+    /// The image drawn for named cursors.
+    pub fn cursor_buffer(&self) -> &MemoryRenderBuffer {
+        &self.cursor
+    }
 }
 
 /// Bring up the session, GPU, outputs and input. Returns the initial
