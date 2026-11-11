@@ -68,13 +68,17 @@ fn fake_recorder(log: Arc<Mutex<Vec<String>>>) -> mpsc::UnboundedSender<CastRequ
         while let Some(request) = rx.recv().await {
             match request {
                 CastRequest::Start { stream, source, cursor, reply } => {
-                    log.lock().unwrap().push(format!("start {stream} {source:?} cursor={cursor}"));
+                    log.lock().unwrap().push(format!("start {stream} {source:?} cursor={cursor:?}"));
                     let _ = reply.send(Ok(42));
                 }
                 CastRequest::WindowSize { window, reply } => {
                     let _ = reply.send((window == 7).then_some((800, 600)));
                 }
                 CastRequest::Stop { stream } => log.lock().unwrap().push(format!("stop {stream}")),
+                CastRequest::CreateVirtual { stream, reply } => {
+                    log.lock().unwrap().push(format!("virtual {stream}"));
+                    let _ = reply.send(Ok(("Virtual-1".into(), (1920, 0), (1920, 1080))));
+                }
             }
         }
     });
@@ -168,7 +172,7 @@ async fn share_a_monitor() {
     assert_eq!(<(i32, i32)>::try_from(props["position"].clone()).unwrap(), (0, 0));
     assert_eq!(u32::try_from(props["source_type"].clone()).unwrap(), 1);
     assert!(sharing(&conn).await);
-    assert!(log.lock().unwrap()[0].ends_with("Monitor(\"DP-1\") cursor=true"), "{:?}", log.lock().unwrap());
+    assert!(log.lock().unwrap()[0].ends_with("Monitor(\"DP-1\") cursor=Embedded"), "{:?}", log.lock().unwrap());
 
     // The frontend closes the session: the recording stops.
     conn.call_method(Some(BUS_NAME), s2.as_str(), Some("org.freedesktop.impl.portal.Session"), "Close", &()).await.unwrap();
@@ -239,6 +243,20 @@ async fn share_a_monitor() {
     assert_eq!(asked.lock().unwrap().len(), asked_before, "not asked again");
     assert!(results.contains_key("restore_data"));
     assert!(log.lock().unwrap().last().unwrap().contains("Monitor(\"DP-1\")"));
+
+    // Only a virtual monitor: made without asking, with metadata cursors.
+    let asked_before = asked.lock().unwrap().len();
+    let s7 = ObjectPath::try_from("/org/freedesktop/portal/desktop/session/1_1/s7").unwrap();
+    assert_eq!(call(&conn, "CreateSession", &(&request, &s7, "org.example.Meet", none.clone())).await.0, 0);
+    let options = HashMap::from([("types", Value::from(4u32)), ("cursor_mode", Value::from(4u32))]);
+    assert_eq!(call(&conn, "SelectSources", &(&request, &s7, "org.example.Meet", options)).await.0, 0);
+    let (r, results) = call(&conn, "Start", &(&request, &s7, "org.example.Meet", "", none.clone())).await;
+    assert_eq!(r, 0);
+    assert_eq!(asked.lock().unwrap().len(), asked_before, "not asked");
+    let streams = <Vec<(u32, HashMap<String, OwnedValue>)>>::try_from(results["streams"].clone()).unwrap();
+    assert_eq!(u32::try_from(streams[0].1["source_type"].clone()).unwrap(), 4);
+    assert_eq!(<(i32, i32)>::try_from(streams[0].1["position"].clone()).unwrap(), (1920, 0));
+    assert!(log.lock().unwrap().last().unwrap().ends_with("Virtual(\"Virtual-1\") cursor=Metadata"), "{:?}", log.lock().unwrap());
 
     // Only the portal may record directly.
     let stranger = bus.connect().await;

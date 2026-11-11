@@ -21,11 +21,13 @@ use crate::screenshot::{response, with_request};
 
 pub const SOURCE_MONITOR: u32 = 1;
 pub const SOURCE_WINDOW: u32 = 2;
+pub const SOURCE_VIRTUAL: u32 = 4;
 /// The vendor name in `restore_data`.
 pub const RESTORE_VENDOR: &str = "Helix";
 pub const RESTORE_VERSION: u32 = 1;
 pub const CURSOR_HIDDEN: u32 = 1;
 pub const CURSOR_EMBEDDED: u32 = 2;
+pub const CURSOR_METADATA: u32 = 4;
 
 const MUTTER: &str = "org.gnome.Mutter.ScreenCast";
 const MUTTER_PATH: &str = "/org/gnome/Mutter/ScreenCast";
@@ -186,6 +188,8 @@ async fn monitors(conn: &Connection) -> zbus::Result<Vec<(MonitorId, String)>> {
 enum Source {
     Monitor(String),
     Window(u32),
+    /// A new virtual monitor.
+    Virtual,
 }
 
 async fn start(conn: &Connection, shared: &Shared, session: &OwnedObjectPath) -> (u32, Results) {
@@ -201,7 +205,10 @@ async fn start(conn: &Connection, shared: &Shared, session: &OwnedObjectPath) ->
         }
     };
     let restored = restore.as_ref().filter(|_| types & SOURCE_MONITOR != 0).and_then(|r| r.find_in(&on));
+    // Only a virtual monitor: nothing that exists is shown, so no asking.
+    let virtual_only = types == SOURCE_VIRTUAL;
     let source = match restored {
+        _ if virtual_only => Source::Virtual,
         Some(connector) => {
             tracing::info!(connector, app_id, "sharing a remembered monitor");
             Source::Monitor(connector)
@@ -273,7 +280,11 @@ async fn record(
     if let Some(cast) = lock(shared).sessions.get_mut(session) {
         cast.mutter = Some(mutter.clone());
     }
-    let mutter_cursor = if cursor_mode == CURSOR_EMBEDDED { 1u32 } else { 0 };
+    let mutter_cursor = match cursor_mode {
+        CURSOR_EMBEDDED => 1u32,
+        CURSOR_METADATA => 2,
+        _ => 0,
+    };
     let mut props = HashMap::from([("cursor-mode", Value::from(mutter_cursor))]);
     let session_iface = Some("org.gnome.Mutter.ScreenCast.Session");
     let (reply, source_type) = match source {
@@ -285,6 +296,7 @@ async fn record(
             props.insert("window-id", Value::from(u64::from(*window)));
             (conn.call_method(Some(MUTTER), mutter.as_str(), session_iface, "RecordWindow", &(props,)).await?, SOURCE_WINDOW)
         }
+        Source::Virtual => (conn.call_method(Some(MUTTER), mutter.as_str(), session_iface, "RecordVirtual", &(props,)).await?, SOURCE_VIRTUAL),
     };
     let stream: OwnedObjectPath = reply.body().deserialize()?;
     let parameters: HashMap<String, OwnedValue> = zbus::Proxy::new(conn, MUTTER, stream.as_str(), "org.gnome.Mutter.ScreenCast.Stream")
@@ -391,16 +403,17 @@ impl ScreenCastBackend {
             if !lock(&shared).sessions.contains_key(&session) {
                 return (response::OTHER, Results::new());
             }
-            if cursor_mode != CURSOR_HIDDEN && cursor_mode != CURSOR_EMBEDDED {
+            if ![CURSOR_HIDDEN, CURSOR_EMBEDDED, CURSOR_METADATA].contains(&cursor_mode) {
                 end(conn, &shared, &session, true).await;
                 return (response::OTHER, Results::new());
             }
-            if types & (SOURCE_MONITOR | SOURCE_WINDOW) == 0 {
+            let known = SOURCE_MONITOR | SOURCE_WINDOW | SOURCE_VIRTUAL;
+            if types & known == 0 {
                 return (response::OTHER, Results::new());
             }
             if let Some(cast) = lock(&shared).sessions.get_mut(&session) {
                 cast.cursor_mode = cursor_mode;
-                cast.types = types & (SOURCE_MONITOR | SOURCE_WINDOW);
+                cast.types = types & known;
                 cast.persist_mode = persist_mode;
                 cast.restore = restore;
             }
@@ -427,12 +440,12 @@ impl ScreenCastBackend {
 
     #[zbus(property)]
     async fn available_source_types(&self) -> u32 {
-        SOURCE_MONITOR | SOURCE_WINDOW
+        SOURCE_MONITOR | SOURCE_WINDOW | SOURCE_VIRTUAL
     }
 
     #[zbus(property)]
     async fn available_cursor_modes(&self) -> u32 {
-        CURSOR_HIDDEN | CURSOR_EMBEDDED
+        CURSOR_HIDDEN | CURSOR_EMBEDDED | CURSOR_METADATA
     }
 
     #[zbus(property, name = "version")]

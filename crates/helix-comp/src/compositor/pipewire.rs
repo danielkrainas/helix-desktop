@@ -20,14 +20,33 @@ use smithay::reexports::calloop::channel::Sender as LoopSender;
 
 pub const MAX_FPS: u32 = 30;
 
+/// The biggest pointer image sent as cursor metadata.
+pub const CURSOR_MAX: u32 = 64;
+
+/// The pointer for cursor metadata (`SPA_META_Cursor`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CursorMeta {
+    /// Shown on the source (else the metadata says "no pointer").
+    pub visible: bool,
+    /// Position and hotspot in stream pixels.
+    pub x: i32,
+    pub y: i32,
+    pub hotspot: (i32, i32),
+    /// BGRA, `width * 4` per row.
+    pub bitmap: std::sync::Arc<(Vec<u8>, u32, u32)>,
+}
+
 /// What the compositor asks of the PipeWire thread.
 pub enum Command {
     /// Create a stream; the reply is its node id once PipeWire assigned it.
-    Create { id: u32, width: u32, height: u32, reply: std::sync::mpsc::Sender<Result<u32, String>> },
+    /// With `cursor_meta`, buffers carry cursor metadata.
+    Create { id: u32, width: u32, height: u32, cursor_meta: bool, reply: std::sync::mpsc::Sender<Result<u32, String>> },
     /// The stream's frames change size (renegotiates the format).
     Resize { id: u32, width: u32, height: u32 },
     /// A frame for a stream: BGRx, rows of `width * 4` bytes.
-    Frame { id: u32, bgrx: Vec<u8> },
+    Frame { id: u32, bgrx: Vec<u8>, cursor: Option<CursorMeta> },
+    /// Only the pointer moved: send the last frame again with it.
+    Cursor { id: u32, cursor: CursorMeta },
     Destroy { id: u32 },
 }
 
@@ -96,6 +115,61 @@ fn format_pod(width: u32, height: u32) -> Result<Vec<u8>, String> {
     }))
 }
 
+/// Size of the cursor metadata: the cursor, the bitmap header and image.
+fn cursor_meta_size() -> usize {
+    std::mem::size_of::<spa::sys::spa_meta_cursor>()
+        + std::mem::size_of::<spa::sys::spa_meta_bitmap>()
+        + (CURSOR_MAX * CURSOR_MAX * 4) as usize
+}
+
+fn cursor_meta_pod() -> Result<Vec<u8>, String> {
+    serialize(Value::Object(Object {
+        type_: spa::sys::SPA_TYPE_OBJECT_ParamMeta,
+        id: spa::sys::SPA_PARAM_Meta,
+        properties: vec![
+            property(spa::sys::SPA_PARAM_META_type, Value::Id(spa::utils::Id(spa::sys::SPA_META_Cursor))),
+            property(spa::sys::SPA_PARAM_META_size, Value::Int(cursor_meta_size() as i32)),
+        ],
+    }))
+}
+
+/// Write `cursor` into a buffer's cursor metadata, if it has room for it.
+///
+/// # Safety
+/// `buffer` is a buffer PipeWire dequeued for us.
+unsafe fn write_cursor(buffer: *mut spa::sys::spa_buffer, cursor: &CursorMeta) {
+    if buffer.is_null() {
+        return;
+    }
+    let metas = std::slice::from_raw_parts((*buffer).metas, (*buffer).n_metas as usize);
+    let Some(meta) = metas.iter().find(|m| m.type_ == spa::sys::SPA_META_Cursor) else { return };
+    if meta.data.is_null() || (meta.size as usize) < cursor_meta_size() {
+        return;
+    }
+    let head = meta.data as *mut spa::sys::spa_meta_cursor;
+    if !cursor.visible {
+        (*head).id = 0;
+        return;
+    }
+    (*head).id = 1;
+    (*head).flags = 0;
+    (*head).position = spa::sys::spa_point { x: cursor.x, y: cursor.y };
+    (*head).hotspot = spa::sys::spa_point { x: cursor.hotspot.0, y: cursor.hotspot.1 };
+    (*head).bitmap_offset = std::mem::size_of::<spa::sys::spa_meta_cursor>() as u32;
+    let bitmap = (meta.data as *mut u8).add((*head).bitmap_offset as usize) as *mut spa::sys::spa_meta_bitmap;
+    let (pixels, w, h) = &*cursor.bitmap;
+    let (w, h) = ((*w).min(CURSOR_MAX), (*h).min(CURSOR_MAX));
+    (*bitmap).format = spa::param::video::VideoFormat::BGRA.as_raw();
+    (*bitmap).size = spa::sys::spa_rectangle { width: w, height: h };
+    (*bitmap).stride = (w * 4) as i32;
+    (*bitmap).offset = std::mem::size_of::<spa::sys::spa_meta_bitmap>() as u32;
+    let dst = (bitmap as *mut u8).add((*bitmap).offset as usize);
+    let src_stride = (cursor.bitmap.1 * 4) as usize;
+    for row in 0..h as usize {
+        std::ptr::copy_nonoverlapping(pixels.as_ptr().add(row * src_stride), dst.add(row * (w * 4) as usize), (w * 4) as usize);
+    }
+}
+
 fn buffers_pod(width: u32, height: u32) -> Result<Vec<u8>, String> {
     let stride = (width * 4) as i32;
     serialize(Value::Object(Object {
@@ -123,11 +197,16 @@ fn buffers_pod(width: u32, height: u32) -> Result<Vec<u8>, String> {
 /// Replies waiting for a stream's node id, by stream.
 type Pending = Rc<RefCell<HashMap<u32, std::sync::mpsc::Sender<Result<u32, String>>>>>;
 
+/// The frame (and pointer) waiting for the next `process`.
+type FrameSlot = Rc<RefCell<Option<(Vec<u8>, Option<CursorMeta>)>>>;
+
 /// A stream and the frame waiting for it.
 struct Live {
     stream: pw::stream::StreamRc,
     _listener: pw::stream::StreamListener<()>,
-    frame: Rc<RefCell<Option<Vec<u8>>>>,
+    frame: FrameSlot,
+    /// The last frame sent (for pointer-only updates).
+    last: Rc<RefCell<Option<Vec<u8>>>>,
     size: Rc<std::cell::Cell<(u32, u32)>>,
 }
 
@@ -209,8 +288,8 @@ fn run(
         let core = core.clone();
         let notices = notices.clone();
         move |command| match command {
-            Command::Create { id, width, height, reply } => {
-                match create(&core, id, width, height, notices.clone(), pending.clone()) {
+            Command::Create { id, width, height, cursor_meta, reply } => {
+                match create(&core, id, width, height, cursor_meta, notices.clone(), pending.clone()) {
                     Ok(live) => {
                         pending.borrow_mut().insert(id, reply);
                         streams.borrow_mut().insert(id, live);
@@ -220,13 +299,24 @@ fn run(
                     }
                 }
             }
-            Command::Frame { id, bgrx } => {
+            Command::Frame { id, bgrx, cursor } => {
                 if let Some(live) = streams.borrow().get(&id) {
                     let (width, height) = live.size.get();
                     if bgrx.len() == (width * height * 4) as usize {
-                        *live.frame.borrow_mut() = Some(bgrx);
+                        *live.frame.borrow_mut() = Some((bgrx, cursor));
                         if let Err(err) = live.stream.trigger_process() {
                             tracing::debug!(id, %err, "cannot trigger a frame");
+                        }
+                    }
+                }
+            }
+            Command::Cursor { id, cursor } => {
+                if let Some(live) = streams.borrow().get(&id) {
+                    let last = live.last.borrow().clone();
+                    if let Some(bgrx) = last {
+                        if live.frame.borrow().is_none() {
+                            *live.frame.borrow_mut() = Some((bgrx, Some(cursor)));
+                            let _ = live.stream.trigger_process();
                         }
                     }
                 }
@@ -235,6 +325,7 @@ fn run(
                 if let Some(live) = streams.borrow().get(&id) {
                     live.size.set((width, height));
                     *live.frame.borrow_mut() = None;
+                    *live.last.borrow_mut() = None;
                     match format_pod(width, height) {
                         Ok(bytes) => {
                             if let Some(pod) = Pod::from_bytes(&bytes) {
@@ -264,6 +355,7 @@ fn create(
     id: u32,
     width: u32,
     height: u32,
+    cursor_meta: bool,
     notices: LoopSender<Notice>,
     pending: Pending,
 ) -> Result<Live, String> {
@@ -273,7 +365,8 @@ fn create(
         *pw::keys::NODE_NAME => "helix-screen-cast",
     };
     let stream = pw::stream::StreamRc::new(core.clone(), "helix-screen-cast", props).map_err(|e| e.to_string())?;
-    let frame: Rc<RefCell<Option<Vec<u8>>>> = Rc::default();
+    let frame: FrameSlot = Rc::default();
+    let last: Rc<RefCell<Option<Vec<u8>>>> = Rc::default();
     let size = Rc::new(std::cell::Cell::new((width, height)));
     let listener = stream
         .add_local_listener_with_user_data(())
@@ -314,10 +407,22 @@ fn create(
             if param_id != spa::param::ParamType::Format.as_raw() || param.is_none() {
                 return;
             }
-            // The format is fixed; say how big the buffers are.
-            match buffers_pod(width, height).map(|bytes| (Pod::from_bytes(&bytes).map(|pod| stream.update_params(&mut [pod])), bytes.len())) {
-                Ok((Some(Ok(())), _)) => tracing::debug!(id, "buffer parameters set"),
-                other => tracing::warn!(id, ?other, "cannot set buffer parameters"),
+            // The format is fixed; say how big the buffers are (and that
+            // they carry cursor metadata).
+            let buffers = buffers_pod(width, height);
+            let meta = if cursor_meta { cursor_meta_pod().map(Some) } else { Ok(None) };
+            match (buffers, meta) {
+                (Ok(buffers), Ok(meta)) => {
+                    let mut pods: Vec<&Pod> = Pod::from_bytes(&buffers).into_iter().collect();
+                    if let Some(meta) = meta.as_ref() {
+                        pods.extend(Pod::from_bytes(meta));
+                    }
+                    match stream.update_params(&mut pods) {
+                        Ok(()) => tracing::debug!(id, "buffer parameters set"),
+                        Err(err) => tracing::warn!(id, %err, "cannot set buffer parameters"),
+                    }
+                }
+                other => tracing::warn!(id, ?other, "cannot describe buffer parameters"),
             }
         }})
         .add_buffer({
@@ -335,32 +440,48 @@ fn create(
         })
         .process({
             let frame = frame.clone();
+            let last = last.clone();
             let size = size.clone();
             move |stream, _| {
                 let (width, _) = size.get();
-                let Some(pixels) = frame.borrow_mut().take() else {
+                let Some((pixels, cursor)) = frame.borrow_mut().take() else {
                     tracing::trace!(id, "process without a frame");
                     return;
                 };
-                let Some(mut buffer) = stream.dequeue_buffer() else {
-                    tracing::debug!(id, "no free buffer; frame dropped");
-                    return;
-                };
-                let datas = buffer.datas_mut();
-                let Some(data) = datas.first_mut() else { return };
-                let stride = (width * 4) as usize;
-                let copied = match data.data() {
-                    Some(slice) if slice.len() >= pixels.len() => {
-                        slice[..pixels.len()].copy_from_slice(&pixels);
-                        pixels.len()
+                // Raw buffers: the cursor metadata is not reachable through
+                // the safe wrapper.
+                // SAFETY: dequeue/queue pair on our own stream; the data
+                // block was mapped by `allocate` and is `maxsize` long.
+                let copied = unsafe {
+                    let raw = pw::sys::pw_stream_dequeue_buffer(stream.as_raw_ptr());
+                    if raw.is_null() {
+                        tracing::debug!(id, "no free buffer; frame dropped");
+                        return;
                     }
-                    _ => 0,
+                    let spa_buffer = (*raw).buffer;
+                    let mut copied = 0usize;
+                    if !spa_buffer.is_null() && (*spa_buffer).n_datas > 0 {
+                        let data = &mut *(*spa_buffer).datas;
+                        if !data.data.is_null() && data.maxsize as usize >= pixels.len() {
+                            std::ptr::copy_nonoverlapping(pixels.as_ptr(), data.data as *mut u8, pixels.len());
+                            copied = pixels.len();
+                        }
+                        if !data.chunk.is_null() {
+                            (*data.chunk).offset = 0;
+                            (*data.chunk).stride = (width * 4) as i32;
+                            (*data.chunk).size = copied as u32;
+                        }
+                    }
+                    if let Some(cursor) = &cursor {
+                        write_cursor(spa_buffer, cursor);
+                    }
+                    pw::sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw);
+                    copied
                 };
                 tracing::trace!(id, copied, "frame queued");
-                let chunk = data.chunk_mut();
-                *chunk.offset_mut() = 0;
-                *chunk.stride_mut() = stride as i32;
-                *chunk.size_mut() = copied as u32;
+                if cursor.is_some() {
+                    *last.borrow_mut() = Some(pixels);
+                }
             }
         })
         .register()
@@ -375,5 +496,5 @@ fn create(
             &mut params,
         )
         .map_err(|e| e.to_string())?;
-    Ok(Live { stream, _listener: listener, frame, size })
+    Ok(Live { stream, _listener: listener, frame, last, size })
 }

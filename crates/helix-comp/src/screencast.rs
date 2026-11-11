@@ -28,13 +28,35 @@ pub enum CastSource {
     Monitor(String),
     /// A window, by its id in the window list.
     Window(u32),
+    /// A rectangle (layout coordinates) on the monitor with this connector.
+    Area { connector: String, x: i32, y: i32, width: i32, height: i32 },
+    /// A virtual monitor made for the stream, by its name.
+    Virtual(String),
+}
+
+/// A virtual monitor: name, position and size (layout coordinates).
+pub type VirtualMonitor = (String, (i32, i32), (i32, i32));
+/// A rectangle: x, y, width, height.
+pub type Rect = (i32, i32, i32, i32);
+
+/// `cursor-mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorMode {
+    #[default]
+    Hidden,
+    Embedded,
+    /// PipeWire cursor metadata.
+    Metadata,
 }
 
 /// Ask the compositor to start or stop recording, or about a window.
 #[derive(Debug)]
 pub enum CastRequest {
     /// Reply: the PipeWire node id.
-    Start { stream: u32, source: CastSource, cursor: bool, reply: oneshot::Sender<Result<u32, String>> },
+    Start { stream: u32, source: CastSource, cursor: CursorMode, reply: oneshot::Sender<Result<u32, String>> },
+    /// Make a virtual monitor for `stream`; reply: its name, position and
+    /// size (layout coordinates).
+    CreateVirtual { stream: u32, reply: oneshot::Sender<Result<VirtualMonitor, String>> },
     Stop { stream: u32 },
     /// A window's size in layout coordinates, if it exists.
     WindowSize { window: u32, reply: oneshot::Sender<Option<(i32, i32)>> },
@@ -50,7 +72,7 @@ struct SessionState {
 #[derive(Debug, Clone)]
 struct StreamState {
     source: CastSource,
-    cursor: bool,
+    cursor: CursorMode,
 }
 
 #[derive(Debug, Default)]
@@ -196,12 +218,31 @@ pub struct Session {
     owner: String,
 }
 
-fn cursor_mode(properties: &HashMap<String, OwnedValue>) -> fdo::Result<bool> {
+fn cursor_mode(properties: &HashMap<String, OwnedValue>) -> fdo::Result<CursorMode> {
     match properties.get("cursor-mode").map(|v| &**v) {
-        None | Some(Value::U32(0)) => Ok(false),
-        Some(Value::U32(1)) => Ok(true),
+        None | Some(Value::U32(0)) => Ok(CursorMode::Hidden),
+        Some(Value::U32(1)) => Ok(CursorMode::Embedded),
+        Some(Value::U32(2)) => Ok(CursorMode::Metadata),
         _ => Err(fdo::Error::InvalidArgs("unsupported cursor mode".into())),
     }
+}
+
+/// `rect` (x, y, w, h) clipped to the monitor (connector, its rectangle)
+/// it mostly covers.
+pub fn clip_to_monitor(rect: Rect, monitors: &[(String, Rect)]) -> Option<(String, Rect)> {
+    let (x, y, w, h) = rect;
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    let overlap = |(mx, my, mw, mh): (i32, i32, i32, i32)| {
+        let (x0, y0) = (x.max(mx), y.max(my));
+        let (x1, y1) = ((x + w).min(mx + mw), (y + h).min(my + mh));
+        (x1 > x0 && y1 > y0).then_some((x0, y0, x1 - x0, y1 - y0))
+    };
+    monitors
+        .iter()
+        .filter_map(|(c, m)| overlap(*m).map(|o| (c.clone(), o)))
+        .max_by_key(|(_, (_, _, w, h))| i64::from(*w) * i64::from(*h))
 }
 
 impl Session {
@@ -209,7 +250,29 @@ impl Session {
     async fn add_stream(
         &self,
         source: CastSource,
-        cursor: bool,
+        cursor: CursorMode,
+        parameters: HashMap<String, OwnedValue>,
+        server: &zbus::ObjectServer,
+    ) -> fdo::Result<OwnedObjectPath> {
+        let id = self.reserve_stream()?;
+        self.add_stream_as(id, source, cursor, parameters, server).await
+    }
+
+    /// A stream id for a session that is not started yet.
+    fn reserve_stream(&self) -> fdo::Result<u32> {
+        let mut casts = lock(&self.shared);
+        match casts.sessions.get(&self.id).map(|s| s.started) {
+            None => Err(fdo::Error::Failed("session closed".into())),
+            Some(true) => Err(fdo::Error::Failed("session already started".into())),
+            Some(false) => Ok(casts.next_id()),
+        }
+    }
+
+    async fn add_stream_as(
+        &self,
+        id: u32,
+        source: CastSource,
+        cursor: CursorMode,
         parameters: HashMap<String, OwnedValue>,
         server: &zbus::ObjectServer,
     ) -> fdo::Result<OwnedObjectPath> {
@@ -221,7 +284,6 @@ impl Session {
                 Some(true) => return Err(fdo::Error::Failed("session already started".into())),
                 Some(false) => {}
             }
-            let id = casts.next_id();
             casts.streams.insert(id, StreamState { source, cursor });
             casts.sessions.get_mut(&self.id).expect("checked above").streams.push(id);
             id
@@ -340,19 +402,57 @@ impl Session {
         self.add_stream(CastSource::Window(window), cursor, parameters, server).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn record_area(
         &self,
-        _x: i32,
-        _y: i32,
-        _width: i32,
-        _height: i32,
-        _properties: HashMap<String, OwnedValue>,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        properties: HashMap<String, OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(object_server)] server: &zbus::ObjectServer,
     ) -> fdo::Result<OwnedObjectPath> {
-        Err(fdo::Error::NotSupported("recording areas is not supported".into()))
+        self.check_owner(&header)?;
+        let cursor = cursor_mode(&properties)?;
+        let monitors: Vec<(String, Rect)> = {
+            let layout = self.layout.lock().unwrap_or_else(|e| e.into_inner());
+            layout
+                .monitors
+                .iter()
+                .filter_map(|m| {
+                    let mode = m.modes.iter().find(|mode| mode.current)?;
+                    let (w, h) = crate::display_config::logical_size(mode.width, mode.height, m.scale, m.transform);
+                    Some((m.connector.clone(), (m.x, m.y, w, h)))
+                })
+                .collect()
+        };
+        let (connector, (cx, cy, cw, ch)) = clip_to_monitor((x, y, width, height), &monitors)
+            .ok_or_else(|| fdo::Error::InvalidArgs("the area is on no monitor".into()))?;
+        let parameters = stream_parameters((cx, cy), (cw, ch), &connector);
+        let source = CastSource::Area { connector, x: cx, y: cy, width: cw, height: ch };
+        self.add_stream(source, cursor, parameters, server).await
     }
 
-    async fn record_virtual(&self, _properties: HashMap<String, OwnedValue>) -> fdo::Result<OwnedObjectPath> {
-        Err(fdo::Error::NotSupported("virtual monitors are not supported".into()))
+    async fn record_virtual(
+        &self,
+        properties: HashMap<String, OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(object_server)] server: &zbus::ObjectServer,
+    ) -> fdo::Result<OwnedObjectPath> {
+        self.check_owner(&header)?;
+        let cursor = cursor_mode(&properties)?;
+        let id = self.reserve_stream()?;
+        let (reply, answer) = oneshot::channel();
+        self.compositor
+            .send(CastRequest::CreateVirtual { stream: id, reply })
+            .map_err(|_| fdo::Error::Failed("the compositor is gone".into()))?;
+        let (name, position, size) = answer
+            .await
+            .map_err(|_| fdo::Error::Failed("the compositor did not answer".into()))?
+            .map_err(fdo::Error::Failed)?;
+        let parameters = stream_parameters(position, size, &name);
+        self.add_stream_as(id, CastSource::Virtual(name), cursor, parameters, server).await
     }
 }
 
@@ -385,5 +485,19 @@ impl Stream {
     #[zbus(property)]
     async fn parameters(&self) -> HashMap<String, OwnedValue> {
         self.parameters.iter().map(|(k, v)| (k.clone(), v.try_clone().expect("plain values"))).collect()
+    }
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::*;
+
+    #[test]
+    fn clipping() {
+        let monitors = vec![("A".to_owned(), (0, 0, 1920, 1080)), ("B".to_owned(), (1920, 0, 1280, 1024))];
+        assert_eq!(clip_to_monitor((100, 100, 200, 100), &monitors), Some(("A".into(), (100, 100, 200, 100))));
+        assert_eq!(clip_to_monitor((1800, 0, 400, 100), &monitors), Some(("B".into(), (1920, 0, 280, 100))), "mostly on B");
+        assert_eq!(clip_to_monitor((5000, 0, 10, 10), &monitors), None);
+        assert_eq!(clip_to_monitor((0, 0, 0, 10), &monitors), None);
     }
 }

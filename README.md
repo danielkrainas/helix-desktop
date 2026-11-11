@@ -233,8 +233,11 @@ one frame behind so the compositor never waits on the GPU), and the panel shows 
 until it ends. Single windows can be shared too (the stream follows the
 window's size; nothing is sent while it is hidden). When an app asks to
 remember the choice, a shared monitor is shared again later without
-asking, as long as the same monitor is connected. Areas and virtual
-monitors cannot be shared yet.
+asking, as long as the same monitor is connected. An app asking only for
+a virtual monitor gets a new 1920×1080 one (right of the others; windows
+can be moved there) without being asked. `org.gnome.Mutter.ScreenCast`
+also records areas, and can send the pointer as PipeWire cursor metadata
+instead of drawing it into the frames.
 
 Night Light follows GNOME's settings (enabled, temperature, manual
 schedule, or sunset to sunrise at the last known location): the shell
