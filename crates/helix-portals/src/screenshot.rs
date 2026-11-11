@@ -141,7 +141,7 @@ async fn take(conn: &Connection, plan: Plan) -> (u32, Results) {
 }
 
 /// A Request object for the duration of one call.
-struct Request;
+pub(crate) struct Request;
 
 #[interface(name = "org.freedesktop.impl.portal.Request")]
 impl Request {
@@ -153,7 +153,7 @@ impl Request {
     }
 }
 
-async fn with_request<F, Fut>(server: &ObjectServer, handle: ObjectPath<'_>, work: F) -> (u32, Results)
+pub(crate) async fn with_request<F, Fut>(server: &ObjectServer, handle: ObjectPath<'_>, work: F) -> (u32, Results)
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = (u32, Results)>,

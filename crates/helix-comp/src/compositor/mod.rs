@@ -11,6 +11,8 @@ mod input;
 mod input_config;
 mod keybindings;
 mod lock;
+pub mod pipewire;
+mod screencast;
 pub mod monitors;
 mod shortcuts;
 mod supervise;
@@ -128,6 +130,7 @@ pub struct Helix {
     pub captures: capture::Captures,
     pub workspaces: workspaces::WorkspaceState,
     pub gamma: gamma::GammaState,
+    pub screencast: screencast::CastState,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -203,6 +206,7 @@ impl Helix {
             captures: Default::default(),
             workspaces: Default::default(),
             gamma: Default::default(),
+            screencast: Default::default(),
         };
         helix.init_captures();
         Ok(helix)

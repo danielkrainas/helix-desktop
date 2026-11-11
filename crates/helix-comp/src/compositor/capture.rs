@@ -322,17 +322,29 @@ impl Helix {
             }
             let output_scale = output.current_scale().fractional_scale();
             scale = scale.max(output_scale);
-            let mut elements = match cursor {
-                Some(named) => self.cursor_elements(renderer, geometry.loc.to_f64(), output_scale, named),
-                None => Vec::new(),
-            };
-            let space = space_render_elements(renderer, [&self.space], output, 1.0).map_err(|e| failed(format!("{e:?}")))?;
-            elements.extend(space.into_iter().map(CaptureElement::Space));
-            let image = render(renderer, geometry.size, output_scale, &elements).map_err(failed)?;
+            let image = self.output_image(renderer, output, cursor).map_err(failed)?;
             pieces.push(Piece { geometry, scale: output_scale, image });
         }
         let scale = if scale > 0.0 { scale } else { 1.0 };
         Ok((area, compose(area, scale, &pieces)))
+    }
+
+    /// One monitor as it is shown (upright, at its scale).
+    pub fn output_image(
+        &self,
+        renderer: &mut GlesRenderer,
+        output: &smithay::output::Output,
+        cursor: Option<Option<&MemoryRenderBuffer>>,
+    ) -> Result<Image, String> {
+        let geometry = self.space.output_geometry(output).ok_or("output not mapped")?;
+        let scale = output.current_scale().fractional_scale();
+        let mut elements = match cursor {
+            Some(named) => self.cursor_elements(renderer, geometry.loc.to_f64(), scale, named),
+            None => Vec::new(),
+        };
+        let space = space_render_elements(renderer, [&self.space], output, 1.0).map_err(|e| format!("{e:?}"))?;
+        elements.extend(space.into_iter().map(CaptureElement::Space));
+        render(renderer, geometry.size, scale, &elements)
     }
 
     /// `Err(None)`: no focused window.

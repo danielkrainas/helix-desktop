@@ -18,6 +18,7 @@ pub mod night_light;
 pub mod notifications;
 pub mod notify_store;
 pub mod screensaver;
+pub mod screencast_chooser;
 pub mod screenshot;
 pub mod shell_keys;
 pub mod state;
@@ -97,6 +98,10 @@ pub enum UiEvent {
     DisplayChange(Option<u32>),
     /// Screenshot work for the UI (capture, picking, flash).
     Screenshot(screenshot::JobSlot),
+    /// Ask which monitor to share with an app.
+    ShareScreen(screencast_chooser::QuestionSlot),
+    /// Whether the screen is being shared (panel indicator).
+    Sharing(bool),
 }
 
 /// Power menu entries.
@@ -405,6 +410,10 @@ impl ShellService {
                 screenshot::Screenshot { screens: screenshot::Screens::with_notifications(ui.clone(), center.clone()) },
             )?
             .serve_at(
+                screencast_chooser::OBJECT_PATH,
+                screencast_chooser::ScreenCastChooser { ui: ui.clone(), busy: Default::default() },
+            )?
+            .serve_at(
                 display_change::OBJECT_PATH,
                 display_change::DisplayChangeDialog { ui: ui.clone(), open: Default::default() },
             )?
@@ -483,6 +492,11 @@ impl ShellService {
             .grabs()
             .map(|(id, g)| (*id, g.accelerator.to_string()))
             .collect()
+    }
+
+    /// Where UI events go (for tasks that report to the UI).
+    pub fn ui_sender(&self) -> mpsc::UnboundedSender<UiEvent> {
+        self.ui.clone()
     }
 
     /// Lets the UI report back (overview changes, key presses).

@@ -66,6 +66,8 @@ const SCRIM: u32 = 0xB00C0C10;
 const BOX_BG: u32 = 0xF81E1E24;
 const FIELD_BG: u32 = 0xFF2C2C33;
 const HOVER_BG: u32 = 0xFF2C2C33;
+/// Screen sharing indicator.
+const SHARING: u32 = 0xFFE01B24;
 
 const APPS_LABEL: &str = "Apps";
 const APPS_BUTTON_W: i32 = 72;
@@ -150,6 +152,8 @@ struct Ui {
     monitor_labels: Vec<Overlay<i32>>,
     /// Which power actions logind allows (entries shown in the menu).
     power: crate::logind::Availability,
+    /// The screen is being shared (panel indicator).
+    sharing: bool,
     exit: bool,
 }
 
@@ -170,6 +174,8 @@ enum OverlayHit {
     /// A window in the switcher.
     Window(u32),
     Power(PowerAction),
+    /// A monitor in the share dialog, by index.
+    Monitor(usize),
     Outside,
 }
 
@@ -185,6 +191,8 @@ enum DialogKind {
     /// Keep a display configuration change, or go back
     /// (`org.helix.DisplayChangeDialog`).
     DisplayChange,
+    /// Which monitor to share with an app (`org.helix.ScreenCastChooser`).
+    ShareScreen { app: String, monitors: Vec<(String, String)>, reply: Option<tokio::sync::oneshot::Sender<Option<String>>> },
 }
 
 const POWER_LABEL: &str = "Power";
@@ -373,6 +381,12 @@ impl Ui {
             }
         }
 
+        if self.sharing {
+            // Left of the Power button: a red dot and "Sharing".
+            let x = w as i32 - POWER_BUTTON_W - 96;
+            canvas.rect(x, h as i32 / 2 - 4, 8, 8, SHARING);
+            label(self.text.as_ref(), &mut canvas, "Sharing", (x + 14) as f32, base, px, SHARING, 80.0);
+        }
         if let Some(text) = &self.text {
             let pw = text.width(POWER_LABEL, px);
             if self.power_menu.is_some() {
@@ -729,6 +743,9 @@ impl Ui {
         }
         self.finish_pick(crate::screenshot::Picked::Cancelled);
         self.finish_switching(false);
+        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::ShareScreen { .. })) {
+            self.answer_dialog(Choice::Canceled);
+        }
         self.close_launcher(true);
         match self.lock.state.lock(&self.qh) {
             Ok(session) => self.lock.session = Some(session),
@@ -999,6 +1016,12 @@ impl Ui {
         self.close_launcher(true);
         match self.dialog.as_mut() {
             Some(open) => {
+                // A question being replaced is answered "no".
+                if let DialogKind::ShareScreen { reply, .. } = &mut open.state.kind {
+                    if let Some(reply) = reply.take() {
+                        let _ = reply.send(None);
+                    }
+                }
                 open.state = state;
                 self.draw_dialog();
             }
@@ -1014,8 +1037,24 @@ impl Ui {
         let request = match dialog.state.kind {
             DialogKind::End(_) => UiRequest::EndDialogAnswer(choice),
             DialogKind::DisplayChange => UiRequest::DisplayChangeAnswer { keep: choice == Choice::Confirmed },
+            DialogKind::ShareScreen { monitors, reply, .. } => {
+                // Confirm (Enter) shares the first monitor.
+                let chosen = (choice == Choice::Confirmed).then(|| monitors.first().map(|m| m.0.clone())).flatten();
+                if let Some(reply) = reply {
+                    let _ = reply.send(chosen);
+                }
+                return;
+            }
         };
         let _ = self.requests.send(request);
+    }
+
+    /// A monitor was picked in the share dialog.
+    fn share_monitor(&mut self, index: usize) {
+        let Some(dialog) = self.dialog.take() else { return };
+        if let DialogKind::ShareScreen { monitors, reply: Some(reply), .. } = dialog.state.kind {
+            let _ = reply.send(monitors.get(index).map(|m| m.0.clone()));
+        }
     }
 
     fn dialog_key(&mut self, event: &KeyEvent) {
@@ -1031,6 +1070,7 @@ impl Ui {
     fn dialog_tick(&mut self) {
         let Some(dialog) = self.dialog.as_mut() else { return };
         let on_timeout = match &dialog.state.kind {
+            DialogKind::ShareScreen { .. } => return,
             DialogKind::End(data) if !data.blockers.is_empty() => return,
             DialogKind::End(_) => Choice::Confirmed,
             DialogKind::DisplayChange => Choice::Canceled,
@@ -1052,6 +1092,10 @@ impl Ui {
     }
 
     fn paint_dialog(&mut self, overlay: &mut Overlay<DialogState>) {
+        if matches!(overlay.state.kind, DialogKind::ShareScreen { .. }) {
+            self.paint_share_dialog(overlay);
+            return;
+        }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
@@ -1072,6 +1116,7 @@ impl Ui {
                 let message = format!("The session will end automatically in {remaining} seconds.");
                 (title, message, "Cancel", confirm, &d.blockers)
             }
+            DialogKind::ShareScreen { .. } => return,
             DialogKind::DisplayChange => (
                 "Keep the new display settings?",
                 format!("The previous settings come back in {remaining} seconds."),
@@ -1117,6 +1162,52 @@ impl Ui {
             label(text, &mut canvas, s, r.x as f32 + (r.w as f32 - lw) / 2.0, base, 15.0, FG, r.w as f32);
         }
         overlay.hits = vec![(cancel, OverlayHit::Cancel), (confirm, OverlayHit::Confirm)];
+        let surface = overlay.layer.wl_surface();
+        surface.damage_buffer(0, 0, w as i32, h as i32);
+        if buffer.attach_to(surface).is_ok() {
+            overlay.layer.commit();
+        }
+    }
+
+    /// "Share your screen?": one row per monitor, and Cancel.
+    fn paint_share_dialog(&mut self, overlay: &mut Overlay<DialogState>) {
+        let DialogKind::ShareScreen { app, monitors, .. } = &overlay.state.kind else { return };
+        let (w, h) = (overlay.width as usize, overlay.height as usize);
+        let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
+            return;
+        };
+        let mut canvas = Canvas { data, width: w, height: h };
+        canvas.fill(SCRIM);
+        let text = self.text.as_ref();
+        let rows = monitors.len().min(8) as i32;
+        let bw = 460.min(w as i32 - 40);
+        let bh = 140 + rows * (ROW_H + 8) + 56;
+        let bx = (w as i32 - bw) / 2;
+        let by = (h as i32 - bh) / 3;
+        canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
+        canvas.rect(bx, by, bw, bh, BANNER_BG);
+        let inner = (bw - 48) as f32;
+        let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
+        let title = "Share your screen?";
+        label(text, &mut canvas, title, center(title, 20.0), (by + 44) as f32, 20.0, FG, inner);
+        let message = format!("{app} wants to see your screen. Choose what to share.");
+        label(text, &mut canvas, &message, center(&message, 14.0), (by + 78) as f32, 14.0, DIM_FG, inner);
+        let mut hits = Vec::new();
+        for (i, (connector, name)) in monitors.iter().take(8).enumerate() {
+            let r = Rect { x: bx + 24, y: by + 100 + i as i32 * (ROW_H + 8), w: bw - 48, h: ROW_H };
+            canvas.rect(r.x, r.y, r.w, r.h, HOVER_BG);
+            let base = baseline(text, r.y, r.h, 15.0);
+            label(text, &mut canvas, name, (r.x + 12) as f32, base, 15.0, FG, r.w as f32 - 120.0);
+            let cw = text.map_or(0.0, |t| t.width(connector, 13.0).min(100.0));
+            label(text, &mut canvas, connector, r.x as f32 + r.w as f32 - 12.0 - cw, base, 13.0, DIM_FG, 100.0);
+            hits.push((r, OverlayHit::Monitor(i)));
+        }
+        let cancel = Rect { x: bx + 24, y: by + bh - 56, w: bw - 48, h: 36 };
+        canvas.rect(cancel.x, cancel.y, cancel.w, cancel.h, BANNER_BORDER);
+        let lw = text.map_or(0.0, |t| t.width("Cancel", 15.0));
+        label(text, &mut canvas, "Cancel", cancel.x as f32 + (cancel.w as f32 - lw) / 2.0, baseline(text, cancel.y, cancel.h, 15.0), 15.0, FG, cancel.w as f32);
+        hits.push((cancel, OverlayHit::Cancel));
+        overlay.hits = hits;
         let surface = overlay.layer.wl_surface();
         surface.damage_buffer(0, 0, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
@@ -1230,6 +1321,20 @@ impl Ui {
         match event {
             UiEvent::EndDialog(dialog) => self.show_end_dialog(dialog),
             UiEvent::DisplayChange(seconds) => self.show_display_change(seconds),
+            UiEvent::ShareScreen(slot) => {
+                if let Some(q) = slot.take() {
+                    if self.lock.session.is_some() {
+                        let _ = q.reply.send(None);
+                    } else {
+                        let kind = DialogKind::ShareScreen { app: q.app, monitors: q.monitors, reply: Some(q.reply) };
+                        self.show_dialog(DialogState { kind, remaining: 0 });
+                    }
+                }
+            }
+            UiEvent::Sharing(on) => {
+                self.sharing = on;
+                self.draw_panel();
+            }
             UiEvent::Screenshot(slot) => {
                 if let Some(job) = slot.take() {
                     self.screenshot_job(job);
@@ -1426,6 +1531,7 @@ pub fn run(
         power_menu: None,
         monitor_labels: Vec::new(),
         power: Default::default(),
+        sharing: false,
         lock: LockScreen {
             state: SessionLockState::new(&globals, &qh),
             session: None,
@@ -1656,6 +1762,7 @@ impl PointerHandler for Ui {
                 match hit {
                     OverlayHit::Confirm => self.answer_dialog(Choice::Confirmed),
                     OverlayHit::Cancel => self.answer_dialog(Choice::Canceled),
+                    OverlayHit::Monitor(index) => self.share_monitor(index),
                     _ => {}
                 }
             } else if self.switcher.as_ref().is_some_and(|o| o.layer.wl_surface() == &event.surface) {

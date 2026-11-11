@@ -6,7 +6,7 @@ This repository is the implementation. The living specification and contracts li
 
 ## Status
 
-Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested, or on bare hardware via DRM/KMS) with `IdleMonitor` and `DisplayConfig`, `helix-shell` serves `org.gnome.Shell` and draws a top panel, `helix-portals` serves the Settings, Inhibit and Screenshot portal backends, and `helix-settings` reads the system GSettings.
+Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested, or on bare hardware via DRM/KMS) with `IdleMonitor` and `DisplayConfig`, `helix-shell` serves `org.gnome.Shell` and draws a top panel, `helix-portals` serves the Settings, Inhibit, Screenshot and ScreenCast portal backends, and `helix-settings` reads the system GSettings.
 
 ## Target
 
@@ -40,6 +40,16 @@ tests/contract/     # conformance tests against helix-desktop-spec
 ```
 
 Contracts are defined in the companion [helix-desktop-spec](https://github.com/danielkrainas/helix-desktop-spec) repository.
+
+## Building
+
+Besides Rust, building needs the development packages listed in
+`.github/workflows/ci.yml` (on Debian/Ubuntu: `libwayland-dev
+libxkbcommon-dev libseat-dev libinput-dev libudev-dev libgbm-dev libdrm-dev
+libegl-dev libglib2.0-dev libpipewire-0.3-dev libspa-0.2-dev clang`). The
+PipeWire bindings are generated with libclang; without the `clang` package,
+point it at GCC's headers instead, e.g.
+`BINDGEN_EXTRA_CLANG_ARGS=-I/usr/lib/gcc/x86_64-linux-gnu/13/include`.
 
 ## Running the session skeleton
 
@@ -110,8 +120,9 @@ installed).
 ## Running the portal backends
 
 `helix-portals` serves `org.freedesktop.impl.portal.Settings`,
-`org.freedesktop.impl.portal.Inhibit` and
-`org.freedesktop.impl.portal.Screenshot` as
+`org.freedesktop.impl.portal.Inhibit`,
+`org.freedesktop.impl.portal.Screenshot` and
+`org.freedesktop.impl.portal.ScreenCast` as
 `org.freedesktop.impl.portal.desktop.helix`. Settings come from the system's
 GSettings (dconf + installed GNOME schemas); `org.freedesktop.appearance` is
 derived from them (`color-scheme`, `accent-color`, `contrast`,
@@ -194,6 +205,12 @@ the session manager before `WAYLAND_DISPLAY`, so the whole session and
 D-Bus-activated services see it; when nested, the host's `DISPLAY` is never
 passed on to Helix's children. Helix draws no title bars yet, so X11 apps
 that rely on the window manager for one can be moved with Super+drag.
+
+Screen sharing works through the ScreenCast portal: when an app asks, the
+shell lets you pick a monitor ("Share your screen?"), the compositor
+records it into a PipeWire video stream (`org.gnome.Mutter.ScreenCast`,
+BGRx, up to 30 frames a second), and the panel shows a red "Sharing" label
+until it ends. Windows, areas and virtual monitors cannot be shared yet.
 
 Night Light follows GNOME's settings (enabled, temperature, manual
 schedule, or sunset to sunrise at the last known location): the shell

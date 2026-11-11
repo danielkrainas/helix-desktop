@@ -13,6 +13,7 @@ pub mod display_config;
 pub mod idle;
 pub mod idle_monitor;
 pub mod input_settings;
+pub mod screencast;
 pub mod workspaces;
 
 use std::sync::{Arc, Mutex};
@@ -38,6 +39,9 @@ pub enum Event {
     ShowApplications,
     /// The user asked to lock the screen (Super+L).
     Lock,
+    /// A screen cast stream ended on the compositor's side (monitor gone,
+    /// PipeWire error).
+    ScreenCastEnded(u32),
 }
 
 /// The running D-Bus services of the compositor.
@@ -46,6 +50,8 @@ pub struct CompositorServices {
     idle: Shared,
     layout: Arc<Mutex<Layout>>,
     tasks: Vec<JoinHandle<()>>,
+    casts: screencast::Shared,
+    cast: Option<mpsc::UnboundedSender<screencast::CastRequest>>,
 }
 
 async fn own(conn: &Connection, name: &'static str) -> zbus::Result<()> {
@@ -72,6 +78,8 @@ pub struct MonitorControl {
     pub backlight: Option<backlight::Backlight>,
     /// Where gamma requests go (`None`: no gamma control).
     pub gamma: Option<mpsc::UnboundedSender<display_config::GammaRequest>>,
+    /// Where screen cast requests go (`None`: no screen casting).
+    pub cast: Option<mpsc::UnboundedSender<screencast::CastRequest>>,
 }
 
 impl Default for MonitorControl {
@@ -82,6 +90,7 @@ impl Default for MonitorControl {
             confirm_seconds: display_config::CONFIRM_SECONDS,
             backlight: None,
             gamma: None,
+            cast: None,
         }
     }
 }
@@ -100,6 +109,8 @@ impl CompositorServices {
         let idle = Shared::new();
         let layout = Arc::new(Mutex::new(Layout::new(monitors)));
         let watch_backlight = control.backlight.is_some();
+        let casts = screencast::Shared::default();
+        let cast = control.cast.clone();
         let display_config = DisplayConfig::new(
             layout.clone(),
             control.applier,
@@ -112,10 +123,16 @@ impl CompositorServices {
             .serve_at(idle_monitor::MANAGER_PATH, ObjectManager)?
             .serve_at(idle_monitor::CORE_PATH, IdleMonitor::new(idle.clone()))?
             .serve_at(display_config::OBJECT_PATH, display_config)?
+            .serve_at(
+                screencast::OBJECT_PATH,
+                screencast::ScreenCast { shared: casts.clone(), layout: layout.clone(), compositor: control.cast },
+            )?
+            .serve_at(screencast::OBJECT_PATH, screencast::ScreenCastState { shared: casts.clone() })?
             .build()
             .await?;
         own(&conn, idle_monitor::BUS_NAME).await?;
         own(&conn, display_config::BUS_NAME).await?;
+        own(&conn, screencast::BUS_NAME).await?;
         tracing::info!("IdleMonitor and DisplayConfig ready");
 
         let mut tasks = vec![
@@ -125,11 +142,16 @@ impl CompositorServices {
         if watch_backlight {
             tasks.push(spawn_backlight_watcher(&conn));
         }
+        if let Some(cast) = &cast {
+            tasks.push(spawn_cast_owner_watcher(&conn, casts.clone(), cast.clone()).await?);
+        }
         Ok(Self {
             conn,
             idle,
             layout,
             tasks,
+            casts,
+            cast,
         })
     }
 
@@ -179,6 +201,13 @@ impl CompositorServices {
                     .await;
                 if let Err(err) = reply {
                     tracing::warn!(%err, "cannot ask the shell to lock");
+                }
+                Ok(())
+            }
+            Event::ScreenCastEnded(stream) => {
+                let session = self.casts.lock().unwrap_or_else(|e| e.into_inner()).session_of(stream);
+                if let (Some(session), Some(cast)) = (session, &self.cast) {
+                    screencast::close_session(&self.conn, &self.casts, cast, session).await;
                 }
                 Ok(())
             }
@@ -254,6 +283,28 @@ fn spawn_backlight_watcher(conn: &Connection) -> JoinHandle<()> {
             }
         }
     })
+}
+
+/// End screen cast sessions whose creator left the bus.
+async fn spawn_cast_owner_watcher(
+    conn: &Connection,
+    casts: screencast::Shared,
+    cast: mpsc::UnboundedSender<screencast::CastRequest>,
+) -> zbus::Result<JoinHandle<()>> {
+    let mut changes = DBusProxy::new(conn).await?.receive_name_owner_changed().await?;
+    let conn = conn.clone();
+    Ok(tokio::spawn(async move {
+        while let Some(signal) = changes.next().await {
+            let Ok(args) = signal.args() else { continue };
+            let name = args.name().as_str();
+            if name.starts_with(':') && args.new_owner().is_none() {
+                let sessions = casts.lock().unwrap_or_else(|e| e.into_inner()).sessions_of(name);
+                for session in sessions {
+                    screencast::close_session(&conn, &casts, &cast, session).await;
+                }
+            }
+        }
+    }))
 }
 
 /// Fire idle watches when they come due.

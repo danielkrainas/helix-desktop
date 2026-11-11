@@ -24,3 +24,4 @@ path = "src/main.rs"
 
 [dev-dependencies]
 helix-test-support.workspace = true
+helix-comp.workspace = true

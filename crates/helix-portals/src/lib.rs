@@ -1,12 +1,14 @@
 //! Helix XDG desktop portal backends.
 //!
 //! Serves `org.freedesktop.impl.portal.Settings`,
-//! `org.freedesktop.impl.portal.Inhibit` and
-//! `org.freedesktop.impl.portal.Screenshot` as
+//! `org.freedesktop.impl.portal.Inhibit`,
+//! `org.freedesktop.impl.portal.Screenshot` and
+//! `org.freedesktop.impl.portal.ScreenCast` as
 //! `org.freedesktop.impl.portal.desktop.helix`, for the xdg-desktop-portal
 //! frontend to use (see `session/helix.portal`).
 
 pub mod inhibit;
+pub mod screencast;
 pub mod screenshot;
 pub mod settings;
 
@@ -43,6 +45,7 @@ impl PortalService {
         let conn = builder
             .serve_at(OBJECT_PATH, SettingsBackend::new(settings))?
             .serve_at(OBJECT_PATH, screenshot::ScreenshotBackend)?
+            .serve_at(OBJECT_PATH, screencast::ScreenCastBackend { shared: Default::default() })?
             .build()
             .await?;
 
@@ -112,6 +115,7 @@ impl PortalService {
         server.remove::<InhibitBackend, _>(OBJECT_PATH).await?;
         server.remove::<SettingsBackend, _>(OBJECT_PATH).await?;
         server.remove::<screenshot::ScreenshotBackend, _>(OBJECT_PATH).await?;
+        server.remove::<screencast::ScreenCastBackend, _>(OBJECT_PATH).await?;
         self.conn.graceful_shutdown().await;
         Ok(())
     }

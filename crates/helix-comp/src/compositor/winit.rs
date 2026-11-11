@@ -163,6 +163,7 @@ pub fn init(
                 }
                 // The host draws the pointer, so named cursors can't be captured.
                 state.run_captures(backend.renderer(), None);
+                state.cast_frames(backend.renderer(), None);
                 if state.lock.locked {
                     state.lock_frame_shown();
                     state.lock_send_frames(&output);

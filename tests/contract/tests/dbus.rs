@@ -63,7 +63,7 @@ async fn portal_backends() {
         .unwrap();
     let conn = portals.connection();
 
-    for iface in ["Settings", "Inhibit", "Screenshot"] {
+    for iface in ["Settings", "Inhibit", "Screenshot", "ScreenCast"] {
         let name = format!("org.freedesktop.impl.portal.{iface}");
         assert_matches_contract(conn, BUS_NAME, OBJECT_PATH, &name, &format!("{name}.xml"), &[]).await;
     }
@@ -131,6 +131,63 @@ async fn mutter_idle_monitor_and_display_config() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn mutter_screen_cast() {
+    use helix_comp::screencast::{CastRequest, BUS_NAME, OBJECT_PATH};
+    use helix_comp::{CompositorServices, MonitorControl};
+    use std::collections::HashMap;
+    use zbus::zvariant::{OwnedObjectPath, Value};
+
+    let Some(bus) = TestBus::start() else { return };
+    // The recording itself is not needed to check the interfaces.
+    let (cast, _requests) = tokio::sync::mpsc::unbounded_channel::<CastRequest>();
+    let store = std::env::temp_dir().join(format!("helix-contract-cast-{}.toml", std::process::id()));
+    let control = MonitorControl { store: helix_comp::display_config::Store::at(store), cast: Some(cast), ..MonitorControl::default() };
+    let monitor = helix_comp::display_config::Monitor {
+        connector: "WINIT-1".into(),
+        vendor: "Helix".into(),
+        product: "Nested".into(),
+        serial: "0".into(),
+        display_name: "Helix nested window".into(),
+        builtin: false,
+        modes: vec![helix_comp::display_config::Mode { width: 1280, height: 800, refresh_mhz: 60_000, preferred: true, current: true }],
+        x: 0,
+        y: 0,
+        scale: 1.0,
+        transform: 0,
+        primary: true,
+        transforms: vec![0],
+    };
+    let services = CompositorServices::start_with(bus.builder(), vec![monitor], control).await.unwrap();
+    let conn = services.connection();
+    // Sessions are only for Helix's portal backend.
+    let portal = bus.connect().await;
+    portal.request_name("org.freedesktop.impl.portal.desktop.helix").await.unwrap();
+    let no_props: HashMap<&str, Value<'_>> = HashMap::new();
+    let session: OwnedObjectPath = portal
+        .call_method(Some(BUS_NAME), OBJECT_PATH, Some("org.gnome.Mutter.ScreenCast"), "CreateSession", &(no_props.clone(),))
+        .await
+        .unwrap()
+        .body()
+        .deserialize()
+        .unwrap();
+    let stream: OwnedObjectPath = portal
+        .call_method(Some(BUS_NAME), session.as_str(), Some("org.gnome.Mutter.ScreenCast.Session"), "RecordMonitor", &("WINIT-1", no_props))
+        .await
+        .unwrap()
+        .body()
+        .deserialize()
+        .unwrap();
+    for (path, iface) in [
+        (OBJECT_PATH, "org.gnome.Mutter.ScreenCast"),
+        (session.as_str(), "org.gnome.Mutter.ScreenCast.Session"),
+        (stream.as_str(), "org.gnome.Mutter.ScreenCast.Stream"),
+    ] {
+        assert_matches_contract(conn, BUS_NAME, path, iface, "org.gnome.Mutter.ScreenCast.xml", &[]).await;
+    }
+    assert_matches_contract(conn, BUS_NAME, OBJECT_PATH, "org.helix.ScreenCastState", "org.helix.ScreenCastState.xml", &[]).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn org_gnome_shell() {
     let Some(bus) = TestBus::start() else { return };
     let (service, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
@@ -149,6 +206,15 @@ async fn org_gnome_shell() {
         helix_shell::display_change::OBJECT_PATH,
         "org.helix.DisplayChangeDialog",
         "org.helix.DisplayChangeDialog.xml",
+        &[],
+    )
+    .await;
+    assert_matches_contract(
+        service.connection(),
+        helix_shell::BUS_NAME,
+        helix_shell::screencast_chooser::OBJECT_PATH,
+        "org.helix.ScreenCastChooser",
+        "org.helix.ScreenCastChooser.xml",
         &[],
     )
     .await;

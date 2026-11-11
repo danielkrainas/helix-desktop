@@ -32,6 +32,7 @@ gio = "0.22"
 smithay-client-toolkit = { version = "0.21", default-features = false, features = ["calloop", "xkbcommon"] }
 ab_glyph = "0.2"
 png = "0.17"
+pipewire = { version = "0.9", features = ["v0_3_44"] }
 smithay = { version = "0.7", default-features = false, features = [
     "backend_winit",
     "backend_drm",
