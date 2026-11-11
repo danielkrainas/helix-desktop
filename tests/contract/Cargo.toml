@@ -12,5 +12,6 @@ publish = false
 helix-test-support.workspace = true
 helix-session.workspace = true
 helix-portals.workspace = true
+helix-settings.workspace = true
 zbus.workspace = true
 tokio.workspace = true

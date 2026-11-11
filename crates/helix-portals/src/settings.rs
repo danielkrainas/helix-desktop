@@ -38,6 +38,13 @@ impl SettingsSource for Mutex<Snapshot> {
     }
 }
 
+/// The system's GSettings (dconf + installed schemas).
+impl SettingsSource for helix_settings::GSettings {
+    fn snapshot(&self) -> Snapshot {
+        helix_settings::GSettings::snapshot(self)
+    }
+}
+
 /// Errors with the names the portal frontend expects.
 #[derive(Debug, DBusError)]
 #[zbus(prefix = "org.freedesktop.portal.Error")]

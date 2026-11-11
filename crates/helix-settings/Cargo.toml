@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Helix GSettings and settings integration"
+description = "Helix GSettings surface: typed access to the system dconf + GNOME schemas"
 
 [dependencies]
+gio.workspace = true
+zbus.workspace = true
+tokio.workspace = true
+tracing.workspace = true

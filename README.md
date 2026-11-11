@@ -6,7 +6,7 @@ This repository is the implementation. The living specification and contracts li
 
 ## Status
 
-Early implementation. `helix-session` serves a minimal `org.gnome.SessionManager`; other crates are still scaffolding.
+Early implementation. `helix-session` serves `org.gnome.SessionManager`, `helix-portals` serves the Settings and Inhibit portal backends, and `helix-settings` reads the system GSettings. The compositor and shell are still scaffolding.
 
 ## Target
 
@@ -83,3 +83,28 @@ Current behavior worth knowing:
 Tests: `cargo test -p helix-session` runs unit tests for the session rules
 and integration tests that start a private `dbus-daemon` (skipped if it is not
 installed).
+
+## Running the portal backends
+
+`helix-portals` serves `org.freedesktop.impl.portal.Settings` and
+`org.freedesktop.impl.portal.Inhibit` as
+`org.freedesktop.impl.portal.desktop.helix`. Settings come from the system's
+GSettings (dconf + installed GNOME schemas); `org.freedesktop.appearance` is
+derived from them (`color-scheme`, `contrast`, `reduced-motion`). Portal
+inhibitions are forwarded to `org.gnome.SessionManager`.
+
+To try it without touching your real settings:
+
+```sh
+dbus-run-session -- env GSETTINGS_BACKEND=memory bash -c '
+  cargo run -p helix-portals &
+  sleep 1
+  busctl --user call org.freedesktop.impl.portal.desktop.helix \
+    /org/freedesktop/portal/desktop org.freedesktop.impl.portal.Settings \
+    Read ss org.freedesktop.appearance color-scheme
+  kill %1; wait'
+```
+
+For xdg-desktop-portal to use it, install `session/helix.portal` into
+`$datadir/xdg-desktop-portal/portals/` and `session/helix-portals.conf` into
+`$datadir/xdg-desktop-portal/`, and include `Helix` in `XDG_CURRENT_DESKTOP`.

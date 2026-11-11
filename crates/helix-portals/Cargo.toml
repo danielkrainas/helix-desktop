@@ -13,6 +13,12 @@ tokio.workspace = true
 futures-util.workspace = true
 tracing.workspace = true
 helix-session.workspace = true
+helix-settings.workspace = true
+tracing-subscriber.workspace = true
+
+[[bin]]
+name = "helix-portals"
+path = "src/main.rs"
 
 [dev-dependencies]
 helix-test-support.workspace = true
