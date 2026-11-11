@@ -46,6 +46,8 @@ pub enum Target {
     Area(Rectangle<i32, Logical>),
     /// The focused window, with its title bar or not.
     Window { frame: bool },
+    /// The window shown at a point, with its title bar.
+    WindowAt(Point<i32, Logical>),
 }
 
 pub struct Pending {
@@ -302,6 +304,20 @@ impl Helix {
                 Some(err) => failed(err),
             });
         }
+        if let Target::WindowAt(point) = target {
+            let at = point.to_f64();
+            // The window under the point, or the one whose title bar it is.
+            let window = self
+                .frame_under(at)
+                .map(|(w, _)| w)
+                .or_else(|| self.space.element_under(at).map(|(w, _)| w.clone()))
+                .filter(|w| !super::wm::is_override_redirect(w))
+                .ok_or(Reason::NoWindow)?;
+            return self.window_image(renderer, &window, cursor, true).map_err(|e| match e {
+                None => Reason::NoWindow,
+                Some(err) => failed(err),
+            });
+        }
         let outputs: Vec<_> = self.space.outputs().cloned().collect();
         let layout = outputs
             .iter()
@@ -483,6 +499,7 @@ impl Dispatch<HelixScreenshotManagerV1, ()> for Helix {
             }
             Request::CaptureWindow { id, cursor, fd } => (id, Target::Window { frame: false }, shown(cursor), fd),
             Request::CaptureWindowWithFrame { id, cursor, fd } => (id, Target::Window { frame: true }, shown(cursor), fd),
+            Request::CaptureWindowAt { id, x, y, cursor, fd } => (id, Target::WindowAt((x, y).into()), shown(cursor), fd),
             Request::CopyImage { fd } => {
                 state.copy_image(fd);
                 return;

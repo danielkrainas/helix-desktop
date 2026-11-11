@@ -234,6 +234,15 @@ async fn org_gnome_shell() {
         service.connection(),
         helix_shell::BUS_NAME,
         helix_shell::screenshot::OBJECT_PATH,
+        "org.helix.ScreenshotWindowPicker",
+        "org.helix.ScreenshotWindowPicker.xml",
+        &[],
+    )
+    .await;
+    assert_matches_contract(
+        service.connection(),
+        helix_shell::BUS_NAME,
+        helix_shell::screenshot::OBJECT_PATH,
         "org.gnome.Shell.Screenshot",
         "org.gnome.Shell.Screenshot.xml",
         &[],

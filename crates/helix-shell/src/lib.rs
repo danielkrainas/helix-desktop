@@ -117,6 +117,8 @@ pub enum UiEvent {
     ShareScreen(screencast_chooser::QuestionSlot),
     /// Ask whether an app may control input (remote desktop).
     AllowControl(screencast_chooser::ControlSlot),
+    /// The open windows (for remembered screen casts).
+    Windows(screencast_chooser::WindowsSlot),
     /// Whether the screen is being shared (panel indicator).
     Sharing(bool),
     /// From IBus, for the input method.
@@ -456,6 +458,10 @@ impl ShellService {
             .serve_at(
                 screenshot::OBJECT_PATH,
                 screenshot::Screenshot { screens: screenshot::Screens::with_notifications(ui.clone(), center.clone()) },
+            )?
+            .serve_at(
+                screenshot::OBJECT_PATH,
+                screenshot::WindowPicker { screens: screenshot::Screens::new(ui.clone()) },
             )?
             .serve_at(night_light::OBJECT_PATH, night_light::ColorService { handle: night_light.clone() })?
             .serve_at(

@@ -31,7 +31,28 @@ impl Chooser {
     async fn choose_source(&self, _app_id: String, _monitors: Vec<(String, String)>, options: HashMap<String, OwnedValue>) -> (bool, u32, String, u32) {
         let control = options.get("control").and_then(|v| Vec::<String>::try_from(v.clone()).ok()).unwrap_or_default();
         self.asked.lock().unwrap().push(("share".into(), control));
-        (true, 1, "DP-1".into(), 0)
+        let monitors = options.get("monitors").and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(true);
+        if monitors {
+            (true, 1, "DP-1".into(), 0)
+        } else {
+            (true, 2, String::new(), 7)
+        }
+    }
+
+    async fn describe_window(&self, window: u32) -> zbus::fdo::Result<(String, String)> {
+        if window == 7 {
+            Ok(("org.example.Doc".into(), "Notes".into()))
+        } else {
+            Err(zbus::fdo::Error::InvalidArgs("no window".into()))
+        }
+    }
+
+    async fn find_window(&self, app_id: String, title: String) -> (bool, u32) {
+        if app_id == "org.example.Doc" && title == "Notes" {
+            (true, 7)
+        } else {
+            (false, 0)
+        }
     }
 
     async fn allow_remote_control(&self, _app_id: String, devices: Vec<String>) -> bool {
@@ -80,8 +101,8 @@ fn fake_compositor(log: Arc<Mutex<Vec<String>>>) -> mpsc::UnboundedSender<CastRe
                 CastRequest::LockKeys { reply } => {
                     let _ = reply.send((true, false));
                 }
-                CastRequest::WindowSize { reply, .. } => {
-                    let _ = reply.send(None);
+                CastRequest::WindowSize { window, reply } => {
+                    let _ = reply.send((window == 7).then_some((800, 600)));
                 }
                 CastRequest::CreateVirtual { reply, .. } => {
                     let _ = reply.send(Err("none".into()));
@@ -322,6 +343,50 @@ async fn remote_control() {
         assert!(log.contains(&"clip write 7".to_owned()), "{log:?}");
         assert!(log.iter().any(|l| l.contains("WriteDone(7, true)")), "{log:?}");
     }
+
+    // Remembering: remote control without a screen.
+    let start = |path: &'static str, devices: u32, restore: Option<Value<'static>>, sources: Option<u32>| {
+        let conn = conn.clone();
+        let request = request.clone();
+        async move {
+            let session = ObjectPath::try_from(path).unwrap();
+            assert_eq!(call(&conn, RD, "CreateSession", &(&request, &session, "org.example.Remote", HashMap::<&str, Value<'_>>::new())).await.0, 0);
+            let mut options = HashMap::from([("types", Value::from(devices)), ("persist_mode", Value::from(2u32))]);
+            if let Some(restore) = restore {
+                options.insert("restore_data", restore);
+            }
+            assert_eq!(call(&conn, RD, "SelectDevices", &(&request, &session, "org.example.Remote", options)).await.0, 0);
+            if let Some(types) = sources {
+                let options = HashMap::from([("types", Value::from(types))]);
+                assert_eq!(call(&conn, SC, "SelectSources", &(&request, &session, "org.example.Remote", options)).await.0, 0);
+            }
+            call(&conn, RD, "Start", &(&request, &session, "org.example.Remote", "", HashMap::<&str, Value<'_>>::new())).await
+        }
+    };
+    let restore_of = |results: &HashMap<String, OwnedValue>| Value::from(results["restore_data"].try_clone().unwrap());
+    let asked_before = asked.lock().unwrap().len();
+    let (r, first) = start("/org/freedesktop/portal/desktop/session/1_1/rd4", 3, None, None).await;
+    assert_eq!(r, 0);
+    assert_eq!(u32::try_from(first["persist_mode"].clone()).unwrap(), 2);
+    assert_eq!(asked.lock().unwrap().len(), asked_before + 1, "asked the first time");
+    let (r, again) = start("/org/freedesktop/portal/desktop/session/1_1/rd5", 1, Some(restore_of(&first)), None).await;
+    assert_eq!(r, 0);
+    assert_eq!(u32::try_from(again["devices"].clone()).unwrap(), 1);
+    assert_eq!(asked.lock().unwrap().len(), asked_before + 1, "remembered: not asked");
+    let (r, _) = start("/org/freedesktop/portal/desktop/session/1_1/rd6", 7, Some(restore_of(&first)), None).await;
+    assert_eq!(r, 0);
+    assert_eq!(asked.lock().unwrap().len(), asked_before + 2, "touchscreen was not allowed before: asked");
+
+    // A shared window is remembered by app id and title.
+    let (r, window) = start("/org/freedesktop/portal/desktop/session/1_1/rd7", 1, None, Some(2)).await;
+    assert_eq!(r, 0);
+    assert_eq!(asked.lock().unwrap().len(), asked_before + 3);
+    let data = restore_of(&window);
+    assert!(format!("{data:?}").contains("Notes"), "{data:?}");
+    let (r, again) = start("/org/freedesktop/portal/desktop/session/1_1/rd8", 1, Some(data), Some(2)).await;
+    assert_eq!(r, 0);
+    assert!(again.contains_key("streams"));
+    assert_eq!(asked.lock().unwrap().len(), asked_before + 3, "the remembered window: not asked");
 
     // Closing the portal session ends the remote session and its cast.
     conn.call_method(Some(BUS_NAME), s2.as_str(), Some("org.freedesktop.impl.portal.Session"), "Close", &()).await.unwrap();

@@ -44,9 +44,9 @@ pub(crate) struct Cast {
     pub(crate) app_id: String,
     cursor_mode: u32,
     types: u32,
-    persist_mode: u32,
-    /// The monitor to share again, from `restore_data`.
-    restore: Option<MonitorId>,
+    pub(crate) persist_mode: u32,
+    /// What to share (and allow) again, from `restore_data`.
+    pub(crate) restore: Option<Remembered>,
     /// The compositor's session, once started.
     mutter: Option<OwnedObjectPath>,
     /// `SelectSources` was called (a remote desktop session shares the
@@ -101,29 +101,6 @@ impl MonitorId {
         !(self.vendor.is_empty() || self.vendor == "Unknown") || !(self.product.is_empty() || self.product == "Unknown")
     }
 
-    /// `restore_data` for this monitor.
-    pub fn restore_data(&self) -> (String, u32, OwnedValue) {
-        let dict = HashMap::from([
-            ("connector", Value::from(self.connector.as_str())),
-            ("vendor", Value::from(self.vendor.as_str())),
-            ("product", Value::from(self.product.as_str())),
-            ("serial", Value::from(self.serial.as_str())),
-        ]);
-        (RESTORE_VENDOR.to_owned(), RESTORE_VERSION, owned(Value::from(dict)))
-    }
-
-    /// The monitor described by `restore_data`, if it is Helix's.
-    pub fn from_restore_data(value: &Value<'_>) -> Option<Self> {
-        let Value::Structure(s) = value else { return None };
-        let [Value::Str(vendor), Value::U32(version), Value::Value(data)] = s.fields() else { return None };
-        if vendor.as_str() != RESTORE_VENDOR || *version != RESTORE_VERSION {
-            return None;
-        }
-        let dict = HashMap::<String, OwnedValue>::try_from(OwnedValue::try_from((**data).try_clone().ok()?).ok()?).ok()?;
-        let get = |k: &str| dict.get(k).and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default();
-        Some(Self { connector: get("connector"), vendor: get("vendor"), product: get("product"), serial: get("serial") })
-    }
-
     /// The connector of the monitor in `on` this one is, if any: the same
     /// identity, else (when the identity is unknown) the same connector.
     pub fn find_in(&self, on: &[(MonitorId, String)]) -> Option<String> {
@@ -133,6 +110,55 @@ impl MonitorId {
         } else {
             on.iter().find(|(m, _)| !m.known_identity() && m.connector == self.connector).map(|(m, _)| m.connector.clone())
         }
+    }
+}
+
+/// What a session remembers (`restore_data` `("Helix", 1, a{sv})`): a
+/// monitor, a window (app id and title) and, for remote desktop, devices.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Remembered {
+    pub monitor: Option<MonitorId>,
+    pub window: Option<(String, String)>,
+    pub devices: Option<u32>,
+}
+
+impl Remembered {
+    pub fn restore_data(&self) -> (String, u32, OwnedValue) {
+        let mut dict: HashMap<&str, Value<'_>> = HashMap::new();
+        if let Some(m) = &self.monitor {
+            dict.insert("connector", Value::from(m.connector.as_str()));
+            dict.insert("vendor", Value::from(m.vendor.as_str()));
+            dict.insert("product", Value::from(m.product.as_str()));
+            dict.insert("serial", Value::from(m.serial.as_str()));
+        }
+        if let Some((app, title)) = &self.window {
+            dict.insert("window-app-id", Value::from(app.as_str()));
+            dict.insert("window-title", Value::from(title.as_str()));
+        }
+        if let Some(devices) = self.devices {
+            dict.insert("devices", Value::from(devices));
+        }
+        (RESTORE_VENDOR.to_owned(), RESTORE_VERSION, owned(Value::from(dict)))
+    }
+
+    /// What `restore_data` remembers, if it is Helix's.
+    pub fn from_restore_data(value: &Value<'_>) -> Option<Self> {
+        let Value::Structure(s) = value else { return None };
+        let [Value::Str(vendor), Value::U32(version), Value::Value(data)] = s.fields() else { return None };
+        if vendor.as_str() != RESTORE_VENDOR || *version != RESTORE_VERSION {
+            return None;
+        }
+        let dict = HashMap::<String, OwnedValue>::try_from(OwnedValue::try_from((**data).try_clone().ok()?).ok()?).ok()?;
+        let get = |k: &str| dict.get(k).and_then(|v| String::try_from(v.clone()).ok());
+        let monitor = get("connector").map(|connector| MonitorId {
+            connector,
+            vendor: get("vendor").unwrap_or_default(),
+            product: get("product").unwrap_or_default(),
+            serial: get("serial").unwrap_or_default(),
+        });
+        let window = get("window-app-id").zip(get("window-title"));
+        let devices = dict.get("devices").and_then(|v| u32::try_from(v).ok());
+        Some(Self { monitor, window, devices })
     }
 }
 
@@ -246,53 +272,64 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
         Some(c) => (c.app_id.clone(), c.cursor_mode, c.types, c.persist_mode, c.restore.clone(), c.remote.as_ref().map(|r| r.devices), c.sources_selected),
         None => return (response::OTHER, Results::new()),
     };
-    // A remote desktop session without screen sharing: just ask.
-    if let (Some(devices), false) = (remote, sources_selected) {
-        let allowed = conn
-            .call_method(Some(SHELL), CHOOSER_PATH, Some("org.helix.ScreenCastChooser"), "AllowRemoteControl", &(app_id.as_str(), device_names(devices)))
-            .await
-            .and_then(|r| r.body().deserialize::<bool>());
-        match allowed {
-            Ok(true) => {}
-            Ok(false) => return (response::CANCELLED, Results::new()),
+    let types = if remote.is_some() && !sources_selected { 0 } else { types };
+    // Remote control may be restored when every device type asked for was
+    // allowed before (restore data without devices is a screen cast's).
+    let devices_remembered = match (remote, restore.as_ref().and_then(|r| r.devices)) {
+        (Some(asked), Some(allowed)) => asked & !allowed == 0,
+        (Some(_), None) => false,
+        (None, _) => true,
+    };
+    let on = if types & SOURCE_MONITOR != 0 {
+        match monitors(conn).await {
+            Ok(m) => m,
             Err(err) => {
-                tracing::warn!(%err, "cannot ask about remote control");
+                tracing::warn!(%err, "cannot list monitors");
                 return (response::OTHER, Results::new());
             }
         }
-        return match start_remote(conn, shared, session, devices, None, cursor_mode).await {
-            Ok(results) => (response::SUCCESS, results),
-            Err(err) => {
-                tracing::warn!(%err, "cannot start remote control");
-                end(conn, shared, session, true).await;
-                (response::OTHER, Results::new())
+    } else {
+        Vec::new()
+    };
+    // What to share again without asking.
+    let restored: Option<Option<Source>> = match restore.as_ref().filter(|_| devices_remembered) {
+        None => None,
+        Some(r) if types == 0 => (r.monitor.is_none() && r.window.is_none()).then_some(None),
+        Some(r) => {
+            if let Some(connector) = r.monitor.as_ref().filter(|_| types & SOURCE_MONITOR != 0).and_then(|m| m.find_in(&on)) {
+                Some(Some(Source::Monitor(connector)))
+            } else if let Some((app, title)) = r.window.as_ref().filter(|_| types & SOURCE_WINDOW != 0) {
+                find_window(conn, app, title).await.map(|w| Some(Source::Window(w)))
+            } else {
+                None
             }
-        };
-    }
-    let persist_mode = if remote.is_some() { 0 } else { persist_mode };
-    let restore = if remote.is_some() { None } else { restore };
-    let on = match monitors(conn).await {
-        Ok(m) => m,
-        Err(err) => {
-            tracing::warn!(%err, "cannot list monitors");
-            return (response::OTHER, Results::new());
         }
     };
-    let restored = restore.as_ref().filter(|_| types & SOURCE_MONITOR != 0).and_then(|r| r.find_in(&on));
-    // Only a virtual monitor: nothing that exists is shown, so no asking.
-    let virtual_only = types == SOURCE_VIRTUAL;
-    let source = match restored {
-        _ if virtual_only => Source::Virtual,
-        Some(connector) => {
-            tracing::info!(connector, app_id, "sharing a remembered monitor");
-            Source::Monitor(connector)
+    let source: Option<Source> = match restored {
+        Some(source) => {
+            tracing::info!(app_id, ?source, "restoring what was shared before");
+            source
+        }
+        // Only a virtual monitor: nothing that exists is shown, so no asking.
+        None if types == SOURCE_VIRTUAL => Some(Source::Virtual),
+        None if types == 0 => {
+            // A remote desktop session without screen sharing: just ask.
+            let devices = remote.unwrap_or(0);
+            let allowed = conn
+                .call_method(Some(SHELL), CHOOSER_PATH, Some(CHOOSER), "AllowRemoteControl", &(app_id.as_str(), device_names(devices)))
+                .await
+                .and_then(|r| r.body().deserialize::<bool>());
+            match allowed {
+                Ok(true) => None,
+                Ok(false) => return (response::CANCELLED, Results::new()),
+                Err(err) => {
+                    tracing::warn!(%err, "cannot ask about remote control");
+                    return (response::OTHER, Results::new());
+                }
+            }
         }
         None => {
-            let offered: Vec<(String, String)> = if types & SOURCE_MONITOR != 0 {
-                on.iter().map(|(m, name)| (m.connector.clone(), name.clone())).collect()
-            } else {
-                Vec::new()
-            };
+            let offered: Vec<(String, String)> = on.iter().map(|(m, name)| (m.connector.clone(), name.clone())).collect();
             let mut options = HashMap::from([
                 ("monitors", Value::from(types & SOURCE_MONITOR != 0)),
                 ("windows", Value::from(types & SOURCE_WINDOW != 0)),
@@ -302,12 +339,12 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
                 options.insert("control", Value::from(device_names(devices)));
             }
             let choice = conn
-                .call_method(Some(SHELL), CHOOSER_PATH, Some("org.helix.ScreenCastChooser"), "ChooseSource", &(app_id.as_str(), &offered, options))
+                .call_method(Some(SHELL), CHOOSER_PATH, Some(CHOOSER), "ChooseSource", &(app_id.as_str(), &offered, options))
                 .await
                 .and_then(|r| r.body().deserialize::<(bool, u32, String, u32)>());
             match choice {
-                Ok((true, SOURCE_MONITOR, connector, _)) => Source::Monitor(connector),
-                Ok((true, SOURCE_WINDOW, _, window)) => Source::Window(window),
+                Ok((true, SOURCE_MONITOR, connector, _)) => Some(Source::Monitor(connector)),
+                Ok((true, SOURCE_WINDOW, _, window)) => Some(Source::Window(window)),
                 Ok(_) => return (response::CANCELLED, Results::new()),
                 Err(err) => {
                     tracing::warn!(%err, "cannot ask what to share");
@@ -316,9 +353,34 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
             }
         }
     };
+    // What to remember for next time.
+    let remembered = if persist_mode == 0 {
+        None
+    } else {
+        let mut r = Remembered { devices: remote, ..Remembered::default() };
+        match &source {
+            Some(Source::Monitor(connector)) => r.monitor = on.iter().find(|(m, _)| m.connector == *connector).map(|(m, _)| m.clone()),
+            Some(Source::Window(id)) => r.window = describe_window(conn, *id).await,
+            _ => {}
+        }
+        // Nothing identifiable shared (and not remote control): nothing to remember.
+        (r.monitor.is_some() || r.window.is_some() || (remote.is_some() && source.is_none())).then_some(r)
+    };
+    let remember = |results: &mut Results| match &remembered {
+        Some(r) => {
+            results.insert("persist_mode".to_owned(), owned(Value::from(persist_mode)));
+            results.insert("restore_data".to_owned(), owned(Value::from(r.restore_data())));
+        }
+        None => {
+            results.insert("persist_mode".to_owned(), owned(Value::from(0u32)));
+        }
+    };
     if let Some(devices) = remote {
-        return match start_remote(conn, shared, session, devices, Some(&source), cursor_mode).await {
-            Ok(results) => (response::SUCCESS, results),
+        return match start_remote(conn, shared, session, devices, source.as_ref(), cursor_mode).await {
+            Ok(mut results) => {
+                remember(&mut results);
+                (response::SUCCESS, results)
+            }
             Err(err) => {
                 tracing::warn!(%err, ?source, "cannot start remote control");
                 end(conn, shared, session, true).await;
@@ -326,22 +388,11 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
             }
         };
     }
+    let Some(source) = source else { return (response::OTHER, Results::new()) };
     match record(conn, shared, session, &source, cursor_mode, None).await {
         Ok(stream) => {
             let mut results = HashMap::from([("streams".to_owned(), owned(Value::from(vec![stream])))]);
-            let remembered = match &source {
-                Source::Monitor(connector) if persist_mode != 0 => on.iter().find(|(m, _)| m.connector == *connector).map(|(m, _)| m.clone()),
-                _ => None,
-            };
-            match remembered {
-                Some(monitor) => {
-                    results.insert("persist_mode".to_owned(), owned(Value::from(persist_mode)));
-                    results.insert("restore_data".to_owned(), owned(Value::from(monitor.restore_data())));
-                }
-                None => {
-                    results.insert("persist_mode".to_owned(), owned(Value::from(0u32)));
-                }
-            }
+            remember(&mut results);
             (response::SUCCESS, results)
         }
         Err(err) => {
@@ -350,6 +401,21 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
             (response::OTHER, Results::new())
         }
     }
+}
+
+const CHOOSER: &str = "org.helix.ScreenCastChooser";
+
+/// The open window with `app_id` and `title` (the shell knows them).
+async fn find_window(conn: &Connection, app_id: &str, title: &str) -> Option<u32> {
+    let reply = conn.call_method(Some(SHELL), CHOOSER_PATH, Some(CHOOSER), "FindWindow", &(app_id, title)).await.ok()?;
+    let (found, id): (bool, u32) = reply.body().deserialize().ok()?;
+    found.then_some(id)
+}
+
+/// A window's app id and title.
+async fn describe_window(conn: &Connection, id: u32) -> Option<(String, String)> {
+    let reply = conn.call_method(Some(SHELL), CHOOSER_PATH, Some(CHOOSER), "DescribeWindow", &(id,)).await.ok()?;
+    reply.body().deserialize().ok()
 }
 
 /// Record `connector` through the compositor; the stream for the app.
@@ -559,7 +625,7 @@ impl ScreenCastBackend {
             Some(Value::U32(m)) if *m <= 2 => *m,
             _ => 0,
         };
-        let restore = options.get("restore_data").and_then(MonitorId::from_restore_data);
+        let restore = options.get("restore_data").and_then(Remembered::from_restore_data);
         let shared = self.shared.clone();
         Ok(with_request(server, handle, || async move {
             if !lock(&shared).sessions.contains_key(&session) {
@@ -577,8 +643,11 @@ impl ScreenCastBackend {
                 cast.sources_selected = true;
                 cast.cursor_mode = cursor_mode;
                 cast.types = types & known;
-                cast.persist_mode = persist_mode;
-                cast.restore = restore;
+                // A remote desktop session remembers through SelectDevices.
+                if cast.remote.is_none() {
+                    cast.persist_mode = persist_mode;
+                    cast.restore = restore;
+                }
             }
             (response::SUCCESS, Results::new())
         })
@@ -628,11 +697,18 @@ mod tests {
     #[test]
     fn restore_data_round_trip_and_matching() {
         let monitor = id("DP-1", "Acme", "123");
-        let (vendor, version, data) = monitor.restore_data();
-        let value = Value::from((vendor, version, data));
-        let value = OwnedValue::try_from(value).unwrap();
-        assert_eq!(MonitorId::from_restore_data(&value), Some(monitor.clone()));
-        assert_eq!(MonitorId::from_restore_data(&Value::from(("GNOME", 1u32, Value::from(1u32)))), None, "not ours");
+        let round_trip = |r: &Remembered| {
+            let (vendor, version, data) = r.restore_data();
+            let value = OwnedValue::try_from(Value::from((vendor, version, data))).unwrap();
+            Remembered::from_restore_data(&value)
+        };
+        let m = Remembered { monitor: Some(monitor.clone()), ..Remembered::default() };
+        assert_eq!(round_trip(&m), Some(m.clone()));
+        let w = Remembered { window: Some(("org.a.App".into(), "Doc".into())), devices: Some(3), ..Remembered::default() };
+        assert_eq!(round_trip(&w), Some(w.clone()));
+        let d = Remembered { devices: Some(7), ..Remembered::default() };
+        assert_eq!(round_trip(&d), Some(d.clone()));
+        assert_eq!(Remembered::from_restore_data(&Value::from(("GNOME", 1u32, Value::from(1u32)))), None, "not ours");
         // Same monitor on another connector: found by identity.
         let on = vec![(id("HDMI-1", "Acme", "123"), "x".to_owned()), (id("DP-1", "Other", "9"), "y".to_owned())];
         assert_eq!(monitor.find_in(&on), Some("HDMI-1".to_owned()));

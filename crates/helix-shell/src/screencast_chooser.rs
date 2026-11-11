@@ -67,6 +67,34 @@ impl PartialEq for ControlSlot {
     }
 }
 
+/// Open windows, most recently used first: (id, app id, title).
+pub type WindowInfo = Vec<(u32, String, String)>;
+
+/// A request for the open windows that can travel in a [`UiEvent`].
+#[derive(Debug, Clone)]
+pub struct WindowsSlot(Arc<Mutex<Option<oneshot::Sender<WindowInfo>>>>);
+
+impl WindowsSlot {
+    pub fn new(reply: oneshot::Sender<WindowInfo>) -> Self {
+        Self(Arc::new(Mutex::new(Some(reply))))
+    }
+
+    pub fn take(&self) -> Option<oneshot::Sender<WindowInfo>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
+    }
+}
+
+impl PartialEq for WindowsSlot {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// The window with `app_id` and `title`, most recently used first.
+pub fn find_window(windows: &WindowInfo, app_id: &str, title: &str) -> Option<u32> {
+    windows.iter().find(|(_, a, t)| a == app_id && t == title).map(|(id, _, _)| *id)
+}
+
 /// "keyboard and pointer", "keyboard, pointer and touchscreen".
 pub fn device_list(devices: &[String]) -> String {
     match devices {
@@ -110,8 +138,8 @@ pub struct ScreenCastChooser {
 }
 
 impl ScreenCastChooser {
-    /// Only the portal may ask, one question at a time (marks busy).
-    async fn check(&self, header: &Header<'_>, conn: &Connection) -> fdo::Result<()> {
+    /// Only the portal may call.
+    async fn check_caller(&self, header: &Header<'_>, conn: &Connection) -> fdo::Result<()> {
         let sender = header.sender().map(|s| s.to_string()).unwrap_or_default();
         let allowed = match (DBusProxy::new(conn).await, zbus::names::BusName::try_from(ALLOWED_CALLER)) {
             (Ok(dbus), Ok(name)) => dbus.get_name_owner(name).await.is_ok_and(|o| o.as_str() == sender),
@@ -120,6 +148,12 @@ impl ScreenCastChooser {
         if !allowed {
             return Err(fdo::Error::AccessDenied("only the portal may ask".into()));
         }
+        Ok(())
+    }
+
+    /// Only the portal may ask, one question at a time (marks busy).
+    async fn check(&self, header: &Header<'_>, conn: &Connection) -> fdo::Result<()> {
+        self.check_caller(header, conn).await?;
         let mut busy = self.busy.lock().unwrap_or_else(|e| e.into_inner());
         if *busy {
             return Err(fdo::Error::Failed("another question is open".into()));
@@ -129,8 +163,36 @@ impl ScreenCastChooser {
     }
 }
 
+impl ScreenCastChooser {
+    async fn windows(&self) -> WindowInfo {
+        let (reply, answer) = oneshot::channel();
+        if self.ui.send(UiEvent::Windows(WindowsSlot::new(reply))).is_err() {
+            return Vec::new();
+        }
+        answer.await.unwrap_or_default()
+    }
+}
+
 #[interface(name = "org.helix.ScreenCastChooser")]
 impl ScreenCastChooser {
+    async fn describe_window(&self, window: u32, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<(String, String)> {
+        self.check_caller(&header, conn).await?;
+        self.windows()
+            .await
+            .into_iter()
+            .find(|(id, _, _)| *id == window)
+            .map(|(_, app, title)| (app, title))
+            .ok_or_else(|| fdo::Error::InvalidArgs(format!("no window {window}")))
+    }
+
+    async fn find_window(&self, app_id: &str, title: &str, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<(bool, u32)> {
+        self.check_caller(&header, conn).await?;
+        Ok(match find_window(&self.windows().await, app_id, title) {
+            Some(id) => (true, id),
+            None => (false, 0),
+        })
+    }
+
     async fn allow_remote_control(
         &self,
         app_id: &str,
@@ -189,5 +251,18 @@ pub async fn follow_sharing(conn: Connection, ui: mpsc::UnboundedSender<UiEvent>
         if let Ok(active) = change.get().await {
             let _ = ui.send(UiEvent::Sharing(active));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finding_windows() {
+        let w: WindowInfo = vec![(3, "a".into(), "T".into()), (1, "a".into(), "T".into()), (2, "b".into(), "T".into())];
+        assert_eq!(find_window(&w, "a", "T"), Some(3), "most recently used");
+        assert_eq!(find_window(&w, "b", "T"), Some(2));
+        assert_eq!(find_window(&w, "a", "U"), None);
     }
 }

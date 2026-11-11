@@ -73,6 +73,23 @@ impl FakeShell {
     }
 }
 
+/// The shell's window pick: cancelled the first time, then a window.
+struct FakePicker {
+    calls: Arc<Mutex<Vec<String>>>,
+}
+
+#[interface(name = "org.helix.ScreenshotWindowPicker")]
+impl FakePicker {
+    async fn pick_window(&self, _cursor: bool, _flash: bool, filename: &str) -> fdo::Result<(bool, String)> {
+        let mut calls = self.calls.lock().unwrap();
+        calls.push("PickWindow".into());
+        if calls.iter().filter(|c| *c == "PickWindow").count() == 1 {
+            return Err(fdo::Error::Failed("Operation was cancelled".into()));
+        }
+        Ok((true, filename.to_owned()))
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn screenshots_go_through_the_shell() {
     let home = std::env::temp_dir().join(format!("helix-portal-shot-{}", std::process::id()));
@@ -91,6 +108,8 @@ async fn screenshots_go_through_the_shell() {
         .builder()
         .serve_at("/org/gnome/Shell/Screenshot", FakeShell { calls: calls.clone(), interactive })
         .unwrap()
+        .serve_at("/org/gnome/Shell/Screenshot", FakePicker { calls: calls.clone() })
+        .unwrap()
         .name("org.gnome.Shell")
         .unwrap()
         .build()
@@ -101,7 +120,7 @@ async fn screenshots_go_through_the_shell() {
 
     let conn = bus.connect().await;
     let portal = ScreenshotProxy::builder(&conn).cache_properties(CacheProperties::No).build().await.unwrap();
-    assert_eq!(portal.available_targets().await.unwrap(), 13);
+    assert_eq!(portal.available_targets().await.unwrap(), 15);
     assert_eq!(portal.version().await.unwrap(), 3);
     let handle = ObjectPath::try_from("/org/freedesktop/portal/desktop/request/1_1/t1").unwrap();
     let checked = || HashMap::from([("permission_store_checked", Value::from(true))]);
@@ -128,7 +147,13 @@ async fn screenshots_go_through_the_shell() {
     assert_eq!(portal.screenshot(&handle, "a", "", window).await.unwrap().0, 2, "shell failed");
     let mut picked = checked();
     picked.insert("target", Value::from(2u32));
-    assert_eq!(portal.screenshot(&handle, "a", "", picked).await.unwrap().0, 2, "not offered");
+    assert_eq!(portal.screenshot(&handle, "a", "", picked.clone()).await.unwrap().0, 1, "window pick cancelled");
+    let (response, results) = portal.screenshot(&handle, "a", "", picked).await.unwrap();
+    assert_eq!(response, 0, "a window picked");
+    assert!(uri(&results).contains("Screenshot%20From%20"));
+    let mut other = checked();
+    other.insert("target", Value::from(16u32));
+    assert_eq!(portal.screenshot(&handle, "a", "", other).await.unwrap().0, 2, "not offered");
 
     let (response, results) = portal.pick_color(&handle, "a", "", HashMap::new()).await.unwrap();
     assert_eq!(response, 0);
@@ -136,7 +161,7 @@ async fn screenshots_go_through_the_shell() {
 
     assert_eq!(
         *calls.lock().unwrap(),
-        ["InteractiveScreenshot", "InteractiveScreenshot", "Screenshot false false", "SelectArea", "ScreenshotWindow", "PickColor"]
+        ["InteractiveScreenshot", "InteractiveScreenshot", "Screenshot false false", "SelectArea", "ScreenshotWindow", "PickWindow", "PickWindow", "PickColor"]
     );
     // The Request objects are gone afterwards.
     let close = conn

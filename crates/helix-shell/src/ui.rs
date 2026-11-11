@@ -1642,6 +1642,11 @@ impl Ui {
                     }
                 }
             }
+            UiEvent::Windows(slot) => {
+                if let Some(reply) = slot.take() {
+                    let _ = reply.send(self.windows.mru().iter().map(|w| (w.id, w.app_id.clone(), w.title.clone())).collect());
+                }
+            }
             UiEvent::AllowControl(slot) => {
                 if let Some(q) = slot.take() {
                     if self.lock.session.is_some() || self.dialog.is_some() {
@@ -1837,7 +1842,7 @@ pub fn run(
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
     let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=7, ()).ok();
-    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=3, ()).ok();
+    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=4, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
         .ok();

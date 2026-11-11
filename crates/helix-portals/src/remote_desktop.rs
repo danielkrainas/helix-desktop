@@ -90,11 +90,21 @@ impl RemoteDesktopBackend {
             Some(Value::U32(t)) => *t & ALL_DEVICES,
             _ => ALL_DEVICES,
         };
+        let persist_mode = match options.get("persist_mode") {
+            Some(Value::U32(m)) if *m <= 2 => *m,
+            _ => 0,
+        };
+        let restore = options.get("restore_data").and_then(screencast::Remembered::from_restore_data);
         let shared = self.shared.clone();
         Ok(with_request(server, handle, || async move {
-            match lock(&shared).sessions.get_mut(&session).and_then(|c| c.remote.as_mut()) {
-                Some(remote) if types != 0 => {
-                    remote.devices = types;
+            let mut casts = lock(&shared);
+            match casts.sessions.get_mut(&session) {
+                Some(cast) if types != 0 && cast.remote.is_some() => {
+                    if let Some(remote) = cast.remote.as_mut() {
+                        remote.devices = types;
+                    }
+                    cast.persist_mode = persist_mode;
+                    cast.restore = restore;
                     (response::SUCCESS, Results::new())
                 }
                 _ => (response::OTHER, Results::new()),

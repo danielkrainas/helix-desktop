@@ -63,6 +63,7 @@ fn hint(mode: PickMode) -> &'static str {
     match mode {
         PickMode::Area => "Drag to select an area · Esc to cancel",
         PickMode::Point => "Click to pick a color · Esc to cancel",
+        PickMode::Window => "Click a window to capture it · Esc to cancel",
         PickMode::Screenshot => "Drag to capture an area · Enter for the whole screen · Esc to cancel",
     }
 }
@@ -106,11 +107,18 @@ impl Ui {
         let cursor = if cursor { Cursor::Shown } else { Cursor::Hidden };
         let data = FrameData { reply: Mutex::new(Some(reply)), _file: file };
         let qh = &self.qh;
+        if matches!(target, Target::WindowAt(..)) && manager.version() < 4 {
+            if let Some(reply) = data.reply.lock().unwrap().take() {
+                let _ = reply.send(Err(CaptureError::Unavailable));
+            }
+            return;
+        }
         match target {
             Target::Screen => manager.capture_screen(cursor, fd.as_fd(), qh, data),
             Target::Window { frame: true } if manager.version() >= 3 => manager.capture_window_with_frame(cursor, fd.as_fd(), qh, data),
             Target::Window { .. } => manager.capture_window(cursor, fd.as_fd(), qh, data),
             Target::Area(a) => manager.capture_area(a.x, a.y, a.width, a.height, cursor, fd.as_fd(), qh, data),
+            Target::WindowAt(x, y) => manager.capture_window_at(x, y, cursor, fd.as_fd(), qh, data),
         };
     }
 
@@ -237,7 +245,7 @@ impl Ui {
         match event.kind {
             PointerEventKind::Press { button: BTN_RIGHT, .. } => self.finish_pick(Picked::Cancelled),
             PointerEventKind::Press { button: BTN_LEFT, .. } => {
-                if mode == PickMode::Point {
+                if matches!(mode, PickMode::Point | PickMode::Window) {
                     let (x, y) = event.position;
                     self.finish_pick(Picked::Point(origin.0 + x.floor() as i32, origin.1 + y.floor() as i32));
                 } else {

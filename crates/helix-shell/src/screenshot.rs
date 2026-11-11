@@ -46,6 +46,8 @@ pub enum Target {
     Screen,
     /// The focused window, with the compositor's title bar or not.
     Window { frame: bool },
+    /// The window at a point (layout coordinates), with its title bar.
+    WindowAt(i32, i32),
     Area(Rect),
 }
 
@@ -58,6 +60,8 @@ pub enum PickMode {
     Point,
     /// The screenshot UI: an area, or Enter for the whole screen.
     Screenshot,
+    /// Click a window.
+    Window,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -431,6 +435,41 @@ impl Screenshot {
             Picked::Area(r) => Ok((r.x, r.y, r.width, r.height)),
             Picked::Busy => Err(fdo::Error::Failed("another selection is in progress".into())),
             _ => Err(fdo::Error::Failed(CANCELLED.into())),
+        }
+    }
+}
+
+/// Helix's window pick for the Screenshot portal (helix-desktop-spec
+/// `org.gnome.Shell.Screenshot.md`, "Picking a window"), at the same object.
+pub struct WindowPicker {
+    pub screens: Screens,
+}
+
+#[interface(name = "org.helix.ScreenshotWindowPicker")]
+impl WindowPicker {
+    /// Let the user click a window and capture it: (success, file used).
+    async fn pick_window(
+        &self,
+        include_cursor: bool,
+        flash: bool,
+        filename: &str,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> fdo::Result<(bool, String)> {
+        check(conn, &header).await?;
+        let path = resolve(filename, &pictures_dir());
+        loop {
+            let (x, y) = match self.screens.pick(PickMode::Window).await {
+                Picked::Point(x, y) => (x, y),
+                Picked::Busy => return Err(fdo::Error::Failed("another selection is in progress".into())),
+                _ => return Err(fdo::Error::Failed(CANCELLED.into())),
+            };
+            match self.screens.capture_to(Target::WindowAt(x, y), include_cursor, flash, &path).await {
+                Ok(path) => return Ok((true, path.to_string_lossy().into_owned())),
+                // No window there: pick again.
+                Err(CaptureError::NoWindow) => continue,
+                Err(_) => return Ok((false, String::new())),
+            }
         }
     }
 }

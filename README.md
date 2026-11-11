@@ -133,7 +133,8 @@ manager, sound, privacy and mouse schemas as namespaces. Portal
 inhibitions are forwarded to `org.gnome.SessionManager`. Screenshots and
 color picking go through the shell's `org.gnome.Shell.Screenshot`: unless
 the portal frontend says the app's permission was already checked, the user
-picks what to capture in the shell's screenshot UI.
+picks what to capture in the shell's screenshot UI; an app may also ask
+for a window the user clicks.
 
 To try it without touching your real settings:
 
@@ -234,8 +235,9 @@ read back from the GPU in BGRA without conversion where the GPU allows,
 one frame behind so the compositor never waits on the GPU), and the panel shows a red "Sharing" label
 until it ends. Single windows can be shared too (the stream follows the
 window's size; nothing is sent while it is hidden). When an app asks to
-remember the choice, a shared monitor is shared again later without
-asking, as long as the same monitor is connected. An app asking only for
+remember the choice, a shared monitor (or window, found again by app and
+title) is shared again later without asking, as long as it is there;
+remote control is remembered the same way, for the devices allowed. An app asking only for
 a virtual monitor gets a new 1920×1080 one (right of the others; windows
 can be moved there) without being asked. `org.gnome.Mutter.ScreenCast`
 also records areas, and can send the pointer as PipeWire cursor metadata

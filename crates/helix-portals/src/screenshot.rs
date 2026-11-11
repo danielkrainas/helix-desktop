@@ -30,8 +30,8 @@ pub mod target {
     pub const ACTIVE_WINDOW: u32 = 8;
 }
 
-/// Targets offered: screen, area, active window.
-pub const AVAILABLE_TARGETS: u32 = target::SCREEN | target::AREA | target::ACTIVE_WINDOW;
+/// Targets offered: screen, a window the user picks, area, active window.
+pub const AVAILABLE_TARGETS: u32 = target::SCREEN | target::WINDOW | target::AREA | target::ACTIVE_WINDOW;
 
 const SHELL: &str = "org.gnome.Shell";
 const SHELL_PATH: &str = "/org/gnome/Shell/Screenshot";
@@ -49,6 +49,8 @@ pub enum Plan {
     Screen,
     Area,
     ActiveWindow,
+    /// A window the user picks.
+    Window,
     Unavailable,
 }
 
@@ -61,6 +63,7 @@ pub fn plan(options: &HashMap<String, Value<'_>>) -> Plan {
         None | Some(Value::U32(target::SCREEN)) => Plan::Screen,
         Some(Value::U32(target::AREA)) => Plan::Area,
         Some(Value::U32(target::ACTIVE_WINDOW)) => Plan::ActiveWindow,
+        Some(Value::U32(target::WINDOW)) => Plan::Window,
         _ => Plan::Unavailable,
     }
 }
@@ -128,6 +131,12 @@ async fn take(conn: &Connection, plan: Plan) -> (u32, Results) {
         },
         Plan::Screen => saved(shell(conn, "Screenshot", &(false, false, path().as_str())).await),
         Plan::ActiveWindow => saved(shell(conn, "ScreenshotWindow", &(false, false, false, path().as_str())).await),
+        Plan::Window => {
+            let reply = conn
+                .call_method(Some(SHELL), SHELL_PATH, Some("org.helix.ScreenshotWindowPicker"), "PickWindow", &(false, false, path().as_str()))
+                .await;
+            saved(reply.and_then(|r| r.body().deserialize::<(bool, String)>()))
+        }
         Plan::Area => match shell::<_, (i32, i32, i32, i32)>(conn, "SelectArea", &()).await {
             Ok((x, y, w, h)) => saved(shell(conn, "ScreenshotArea", &(x, y, w, h, false, path().as_str())).await),
             Err(err) if is_cancel(&err) => (response::CANCELLED, Results::new()),
@@ -238,6 +247,7 @@ mod tests {
         assert_eq!(plan(&options(&[checked.clone(), ("target", Value::from(4u32))])), Plan::Area);
         assert_eq!(plan(&options(&[checked.clone(), ("target", Value::from(8u32))])), Plan::ActiveWindow);
         assert_eq!(plan(&options(&[checked.clone(), ("target", Value::from(1u32))])), Plan::Screen);
-        assert_eq!(plan(&options(&[checked, ("target", Value::from(2u32))])), Plan::Unavailable);
+        assert_eq!(plan(&options(&[checked.clone(), ("target", Value::from(2u32))])), Plan::Window);
+        assert_eq!(plan(&options(&[checked, ("target", Value::from(16u32))])), Plan::Unavailable);
     }
 }
