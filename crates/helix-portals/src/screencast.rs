@@ -31,7 +31,7 @@ pub const CURSOR_METADATA: u32 = 4;
 
 const MUTTER: &str = "org.gnome.Mutter.ScreenCast";
 pub(crate) const REMOTE: &str = "org.gnome.Mutter.RemoteDesktop";
-const REMOTE_PATH: &str = "/org/gnome/Mutter/RemoteDesktop";
+pub(crate) const REMOTE_PATH: &str = "/org/gnome/Mutter/RemoteDesktop";
 const MUTTER_PATH: &str = "/org/gnome/Mutter/ScreenCast";
 const SHELL: &str = "org.gnome.Shell";
 const CHOOSER_PATH: &str = "/org/helix/ScreenCastChooser";
@@ -81,6 +81,10 @@ pub(crate) struct Remote {
     pub mutter: Option<OwnedObjectPath>,
     /// Stream objects by PipeWire node id.
     pub streams: HashMap<u32, OwnedObjectPath>,
+    /// `RequestClipboard` was called (before `Start`).
+    pub clipboard_requested: bool,
+    /// The clipboard is shared (once started).
+    pub clipboard: bool,
 }
 
 /// What identifies a monitor across sessions.
@@ -484,6 +488,10 @@ async fn start_remote(
         None => {
             conn.call_method(Some(REMOTE), remote.as_str(), Some("org.gnome.Mutter.RemoteDesktop.Session"), "Start", &()).await?;
         }
+    }
+    let requested = lock(shared).sessions.get(session).and_then(|c| c.remote.as_ref()).is_some_and(|r| r.clipboard_requested);
+    if requested && crate::clipboard::enable(conn, shared, session, &remote).await {
+        results.insert("clipboard_enabled".to_owned(), owned(Value::from(true)));
     }
     {
         let (conn, shared, session) = (conn.clone(), shared.clone(), session.clone());

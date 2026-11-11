@@ -142,10 +142,14 @@ impl SelectionHandler for Helix {
         source: Option<smithay::wayland::selection::SelectionSource>,
         _seat: Seat<Self>,
     ) {
+        let mime_types = source.as_ref().map(|s| s.mime_types());
         if let Some(xwm) = self.xwm.as_mut() {
-            if let Err(err) = xwm.new_selection(ty, source.map(|s| s.mime_types())) {
+            if let Err(err) = xwm.new_selection(ty, mime_types.clone()) {
                 tracing::warn!(?err, ?ty, "cannot offer selection to X11");
             }
+        }
+        if ty == smithay::wayland::selection::SelectionTarget::Clipboard {
+            self.clipboard_changed(mime_types.unwrap_or_default(), None);
         }
     }
 
@@ -160,6 +164,10 @@ impl SelectionHandler for Helix {
     ) {
         if let super::ServerSelection::Image(png) = user_data {
             super::capture::serve_image(png.clone(), &mime_type, fd);
+            return;
+        }
+        if let super::ServerSelection::Remote { session } = user_data {
+            self.start_transfer(*session, mime_type, fd);
             return;
         }
         if let Some(xwm) = self.xwm.as_mut() {

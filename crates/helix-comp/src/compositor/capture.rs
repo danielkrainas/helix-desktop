@@ -225,10 +225,11 @@ impl Helix {
             super::ServerSelection::Image(std::sync::Arc::new(png)),
         );
         if let Some(xwm) = self.xwm.as_mut() {
-            if let Err(err) = xwm.new_selection(smithay::wayland::selection::SelectionTarget::Clipboard, Some(mime)) {
+            if let Err(err) = xwm.new_selection(smithay::wayland::selection::SelectionTarget::Clipboard, Some(mime.clone())) {
                 tracing::warn!(?err, "cannot offer the image to X11");
             }
         }
+        self.clipboard_changed(mime, None);
         tracing::info!("image copied to the clipboard");
     }
 

@@ -311,9 +311,18 @@ impl XwmHandler for Helix {
 
     fn send_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {
         if selection == SelectionTarget::Clipboard {
-            if let Some(super::ServerSelection::Image(png)) = current_data_device_selection_userdata(&self.seat).as_deref() {
-                super::capture::serve_image(png.clone(), &mime_type, fd);
-                return;
+            let current = current_data_device_selection_userdata(&self.seat).map(|r| r.clone());
+            match current.as_ref() {
+                Some(super::ServerSelection::Image(png)) => {
+                    super::capture::serve_image(png.clone(), &mime_type, fd);
+                    return;
+                }
+                Some(super::ServerSelection::Remote { session }) => {
+                    let session = *session;
+                    self.start_transfer(session, mime_type, fd);
+                    return;
+                }
+                _ => {}
             }
         }
         let result = match selection {
@@ -331,7 +340,8 @@ impl XwmHandler for Helix {
         tracing::debug!(?selection, ?mime_types, "X11 selection offered to Wayland clients");
         match selection {
             SelectionTarget::Clipboard => {
-                set_data_device_selection(&self.display_handle, &self.seat, mime_types, super::ServerSelection::X11)
+                set_data_device_selection(&self.display_handle, &self.seat, mime_types.clone(), super::ServerSelection::X11);
+                self.clipboard_changed(mime_types, None);
             }
             SelectionTarget::Primary => {
                 set_primary_selection(&self.display_handle, &self.seat, mime_types, super::ServerSelection::X11)
@@ -345,6 +355,7 @@ impl XwmHandler for Helix {
                 let x11 = matches!(current_data_device_selection_userdata(&self.seat).as_deref(), Some(super::ServerSelection::X11));
                 if x11 {
                     clear_data_device_selection(&self.display_handle, &self.seat);
+                    self.clipboard_changed(Vec::new(), None);
                 }
             }
             SelectionTarget::Primary => {

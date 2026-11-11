@@ -121,8 +121,10 @@ installed).
 
 `helix-portals` serves `org.freedesktop.impl.portal.Settings`,
 `org.freedesktop.impl.portal.Inhibit`,
-`org.freedesktop.impl.portal.Screenshot` and
-`org.freedesktop.impl.portal.ScreenCast` as
+`org.freedesktop.impl.portal.Screenshot`,
+`org.freedesktop.impl.portal.ScreenCast`,
+`org.freedesktop.impl.portal.RemoteDesktop` and
+`org.freedesktop.impl.portal.Clipboard` (for remote desktop sessions) as
 `org.freedesktop.impl.portal.desktop.helix`. Settings come from the system's
 GSettings (dconf + installed GNOME schemas); `org.freedesktop.appearance` is
 derived from them (`color-scheme`, `accent-color`, `contrast`,
@@ -245,7 +247,10 @@ when the screen is shared too), the app can send keyboard, pointer and
 touch input, either over D-Bus or through an EIS socket (libei, via
 `ConnectToEIS`), as gnome-remote-desktop, Deskflow and similar tools do.
 `org.gnome.Mutter.RemoteDesktop` is served for Helix's portal backend.
-Clipboard sharing and remote keymaps are not supported yet.
+An allowed session that asked for it (the Clipboard portal) shares the
+clipboard both ways, with Wayland and X11 apps, and a session may set its
+own keyboard keymap (`SetKeymap`, optionally locked against input source
+changes until it ends).
 
 Night Light follows GNOME's settings (enabled, temperature, manual
 schedule, or sunset to sunrise at the last known location): the shell

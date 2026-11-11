@@ -47,6 +47,12 @@ pub enum Event {
     /// A screen cast stream ended on the compositor's side (monitor gone,
     /// PipeWire error).
     ScreenCastEnded(u32),
+    /// The clipboard changed, for a remote desktop session sharing it.
+    RemoteSelectionOwner { session: u32, mime_types: Vec<String>, is_owner: bool },
+    /// An app pastes a remote desktop session's clipboard content.
+    RemoteSelectionTransfer { session: u32, mime_type: String, serial: u32 },
+    /// The keymap or its active layout changed (`CurrentKeymap`).
+    KeymapChanged,
 }
 
 /// The running D-Bus services of the compositor.
@@ -57,6 +63,7 @@ pub struct CompositorServices {
     tasks: Vec<JoinHandle<()>>,
     casts: screencast::Shared,
     cast: Option<mpsc::UnboundedSender<screencast::CastRequest>>,
+    remotes: remote_desktop::Shared,
 }
 
 async fn own(conn: &Connection, name: &'static str) -> zbus::Result<()> {
@@ -168,6 +175,7 @@ impl CompositorServices {
             tasks,
             casts,
             cast,
+            remotes,
         })
     }
 
@@ -180,6 +188,25 @@ impl CompositorServices {
             Event::Activity => {
                 let emitter = SignalEmitter::new(&self.conn, idle_monitor::CORE_PATH)?;
                 self.idle.activity(&emitter).await
+            }
+            Event::RemoteSelectionOwner { session, mime_types, is_owner } => {
+                let path = remote_desktop::path_of(session);
+                let emitter = SignalEmitter::new(&self.conn, path.as_str())?;
+                remote_desktop::Session::selection_owner_changed(&emitter, remote_desktop::owner_options(mime_types, is_owner)).await
+            }
+            Event::RemoteSelectionTransfer { session, mime_type, serial } => {
+                let path = remote_desktop::path_of(session);
+                let emitter = SignalEmitter::new(&self.conn, path.as_str())?;
+                remote_desktop::Session::selection_transfer(&emitter, &mime_type, serial).await
+            }
+            Event::KeymapChanged => {
+                for id in remote_desktop::session_ids(&self.remotes) {
+                    let path = remote_desktop::path_of(id);
+                    if let Ok(iface) = self.conn.object_server().interface::<_, remote_desktop::Session>(path.as_str()).await {
+                        iface.get().await.current_keymap_changed(iface.signal_emitter()).await?;
+                    }
+                }
+                Ok(())
             }
             Event::IdleInhibited(inhibited) => {
                 self.idle.set_inhibited(inhibited);

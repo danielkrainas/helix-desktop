@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::{mpsc, oneshot};
 use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
+use std::os::fd::AsFd;
+
 use zbus::zvariant::{OwnedFd, OwnedObjectPath, OwnedValue, Value};
 use zbus::{fdo, interface, Connection};
 
@@ -38,6 +40,107 @@ pub enum RemoteInput {
     TouchDown { stream: u32, slot: u32, x: f64, y: f64 },
     TouchMotion { stream: u32, slot: u32, x: f64, y: f64 },
     TouchUp { slot: u32 },
+}
+
+/// Why a clipboard or keymap request failed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RemoteError {
+    Failed(String),
+    InvalidArgs(String),
+}
+
+impl From<RemoteError> for fdo::Error {
+    fn from(e: RemoteError) -> Self {
+        match e {
+            RemoteError::Failed(m) => fdo::Error::Failed(m),
+            RemoteError::InvalidArgs(m) => fdo::Error::InvalidArgs(m),
+        }
+    }
+}
+
+/// Clipboard sharing requests of a session.
+#[derive(Debug)]
+pub enum ClipboardRequest {
+    /// Turn sharing on, offering these types (if any).
+    Enable(Vec<String>),
+    Disable,
+    SetSelection(Vec<String>),
+    /// The fd for transfer `serial`.
+    Write(u32),
+    WriteDone(u32, bool),
+    /// A fd to read the clipboard in this type from.
+    Read(String),
+}
+
+/// A keymap set by a session (XKB text format v1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionKeymap {
+    pub text: String,
+    pub layout: u32,
+    pub lock: bool,
+}
+
+#[derive(Debug)]
+pub enum KeymapRequest {
+    /// Use this keymap, or (None) go back to the configured input sources.
+    Set(Option<SessionKeymap>),
+    LayoutIndex(u32),
+    /// `CurrentKeymap` for the session.
+    Current,
+}
+
+#[derive(Debug)]
+pub enum RemoteRequest {
+    Clipboard(ClipboardRequest),
+    Keymap(KeymapRequest),
+}
+
+#[derive(Debug)]
+pub enum RemoteReply {
+    Done,
+    Fd(std::os::fd::OwnedFd),
+    Keymap { name: String, source: u32 },
+}
+
+/// Largest keymap accepted.
+const KEYMAP_MAX: u64 = 4 << 20;
+
+/// Read an XKB keymap from `fd` (to its end; a final NUL is dropped).
+fn read_keymap(fd: std::os::fd::OwnedFd) -> Result<String, String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::from(fd).take(KEYMAP_MAX).read_to_end(&mut bytes).map_err(|e| format!("cannot read the keymap: {e}"))?;
+    while bytes.last() == Some(&0) {
+        bytes.pop();
+    }
+    String::from_utf8(bytes).map_err(|_| "the keymap is not text".to_owned())
+}
+
+/// `mime-types` of clipboard options (missing: none).
+fn mime_types(options: &HashMap<String, OwnedValue>) -> fdo::Result<Vec<String>> {
+    match options.get("mime-types") {
+        None => Ok(Vec::new()),
+        Some(v) => Vec::<String>::try_from(v.try_clone().map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?)
+            .map_err(|_| fdo::Error::InvalidArgs("mime-types is an as".into())),
+    }
+}
+
+/// `SelectionOwnerChanged` options.
+pub fn owner_options(mime_types: Vec<String>, is_owner: bool) -> HashMap<String, OwnedValue> {
+    HashMap::from([
+        ("mime-types".to_owned(), OwnedValue::try_from(Value::from(mime_types)).expect("array")),
+        ("session-is-owner".to_owned(), OwnedValue::from(is_owner)),
+    ])
+}
+
+/// The object path of session `id`.
+pub fn path_of(id: u32) -> String {
+    session_path(id)
+}
+
+/// Sessions now open.
+pub fn session_ids(shared: &Shared) -> Vec<u32> {
+    lock(shared).sessions.keys().copied().collect()
 }
 
 #[derive(Debug)]
@@ -189,6 +292,21 @@ impl Session {
         answer.await.unwrap_or((false, false))
     }
 
+    /// Ask the compositor (clipboard and keymap requests).
+    async fn remote(&self, request: RemoteRequest) -> fdo::Result<RemoteReply> {
+        let (reply, answer) = oneshot::channel();
+        self.compositor
+            .send(CastRequest::Remote { session: self.id, request, reply })
+            .map_err(|_| fdo::Error::Failed("the compositor is gone".into()))?;
+        answer.await.map_err(|_| fdo::Error::Failed("the compositor did not answer".into()))?.map_err(fdo::Error::from)
+    }
+
+    async fn clipboard(&self, header: &Header<'_>, request: ClipboardRequest) -> fdo::Result<RemoteReply> {
+        self.check_owner(header)?;
+        self.started()?;
+        self.remote(RemoteRequest::Clipboard(request)).await
+    }
+
     /// The stream id behind a stream object path of this session's cast.
     fn stream(&self, path: &str) -> fdo::Result<u32> {
         let cast = self.started()?.ok_or_else(|| fdo::Error::InvalidArgs("the session has no screen cast".into()))?;
@@ -312,51 +430,102 @@ impl Session {
 
     #[zbus(property)]
     async fn keymap_capabilities(&self) -> HashMap<String, OwnedValue> {
-        HashMap::new()
+        HashMap::from([
+            ("supported-keymap-types".to_owned(), OwnedValue::try_from(Value::from(vec![0u32])).expect("array")),
+            ("supported-xkb-keymap-formats".to_owned(), OwnedValue::try_from(Value::from(vec![1u32])).expect("array")),
+        ])
     }
 
     #[zbus(property)]
     async fn current_keymap(&self) -> HashMap<String, OwnedValue> {
-        HashMap::from([("source".to_owned(), OwnedValue::from(0u32))])
+        let (name, source) = match self.remote(RemoteRequest::Keymap(KeymapRequest::Current)).await {
+            Ok(RemoteReply::Keymap { name, source }) => (name, source),
+            _ => (String::new(), 0),
+        };
+        HashMap::from([
+            ("name".to_owned(), OwnedValue::try_from(Value::from(name)).expect("string")),
+            ("source".to_owned(), OwnedValue::from(source)),
+        ])
     }
 
-    async fn set_keymap(&self, _options: HashMap<String, OwnedValue>) -> fdo::Result<()> {
-        Err(fdo::Error::NotSupported("keymaps can't be set".into()))
+    async fn set_keymap(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>) -> fdo::Result<()> {
+        self.check_owner(&header)?;
+        self.started()?;
+        let keymap = match options.get("keymap-type").map(|v| &**v) {
+            None => None,
+            Some(Value::U32(0)) => {
+                if let Some(format) = options.get("xkb-keymap-format") {
+                    if !matches!(&**format, Value::U32(1)) {
+                        return Err(fdo::Error::InvalidArgs("unsupported XKB keymap format".into()));
+                    }
+                }
+                let fd = match options.get("xkb-keymap").map(|v| &**v) {
+                    Some(Value::Fd(fd)) => fd.as_fd().try_clone_to_owned().map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?,
+                    _ => return Err(fdo::Error::InvalidArgs("xkb-keymap is required".into())),
+                };
+                let text = tokio::task::spawn_blocking(move || read_keymap(fd))
+                    .await
+                    .map_err(|e| fdo::Error::Failed(e.to_string()))?
+                    .map_err(fdo::Error::InvalidArgs)?;
+                let layout = match options.get("xkb-keymap-layout-index").map(|v| &**v) {
+                    Some(Value::U32(i)) => *i,
+                    None => 0,
+                    Some(_) => return Err(fdo::Error::InvalidArgs("xkb-keymap-layout-index is a u".into())),
+                };
+                let lock = matches!(options.get("lock-keymap").map(|v| &**v), Some(Value::Bool(true)));
+                Some(SessionKeymap { text, layout, lock })
+            }
+            Some(_) => return Err(fdo::Error::InvalidArgs("unsupported keymap type".into())),
+        };
+        self.remote(RemoteRequest::Keymap(KeymapRequest::Set(keymap))).await.map(|_| ())
     }
 
-    async fn set_keymap_layout_index(&self, _index: u32) -> fdo::Result<()> {
-        Err(fdo::Error::NotSupported("keymaps can't be set".into()))
+    async fn set_keymap_layout_index(&self, index: u32, #[zbus(header)] header: Header<'_>) -> fdo::Result<()> {
+        self.check_owner(&header)?;
+        self.started()?;
+        self.remote(RemoteRequest::Keymap(KeymapRequest::LayoutIndex(index))).await.map(|_| ())
     }
 
-    async fn enable_clipboard(&self, _options: HashMap<String, OwnedValue>) -> fdo::Result<()> {
-        Err(fdo::Error::NotSupported("no clipboard sharing".into()))
+    async fn enable_clipboard(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>) -> fdo::Result<()> {
+        let mime_types = mime_types(&options)?;
+        self.clipboard(&header, ClipboardRequest::Enable(mime_types)).await.map(|_| ())
     }
 
-    async fn disable_clipboard(&self) -> fdo::Result<()> {
-        Err(fdo::Error::NotSupported("no clipboard sharing".into()))
+    async fn disable_clipboard(&self, #[zbus(header)] header: Header<'_>) -> fdo::Result<()> {
+        self.clipboard(&header, ClipboardRequest::Disable).await.map(|_| ())
     }
 
-    async fn set_selection(&self, _options: HashMap<String, OwnedValue>) -> fdo::Result<()> {
-        Err(fdo::Error::NotSupported("no clipboard sharing".into()))
+    async fn set_selection(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>) -> fdo::Result<()> {
+        let mime_types = mime_types(&options)?;
+        if mime_types.is_empty() {
+            return Err(fdo::Error::InvalidArgs("mime-types is required".into()));
+        }
+        self.clipboard(&header, ClipboardRequest::SetSelection(mime_types)).await.map(|_| ())
     }
 
-    async fn selection_write(&self, _serial: u32) -> fdo::Result<OwnedFd> {
-        Err(fdo::Error::NotSupported("no clipboard sharing".into()))
+    async fn selection_write(&self, serial: u32, #[zbus(header)] header: Header<'_>) -> fdo::Result<OwnedFd> {
+        match self.clipboard(&header, ClipboardRequest::Write(serial)).await? {
+            RemoteReply::Fd(fd) => Ok(OwnedFd::from(fd)),
+            _ => Err(fdo::Error::Failed("no file descriptor".into())),
+        }
     }
 
-    async fn selection_write_done(&self, _serial: u32, _success: bool) -> fdo::Result<()> {
-        Err(fdo::Error::NotSupported("no clipboard sharing".into()))
+    async fn selection_write_done(&self, serial: u32, success: bool, #[zbus(header)] header: Header<'_>) -> fdo::Result<()> {
+        self.clipboard(&header, ClipboardRequest::WriteDone(serial, success)).await.map(|_| ())
     }
 
-    async fn selection_read(&self, _mime_type: &str) -> fdo::Result<OwnedFd> {
-        Err(fdo::Error::NotSupported("no clipboard sharing".into()))
+    async fn selection_read(&self, mime_type: &str, #[zbus(header)] header: Header<'_>) -> fdo::Result<OwnedFd> {
+        match self.clipboard(&header, ClipboardRequest::Read(mime_type.to_owned())).await? {
+            RemoteReply::Fd(fd) => Ok(OwnedFd::from(fd)),
+            _ => Err(fdo::Error::Failed("no file descriptor".into())),
+        }
     }
 
     #[zbus(signal)]
-    async fn selection_owner_changed(emitter: &SignalEmitter<'_>, options: HashMap<String, OwnedValue>) -> zbus::Result<()>;
+    pub async fn selection_owner_changed(emitter: &SignalEmitter<'_>, options: HashMap<String, OwnedValue>) -> zbus::Result<()>;
 
     #[zbus(signal)]
-    async fn selection_transfer(emitter: &SignalEmitter<'_>, mime_type: &str, serial: u32) -> zbus::Result<()>;
+    pub async fn selection_transfer(emitter: &SignalEmitter<'_>, mime_type: &str, serial: u32) -> zbus::Result<()>;
 }
 
 /// `NotifyPointerAxis` flags → (finish, source).
@@ -373,6 +542,31 @@ pub fn axis_flags(flags: u32) -> (bool, u32) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn keymap_text() {
+        use std::io::Write;
+        let (r, w) = std::os::unix::net::UnixStream::pair().unwrap();
+        let mut w = w;
+        w.write_all(b"xkb_keymap {};\0").unwrap();
+        drop(w);
+        assert_eq!(read_keymap(r.into()).unwrap(), "xkb_keymap {};");
+    }
+
+    #[test]
+    fn clipboard_options() {
+        let o = owner_options(vec!["text/plain".into()], true);
+        assert_eq!(Vec::<String>::try_from(o["mime-types"].try_clone().unwrap()).unwrap(), ["text/plain"]);
+        assert!(bool::try_from(&o["session-is-owner"]).unwrap());
+        let mut opts = HashMap::new();
+        assert!(mime_types(&opts).unwrap().is_empty());
+        opts.insert("mime-types".to_owned(), OwnedValue::try_from(Value::from(vec!["a/b".to_owned()])).unwrap());
+        assert_eq!(mime_types(&opts).unwrap(), ["a/b"]);
+        opts.insert("mime-types".to_owned(), OwnedValue::from(3u32));
+        assert!(mime_types(&opts).is_err());
+    }
+
     #[test]
     fn flags() {
         assert_eq!(super::axis_flags(0), (false, 0), "finger by default");

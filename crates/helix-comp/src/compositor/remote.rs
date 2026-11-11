@@ -2,7 +2,9 @@
 //! `org.gnome.Mutter.RemoteDesktop.md`): input injected over D-Bus or by
 //! EIS clients, applied as if from a device.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 
@@ -26,16 +28,34 @@ const STEP_PX: f64 = 15.0;
 /// EIS connections, by remote desktop session.
 #[derive(Default)]
 pub struct RemoteState {
-    eis: HashMap<u32, Vec<RegistrationToken>>,
+    eis: HashMap<u32, Vec<EisEntry>>,
 }
+
+/// An EIS client's event source and state.
+type EisEntry = (RegistrationToken, Rc<RefCell<EisClient>>);
 
 /// One EIS client's devices.
 #[derive(Default)]
 struct EisClient {
+    connection: Option<Connection>,
     seat: Option<reis::request::Seat>,
     devices: Vec<reis::request::Device>,
     /// Keymaps sent to the client (kept open until it has them).
     keymaps: Vec<OwnedFd>,
+}
+
+/// Add a keyboard device with `keymap` (a memfd and its size) to `seat`.
+fn add_keyboard(seat: &reis::request::Seat, keymap: Option<&(OwnedFd, u32)>) -> reis::request::Device {
+    let raw = keymap.map(|(fd, size)| (std::os::fd::AsRawFd::as_raw_fd(fd), *size));
+    let device = seat.add_device(Some("Helix remote keyboard"), eis::device::DeviceType::Virtual, DeviceCapability::Keyboard.into(), move |device| {
+        if let (Some(keyboard), Some((fd, size))) = (device.interface::<eis::Keyboard>(), raw) {
+            // SAFETY: the memfd stays open in `EisClient::keymaps`.
+            let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
+            keyboard.keymap(eis::keyboard::KeymapType::Xkb, size, fd);
+        }
+    });
+    device.resumed();
+    device
 }
 
 fn slot(id: u32) -> TouchSlot {
@@ -161,12 +181,13 @@ impl Helix {
         let (server, client) = UnixStream::pair().map_err(|e| e.to_string())?;
         let context = eis::Context::new(server).map_err(|e| e.to_string())?;
         let source = EisRequestSource::new(context, 1);
-        let mut state = EisClient::default();
+        let state = Rc::new(RefCell::new(EisClient::default()));
+        let client_state = state.clone();
         let token = self
             .loop_handle
             .insert_source(source, move |event, connection, helix| {
                 let action = match event {
-                    Ok(event) => helix.eis_event(&mut state, connection, event, devices),
+                    Ok(event) => helix.eis_event(&mut client_state.borrow_mut(), connection, event, devices),
                     Err(err) => {
                         tracing::warn!(%err, "EIS client error");
                         smithay::reexports::calloop::PostAction::Remove
@@ -176,15 +197,41 @@ impl Helix {
                 Ok(action)
             })
             .map_err(|e| e.to_string())?;
-        self.remote.eis.entry(session).or_default().push(token);
+        self.remote.eis.entry(session).or_default().push((token, state));
         tracing::info!(session, devices, "EIS client connected");
         Ok(client.into())
     }
 
     /// A remote desktop session ended: drop its EIS clients.
     pub fn end_remote(&mut self, session: u32) {
-        for token in self.remote.eis.remove(&session).unwrap_or_default() {
+        for (token, _) in self.remote.eis.remove(&session).unwrap_or_default() {
             self.loop_handle.remove(token);
+        }
+        self.end_remote_share(session);
+    }
+
+    /// The keymap changed: replace EIS keyboards with ones that have it.
+    pub fn refresh_eis_keyboards(&mut self) {
+        let keymap = self.keymap_text().as_deref().and_then(memfd_keymap);
+        for (_, client) in self.remote.eis.values().flatten() {
+            let Ok(mut client) = client.try_borrow_mut() else { continue };
+            let Some(seat) = client.seat.clone() else { continue };
+            let old: Vec<_> = client.devices.iter().filter(|d| d.has_capability(DeviceCapability::Keyboard)).cloned().collect();
+            if old.is_empty() {
+                continue;
+            }
+            for device in &old {
+                device.remove();
+            }
+            client.devices.retain(|d| !d.has_capability(DeviceCapability::Keyboard));
+            let device = add_keyboard(&seat, keymap.as_ref());
+            client.devices.push(device);
+            if let Some(fd) = keymap.as_ref().and_then(|(fd, _)| fd.try_clone().ok()) {
+                client.keymaps.push(fd);
+            }
+            if let Some(connection) = &client.connection {
+                let _ = connection.flush();
+            }
         }
     }
 
@@ -213,6 +260,7 @@ impl Helix {
                     return PostAction::Remove;
                 }
                 client.seat = Some(connection.add_seat(Some("default"), offered));
+                client.connection = Some(connection.clone());
             }
             EisRequestSourceEvent::Request(request) => return self.eis_request(client, connection, request, offered),
         }
@@ -241,7 +289,9 @@ impl Helix {
                     })
                     .collect();
                 let keymap = self.keymap_text().as_deref().and_then(memfd_keymap);
-                let keymap_raw = keymap.as_ref().map(|(fd, size)| (std::os::fd::AsRawFd::as_raw_fd(fd), *size));
+                if wanted.contains(DeviceCapability::Keyboard) {
+                    client.devices.push(add_keyboard(&bind.seat, keymap.as_ref()));
+                }
                 let mut add = |name: &str, caps: enumflags2::BitFlags<DeviceCapability>| {
                     let regions = regions.clone();
                     let device = bind.seat.add_device(Some(name), eis::device::DeviceType::Virtual, caps, move |device| {
@@ -250,20 +300,10 @@ impl Helix {
                                 device.device().region(*x as u32, *y as u32, *w as u32, *h as u32, *scale as f32);
                             }
                         }
-                        if caps.contains(DeviceCapability::Keyboard) {
-                            if let (Some(keyboard), Some((fd, size))) = (device.interface::<eis::Keyboard>(), keymap_raw) {
-                                // SAFETY: the memfd stays open in `client.keymaps`.
-                                let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
-                                keyboard.keymap(eis::keyboard::KeymapType::Xkb, size, fd);
-                            }
-                        }
                     });
                     device.resumed();
                     client.devices.push(device);
                 };
-                if wanted.contains(DeviceCapability::Keyboard) {
-                    add("Helix remote keyboard", DeviceCapability::Keyboard.into());
-                }
                 if wanted.contains(DeviceCapability::Pointer) {
                     add("Helix remote pointer", DeviceCapability::Pointer | DeviceCapability::Button | DeviceCapability::Scroll);
                 }

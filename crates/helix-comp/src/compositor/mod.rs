@@ -14,6 +14,7 @@ mod handlers;
 mod input;
 mod remote;
 mod protocols;
+mod remote_share;
 mod scales;
 mod timing;
 mod tiling;
@@ -139,6 +140,8 @@ pub struct Helix {
     pub cursor_status: CursorImageStatus,
     /// Named cursors from the theme.
     pub cursors: cursor::Cursors,
+    /// Remote desktop clipboard sharing and keymaps.
+    pub remote_share: remote_share::RemoteShare,
     pub dmabuf_state: DmabufState,
     /// GPU buffers waiting for the nested renderer to test them.
     pub pending_dmabufs: Vec<(smithay::backend::allocator::dmabuf::Dmabuf, smithay::wayland::dmabuf::ImportNotifier)>,
@@ -245,6 +248,7 @@ impl Helix {
             shell_exits: None,
             host_cursor: None,
             cursors: cursor::Cursors::new("Adwaita", 24),
+            remote_share: Default::default(),
             cursor_status: CursorImageStatus::default_named(),
             dmabuf_state: DmabufState::new(),
             pending_dmabufs: Vec::new(),
@@ -510,6 +514,8 @@ pub enum ServerSelection {
     X11,
     /// An image the compositor serves itself (screenshots), as PNG.
     Image(Arc<Vec<u8>>),
+    /// A remote desktop session's clipboard content.
+    Remote { session: u32 },
 }
 
 /// Whether `client` is the shell the compositor launched.

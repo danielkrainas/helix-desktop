@@ -71,6 +71,9 @@ fn fake_recorder(log: Arc<Mutex<Vec<String>>>) -> mpsc::UnboundedSender<CastRequ
                     log.lock().unwrap().push(format!("start {stream} {source:?} cursor={cursor:?}"));
                     let _ = reply.send(Ok(42));
                 }
+                CastRequest::Remote { reply, .. } => {
+                    let _ = reply.send(Err(helix_comp::remote_desktop::RemoteError::Failed("none".into())));
+                }
                 CastRequest::WindowSize { window, reply } => {
                     let _ = reply.send((window == 7).then_some((800, 600)));
                 }

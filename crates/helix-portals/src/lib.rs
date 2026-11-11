@@ -7,6 +7,7 @@
 //! `org.freedesktop.impl.portal.desktop.helix`, for the xdg-desktop-portal
 //! frontend to use (see `session/helix.portal`).
 
+pub mod clipboard;
 pub mod inhibit;
 pub mod remote_desktop;
 pub mod screencast;
@@ -49,7 +50,8 @@ impl PortalService {
             .serve_at(OBJECT_PATH, SettingsBackend::new(settings))?
             .serve_at(OBJECT_PATH, screenshot::ScreenshotBackend)?
             .serve_at(OBJECT_PATH, screencast::ScreenCastBackend { shared: casts.clone() })?
-            .serve_at(OBJECT_PATH, remote_desktop::RemoteDesktopBackend { shared: casts })?
+            .serve_at(OBJECT_PATH, remote_desktop::RemoteDesktopBackend { shared: casts.clone() })?
+            .serve_at(OBJECT_PATH, clipboard::ClipboardBackend { shared: casts })?
             .build()
             .await?;
 
@@ -121,6 +123,7 @@ impl PortalService {
         server.remove::<screenshot::ScreenshotBackend, _>(OBJECT_PATH).await?;
         server.remove::<screencast::ScreenCastBackend, _>(OBJECT_PATH).await?;
         server.remove::<remote_desktop::RemoteDesktopBackend, _>(OBJECT_PATH).await?;
+        server.remove::<clipboard::ClipboardBackend, _>(OBJECT_PATH).await?;
         self.conn.graceful_shutdown().await;
         Ok(())
     }

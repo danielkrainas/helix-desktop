@@ -69,6 +69,13 @@ pub enum CastRequest {
     EndRemote { session: u32 },
     /// Caps Lock and Num Lock.
     LockKeys { reply: oneshot::Sender<(bool, bool)> },
+    /// Clipboard sharing or keymap request of remote desktop session
+    /// `session`.
+    Remote {
+        session: u32,
+        request: crate::remote_desktop::RemoteRequest,
+        reply: oneshot::Sender<Result<crate::remote_desktop::RemoteReply, crate::remote_desktop::RemoteError>>,
+    },
 }
 
 #[derive(Debug)]

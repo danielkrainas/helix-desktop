@@ -22,7 +22,12 @@ impl Helix {
             (None, None) => true,
             _ => false,
         };
-        if old.as_ref().is_none_or(|old| !same_map(old, &new)) {
+        // A remote desktop session's locked keymap holds off the input
+        // sources (they are applied again when it ends).
+        let held = self.keymap_locked();
+        let mut keymap_applied = false;
+        if !held && old.as_ref().is_none_or(|old| !same_map(old, &new)) {
+            keymap_applied = true;
             let result = match &new.keymap {
                 Some(map) => keyboard.set_xkb_config(
                     self,
@@ -42,11 +47,15 @@ impl Helix {
                 Err(err) => tracing::warn!(?err, keymap = ?new.keymap, "cannot use the configured keymap"),
             }
         }
-        if let Some(map) = &new.keymap {
+        if let Some(map) = new.keymap.as_ref().filter(|_| !held) {
             if old.as_ref().and_then(|o| o.keymap.as_ref()) != Some(map) {
+                keymap_applied = true;
                 keyboard.with_xkb_state(self, |mut context| context.set_layout(Layout(map.active)));
                 tracing::info!(active = map.active, "keyboard layout active");
             }
+        }
+        if keymap_applied {
+            self.configured_keymap_applied();
         }
         if old.as_ref().is_none_or(|old| old.repeat != new.repeat) {
             keyboard.change_repeat_info(new.repeat.0, new.repeat.1);

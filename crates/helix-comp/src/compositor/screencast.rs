@@ -184,6 +184,9 @@ impl Helix {
                 let _ = reply.send(self.connect_eis(session, devices));
             }
             CastRequest::EndRemote { session } => self.end_remote(session),
+            CastRequest::Remote { session, request, reply } => {
+                let _ = reply.send(self.remote_request(session, request));
+            }
             CastRequest::LockKeys { reply } => {
                 let state = self.seat.get_keyboard().map(|k| k.modifier_state());
                 let _ = reply.send(state.map_or((false, false), |m| (m.caps_lock, m.num_lock)));

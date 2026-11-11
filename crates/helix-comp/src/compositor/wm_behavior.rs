@@ -293,6 +293,7 @@ impl Helix {
         self.alive_tick(now);
         self.idle_inhibit_tick();
         self.release_hidden_barriers();
+        self.remote_share_tick();
         if self.frames.animate(now) {
             self.render_all();
         }

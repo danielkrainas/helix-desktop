@@ -55,7 +55,7 @@ async fn portal_backends() {
         .unwrap();
     let conn = portals.connection();
 
-    for iface in ["Settings", "Inhibit", "Screenshot", "ScreenCast", "RemoteDesktop"] {
+    for iface in ["Settings", "Inhibit", "Screenshot", "ScreenCast", "RemoteDesktop", "Clipboard"] {
         let name = format!("org.freedesktop.impl.portal.{iface}");
         assert_matches_contract(conn, BUS_NAME, OBJECT_PATH, &name, &format!("{name}.xml"), &[]).await;
     }
