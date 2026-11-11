@@ -184,8 +184,10 @@ impl Ui {
         let widths: Vec<i32> = labels.iter().map(|l| text.map_or(l.chars().count() as f32 * 9.0, |t| t.width(l, 15.0)) as i32 + 16).collect();
         let w = widths.iter().sum::<i32>().max(40) + 8;
         let h = POPUP_ROW_H + 8;
-        let Ok((buffer, data)) = self.pool.create_buffer(w, h, w * 4, wl_shm::Format::Argb8888) else { return };
-        let mut canvas = Canvas { data, width: w as usize, height: h as usize };
+        let scale = self.ime.as_ref().and_then(|i| i.popup.as_ref()).map_or(1.0, |(surface, _)| self.scales.of(surface));
+        let (pw, ph) = (physical(w as usize, scale) as i32, physical(h as usize, scale) as i32);
+        let Ok((buffer, data)) = self.pool.create_buffer(pw, ph, pw * 4, wl_shm::Format::Argb8888) else { return };
+        let mut canvas = Canvas::scaled(data, w as usize, h as usize, scale);
         canvas.fill(BANNER_BORDER);
         canvas.rect(1, 1, w - 2, h - 2, BANNER_BG);
         let mut x = 4;
@@ -199,7 +201,7 @@ impl Ui {
         }
         let Some(ime) = self.ime.as_ref() else { return };
         let Some((surface, _)) = &ime.popup else { return };
-        surface.damage_buffer(0, 0, w, h);
+        self.scales.prepare(&self.qh, surface, w, h);
         if buffer.attach_to(surface).is_ok() {
             surface.commit();
         }

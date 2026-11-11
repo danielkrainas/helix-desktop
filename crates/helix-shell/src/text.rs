@@ -5,11 +5,21 @@
 
 use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
 
-/// An ARGB8888 (premultiplied, little-endian) pixel buffer.
+/// An ARGB8888 (premultiplied, little-endian) pixel buffer. Drawing takes
+/// logical coordinates (surface-local); `scale` turns them into the
+/// buffer's pixels.
 pub struct Canvas<'a> {
     pub data: &'a mut [u8],
+    /// Buffer size in pixels.
     pub width: usize,
     pub height: usize,
+    pub scale: f64,
+}
+
+/// Pixels for `logical` units at `scale` (rounded, as the fractional-scale
+/// protocol asks of buffer sizes).
+pub fn physical(logical: usize, scale: f64) -> usize {
+    (logical as f64 * scale).round() as usize
 }
 
 /// Colors are `0xAARRGGBB`, not premultiplied.
@@ -18,9 +28,15 @@ pub fn rgba(color: u32) -> [f32; 4] {
     [c(16), c(8), c(0), c(24)]
 }
 
-impl Canvas<'_> {
-    /// Blend `color` over the pixel at (x, y) with extra coverage `cov`.
-    pub fn blend(&mut self, x: i32, y: i32, color: u32, cov: f32) {
+impl<'a> Canvas<'a> {
+    /// A canvas for a `width`×`height` (logical) surface at `scale`; `data`
+    /// holds the physical pixels.
+    pub fn scaled(data: &'a mut [u8], width: usize, height: usize, scale: f64) -> Self {
+        Self { data, width: physical(width, scale), height: physical(height, scale), scale }
+    }
+
+    /// Blend `color` over the buffer pixel at (x, y) with extra coverage `cov`.
+    pub fn blend_px(&mut self, x: i32, y: i32, color: u32, cov: f32) {
         if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height {
             return;
         }
@@ -47,10 +63,13 @@ impl Canvas<'_> {
         }
     }
 
+    /// Fill a rectangle given in logical units.
     pub fn rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: u32) {
-        for yy in y.max(0)..(y + h).min(self.height as i32) {
-            for xx in x.max(0)..(x + w).min(self.width as i32) {
-                self.blend(xx, yy, color, 1.0);
+        let edge = |v: i32| (f64::from(v) * self.scale).round() as i32;
+        let (x0, y0, x1, y1) = (edge(x), edge(y), edge(x + w), edge(y + h));
+        for yy in y0.max(0)..y1.min(self.height as i32) {
+            for xx in x0.max(0)..x1.min(self.width as i32) {
+                self.blend_px(xx, yy, color, 1.0);
             }
         }
     }
@@ -121,10 +140,13 @@ impl Text {
         self.font.as_scaled(PxScale::from(px)).ascent()
     }
 
-    /// Draw `text` with its baseline at `y`.
+    /// Draw `text` with its baseline at `y` (logical units; the glyphs are
+    /// rasterized at the canvas's scale).
     pub fn draw(&self, canvas: &mut Canvas, text: &str, x: f32, y: f32, style: Style) {
         let Style { px, color, max_width } = style;
         let text = self.fit(text, px, max_width);
+        let scale = canvas.scale as f32;
+        let (px, x, y) = (px * scale, x * scale, y * scale);
         let font = self.font.as_scaled(PxScale::from(px));
         let mut caret = x;
         let mut prev = None;
@@ -139,7 +161,7 @@ impl Text {
             if let Some(outlined) = self.font.outline_glyph(glyph) {
                 let bounds = outlined.px_bounds();
                 outlined.draw(|gx, gy, cov| {
-                    canvas.blend(bounds.min.x as i32 + gx as i32, bounds.min.y as i32 + gy as i32, color, cov);
+                    canvas.blend_px(bounds.min.x as i32 + gx as i32, bounds.min.y as i32 + gy as i32, color, cov);
                 });
             }
         }
@@ -191,7 +213,7 @@ mod tests {
     #[test]
     fn blend_and_rect() {
         let mut data = vec![0u8; 4 * 4 * 4];
-        let mut canvas = Canvas { data: &mut data, width: 4, height: 4 };
+        let mut canvas = Canvas::scaled(&mut data, 4, 4, 1.0);
         canvas.fill(0xFF000000);
         canvas.rect(1, 1, 2, 2, 0xFFFF0000);
         // Pixel (1,1) is opaque red: B=0, G=0, R=255, A=255.
@@ -199,6 +221,19 @@ mod tests {
         assert_eq!(&data[i..i + 4], &[0, 0, 255, 255]);
         // Pixel (0,0) stayed black.
         assert_eq!(&data[0..4], &[0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn scaled_rects() {
+        // A 4×2 surface at 1.5: a 6×3 buffer.
+        let mut data = vec![0u8; 6 * 3 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 4, 2, 1.5);
+        assert_eq!((canvas.width, canvas.height), (6, 3));
+        canvas.rect(2, 0, 2, 2, 0xFFFFFFFF);
+        // Logical x 2..4 covers pixels 3..6 on every row.
+        let lit: Vec<bool> = (0..6).map(|x| data[x * 4 + 3] == 255).collect();
+        assert_eq!(lit, [false, false, false, true, true, true]);
+        assert!(data[(2 * 6 + 5) * 4 + 3] == 255, "last row");
     }
 
     #[test]

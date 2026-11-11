@@ -188,10 +188,11 @@ impl Ui {
         if !view.overlay.configured || w == 0 || h == 0 {
             return;
         }
-        let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
+        let scale = self.scales.of(view.overlay.layer.wl_surface());
+        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas { data, width: w, height: h };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(0x00000000);
         // Dim everything but the selection.
         match picker.drag.as_ref().filter(|d| d.view == index) {
@@ -218,7 +219,7 @@ impl Ui {
             label(text, &mut canvas, message, (bx + 16) as f32, baseline(text, 24, bh, 14.0), 14.0, FG, tw as f32 + 1.0);
         }
         let surface = view.overlay.layer.wl_surface();
-        surface.damage_buffer(0, 0, w as i32, h as i32);
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             view.overlay.layer.commit();
         }
@@ -264,6 +265,14 @@ impl Ui {
             _ => {}
         }
         true
+    }
+
+    /// Draw the picker's views again.
+    pub(super) fn redraw_picker(&mut self) {
+        let count = self.picker.as_ref().map_or(0, |p| p.views.len());
+        for index in 0..count {
+            self.draw_pick_view(index);
+        }
     }
 
     /// A touch drag on the picker was cancelled.
@@ -352,17 +361,18 @@ impl Ui {
         if !flash.overlay.configured || w == 0 || h == 0 {
             return;
         }
-        let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
+        let scale = self.scales.of(flash.overlay.layer.wl_surface());
+        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas { data, width: w, height: h };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(0x00000000);
         let alpha = 0.8 * (1.0 - flash.step as f32 / FLASH_STEPS as f32);
         let a = (alpha * 255.0) as u32;
         let r = flash.local;
         canvas.rect(r.x, r.y, r.w, r.h, (a << 24) | 0x00FFFFFF);
         let surface = flash.overlay.layer.wl_surface();
-        surface.damage_buffer(0, 0, w as i32, h as i32);
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             flash.overlay.layer.commit();
         }

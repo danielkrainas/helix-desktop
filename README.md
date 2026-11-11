@@ -186,8 +186,8 @@ comes back when they are connected again or the compositor restarts.
 Scales go from 1 to 4 in quarter steps (125%, 150%, …) where the
 monitor's resolution divides evenly; apps that support fractional scaling
 (GTK 4, Qt 6) draw sharply at the exact scale, others are drawn at the
-next whole scale and scaled down. Helix's own panel and launcher still
-draw at 1× and are scaled up.
+next whole scale and scaled down. Helix's own panel, launcher, dialogs
+and lock screen draw sharply at every scale too.
 A persistent change asks "Keep the new display settings?" with a 20-second
 countdown (Escape or Revert goes back, Enter or Keep keeps it); only kept
 changes are remembered, and if nobody answers the old settings return.

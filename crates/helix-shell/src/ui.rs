@@ -35,7 +35,7 @@ use smithay_client_toolkit::{delegate_registry, registry_handlers};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::launcher::{self, Launcher};
-use crate::text::{Canvas, Style, Text};
+use crate::text::{physical, Canvas, Style, Text};
 use crate::auth::{AuthError, Authenticator, Secret};
 use crate::end_dialog::{Choice, EndDialog, REBOOT, SHUTDOWN};
 use crate::{font, Osd, PowerAction, UiEvent, UiRequest};
@@ -54,6 +54,7 @@ use std::collections::HashMap;
 
 mod capture;
 mod ime;
+mod scale;
 
 pub const PANEL_HEIGHT: u32 = 32;
 const OSD_DURATION: Duration = Duration::from_secs(2);
@@ -116,6 +117,7 @@ struct Ui {
     compositor: CompositorState,
     layer_shell: LayerShell,
     qh: QueueHandle<Ui>,
+    scales: scale::Scales,
 
     panel: LayerSurface,
     panel_width: u32,
@@ -356,7 +358,7 @@ fn draw_osd(text: Option<&Text>, canvas: &mut Canvas, osd: &Osd, w: usize, h: us
     } else {
         let tx = (x0 + bar_w + 12) as usize;
         let ty = (h - font::GLYPH_H * 2) / 2;
-        font::render(&percent, 2, |x, y| canvas.blend((tx + x) as i32, (ty + y) as i32, FG, 1.0));
+        font::render(&percent, 2, |x, y| canvas.rect((tx + x) as i32, (ty + y) as i32, 1, 1, FG));
     }
 }
 
@@ -369,13 +371,14 @@ impl Ui {
             return;
         }
         let (w, h) = (self.panel_width as usize, PANEL_HEIGHT as usize);
+        let scale = self.scales.of(self.panel.wl_surface());
         let Ok((buffer, data)) =
-            self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888)
+            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
             tracing::warn!("cannot allocate panel buffer");
             return;
         };
-        let mut canvas = Canvas { data, width: w, height: h };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(PANEL_BG);
 
         if self.osd.as_ref().is_some_and(|(_, until)| Instant::now() >= *until) {
@@ -438,7 +441,7 @@ impl Ui {
                         let scale = 2;
                         let tx = w.saturating_sub(font::text_width(&clock, scale)) / 2;
                         let ty = (h - font::GLYPH_H * scale) / 2;
-                        font::render(&clock, scale, |x, y| canvas.blend((tx + x) as i32, (ty + y) as i32, FG, 1.0));
+                        font::render(&clock, scale, |x, y| canvas.rect((tx + x) as i32, (ty + y) as i32, 1, 1, FG));
                     }
                 }
                 self.shown_minute = Some(clock);
@@ -446,7 +449,7 @@ impl Ui {
         }
 
         let surface = self.panel.wl_surface();
-        surface.damage_buffer(0, 0, w as i32, h as i32);
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             self.panel.commit();
         }
@@ -742,6 +745,23 @@ impl Ui {
         }
     }
 
+    /// Draw every open surface again (their scale changed).
+    fn redraw_all(&mut self) {
+        self.draw_panel();
+        self.draw_launcher();
+        self.draw_switcher();
+        self.draw_lock();
+        self.draw_banner();
+        self.draw_dialog();
+        if self.power_menu.is_some() {
+            self.draw_power_menu();
+        }
+        for index in 0..self.monitor_labels.len() {
+            self.draw_monitor_label(index);
+        }
+        self.redraw_picker();
+    }
+
     fn draw_switcher(&mut self) {
         let Some(mut overlay) = self.switcher.take() else { return };
         if overlay.configured && overlay.width > 0 {
@@ -752,10 +772,11 @@ impl Ui {
 
     fn paint_switcher(&mut self, overlay: &mut Overlay<SwitcherState>) {
         let (w, h) = (overlay.width as usize, overlay.height as usize);
-        let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
+        let scale = self.scales.of(overlay.layer.wl_surface());
+        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas { data, width: w, height: h };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(0x00000000);
         let text = self.text.as_ref();
         let switcher = &overlay.state.switcher;
@@ -782,7 +803,7 @@ impl Ui {
             overlay.hits.push((r, OverlayHit::Window(entry.id)));
         }
         let surface = overlay.layer.wl_surface();
-        surface.damage_buffer(0, 0, w as i32, h as i32);
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
@@ -798,13 +819,14 @@ impl Ui {
 
     fn paint_launcher(&mut self, view: &mut LauncherView) {
         let (w, h) = (view.width as usize, view.height as usize);
+        let scale = self.scales.of(view.layer.wl_surface());
         let Ok((buffer, data)) =
-            self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888)
+            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
             tracing::warn!("cannot allocate launcher buffer");
             return;
         };
-        let mut canvas = Canvas { data, width: w, height: h };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(SCRIM);
 
         let bw = 600.min(w as i32 - 48);
@@ -861,7 +883,7 @@ impl Ui {
         view.content = Rect { x: bx, y: by, w: bw, h: list_top + list_h - by };
 
         let surface = view.layer.wl_surface();
-        surface.damage_buffer(0, 0, w as i32, h as i32);
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             view.layer.commit();
         }
@@ -989,13 +1011,14 @@ impl Ui {
         if w == 0 || h == 0 {
             return;
         }
+        let scale = self.scales.of(view.surface.wl_surface());
         let Ok((buffer, data)) =
-            self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888)
+            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
             tracing::warn!("cannot allocate lock screen buffer");
             return;
         };
-        let mut canvas = Canvas { data, width: w, height: h };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(0xFF101014);
         let text = self.text.as_ref();
         let center = |s: &str, px: f32| -> f32 { (w as f32 - text.map_or(0.0, |t| t.width(s, px))) / 2.0 };
@@ -1021,7 +1044,7 @@ impl Ui {
         }
 
         let surface = view.surface.wl_surface();
-        surface.damage_buffer(0, 0, w as i32, h as i32);
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             surface.commit();
         }
@@ -1065,13 +1088,14 @@ impl Ui {
 
     fn paint_banner(&mut self, view: &mut BannerView) {
         let (w, h) = (view.width as usize, view.height as usize);
+        let scale = self.scales.of(view.layer.wl_surface());
         let Ok((buffer, data)) =
-            self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888)
+            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
             tracing::warn!("cannot allocate banner buffer");
             return;
         };
-        let mut canvas = Canvas { data, width: w, height: h };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
         // Lighter than the desktop, with a thin border, so it stands out.
         canvas.fill(BANNER_BORDER);
         canvas.rect(1, 1, w as i32 - 2, h as i32 - 2, BANNER_BG);
@@ -1112,7 +1136,7 @@ impl Ui {
         view.hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, BannerHit::Body));
 
         let surface = view.layer.wl_surface();
-        surface.damage_buffer(0, 0, w as i32, h as i32);
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             view.layer.commit();
         }
@@ -1254,10 +1278,11 @@ impl Ui {
             return;
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
-        let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
+        let scale = self.scales.of(overlay.layer.wl_surface());
+        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas { data, width: w, height: h };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(SCRIM);
         let text = self.text.as_ref();
         let remaining = overlay.state.remaining;
@@ -1320,7 +1345,7 @@ impl Ui {
         }
         overlay.hits = vec![(cancel, OverlayHit::Cancel), (confirm, OverlayHit::Confirm)];
         let surface = overlay.layer.wl_surface();
-        surface.damage_buffer(0, 0, w as i32, h as i32);
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
@@ -1330,10 +1355,11 @@ impl Ui {
     fn paint_share_dialog(&mut self, overlay: &mut Overlay<DialogState>) {
         let DialogKind::ShareScreen { app, sources, remember, .. } = &overlay.state.kind else { return };
         let (w, h) = (overlay.width as usize, overlay.height as usize);
-        let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
+        let scale = self.scales.of(overlay.layer.wl_surface());
+        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas { data, width: w, height: h };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(SCRIM);
         let text = self.text.as_ref();
         let rows = sources.len().min(8) as i32;
@@ -1371,7 +1397,7 @@ impl Ui {
         hits.push((cancel, OverlayHit::Cancel));
         overlay.hits = hits;
         let surface = overlay.layer.wl_surface();
-        surface.damage_buffer(0, 0, w as i32, h as i32);
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
@@ -1418,10 +1444,11 @@ impl Ui {
             return;
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
-        let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
+        let scale = self.scales.of(overlay.layer.wl_surface());
+        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas { data, width: w, height: h };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(BANNER_BORDER);
         canvas.rect(2, 2, w as i32 - 4, h as i32 - 4, BANNER_BG);
         let text = self.text.as_ref();
@@ -1431,7 +1458,7 @@ impl Ui {
         let base = baseline(text, 0, h as i32, px);
         label(text, &mut canvas, &number, (w as f32 - width) / 2.0, base, px, FG, w as f32);
         let surface = overlay.layer.wl_surface();
-        surface.damage_buffer(0, 0, w as i32, h as i32);
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
@@ -1450,8 +1477,9 @@ impl Ui {
         let Some(mut overlay) = self.power_menu.take() else { return };
         if overlay.configured && overlay.width > 0 {
             let (w, h) = (overlay.width as usize, overlay.height as usize);
-            if let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) {
-                let mut canvas = Canvas { data, width: w, height: h };
+            let scale = self.scales.of(overlay.layer.wl_surface());
+            if let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) {
+                let mut canvas = Canvas::scaled(data, w, h, scale);
                 canvas.fill(0x00000000);
                 let text = self.text.as_ref();
                 let items = power_menu_items(self.power);
@@ -1470,7 +1498,7 @@ impl Ui {
                 }
                 overlay.hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, OverlayHit::Outside));
                 let surface = overlay.layer.wl_surface();
-                surface.damage_buffer(0, 0, w as i32, h as i32);
+                self.scales.prepare(&self.qh, surface, w as i32, h as i32);
                 if buffer.attach_to(surface).is_ok() {
                     overlay.layer.commit();
                 }
@@ -1712,6 +1740,10 @@ pub fn run(
         compositor,
         layer_shell,
         qh: qh.clone(),
+        scales: scale::Scales::new(
+            globals.bind(&qh, 1..=1, ()).ok(),
+            globals.bind(&qh, 1..=1, ()).ok(),
+        ),
         panel,
         panel_width: 0,
         panel_configured: false,
