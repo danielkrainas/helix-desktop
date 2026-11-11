@@ -183,6 +183,22 @@ Shortcuts handled by the compositor:
 When nested, the host desktop's window manager may grab some of these (e.g.
 Alt+Tab under XFCE) before Helix sees them.
 
+## Notifications
+
+The shell serves both notification interfaces GNOME Shell does:
+`org.freedesktop.Notifications` (libnotify, `notify-send`, most non-GNOME
+apps) and `org.gtk.Notifications` (GLib's `GNotification`, used by GNOME
+apps when that name is owned). They share one queue: a banner below the
+panel shows one notification at a time with its action buttons; clicking
+it runs the default action (for GLib apps, by activating the app over
+`org.freedesktop.Application`), × dismisses it. Banners expire after the
+app's timeout or 5 seconds; critical/urgent ones stay until handled.
+
+`org.gnome.desktop.notifications show-banners` = false acts as do not
+disturb (only critical notifications show). While the screen is locked
+banners wait and appear after unlocking. Not yet: icons, body markup,
+sounds, and a notification list to review missed ones.
+
 ## Screen locking
 
 The shell serves `org.gnome.ScreenSaver` and draws the lock screen on the

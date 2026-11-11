@@ -120,7 +120,41 @@ struct Ui {
     keybindings: Option<HelixKeybindingsManagerV1>,
     bindings: HashMap<u32, HelixKeybindingV1>,
     lock: LockScreen,
+    banner: Option<BannerView>,
     exit: bool,
+}
+
+/// What a click on the banner hit.
+#[derive(Debug, Clone, PartialEq)]
+enum BannerHit {
+    Body,
+    Close,
+    Button(String),
+}
+
+struct BannerView {
+    data: crate::notifications::Banner,
+    layer: LayerSurface,
+    width: u32,
+    height: u32,
+    configured: bool,
+    hits: Vec<(Rect, BannerHit)>,
+}
+
+const BANNER_W: u32 = 440;
+const BANNER_BG: u32 = 0xFF2E2E36;
+const BANNER_BORDER: u32 = 0xFF4A4A55;
+const BANNER_PAD: i32 = 14;
+
+/// Banner height for its content.
+fn banner_height(text: Option<&Text>, banner: &crate::notifications::Banner) -> u32 {
+    let body_lines = match (text, banner.body.is_empty()) {
+        (_, true) => 0,
+        (Some(t), false) => t.wrap(&banner.body, 14.0, (BANNER_W as i32 - 2 * BANNER_PAD) as f32, 2).len(),
+        (None, false) => 1,
+    } as i32;
+    let buttons = if banner.buttons.is_empty() { 0 } else { 44 };
+    (BANNER_PAD + 16 + 26 + body_lines * 20 + buttons + BANNER_PAD) as u32
 }
 
 /// The lock screen: one surface per output while the session is locked.
@@ -540,9 +574,113 @@ impl Ui {
         }
     }
 
+    // ----- Notification banner ----------------------------------------------
+
+    fn show_banner(&mut self, banner: Option<crate::notifications::Banner>) {
+        let Some(data) = banner else {
+            self.banner = None;
+            return;
+        };
+        let height = banner_height(self.text.as_ref(), &data);
+        if let Some(view) = self.banner.as_mut().filter(|v| v.data.id == data.id) {
+            view.data = data;
+            if view.height != height {
+                view.layer.set_size(BANNER_W, height);
+                view.layer.commit();
+            } else {
+                self.draw_banner();
+            }
+            return;
+        }
+        let surface = self.compositor.create_surface(&self.qh);
+        let layer = self.layer_shell.create_layer_surface(&self.qh, surface, Layer::Top, Some("helix-notification"), None);
+        layer.set_anchor(Anchor::TOP);
+        layer.set_margin(8, 0, 0, 0);
+        layer.set_size(BANNER_W, height);
+        layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+        layer.commit();
+        self.banner = Some(BannerView { data, layer, width: 0, height: 0, configured: false, hits: Vec::new() });
+    }
+
+    fn draw_banner(&mut self) {
+        let Some(mut view) = self.banner.take() else { return };
+        if view.configured && view.width > 0 && view.height > 0 {
+            self.paint_banner(&mut view);
+        }
+        self.banner = Some(view);
+    }
+
+    fn paint_banner(&mut self, view: &mut BannerView) {
+        let (w, h) = (view.width as usize, view.height as usize);
+        let Ok((buffer, data)) =
+            self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888)
+        else {
+            tracing::warn!("cannot allocate banner buffer");
+            return;
+        };
+        let mut canvas = Canvas { data, width: w, height: h };
+        // Lighter than the desktop, with a thin border, so it stands out.
+        canvas.fill(BANNER_BORDER);
+        canvas.rect(1, 1, w as i32 - 2, h as i32 - 2, BANNER_BG);
+        let text = self.text.as_ref();
+        let inner = (w as i32 - 2 * BANNER_PAD) as f32;
+        view.hits.clear();
+
+        let mut y = BANNER_PAD;
+        label(text, &mut canvas, &view.data.app_name, BANNER_PAD as f32, (y + 12) as f32, 12.0, DIM_FG, inner - 24.0);
+        // Close button, top right.
+        let close = Rect { x: w as i32 - BANNER_PAD - 18, y: y - 4, w: 22, h: 22 };
+        label(text, &mut canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
+        view.hits.push((close, BannerHit::Close));
+        y += 16;
+        label(text, &mut canvas, &view.data.summary, BANNER_PAD as f32, (y + 20) as f32, 16.0, FG, inner);
+        y += 26;
+        if let Some(t) = text {
+            for line in t.wrap(&view.data.body, 14.0, inner, 2) {
+                t.draw(&mut canvas, &line, BANNER_PAD as f32, (y + 15) as f32, Style { px: 14.0, color: DIM_FG, max_width: inner });
+                y += 20;
+            }
+        }
+        if !view.data.buttons.is_empty() {
+            y += 8;
+            let n = view.data.buttons.len() as i32;
+            let gap = 8;
+            let bw = (w as i32 - 2 * BANNER_PAD - gap * (n - 1)) / n;
+            for (i, (key, button_label)) in view.data.buttons.iter().enumerate() {
+                let r = Rect { x: BANNER_PAD + i as i32 * (bw + gap), y, w: bw, h: 32 };
+                canvas.rect(r.x, r.y, r.w, r.h, BANNER_BORDER);
+                let lw = text.map_or(0.0, |t| t.width(button_label, 14.0)).min((bw - 12) as f32);
+                let base = baseline(text, r.y, r.h, 14.0);
+                label(text, &mut canvas, button_label, r.x as f32 + (bw as f32 - lw) / 2.0, base, 14.0, FG, (bw - 12) as f32);
+                view.hits.push((r, BannerHit::Button(key.clone())));
+            }
+        }
+        // Anything else on the banner is its body.
+        view.hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, BannerHit::Body));
+
+        let surface = view.layer.wl_surface();
+        surface.damage_buffer(0, 0, w as i32, h as i32);
+        if buffer.attach_to(surface).is_ok() {
+            view.layer.commit();
+        }
+    }
+
+    fn banner_click(&mut self, x: f64, y: f64) {
+        let Some(view) = &self.banner else { return };
+        let Some(hit) = view.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, h)| h.clone()) else { return };
+        let id = view.data.id;
+        let request = match hit {
+            BannerHit::Close => UiRequest::NotificationDismissed { id },
+            BannerHit::Body => UiRequest::NotificationActivated { id, action: None },
+            BannerHit::Button(key) => UiRequest::NotificationActivated { id, action: Some(key) },
+        };
+        let _ = self.requests.send(request);
+    }
+
     fn handle(&mut self, event: UiEvent) {
         match event {
             UiEvent::Lock => self.start_lock(),
+            UiEvent::Banner(banner) => self.show_banner(banner),
             UiEvent::Osd(osd) => {
                 self.osd = Some((osd, Instant::now() + OSD_DURATION));
                 self.draw_panel();
@@ -641,6 +779,7 @@ pub fn run(
         requests,
         keybindings,
         bindings: HashMap::new(),
+        banner: None,
         lock: LockScreen {
             state: SessionLockState::new(&globals, &qh),
             session: None,
@@ -714,6 +853,8 @@ impl LayerShellHandler for Ui {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
         if layer == &self.panel {
             self.exit = true;
+        } else if self.banner.as_ref().is_some_and(|b| &b.layer == layer) {
+            self.banner = None;
         } else {
             self.close_launcher(true);
         }
@@ -733,6 +874,11 @@ impl LayerShellHandler for Ui {
             }
             self.panel_configured = true;
             self.draw_panel();
+        } else if let Some(view) = self.banner.as_mut().filter(|v| &v.layer == layer) {
+            view.width = configure.new_size.0;
+            view.height = configure.new_size.1;
+            view.configured = true;
+            self.draw_banner();
         } else if let Some(view) = self.launcher.as_mut().filter(|v| &v.layer == layer) {
             view.width = configure.new_size.0;
             view.height = configure.new_size.1;
@@ -804,7 +950,9 @@ impl PointerHandler for Ui {
                 continue;
             };
             let (x, y) = event.position;
-            if &event.surface == self.panel.wl_surface() {
+            if self.banner.as_ref().is_some_and(|b| b.layer.wl_surface() == &event.surface) {
+                self.banner_click(x, y);
+            } else if &event.surface == self.panel.wl_surface() {
                 if x < f64::from(APPS_BUTTON_W) {
                     if self.launcher.is_some() {
                         self.close_launcher(true);

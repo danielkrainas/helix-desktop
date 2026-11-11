@@ -164,3 +164,20 @@ async fn org_gnome_screensaver() {
     )
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn notifications() {
+    let Some(bus) = TestBus::start() else { return };
+    let (service, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
+    use helix_shell::notifications::{FDO_BUS_NAME, FDO_PATH, GTK_BUS_NAME, GTK_PATH};
+    assert_matches_contract(
+        service.connection(),
+        FDO_BUS_NAME,
+        FDO_PATH,
+        "org.freedesktop.Notifications",
+        "org.freedesktop.Notifications.xml",
+        &[],
+    )
+    .await;
+    assert_matches_contract(service.connection(), GTK_BUS_NAME, GTK_PATH, "org.gtk.Notifications", "org.gtk.Notifications.xml", &[]).await;
+}

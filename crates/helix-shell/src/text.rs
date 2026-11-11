@@ -145,6 +145,33 @@ impl Text {
         }
     }
 
+    /// Word-wrap `text` into at most `max_lines` lines of `max_width`; the
+    /// last line is ellipsized if text remains.
+    pub fn wrap(&self, text: &str, px: f32, max_width: f32, max_lines: usize) -> Vec<String> {
+        let mut lines: Vec<String> = Vec::new();
+        let mut current = String::new();
+        let mut words = text.split_whitespace().peekable();
+        for word in words.by_ref() {
+            let candidate = if current.is_empty() { word.to_owned() } else { format!("{current} {word}") };
+            if self.width(&candidate, px) <= max_width || current.is_empty() {
+                current = candidate;
+                continue;
+            }
+            lines.push(std::mem::take(&mut current));
+            current = word.to_owned();
+            if lines.len() == max_lines {
+                break;
+            }
+        }
+        if lines.len() < max_lines && !current.is_empty() {
+            lines.push(current);
+        } else if lines.len() == max_lines && (!current.is_empty() || words.peek().is_some()) {
+            let last = lines.pop().unwrap_or_default();
+            lines.push(self.fit(&format!("{last}…"), px, max_width));
+        }
+        lines.iter().map(|l| self.fit(l, px, max_width)).collect()
+    }
+
     fn fit(&self, text: &str, px: f32, max_width: f32) -> String {
         if self.width(text, px) <= max_width {
             return text.to_owned();
@@ -183,6 +210,11 @@ mod tests {
         let short = text.width("Files", 15.0);
         let long = text.width("Files and Folders", 15.0);
         assert!(short > 0.0 && long > short);
+        let lines = text.wrap("one two three four five six seven eight nine ten", 15.0, 90.0, 2);
+        assert_eq!(lines.len(), 2);
+        assert!(lines.iter().all(|l| text.width(l, 15.0) <= 90.0));
+        assert!(lines[1].ends_with('…'), "{lines:?}");
+        assert_eq!(text.wrap("short", 15.0, 200.0, 2), vec!["short".to_owned()]);
         let fitted = text.fit("A very long application name", 15.0, 80.0);
         assert!(fitted.ends_with('…'));
         assert!(text.width(&fitted, 15.0) <= 80.0);

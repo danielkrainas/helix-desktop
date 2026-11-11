@@ -10,6 +10,8 @@ pub mod auth;
 pub mod font;
 pub mod idle;
 pub mod launcher;
+pub mod notifications;
+pub mod notify_store;
 pub mod screensaver;
 pub mod state;
 pub mod text;
@@ -76,6 +78,8 @@ pub enum UiEvent {
     Unbind { action: u32 },
     /// Lock the session now.
     Lock,
+    /// The notification banner to show, or none.
+    Banner(Option<notifications::Banner>),
 }
 
 /// Reports from the shell UI back to the D-Bus side.
@@ -93,6 +97,10 @@ pub enum UiRequest {
     Unlocked,
     /// The lock was refused or taken away.
     LockGone,
+    /// A banner was clicked (`action` None) or one of its buttons pressed.
+    NotificationActivated { id: u32, action: Option<String> },
+    /// A banner's close button was pressed.
+    NotificationDismissed { id: u32 },
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -327,6 +335,8 @@ pub struct ShellService {
     state: Arc<Mutex<ShellState>>,
     watcher: JoinHandle<()>,
     auth: Arc<dyn auth::Authenticator>,
+    center: notifications::Center,
+    ticker: JoinHandle<()>,
 }
 
 impl ShellService {
@@ -338,14 +348,18 @@ impl ShellService {
         let (ui, ui_rx) = mpsc::unbounded_channel();
         let ui_for_watcher = ui.clone();
         let auth = auth::authenticator();
+        let lock_status: screensaver::SharedStatus = Default::default();
         let saver = screensaver::ScreenSaver {
-            status: Default::default(),
+            status: lock_status.clone(),
             ui: ui.clone(),
             auth: auth.clone(),
         };
+        let center = notifications::Center::new(ui.clone(), lock_status);
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui })?
             .serve_at(screensaver::OBJECT_PATH, saver)?
+            .serve_at(notifications::FDO_PATH, notifications::FdoNotifications { center: center.clone() })?
+            .serve_at(notifications::GTK_PATH, notifications::GtkNotifications { center: center.clone() })?
             .build()
             .await?;
         match conn
@@ -367,6 +381,13 @@ impl ShellService {
             }
             other => tracing::warn!(?other, "cannot own org.gnome.ScreenSaver; screen locking unavailable"),
         }
+        for name in [notifications::FDO_BUS_NAME, notifications::GTK_BUS_NAME] {
+            match conn.request_name_with_flags(name, RequestNameFlags::DoNotQueue.into()).await {
+                Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => {}
+                other => tracing::warn!(name, ?other, "cannot own notification service name"),
+            }
+        }
+        let ticker = notifications::spawn_ticker(center.clone(), conn.clone());
 
         let mut changes = DBusProxy::new(&conn).await?.receive_name_owner_changed().await?;
         let watched = state.clone();
@@ -389,7 +410,7 @@ impl ShellService {
                 }
             }
         });
-        Ok((Self { conn, state, watcher, auth }, ui_rx))
+        Ok((Self { conn, state, watcher, auth, center, ticker }, ui_rx))
     }
 
     pub fn connection(&self) -> &Connection {
@@ -420,10 +441,17 @@ impl ShellService {
     pub fn ui_bridge(&self) -> UiBridge {
         UiBridge {
             conn: self.conn.clone(),
+            center: self.center.clone(),
         }
     }
 
+    /// The notification center (e.g. to follow settings).
+    pub fn notifications(&self) -> notifications::Center {
+        self.center.clone()
+    }
+
     pub async fn shutdown(self) -> zbus::Result<()> {
+        self.ticker.abort();
         self.watcher.abort();
         self.conn.release_name(BUS_NAME).await?;
         Ok(())
@@ -434,6 +462,7 @@ impl ShellService {
 #[derive(Clone)]
 pub struct UiBridge {
     conn: Connection,
+    center: notifications::Center,
 }
 
 impl UiBridge {
@@ -463,7 +492,15 @@ impl UiBridge {
                 let locked = request == UiRequest::Locked;
                 let object = saver.get().await;
                 let result = object.set_locked(locked, saver.signal_emitter()).await;
+                // Banners wait while locked and come back after.
+                self.center.refresh();
                 result
+            }
+            UiRequest::NotificationActivated { id, action } => self.center.activate(&self.conn, id, action).await,
+            UiRequest::NotificationDismissed { id } => {
+                self.center
+                    .close(&self.conn, id, notify_store::CloseReason::Dismissed)
+                    .await
             }
         }
     }

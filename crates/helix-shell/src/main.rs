@@ -61,6 +61,7 @@ fn main() -> ExitCode {
     });
 
     runtime.spawn(helix_shell::idle::run(service.connection().clone()));
+    runtime.spawn(helix_shell::notifications::follow_settings(service.notifications()));
 
     // Restarted by the compositor while the session was locked: lock again
     // at once (the compositor keeps the screen blank until we do).
