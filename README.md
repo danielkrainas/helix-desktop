@@ -114,7 +114,9 @@ installed).
 `org.freedesktop.impl.portal.Screenshot` as
 `org.freedesktop.impl.portal.desktop.helix`. Settings come from the system's
 GSettings (dconf + installed GNOME schemas); `org.freedesktop.appearance` is
-derived from them (`color-scheme`, `contrast`, `reduced-motion`). Portal
+derived from them (`color-scheme`, `accent-color`, `contrast`,
+`reduced-motion`), and sandboxed apps also see the interface, window
+manager, sound, privacy and mouse schemas as namespaces. Portal
 inhibitions are forwarded to `org.gnome.SessionManager`. Screenshots and
 color picking go through the shell's `org.gnome.Shell.Screenshot`: unless
 the portal frontend says the app's permission was already checked, the user

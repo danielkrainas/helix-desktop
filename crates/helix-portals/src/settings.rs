@@ -83,7 +83,9 @@ fn get<'a>(raw: &'a Snapshot, ns: &str, key: &str) -> Option<&'a Value<'static>>
 ///   `org.gnome.desktop.interface enable-animations` = false counts as
 ///   reduced motion.
 ///
-/// `accent-color` is omitted until its mapping is specified (see gaps.md).
+/// - `accent-color` from `org.gnome.desktop.interface accent-color`, with
+///   the colors libadwaita documents for `AdwAccentColor`; `(-1, -1, -1)`
+///   (unset) when there is no such key or the name is unknown.
 pub fn appearance(raw: &Snapshot) -> Namespace {
     let color_scheme = match get(raw, INTERFACE, "color-scheme") {
         Some(Value::Str(s)) if s.as_str() == "prefer-dark" => 1u32,
@@ -101,11 +103,36 @@ pub fn appearance(raw: &Snapshot) -> Namespace {
             _ => 0,
         },
     };
+    let accent = match get(raw, INTERFACE, "accent-color") {
+        Some(Value::Str(s)) => accent_rgb(s.as_str()),
+        _ => None,
+    }
+    .unwrap_or((-1.0, -1.0, -1.0));
+    let accent = OwnedValue::try_from(Value::from(accent)).expect("a plain struct");
     BTreeMap::from([
+        ("accent-color".to_owned(), accent),
         ("color-scheme".to_owned(), OwnedValue::from(color_scheme)),
         ("contrast".to_owned(), OwnedValue::from(contrast)),
         ("reduced-motion".to_owned(), OwnedValue::from(reduced_motion)),
     ])
+}
+
+/// An `accent-color` name as sRGB values from 0 to 1.
+pub fn accent_rgb(name: &str) -> Option<(f64, f64, f64)> {
+    let hex: u32 = match name {
+        "blue" => 0x3584e4,
+        "teal" => 0x2190a4,
+        "green" => 0x3a944a,
+        "yellow" => 0xc88800,
+        "orange" => 0xed5b00,
+        "red" => 0xe62d42,
+        "pink" => 0xd56199,
+        "purple" => 0x9141ac,
+        "slate" => 0x6f8396,
+        _ => return None,
+    };
+    let channel = |shift: u32| f64::from((hex >> shift) & 0xff) / 255.0;
+    Some((channel(16), channel(8), channel(0)))
 }
 
 /// Raw namespaces plus the derived appearance namespace.
@@ -245,7 +272,23 @@ mod tests {
         // Missing schemas mean "no preference".
         let a = appearance(&Snapshot::new());
         assert_eq!((u(&a, "color-scheme"), u(&a, "reduced-motion"), u(&a, "contrast")), (0, 0, 0));
-        assert!(!a.contains_key("accent-color"));
+        let accent = <(f64, f64, f64)>::try_from(a["accent-color"].clone()).unwrap();
+        assert_eq!(accent, (-1.0, -1.0, -1.0), "no key: unset");
+    }
+
+    #[test]
+    fn accent_colors() {
+        assert_eq!(accent_rgb("blue"), Some((0x35 as f64 / 255.0, 0x84 as f64 / 255.0, 0xe4 as f64 / 255.0)));
+        assert_eq!(accent_rgb("slate"), Some((0x6f as f64 / 255.0, 0x83 as f64 / 255.0, 0x96 as f64 / 255.0)));
+        assert_eq!(accent_rgb("magenta"), None);
+        let mut raw = Snapshot::new();
+        raw.insert(
+            INTERFACE.to_owned(),
+            BTreeMap::from([("accent-color".to_owned(), OwnedValue::from(zbus::zvariant::Str::from("red")))]),
+        );
+        let a = appearance(&raw);
+        let red = <(f64, f64, f64)>::try_from(a["accent-color"].clone()).unwrap();
+        assert_eq!(red, accent_rgb("red").unwrap());
     }
 
     #[test]

@@ -25,6 +25,9 @@ pub const PORTAL_SCHEMAS: &[&str] = &[
     "org.gnome.desktop.interface",
     "org.gnome.desktop.a11y.interface",
     "org.gnome.desktop.wm.preferences",
+    "org.gnome.desktop.sound",
+    "org.gnome.desktop.privacy",
+    "org.gnome.desktop.peripherals.mouse",
 ];
 
 /// Keys and values of one schema.
