@@ -217,8 +217,12 @@ the compositor starts it, manages its windows alongside Wayland ones, and
 bridges the clipboard and primary selection. Its `DISPLAY` is announced to
 the session manager before `WAYLAND_DISPLAY`, so the whole session and
 D-Bus-activated services see it; when nested, the host's `DISPLAY` is never
-passed on to Helix's children. Helix draws no title bars yet, so X11 apps
-that rely on the window manager for one can be moved with Super+drag.
+passed on to Helix's children. As under GNOME, X11 windows that don't
+draw their own get a title bar: their title, the buttons of
+`button-layout`, light or dark with `color-scheme`, and the title bar
+click actions from GNOME's window preferences (double-click maximizes by
+default); dragging it moves the window, and an invisible border around it
+resizes. Wayland apps draw their own decorations.
 
 Screen sharing works through the ScreenCast portal: when an app asks, the
 shell lets you pick a monitor ("Share your screen?"), the compositor

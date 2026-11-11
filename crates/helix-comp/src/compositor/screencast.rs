@@ -222,7 +222,7 @@ impl Helix {
                     }
                 },
                 CastSource::Window(window_id) => match self.window_by_list_id(*window_id) {
-                    Some(window) => self.window_elements(renderer, &window, cursor).map(|(r, scale, e)| (r.size, scale, e)),
+                    Some(window) => self.window_elements(renderer, &window, cursor, false).map(|(r, scale, e)| (r.size, scale, e)),
                     None => {
                         self.end_cast(id);
                         continue;

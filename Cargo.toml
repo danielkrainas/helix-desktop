@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/helix-comp",
+    "crates/helix-draw",
     "crates/helix-shell",
     "crates/helix-session",
     "crates/helix-settings",
@@ -50,6 +51,7 @@ smithay = { version = "0.7", default-features = false, features = [
 ] }
 smithay-drm-extras = { version = "0.1", default-features = false }
 helix-settings = { path = "crates/helix-settings" }
+helix-draw = { path = "crates/helix-draw" }
 helix-test-support = { path = "crates/helix-test-support" }
 helix-session = { path = "crates/helix-session" }
 helix-portals = { path = "crates/helix-portals" }

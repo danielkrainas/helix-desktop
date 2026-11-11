@@ -11,7 +11,7 @@
     The global is only advertised to privileged clients (the shell the
     compositor launched itself).
   </description>
-  <interface name="helix_screenshot_manager_v1" version="2">
+  <interface name="helix_screenshot_manager_v1" version="3">
     <description summary="takes captures">
       Each request captures the scene as it is when the compositor handles
       the request, so surfaces the shell destroyed before sending it are
@@ -49,6 +49,15 @@
     <request name="capture_window">
       <description summary="capture the focused window">
         The window's surfaces, cropped to its window geometry.
+      </description>
+      <arg name="id" type="new_id" interface="helix_screenshot_frame_v1"/>
+      <arg name="cursor" type="uint" enum="cursor"/>
+      <arg name="fd" type="fd"/>
+    </request>
+    <request name="capture_window_with_frame" since="3">
+      <description summary="capture the focused window and its title bar">
+        As capture_window, but with the title bar the compositor draws
+        above X11 windows (if any) included at the top.
       </description>
       <arg name="id" type="new_id" interface="helix_screenshot_frame_v1"/>
       <arg name="cursor" type="uint" enum="cursor"/>

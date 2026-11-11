@@ -27,7 +27,6 @@ use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::backend::udev::{all_gpus, primary_gpu, UdevBackend, UdevEvent};
 use smithay::desktop::layer_map_for_output;
-use smithay::desktop::space::{space_render_elements, SpaceRenderElements};
 use smithay::input::pointer::{CursorImageStatus, CursorImageSurfaceData};
 use smithay::output::{Mode as WlMode, Output, PhysicalProperties};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
@@ -50,7 +49,7 @@ const COLOR_FORMATS: [Fourcc; 2] = [Fourcc::Argb8888, Fourcc::Xrgb8888];
 
 smithay::backend::renderer::element::render_elements! {
     pub OutputElements<=GlesRenderer>;
-    Space = SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>,
+    Scene = super::frames::SceneElement,
     Cursor = MemoryRenderBufferRenderElement<GlesRenderer>,
     CursorSurface = WaylandSurfaceRenderElement<GlesRenderer>,
 }
@@ -458,8 +457,10 @@ impl Helix {
     /// Render one output if it is due, then send frame callbacks.
     pub fn render_crtc(&mut self, crtc: crtc::Handle) {
         let pointer_location = self.seat.get_pointer().unwrap().current_location();
+        let focused = self.focused_window();
         let Helix {
             udev,
+            frames,
             space,
             cursor_status,
             start_time,
@@ -525,10 +526,8 @@ impl Helix {
                 );
             }
         } else {
-            match space_render_elements(renderer, [&*space], &output, 1.0) {
-                Ok(space_elements) => elements.extend(space_elements.into_iter().map(OutputElements::Space)),
-                Err(err) => tracing::warn!(?err, "output has no mode"),
-            }
+            let scene = super::frames::scene(renderer, space, frames, &output, focused.as_ref());
+            elements.extend(scene.into_iter().map(OutputElements::Scene));
         }
 
         let clear = if lock.locked { [0.0, 0.0, 0.0, 1.0] } else { CLEAR_COLOR };

@@ -139,23 +139,14 @@ pub fn init(
                         ) {
                             tracing::warn!(?err, "render failed");
                         }
-                    } else if let Err(err) = smithay::desktop::space::render_output::<
-                        _,
-                        WaylandSurfaceRenderElement<GlesRenderer>,
-                        _,
-                        _,
-                    >(
-                        &output,
-                        renderer,
-                        &mut framebuffer,
-                        1.0,
-                        0,
-                        [&state.space],
-                        &[],
-                        &mut damage_tracker,
-                        [0.12, 0.12, 0.14, 1.0],
-                    ) {
-                        tracing::warn!(?err, "render failed");
+                    } else {
+                        let focused = state.focused_window();
+                        let elements = super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref());
+                        if let Err(err) =
+                            damage_tracker.render_output(renderer, &mut framebuffer, 0, &elements, [0.12, 0.12, 0.14, 1.0])
+                        {
+                            tracing::warn!(?err, "render failed");
+                        }
                     }
                 }
                 if let Err(err) = backend.submit(Some(&[damage])) {

@@ -20,6 +20,7 @@ helix-protocols = { workspace = true, features = ["server"] }
 libc.workspace = true
 serde.workspace = true
 helix-settings.workspace = true
+helix-draw.workspace = true
 gio.workspace = true
 toml.workspace = true
 png.workspace = true

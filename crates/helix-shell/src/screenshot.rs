@@ -44,7 +44,8 @@ impl Rect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Screen,
-    Window,
+    /// The focused window, with the compositor's title bar or not.
+    Window { frame: bool },
     Area(Rect),
 }
 
@@ -361,7 +362,7 @@ impl Screenshot {
 
     async fn screenshot_window(
         &self,
-        _include_frame: bool,
+        include_frame: bool,
         include_cursor: bool,
         flash: bool,
         filename: &str,
@@ -369,7 +370,7 @@ impl Screenshot {
         #[zbus(connection)] conn: &Connection,
     ) -> fdo::Result<(bool, String)> {
         check(conn, &header).await?;
-        Ok(self.save(Target::Window, include_cursor, flash, filename).await)
+        Ok(self.save(Target::Window { frame: include_frame }, include_cursor, flash, filename).await)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -450,7 +451,7 @@ pub async fn run_key(screens: &Screens, key: ScreenshotKey) {
     let result = match key {
         ScreenshotKey::Ui => screens.interactive().await.map(drop),
         ScreenshotKey::Screen => screens.capture_to(Target::Screen, false, true, &screenshot_path()).await.map(|p| screens.taken(&p)),
-        ScreenshotKey::Window => screens.capture_to(Target::Window, false, true, &screenshot_path()).await.map(|p| screens.taken(&p)),
+        ScreenshotKey::Window => screens.capture_to(Target::Window { frame: true }, false, true, &screenshot_path()).await.map(|p| screens.taken(&p)),
     };
     if let Err(err) = result {
         tracing::info!(?err, ?key, "no screenshot taken");

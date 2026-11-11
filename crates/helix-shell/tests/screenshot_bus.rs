@@ -148,7 +148,7 @@ async fn screenshots_through_the_ui() {
             "flash 0,0 10x10",
             "capture Screen",
             "capture Area(Rect { x: 5, y: 6, width: 7, height: 8 })",
-            "capture Window",
+            "capture Window { frame: true }",
             "pick Area",
             "pick Area",
             "pick Point",

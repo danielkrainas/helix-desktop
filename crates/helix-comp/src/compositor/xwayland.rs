@@ -103,6 +103,18 @@ impl XWaylandShellHandler for Helix {
     fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
         &mut self.xwayland_shell_state
     }
+
+    /// The window got its surface: if it was focused when it was mapped
+    /// (before it had one), give it the keyboard now.
+    fn surface_associated(&mut self, _xwm: XwmId, wl_surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface, surface: X11Surface) {
+        if surface.is_override_redirect() || !surface.is_activated() || self.lock.locked {
+            return;
+        }
+        let keyboard = self.seat.get_keyboard().unwrap();
+        if keyboard.current_focus().is_none() {
+            keyboard.set_focus(self, Some(wl_surface), SERIAL_COUNTER.next_serial());
+        }
+    }
 }
 
 fn edges(edge: X11ResizeEdge) -> Edges {
@@ -135,7 +147,9 @@ impl XwmHandler for Helix {
             return;
         }
         let window = Window::new_x11_window(surface.clone());
-        let location: smithay::utils::Point<i32, Logical> = self.next_window_position().into();
+        let (x, y) = self.next_window_position();
+        // Room for the title bar Helix draws above it.
+        let location: smithay::utils::Point<i32, Logical> = (x, y + super::frames::frame_top(&window)).into();
         let size = surface.geometry().size;
         self.space.map_element(window.clone(), location, true);
         let _ = surface.configure(Rectangle::new(location, size));

@@ -12,14 +12,17 @@ use smithay::utils::SERIAL_COUNTER;
 
 use super::shortcuts::{Action, Mods};
 
-const BTN_LEFT: u32 = 0x110;
+pub const BTN_LEFT: u32 = 0x110;
+pub const BTN_RIGHT: u32 = 0x111;
+pub const BTN_MIDDLE: u32 = 0x112;
 use super::Helix;
 
 impl Helix {
     fn pointer_to(&mut self, pos: Point<f64, Logical>, time: u32) {
         let serial = SERIAL_COUNTER.next_serial();
         let pointer = self.seat.get_pointer().unwrap();
-        let under = self.surface_under(pos);
+        let frame = if pointer.is_grabbed() { None } else { self.frame_under(pos) };
+        let under = if self.frame_hover(frame.as_ref()) { None } else { self.surface_under(pos) };
         pointer.motion(self, under, &MotionEvent { location: pos, serial, time });
         pointer.frame(self);
     }
@@ -152,8 +155,19 @@ impl Helix {
                 let serial = SERIAL_COUNTER.next_serial();
                 let state = event.state();
 
+                if state == ButtonState::Released && event.button_code() == BTN_LEFT {
+                    self.frame_release(pointer.current_location());
+                }
                 if state == ButtonState::Pressed && !pointer.is_grabbed() && !self.lock.locked {
                     let pos = pointer.current_location();
+                    if let Some((window, part)) = self.frame_under(pos) {
+                        if self.frame_press(window, part, event.button_code(), event.time_msec(), pos) {
+                            return;
+                        }
+                        pointer.button(self, &ButtonEvent { button: event.button_code(), state, serial, time: event.time_msec() });
+                        pointer.frame(self);
+                        return;
+                    }
                     let super_held = self
                         .seat
                         .get_keyboard()

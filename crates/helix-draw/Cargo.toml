@@ -1,0 +1,12 @@
+[package]
+name = "helix-draw"
+description = "Software drawing for Helix's shell and window frames: rectangles, shapes and text"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+ab_glyph.workspace = true
+tracing.workspace = true

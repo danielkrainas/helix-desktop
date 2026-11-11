@@ -958,6 +958,7 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "gio",
+ "helix-draw",
  "helix-protocols",
  "helix-session",
  "helix-settings",
@@ -988,6 +989,14 @@ dependencies = [
  "helix-test-support",
  "tokio",
  "zbus",
+]
+
+[[package]]
+name = "helix-draw"
+version = "0.1.0"
+dependencies = [
+ "ab_glyph",
+ "tracing",
 ]
 
 [[package]]
@@ -1050,6 +1059,7 @@ dependencies = [
  "ab_glyph",
  "futures-util",
  "gio",
+ "helix-draw",
  "helix-protocols",
  "helix-session",
  "helix-settings",

@@ -19,7 +19,6 @@ use smithay::backend::renderer::element::surface::{render_elements_from_surface_
 use smithay::backend::renderer::element::{AsRenderElements, Kind};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::{Bind, ExportMem, Offscreen, TextureMapping};
-use smithay::desktop::space::{space_render_elements, SpaceRenderElements};
 use smithay::desktop::Window;
 use smithay::input::pointer::{CursorImageStatus, CursorImageSurfaceData};
 use smithay::reexports::calloop::channel::{self, Sender};
@@ -34,8 +33,9 @@ pub const CLEAR: [f32; 4] = [0.12, 0.12, 0.14, 1.0];
 
 smithay::backend::renderer::element::render_elements! {
     pub CaptureElement<=GlesRenderer>;
-    Space = SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>,
-    Cursor = MemoryRenderBufferRenderElement<GlesRenderer>,
+    Scene = super::frames::SceneElement,
+    /// The pointer, or a title bar.
+    Memory = MemoryRenderBufferRenderElement<GlesRenderer>,
     Surface = WaylandSurfaceRenderElement<GlesRenderer>,
 }
 
@@ -46,7 +46,8 @@ pub type Scene = (Size<i32, Logical>, f64, Vec<CaptureElement>);
 pub enum Target {
     Screen,
     Area(Rectangle<i32, Logical>),
-    Window,
+    /// The focused window, with its title bar or not.
+    Window { frame: bool },
 }
 
 pub struct Pending {
@@ -297,8 +298,8 @@ impl Helix {
             tracing::warn!(err, "screen capture failed");
             Reason::Failed
         };
-        if target == Target::Window {
-            return self.capture_window(renderer, cursor).map_err(|e| match e {
+        if let Target::Window { frame } = target {
+            return self.capture_window(renderer, cursor, frame).map_err(|e| match e {
                 None => Reason::NoWindow,
                 Some(err) => failed(err),
             });
@@ -356,8 +357,9 @@ impl Helix {
             Some(named) => self.cursor_elements(renderer, geometry.loc.to_f64(), scale, named),
             None => Vec::new(),
         };
-        let space = space_render_elements(renderer, [&self.space], output, 1.0).map_err(|e| format!("{e:?}"))?;
-        elements.extend(space.into_iter().map(CaptureElement::Space));
+        let focused = self.focused_window();
+        let scene = super::frames::scene(renderer, &self.space, &self.frames, output, focused.as_ref());
+        elements.extend(scene.into_iter().map(CaptureElement::Scene));
         Ok((geometry.size, scale, elements))
     }
 
@@ -366,21 +368,24 @@ impl Helix {
         &mut self,
         renderer: &mut GlesRenderer,
         cursor: Option<Option<&MemoryRenderBuffer>>,
+        frame: bool,
     ) -> Result<(Rectangle<i32, Logical>, Image), Option<String>> {
         let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
         let window: Window = focus.and_then(|s| self.window_for_surface(&s)).ok_or(None)?;
-        self.window_image(renderer, &window, cursor)
+        self.window_image(renderer, &window, cursor, frame)
     }
 
-    /// One window, cropped to its window geometry, at the highest scale of
-    /// the monitors it is on. `Err(None)`: not shown (hidden or minimized).
+    /// One window, cropped to its window geometry (plus its title bar with
+    /// `frame`), at the highest scale of the monitors it is on.
+    /// `Err(None)`: not shown (hidden or minimized).
     pub fn window_image(
         &self,
         renderer: &mut GlesRenderer,
         window: &Window,
         cursor: Option<Option<&MemoryRenderBuffer>>,
+        frame: bool,
     ) -> Result<(Rectangle<i32, Logical>, Image), Option<String>> {
-        let (rect, scale, elements) = self.window_elements(renderer, window, cursor).ok_or(None)?;
+        let (rect, scale, elements) = self.window_elements(renderer, window, cursor, frame).ok_or(None)?;
         let image = render(renderer, rect.size, scale, &elements).map_err(Some)?;
         Ok((rect, image))
     }
@@ -392,11 +397,13 @@ impl Helix {
         renderer: &mut GlesRenderer,
         window: &Window,
         cursor: Option<Option<&MemoryRenderBuffer>>,
+        frame: bool,
     ) -> Option<(Rectangle<i32, Logical>, f64, Vec<CaptureElement>)> {
         let window = window.clone();
         let location = self.space.element_location(&window)?;
         let geometry = window.geometry();
-        let rect = Rectangle::new(location, geometry.size);
+        let top = if frame { super::frames::frame_top(&window) } else { 0 };
+        let rect = Rectangle::new((location.x, location.y - top).into(), (geometry.size.w, geometry.size.h + top).into());
         let scale = self
             .space
             .outputs_for_element(&window)
@@ -408,10 +415,16 @@ impl Helix {
             Some(named) => self.cursor_elements(renderer, rect.loc.to_f64(), scale, named),
             None => Vec::new(),
         };
-        let at: Point<i32, Physical> = (Point::<i32, Logical>::default() - geometry.loc).to_physical_precise_round(scale);
+        let at: Point<i32, Physical> = (Point::<i32, Logical>::from((0, top)) - geometry.loc).to_physical_precise_round(scale);
         let surfaces: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
             window.render_elements(renderer, at, Scale::from(scale), 1.0);
         elements.extend(surfaces.into_iter().map(CaptureElement::Surface));
+        if top > 0 {
+            let focused = self.focused_window().as_ref() == Some(&window);
+            if let Some(title) = super::frames::frame_element(renderer, &self.space, &self.frames, &window, rect.loc, scale, focused) {
+                elements.push(CaptureElement::Memory(title));
+            }
+        }
         Some((rect, scale, elements))
     }
 
@@ -444,7 +457,7 @@ impl Helix {
             CursorImageStatus::Named(_) => {
                 let Some(buffer) = named else { return Vec::new() };
                 MemoryRenderBufferRenderElement::from_buffer(renderer, local.to_physical(scale), buffer, None, None, None, Kind::Cursor)
-                    .map(|e| vec![CaptureElement::Cursor(e)])
+                    .map(|e| vec![CaptureElement::Memory(e)])
                     .unwrap_or_default()
             }
         }
@@ -488,7 +501,8 @@ impl Dispatch<HelixScreenshotManagerV1, ()> for Helix {
             Request::CaptureArea { id, x, y, width, height, cursor, fd } => {
                 (id, Target::Area(Rectangle::new((x, y).into(), (width, height).into())), shown(cursor), fd)
             }
-            Request::CaptureWindow { id, cursor, fd } => (id, Target::Window, shown(cursor), fd),
+            Request::CaptureWindow { id, cursor, fd } => (id, Target::Window { frame: false }, shown(cursor), fd),
+            Request::CaptureWindowWithFrame { id, cursor, fd } => (id, Target::Window { frame: true }, shown(cursor), fd),
             Request::CopyImage { fd } => {
                 state.copy_image(fd);
                 return;

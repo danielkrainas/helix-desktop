@@ -91,6 +91,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Keyboard, mouse and touchpad settings: now, and whenever they change.
     state.apply_input_settings();
     state.apply_workspace_settings();
+    state.apply_frame_settings();
     let (settings_tx, settings_rx) = smithay::reexports::calloop::channel::channel::<()>();
     event_loop
         .handle()
@@ -98,17 +99,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             if let smithay::reexports::calloop::channel::Event::Msg(()) = event {
                 state.apply_input_settings();
                 state.apply_workspace_settings();
+                state.apply_frame_settings();
             }
         })
         .map_err(|e| format!("cannot follow input settings: {e}"))?;
     std::thread::Builder::new()
         .name("helix-comp-settings".into())
         .spawn(move || {
-            let schemas: Vec<&str> = helix_comp::input_settings::SCHEMAS
+            let mut schemas: Vec<&str> = helix_comp::input_settings::SCHEMAS
                 .iter()
                 .chain(helix_comp::workspaces::SCHEMAS.iter())
+                .chain(helix_comp::frames::SCHEMAS.iter())
                 .copied()
                 .collect();
+            schemas.sort_unstable();
+            schemas.dedup();
             let settings = helix_settings::GSettings::new(&schemas);
             let (mut changes, _watch) = settings.watch();
             while changes.blocking_recv().is_some() {

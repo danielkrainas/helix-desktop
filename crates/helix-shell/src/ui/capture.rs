@@ -108,7 +108,8 @@ impl Ui {
         let qh = &self.qh;
         match target {
             Target::Screen => manager.capture_screen(cursor, fd.as_fd(), qh, data),
-            Target::Window => manager.capture_window(cursor, fd.as_fd(), qh, data),
+            Target::Window { frame: true } if manager.version() >= 3 => manager.capture_window_with_frame(cursor, fd.as_fd(), qh, data),
+            Target::Window { .. } => manager.capture_window(cursor, fd.as_fd(), qh, data),
             Target::Area(a) => manager.capture_area(a.x, a.y, a.width, a.height, cursor, fd.as_fd(), qh, data),
         };
     }

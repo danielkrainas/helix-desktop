@@ -43,6 +43,12 @@ pub fn most_covered<'a, T>(rect: Rectangle<i32, Logical>, outputs: &[(&'a T, Rec
 }
 
 /// Whether a window at `rect` touches none of the monitors.
+/// `area` less the title bar `window` has above it.
+pub fn below_frame(window: &Window, area: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
+    let top = super::frames::frame_top(window);
+    Rectangle::new((area.loc.x, area.loc.y + top).into(), (area.size.w, area.size.h - top).into())
+}
+
 pub fn is_lost(rect: Rectangle<i32, Logical>, outputs: &[Rectangle<i32, Logical>]) -> bool {
     !outputs.iter().any(|o| o.overlaps(rect))
 }
@@ -168,7 +174,7 @@ impl Helix {
         self.space.output_geometry(&self.output_of(window)?)
     }
 
-    fn take_over(&mut self, window: &Window, kind: Takeover, area: Rectangle<i32, Logical>) {
+    pub(super) fn take_over(&mut self, window: &Window, kind: Takeover, area: Rectangle<i32, Logical>) {
         if is_override_redirect(window) {
             return;
         }
@@ -218,9 +224,15 @@ impl Helix {
     }
 
     pub fn maximize(&mut self, window: &Window) {
-        if let Some(area) = self.usable_area(window) {
+        if let Some(area) = self.maximized_area(window) {
             self.take_over(window, Takeover::Maximized, area);
         }
+    }
+
+    /// The area a maximized `window` fills: the work area of its monitor,
+    /// less its title bar.
+    pub(super) fn maximized_area(&self, window: &Window) -> Option<Rectangle<i32, Logical>> {
+        self.usable_area(window).map(|area| below_frame(window, area))
     }
 
     /// Fullscreen on `on` (the client's choice), else the window's monitor.
@@ -263,11 +275,12 @@ impl Helix {
                 continue;
             }
             if self.is_taken_over(&window, Takeover::Maximized) {
-                self.take_over(&window, Takeover::Maximized, area);
+                self.take_over(&window, Takeover::Maximized, below_frame(&window, area));
                 continue;
             }
             let Some(location) = self.space.element_location(&window) else { continue };
-            let fixed = (location.x.max(area.loc.x), location.y.max(area.loc.y)).into();
+            let top = super::frames::frame_top(&window);
+            let fixed = (location.x.max(area.loc.x), location.y.max(area.loc.y + top)).into();
             if fixed != location {
                 self.space.map_element(window.clone(), fixed, false);
                 if let Some(x11) = window.x11_surface() {
@@ -291,7 +304,7 @@ impl Helix {
             .collect();
         for (i, window) in lost.into_iter().enumerate() {
             let offset = 32 * (i as i32 % 10);
-            let location = (area.loc.x + offset, area.loc.y + offset).into();
+            let location = (area.loc.x + offset, area.loc.y + offset + super::frames::frame_top(&window)).into();
             tracing::info!(location = ?location, "moving a window off a monitor that went away");
             if let Some(pos) = self.restore.iter().position(|(w, _, _)| *w == window) {
                 // Restore to the new place, keep the takeover.
@@ -344,6 +357,7 @@ impl Helix {
     /// Forget a window that is gone (destroyed or unmapped by its client)
     /// and focus whatever is on top now if it had focus.
     pub fn forget_window(&mut self, window: &Window) {
+        self.frames.forget(window);
         if let Some(pos) = self.minimized.iter().position(|w| w == window) {
             self.minimized.remove(pos);
             self.minimized_at.remove(pos);

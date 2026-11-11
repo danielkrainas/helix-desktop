@@ -10,6 +10,7 @@
 
 pub mod backlight;
 pub mod display_config;
+pub mod frames;
 pub mod idle;
 pub mod idle_monitor;
 pub mod input_settings;
