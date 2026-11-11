@@ -1,0 +1,4 @@
+[portal]
+DBusName=org.freedesktop.impl.portal.desktop.helix
+Interfaces=org.freedesktop.impl.portal.Settings;org.freedesktop.impl.portal.Inhibit;
+UseIn=helix

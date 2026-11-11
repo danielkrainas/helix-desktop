@@ -212,14 +212,24 @@ version = "0.1.0"
 name = "helix-contract-tests"
 version = "0.1.0"
 dependencies = [
+ "helix-portals",
  "helix-session",
  "helix-test-support",
  "tokio",
+ "zbus",
 ]
 
 [[package]]
 name = "helix-portals"
 version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "helix-session",
+ "helix-test-support",
+ "tokio",
+ "tracing",
+ "zbus",
+]
 
 [[package]]
 name = "helix-session"

@@ -11,4 +11,6 @@ publish = false
 [dev-dependencies]
 helix-test-support.workspace = true
 helix-session.workspace = true
+helix-portals.workspace = true
+zbus.workspace = true
 tokio.workspace = true

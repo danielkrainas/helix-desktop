@@ -7,50 +7,13 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use helix_session::state::{EndSessionAction, LogoutMode};
+use helix_session::client::SessionManagerProxy;
 use helix_session::{SessionEnd, SessionService};
 use helix_test_support::TestBus;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use zbus::proxy::CacheProperties;
-use zbus::zvariant::{ObjectPath, OwnedObjectPath};
 use zbus::Connection;
-
-#[zbus::proxy(
-    interface = "org.gnome.SessionManager",
-    default_service = "org.gnome.SessionManager",
-    default_path = "/org/gnome/SessionManager"
-)]
-trait SessionManager {
-    fn setenv(&self, variable: &str, value: &str) -> zbus::Result<()>;
-    fn initialized(&self) -> zbus::Result<()>;
-    fn register_client(&self, app_id: &str, ignored: &str) -> zbus::Result<OwnedObjectPath>;
-    fn unregister_client(&self, client_id: &ObjectPath<'_>) -> zbus::Result<()>;
-    fn inhibit(&self, app_id: &str, ignored: u32, reason: &str, flags: u32) -> zbus::Result<u32>;
-    fn uninhibit(&self, inhibit_cookie: u32) -> zbus::Result<()>;
-    fn is_inhibited(&self, flags: u32) -> zbus::Result<bool>;
-    fn get_inhibitors(&self) -> zbus::Result<Vec<OwnedObjectPath>>;
-    fn logout(&self, mode: u32) -> zbus::Result<()>;
-    fn shutdown(&self) -> zbus::Result<()>;
-    fn reboot(&self) -> zbus::Result<()>;
-    fn is_session_running(&self) -> zbus::Result<bool>;
-    fn get_locale(&self, category: i32) -> zbus::Result<String>;
-    fn initialization_error(&self, message: &str, fatal: bool) -> zbus::Result<()>;
-    fn can_reboot_to_firmware_setup(&self) -> zbus::Result<bool>;
-
-    #[zbus(signal)]
-    fn session_over(&self) -> zbus::Result<()>;
-
-    #[zbus(property)]
-    fn session_is_active(&self) -> zbus::Result<bool>;
-    #[zbus(property)]
-    fn session_is_locked(&self) -> zbus::Result<bool>;
-    #[zbus(property)]
-    fn inhibited_actions(&self) -> zbus::Result<u32>;
-    #[zbus(property)]
-    fn session_name(&self) -> zbus::Result<String>;
-    #[zbus(property)]
-    fn restore_supported(&self) -> zbus::Result<bool>;
-}
 
 /// Start the service on `bus`, returning its task and a stop trigger.
 async fn spawn_service(

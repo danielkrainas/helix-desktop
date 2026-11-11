@@ -5,6 +5,14 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Helix XDG portal backends"
+description = "Helix XDG desktop portal backends"
 
 [dependencies]
+zbus.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+tracing.workspace = true
+helix-session.workspace = true
+
+[dev-dependencies]
+helix-test-support.workspace = true

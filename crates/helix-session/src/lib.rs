@@ -8,6 +8,7 @@
 //! - [`SessionService`]: connects to a bus, owns the name, and runs until the
 //!   session ends.
 
+pub mod client;
 pub mod locale;
 pub mod manager;
 pub mod state;

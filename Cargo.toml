@@ -26,4 +26,5 @@ libc = "0.2"
 zbus_xml = "5.2"
 helix-test-support = { path = "crates/helix-test-support" }
 helix-session = { path = "crates/helix-session" }
+helix-portals = { path = "crates/helix-portals" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
