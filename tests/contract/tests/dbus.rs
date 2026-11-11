@@ -98,3 +98,38 @@ async fn portal_backends() {
         assert_matches_contract(conn, BUS_NAME, path.as_str(), &name, &format!("{name}.xml"), &[]).await;
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn mutter_idle_monitor_and_display_config() {
+    use helix_comp::{display_config, idle_monitor, CompositorServices};
+
+    let Some(bus) = TestBus::start() else { return };
+    let services = CompositorServices::start(bus.builder(), vec![]).await.unwrap();
+    let conn = services.connection();
+    assert_matches_contract(
+        conn,
+        idle_monitor::BUS_NAME,
+        idle_monitor::CORE_PATH,
+        "org.gnome.Mutter.IdleMonitor",
+        "org.gnome.Mutter.IdleMonitor.xml",
+        &[],
+    )
+    .await;
+    // Write side is not implemented yet (see helix-desktop-spec/gaps.md).
+    assert_matches_contract(
+        conn,
+        display_config::BUS_NAME,
+        display_config::OBJECT_PATH,
+        "org.gnome.Mutter.DisplayConfig",
+        "org.gnome.Mutter.DisplayConfig.xml",
+        &[
+            "method ApplyConfiguration",
+            "method ApplyMonitorsConfig",
+            "method SetBacklight",
+            "method GetCrtcGamma",
+            "method SetCrtcGamma",
+            "method SetOutputCTM",
+        ],
+    )
+    .await;
+}

@@ -5,6 +5,20 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Helix compositor and window management surface"
+description = "Helix compositor: window management, DisplayConfig and IdleMonitor"
 
 [dependencies]
+zbus.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+helix-session.workspace = true
+smithay.workspace = true
+
+[[bin]]
+name = "helix-comp"
+path = "src/main.rs"
+
+[dev-dependencies]
+helix-test-support.workspace = true

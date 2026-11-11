@@ -27,8 +27,10 @@ serde = { version = "1", features = ["derive"] }
 toml = "1"
 zbus_xml = "5.2"
 gio = "0.22"
+smithay = { version = "0.7", default-features = false, features = ["backend_winit", "wayland_frontend", "desktop"] }
 helix-settings = { path = "crates/helix-settings" }
 helix-test-support = { path = "crates/helix-test-support" }
 helix-session = { path = "crates/helix-session" }
 helix-portals = { path = "crates/helix-portals" }
+helix-comp = { path = "crates/helix-comp" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

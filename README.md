@@ -6,7 +6,7 @@ This repository is the implementation. The living specification and contracts li
 
 ## Status
 
-Early implementation. `helix-session` serves `org.gnome.SessionManager`, `helix-portals` serves the Settings and Inhibit portal backends, and `helix-settings` reads the system GSettings. The compositor and shell are still scaffolding.
+Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested only, for now) with `IdleMonitor` and `DisplayConfig`, `helix-portals` serves the Settings and Inhibit portal backends, and `helix-settings` reads the system GSettings. The shell is still scaffolding.
 
 ## Target
 
@@ -118,3 +118,22 @@ dbus-run-session -- env GSETTINGS_BACKEND=memory bash -c '
 For xdg-desktop-portal to use it, install `session/helix.portal` into
 `$datadir/xdg-desktop-portal/portals/` and `session/helix-portals.conf` into
 `$datadir/xdg-desktop-portal/`, and include `Helix` in `XDG_CURRENT_DESKTOP`.
+
+## Running the compositor
+
+`helix-comp` is built on [Smithay](https://github.com/Smithay/smithay). For
+now it only has the nested (winit) backend: it runs in a window of your
+current X11 or Wayland session. Running on bare hardware (DRM/KMS) needs the
+libseat, libinput, libudev and gbm development packages and comes later.
+
+```sh
+# A throwaway bus keeps its D-Bus names away from your real GNOME session.
+dbus-run-session -- bash -c '
+  cargo run -p helix-comp -- --command gnome-calculator'
+```
+
+It serves `org.gnome.Mutter.IdleMonitor` and the read side of
+`org.gnome.Mutter.DisplayConfig` (`ApplyMonitorsConfigAllowed` is false), and
+announces its socket with `SessionManager.Setenv("WAYLAND_DISPLAY", ...)`,
+which is what the session launcher waits for. Windows open in a cascade;
+click to focus. Moving and resizing windows are not implemented yet.
