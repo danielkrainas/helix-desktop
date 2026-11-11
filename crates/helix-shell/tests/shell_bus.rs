@@ -20,7 +20,8 @@ trait Shell {
     fn show_osd(&self, params: HashMap<&str, Value<'_>>) -> zbus::Result<()>;
     fn grab_accelerator(&self, accelerator: &str, mode_flags: u32, grab_flags: u32) -> zbus::Result<u32>;
     fn grab_accelerators(&self, accelerators: &[(&str, u32, u32)]) -> zbus::Result<Vec<u32>>;
-    fn ungrab_accelerator(&self, action: u32) -> zbus::Result<()>;
+    fn ungrab_accelerator(&self, action: u32) -> zbus::Result<bool>;
+    fn ungrab_accelerators(&self, actions: &[u32]) -> zbus::Result<bool>;
     #[zbus(property)]
     fn mode(&self) -> zbus::Result<String>;
     #[zbus(property)]
@@ -93,7 +94,12 @@ async fn accelerator_grabs() {
         .unwrap();
     assert_eq!(many.len(), 3);
     assert!(many[0] != 0 && many[1] == 0 && many[2] != 0);
-    shell.ungrab_accelerator(a).await.unwrap();
+    assert!(shell.ungrab_accelerator(a).await.unwrap());
+    assert!(!shell.ungrab_accelerator(a).await.unwrap(), "already released");
+    assert_eq!(service.grabbed().len(), 2);
+    // A miss in the list still releases the others, and reports false.
+    let extra = shell.grab_accelerator("<Super>c", 1, 0).await.unwrap();
+    assert!(!shell.ungrab_accelerators(&[a, extra]).await.unwrap());
     assert_eq!(service.grabbed().len(), 2);
 
     // Grabs of a client that leaves the bus are released.

@@ -165,20 +165,20 @@ impl Shell {
             .collect()
     }
 
-    // The contract has no return value for the Ungrab methods (see gaps.md).
-    async fn ungrab_accelerator(&self, action: u32) {
-        if !self.state().ungrab(action) {
-            tracing::debug!(action, "UngrabAccelerator: unknown action");
-        }
+    /// False if `action` was not grabbed.
+    async fn ungrab_accelerator(&self, action: u32) -> bool {
+        self.state().ungrab(action)
     }
 
-    async fn ungrab_accelerators(&self, actions: Vec<u32>) {
+    /// Releases every listed grab; false if any of them was not grabbed.
+    async fn ungrab_accelerators(&self, actions: Vec<u32>) -> bool {
         let mut state = self.state();
+        let mut all_found = true;
         for action in actions {
-            if !state.ungrab(action) {
-                tracing::debug!(action, "UngrabAccelerators: unknown action");
-            }
+            // No short-circuit: release the rest even after a miss.
+            all_found &= state.ungrab(action);
         }
+        all_found
     }
 
     async fn screen_transition(&self) {

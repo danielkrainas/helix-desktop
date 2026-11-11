@@ -22,7 +22,8 @@ pub struct TestBus {
 
 impl TestBus {
     /// Start a bus, or return `None` (after printing a notice) if
-    /// `dbus-daemon` is not installed.
+    /// `dbus-daemon` is not installed. With `HELIX_REQUIRE_DBUS=1` (as in
+    /// CI), a missing `dbus-daemon` is a failure instead of a skip.
     pub fn start() -> Option<Self> {
         static N: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
@@ -43,6 +44,10 @@ impl TestBus {
         {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                assert!(
+                    std::env::var_os("HELIX_REQUIRE_DBUS").is_none_or(|v| v != "1"),
+                    "dbus-daemon not found and HELIX_REQUIRE_DBUS=1"
+                );
                 eprintln!("dbus-daemon not found; skipping D-Bus test");
                 let _ = std::fs::remove_dir_all(&dir);
                 return None;

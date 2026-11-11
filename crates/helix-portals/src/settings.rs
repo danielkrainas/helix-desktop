@@ -78,8 +78,10 @@ fn get<'a>(raw: &'a Snapshot, ns: &str, key: &str) -> Option<&'a Value<'static>>
 /// - `color-scheme` from `org.gnome.desktop.interface color-scheme`
 ///   (`default` → 0, `prefer-dark` → 1, `prefer-light` → 2),
 /// - `contrast` from `org.gnome.desktop.a11y.interface high-contrast`,
-/// - `reduced-motion` from `org.gnome.desktop.interface enable-animations`
-///   (animations off → reduced motion).
+/// - `reduced-motion` from `org.gnome.desktop.a11y.interface reduced-motion`
+///   (`reduce` → 1). Schemas older than GNOME 51 lack that key; there,
+///   `org.gnome.desktop.interface enable-animations` = false counts as
+///   reduced motion.
 ///
 /// `accent-color` is omitted until its mapping is specified (see gaps.md).
 pub fn appearance(raw: &Snapshot) -> Namespace {
@@ -92,9 +94,12 @@ pub fn appearance(raw: &Snapshot) -> Namespace {
         Some(Value::Bool(true)) => 1u32,
         _ => 0,
     };
-    let reduced_motion = match get(raw, INTERFACE, "enable-animations") {
-        Some(Value::Bool(false)) => 1u32,
-        _ => 0,
+    let reduced_motion = match get(raw, A11Y_INTERFACE, "reduced-motion") {
+        Some(Value::Str(s)) => u32::from(s.as_str() == "reduce"),
+        _ => match get(raw, INTERFACE, "enable-animations") {
+            Some(Value::Bool(false)) => 1,
+            _ => 0,
+        },
     };
     BTreeMap::from([
         ("color-scheme".to_owned(), OwnedValue::from(color_scheme)),
@@ -241,6 +246,23 @@ mod tests {
         let a = appearance(&Snapshot::new());
         assert_eq!((u(&a, "color-scheme"), u(&a, "reduced-motion"), u(&a, "contrast")), (0, 0, 0));
         assert!(!a.contains_key("accent-color"));
+    }
+
+    #[test]
+    fn reduced_motion_prefers_the_gnome_51_key() {
+        let with_key = |value: &str, animations: bool| {
+            let mut raw = raw("default", animations, false);
+            raw.get_mut(A11Y_INTERFACE).unwrap().insert(
+                "reduced-motion".to_owned(),
+                OwnedValue::from(zbus::zvariant::Str::from(value.to_owned())),
+            );
+            u(&appearance(&raw), "reduced-motion")
+        };
+        assert_eq!(with_key("reduce", true), 1);
+        // The explicit key wins over enable-animations when present.
+        assert_eq!(with_key("no-preference", false), 0);
+        // Older schemas: fall back to enable-animations.
+        assert_eq!(u(&appearance(&raw("default", false, false)), "reduced-motion"), 1);
     }
 
     #[test]

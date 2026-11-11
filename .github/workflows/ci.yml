@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail instead of skipping D-Bus tests if dbus-daemon is missing.
+  HELIX_REQUIRE_DBUS: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: helix-desktop
+
+      # Contract tests read the living spec from a sibling checkout.
+      - uses: actions/checkout@v4
+        with:
+          repository: danielkrainas/helix-desktop-spec
+          path: helix-desktop-spec
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libglib2.0-dev libwayland-dev libxkbcommon-dev \
+            dbus gsettings-desktop-schemas
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: helix-desktop
+
+      - name: Clippy
+        working-directory: helix-desktop
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        working-directory: helix-desktop
+        env:
+          HELIX_SPEC_DIR: ${{ github.workspace }}/helix-desktop-spec
+        run: cargo test --workspace --locked
