@@ -303,6 +303,8 @@ async fn remote_control() {
         let msg = tokio::time::timeout(Duration::from_secs(5), futures_util::StreamExt::next(&mut transfers)).await.unwrap().unwrap().unwrap();
         got.push(msg);
     }
+    // The two signals come from separate streams: in either order.
+    got.sort_by_key(|m| m.header().member().map(|m| m.to_string()));
     let (path, owner): (OwnedObjectPath, HashMap<String, OwnedValue>) = got[0].body().deserialize().unwrap();
     assert_eq!(path.as_str(), s3.as_str());
     assert_eq!(Vec::<String>::try_from(owner["mime_types"].clone()).unwrap(), ["image/png"]);
