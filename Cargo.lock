@@ -814,8 +814,10 @@ name = "helix-comp"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "helix-protocols",
  "helix-session",
  "helix-test-support",
+ "libc",
  "smithay",
  "smithay-drm-extras",
  "tokio",
@@ -853,6 +855,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "helix-protocols"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.2",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-scanner",
+ "wayland-server",
+]
+
+[[package]]
 name = "helix-session"
 version = "0.1.0"
 dependencies = [
@@ -884,6 +897,7 @@ dependencies = [
  "ab_glyph",
  "futures-util",
  "gio",
+ "helix-protocols",
  "helix-test-support",
  "libc",
  "smithay-client-toolkit 0.21.1",

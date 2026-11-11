@@ -17,6 +17,7 @@ smithay-client-toolkit.workspace = true
 libc.workspace = true
 ab_glyph.workspace = true
 gio.workspace = true
+helix-protocols = { workspace = true, features = ["client"] }
 
 [[bin]]
 name = "helix-shell"

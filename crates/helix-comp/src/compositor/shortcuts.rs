@@ -10,6 +10,9 @@
 //! | Super+Down | Restore a maximized window, else minimize |
 //! | Ctrl+Alt+F1..F12 | Switch VT (bare hardware only) |
 //! | Ctrl+Alt+Backspace | Quit Helix (always available escape hatch) |
+//!
+//! After these, key combinations bound by the shell (via the private
+//! `helix_keybindings_v1` protocol) are matched, with exact modifiers.
 
 use smithay::input::keyboard::Keysym;
 
@@ -22,6 +25,22 @@ pub enum Action {
     RestoreOrMinimize,
     SwitchVt(i32),
     Quit,
+    /// A shell binding was pressed (`true`) or released (`false`).
+    Binding(u32, bool),
+}
+
+/// Why a binding was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindError {
+    /// Already bound, or used by a compositor shortcut.
+    Taken,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Binding {
+    id: u32,
+    mods: Mods,
+    sym: Keysym,
 }
 
 /// F1..F12 → 1..12.
@@ -56,34 +75,65 @@ const FORWARD: Decision = Decision {
 pub struct Shortcuts {
     /// Super is down and nothing else was pressed since.
     super_alone: bool,
-    /// Keys whose press was intercepted; their release is too.
-    suppressed: Vec<u32>,
+    /// Keys whose press was intercepted (and the binding they triggered);
+    /// their release is intercepted too.
+    suppressed: Vec<(u32, Option<u32>)>,
+    bindings: Vec<Binding>,
 }
 
 fn is_super(sym: Keysym) -> bool {
     sym == Keysym::Super_L || sym == Keysym::Super_R
 }
 
+/// The compositor's own action for a press, if any.
+fn builtin(mods: Mods, sym: Keysym) -> Option<Action> {
+    let ctrl_alt = mods.ctrl && mods.alt && !mods.logo;
+    match sym {
+        Keysym::BackSpace if ctrl_alt => Some(Action::Quit),
+        _ if ctrl_alt && function_key(sym).is_some() => function_key(sym).map(Action::SwitchVt),
+        Keysym::Tab if mods.alt && !mods.logo && !mods.ctrl => Some(Action::CycleWindows),
+        Keysym::F4 if mods.alt && !mods.logo && !mods.ctrl => Some(Action::CloseWindow),
+        Keysym::Up if mods.logo && !mods.alt && !mods.ctrl => Some(Action::ToggleMaximize),
+        Keysym::Down if mods.logo && !mods.alt && !mods.ctrl => Some(Action::RestoreOrMinimize),
+        _ => None,
+    }
+}
+
 impl Shortcuts {
+    /// Bind `mods`+`sym` for the shell under `id`.
+    pub fn bind(&mut self, id: u32, mods: Mods, sym: Keysym) -> Result<(), BindError> {
+        let reserved = is_super(sym) || builtin(mods, sym).is_some();
+        let duplicate = self.bindings.iter().any(|b| b.mods == mods && b.sym == sym);
+        if reserved || duplicate {
+            return Err(BindError::Taken);
+        }
+        self.bindings.push(Binding { id, mods, sym });
+        Ok(())
+    }
+
+    pub fn unbind(&mut self, id: u32) {
+        self.bindings.retain(|b| b.id != id);
+    }
+
     pub fn key(&mut self, keycode: u32, pressed: bool, mods: Mods, sym: Keysym) -> Decision {
         if !pressed {
-            let was_suppressed = self.take_suppressed(keycode);
+            let suppressed = self.take_suppressed(keycode);
             if is_super(sym) {
                 let alone = std::mem::take(&mut self.super_alone);
                 return Decision {
-                    intercept: was_suppressed,
+                    intercept: suppressed.is_some(),
                     action: alone.then_some(Action::ShowApplications),
                 };
             }
             return Decision {
-                intercept: was_suppressed,
-                action: None,
+                intercept: suppressed.is_some(),
+                action: suppressed.flatten().map(|id| Action::Binding(id, false)),
             };
         }
 
         if is_super(sym) {
             self.super_alone = true;
-            self.suppressed.push(keycode);
+            self.suppressed.push((keycode, None));
             return Decision {
                 intercept: true,
                 action: None,
@@ -91,18 +141,17 @@ impl Shortcuts {
         }
         self.super_alone = false;
 
-        let ctrl_alt = mods.ctrl && mods.alt && !mods.logo;
-        let action = match sym {
-            Keysym::BackSpace if ctrl_alt => Some(Action::Quit),
-            _ if ctrl_alt && function_key(sym).is_some() => function_key(sym).map(Action::SwitchVt),
-            Keysym::Tab if mods.alt && !mods.logo && !mods.ctrl => Some(Action::CycleWindows),
-            Keysym::F4 if mods.alt && !mods.logo && !mods.ctrl => Some(Action::CloseWindow),
-            Keysym::Up if mods.logo && !mods.alt && !mods.ctrl => Some(Action::ToggleMaximize),
-            Keysym::Down if mods.logo && !mods.alt && !mods.ctrl => Some(Action::RestoreOrMinimize),
-            _ => None,
-        };
-        if action.is_some() {
-            self.suppressed.push(keycode);
+        if let Some(action) = builtin(mods, sym) {
+            self.suppressed.push((keycode, None));
+            return Decision {
+                intercept: true,
+                action: Some(action),
+            };
+        }
+        let binding = self.bindings.iter().find(|b| b.mods == mods && b.sym == sym).map(|b| b.id);
+        let action = binding.map(|id| Action::Binding(id, true));
+        if let Some(id) = binding {
+            self.suppressed.push((keycode, Some(id)));
             Decision {
                 intercept: true,
                 action,
@@ -112,14 +161,10 @@ impl Shortcuts {
         }
     }
 
-    fn take_suppressed(&mut self, keycode: u32) -> bool {
-        match self.suppressed.iter().position(|k| *k == keycode) {
-            Some(i) => {
-                self.suppressed.swap_remove(i);
-                true
-            }
-            None => false,
-        }
+    /// `Some(binding)` if this key's press was intercepted.
+    fn take_suppressed(&mut self, keycode: u32) -> Option<Option<u32>> {
+        let i = self.suppressed.iter().position(|(k, _)| *k == keycode)?;
+        Some(self.suppressed.swap_remove(i).1)
     }
 }
 
@@ -179,6 +224,28 @@ mod tests {
         // Without both modifiers these go to the client.
         assert_eq!(s.key(67, true, alt(), Keysym::F1), FORWARD);
         assert_eq!(s.key(22, true, Mods { ctrl: true, ..Mods::default() }, Keysym::BackSpace), FORWARD);
+    }
+
+    #[test]
+    fn shell_bindings() {
+        let mut s = Shortcuts::default();
+        let ctrl_shift = Mods { ctrl: true, shift: true, ..Mods::default() };
+        assert_eq!(s.bind(7, ctrl_shift, Keysym::F9), Ok(()));
+        assert_eq!(s.bind(8, ctrl_shift, Keysym::F9), Err(BindError::Taken), "duplicate");
+        assert_eq!(s.bind(9, alt(), Keysym::Tab), Err(BindError::Taken), "compositor shortcut");
+        assert_eq!(s.bind(10, Mods::default(), Keysym::Super_L), Err(BindError::Taken), "Super");
+
+        let d = s.key(75, true, ctrl_shift, Keysym::F9);
+        assert_eq!(d, Decision { intercept: true, action: Some(Action::Binding(7, true)) });
+        // Release is matched by keycode even if modifiers changed meanwhile.
+        let d = s.key(75, false, Mods::default(), Keysym::F9);
+        assert_eq!(d, Decision { intercept: true, action: Some(Action::Binding(7, false)) });
+        // Different modifiers: not the binding.
+        assert_eq!(s.key(75, true, Mods { ctrl: true, ..Mods::default() }, Keysym::F9), FORWARD);
+        s.key(75, false, Mods::default(), Keysym::F9);
+
+        s.unbind(7);
+        assert_eq!(s.key(75, true, ctrl_shift, Keysym::F9), FORWARD);
     }
 
     #[test]

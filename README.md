@@ -211,9 +211,19 @@ points at the compositor, draws:
 
 Text uses the system sans-serif font (via `fc-match`).
 
-Accelerator grabs are recorded and validated, but `AcceleratorActivated` is
-not emitted yet: the compositor and shell are separate processes and the
-key-grab hand-off between them is still open (see the spec's `gaps.md`).
+Global accelerators work end to end: `GrabAccelerator` asks the compositor
+to bind the key through a private Wayland protocol
+(`crates/helix-protocols/protocols/helix-keybindings-v1.xml`), and presses
+come back as `AcceleratorActivated` / `AcceleratorDeactivated`, filtered by
+the grab's action modes (normal or overview). The compositor's own
+shortcuts can't be grabbed. Only the shell the compositor started itself
+(`helix-comp --shell helix-shell`, on a pre-connected `WAYLAND_SOCKET`) can
+see that protocol; a shell started any other way still serves D-Bus and
+draws its UI, but its accelerators never fire.
+
+Because the compositor starts the shell, the session launcher no longer
+supervises it: if the shell exits, the compositor logs it and keeps
+running.
 
 ## A full nested session
 

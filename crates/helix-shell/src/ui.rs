@@ -35,7 +35,11 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::launcher::{self, Launcher};
 use crate::text::{Canvas, Style, Text};
-use crate::{font, Osd, UiEvent};
+use crate::{font, Osd, UiEvent, UiRequest};
+use helix_protocols::client::helix_keybinding_v1::{self, HelixKeybindingV1};
+use helix_protocols::client::helix_keybindings_manager_v1::{self, HelixKeybindingsManagerV1};
+use smithay_client_toolkit::reexports::client::{Dispatch, WEnum};
+use std::collections::HashMap;
 
 pub const PANEL_HEIGHT: u32 = 32;
 const OSD_DURATION: Duration = Duration::from_secs(2);
@@ -105,8 +109,11 @@ struct Ui {
 
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
-    /// Tells the D-Bus side when the UI itself opens/closes the launcher.
-    overview_requests: UnboundedSender<bool>,
+    /// Reports to the D-Bus side (launcher open/close, key presses).
+    requests: UnboundedSender<UiRequest>,
+    /// Global key bindings; `None` unless the compositor launched us.
+    keybindings: Option<HelixKeybindingsManagerV1>,
+    bindings: HashMap<u32, HelixKeybindingV1>,
     exit: bool,
 }
 
@@ -248,7 +255,7 @@ impl Ui {
             rows: Vec::new(),
         });
         if notify {
-            let _ = self.overview_requests.send(true);
+            let _ = self.requests.send(UiRequest::Overview(true));
         }
         self.draw_panel();
     }
@@ -256,7 +263,7 @@ impl Ui {
     fn close_launcher(&mut self, notify: bool) {
         if self.launcher.take().is_some() {
             if notify {
-                let _ = self.overview_requests.send(false);
+                let _ = self.requests.send(UiRequest::Overview(false));
             }
             self.draw_panel();
         }
@@ -380,7 +387,28 @@ impl Ui {
             UiEvent::Overview(false) => self.close_launcher(false),
             // Monitor labels need per-output surfaces; not drawn yet.
             UiEvent::MonitorLabels(_) | UiEvent::HideMonitorLabels => {}
+            UiEvent::Bind { action, accelerator } => self.bind(action, &accelerator),
+            UiEvent::Unbind { action } => {
+                if let Some(binding) = self.bindings.remove(&action) {
+                    binding.destroy();
+                }
+            }
         }
+    }
+
+    fn bind(&mut self, action: u32, accelerator: &crate::accel::Accelerator) {
+        let (Some(manager), Some((mods, key))) = (&self.keybindings, accelerator.to_wire()) else {
+            if self.keybindings.is_none() {
+                tracing::warn!(%accelerator, "global key bindings unavailable (shell not started by the compositor)");
+            } else {
+                tracing::warn!(%accelerator, "accelerator uses modifiers the compositor cannot bind");
+            }
+            let _ = self.requests.send(UiRequest::GrabFailed { action });
+            return;
+        };
+        let modifiers = helix_keybindings_manager_v1::Modifier::from_bits_truncate(mods);
+        let binding = manager.bind(modifiers, key, &self.qh, action);
+        self.bindings.insert(action, binding);
     }
 
     /// Redraw when the minute changes or an OSD expires.
@@ -397,7 +425,7 @@ impl Ui {
 /// Run the UI until the compositor goes away. Blocks the calling thread.
 pub fn run(
     events: Channel<UiEvent>,
-    overview_requests: UnboundedSender<bool>,
+    requests: UnboundedSender<UiRequest>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::connect_to_env()?;
     let (globals, event_queue) = registry_queue_init(&conn)?;
@@ -406,6 +434,11 @@ pub fn run(
     let compositor = CompositorState::bind(&globals, &qh)?;
     let layer_shell = LayerShell::bind(&globals, &qh)?;
     let shm = Shm::bind(&globals, &qh)?;
+    // Only advertised to the shell the compositor launched itself.
+    let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=1, ()).ok();
+    if keybindings.is_none() {
+        tracing::warn!("compositor offers no key bindings to this process; accelerators will not fire");
+    }
 
     let surface = compositor.create_surface(&qh);
     let panel = layer_shell.create_layer_surface(&qh, surface, Layer::Top, Some("helix-panel"), None);
@@ -439,7 +472,9 @@ pub fn run(
         shown_minute: None,
         keyboard: None,
         pointer: None,
-        overview_requests,
+        requests,
+        keybindings,
+        bindings: HashMap::new(),
         exit: false,
     };
 
@@ -608,3 +643,52 @@ impl ProvidesRegistryState for Ui {
 }
 
 smithay_client_toolkit::delegate_dispatch2!(Ui);
+
+impl Dispatch<HelixKeybindingsManagerV1, ()> for Ui {
+    fn event(
+        _: &mut Self,
+        _: &HelixKeybindingsManagerV1,
+        _: helix_keybindings_manager_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // The manager has no events.
+    }
+}
+
+/// User data: the org.gnome.Shell action id the binding belongs to.
+impl Dispatch<HelixKeybindingV1, u32> for Ui {
+    fn event(
+        ui: &mut Self,
+        binding: &HelixKeybindingV1,
+        event: helix_keybinding_v1::Event,
+        action: &u32,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let action = *action;
+        match event {
+            helix_keybinding_v1::Event::Bound => tracing::debug!(action, "accelerator bound"),
+            helix_keybinding_v1::Event::Failed { reason } => {
+                let reason = match reason {
+                    WEnum::Value(helix_keybinding_v1::ErrorReason::Taken) => "taken",
+                    WEnum::Value(helix_keybinding_v1::ErrorReason::UnknownKey) => "unknown key",
+                    _ => "unknown reason",
+                };
+                tracing::warn!(action, reason, "compositor refused accelerator");
+                if ui.bindings.remove(&action).is_some() {
+                    binding.destroy();
+                }
+                let _ = ui.requests.send(UiRequest::GrabFailed { action });
+            }
+            helix_keybinding_v1::Event::Pressed { time } => {
+                let _ = ui.requests.send(UiRequest::Accelerator { action, pressed: true, time });
+            }
+            helix_keybinding_v1::Event::Released { time } => {
+                let _ = ui.requests.send(UiRequest::Accelerator { action, pressed: false, time });
+            }
+            _ => {}
+        }
+    }
+}

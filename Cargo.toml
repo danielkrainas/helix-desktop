@@ -5,6 +5,7 @@ members = [
     "crates/helix-session",
     "crates/helix-settings",
     "crates/helix-portals",
+    "crates/helix-protocols",
     "crates/helix-test-support",
     "tests/contract",
 ]
@@ -48,4 +49,5 @@ helix-session = { path = "crates/helix-session" }
 helix-portals = { path = "crates/helix-portals" }
 helix-comp = { path = "crates/helix-comp" }
 helix-shell = { path = "crates/helix-shell" }
+helix-protocols = { path = "crates/helix-protocols" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

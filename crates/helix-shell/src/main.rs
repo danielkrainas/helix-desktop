@@ -49,19 +49,19 @@ fn main() -> ExitCode {
         }
     });
 
-    // The UI reports launcher open/close back to the D-Bus state.
-    let (overview_tx, mut overview_rx) = tokio::sync::mpsc::unbounded_channel();
-    let overview = service.overview_handle();
+    // The UI reports back: launcher open/close, key presses, failed grabs.
+    let (request_tx, mut request_rx) = tokio::sync::mpsc::unbounded_channel();
+    let bridge = service.ui_bridge();
     runtime.spawn(async move {
-        while let Some(active) = overview_rx.recv().await {
-            if let Err(err) = overview.set(active).await {
-                tracing::warn!(%err, "cannot update OverviewActive");
+        while let Some(request) = request_rx.recv().await {
+            if let Err(err) = bridge.handle(request).await {
+                tracing::warn!(%err, "cannot apply UI request");
             }
         }
     });
 
     let panel_result = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        ui::run(ui_channel, overview_tx)
+        ui::run(ui_channel, request_tx)
     } else {
         tracing::warn!("WAYLAND_DISPLAY not set; running without a panel");
         Err("no compositor".into())

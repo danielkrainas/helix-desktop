@@ -12,18 +12,16 @@ XDG_SESSION_DESKTOP = "helix"
 
 [[component]]
 name = "compositor"
-command = ["helix-comp"]
+# The compositor starts the shell itself, on a privileged connection that
+# may bind global keys (helix_keybindings_v1).
+command = ["helix-comp", "--shell", "helix-shell"]
 required = true
-# The compositor announces its socket with SessionManager.Setenv.
+# The compositor announces its socket with SessionManager.Setenv; the shell
+# owns org.gnome.Shell once it is up.
 wait_for_env = "WAYLAND_DISPLAY"
+wait_for_name = "org.gnome.Shell"
 
 [[component]]
 name = "portals"
 command = ["helix-portals"]
 wait_for_name = "org.freedesktop.impl.portal.desktop.helix"
-
-[[component]]
-name = "shell"
-command = ["helix-shell"]
-required = true
-wait_for_name = "org.gnome.Shell"

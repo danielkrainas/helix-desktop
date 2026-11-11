@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="helix_keybindings_v1">
+  <copyright>
+    SPDX-License-Identifier: CC0-1.0
+  </copyright>
+
+  <description summary="global key bindings for the Helix shell">
+    A private protocol between the Helix compositor and the Helix shell.
+
+    GNOME Shell offers global accelerators over D-Bus
+    (org.gnome.Shell.GrabAccelerator), and in GNOME the shell and the
+    compositor are one process. In Helix they are separate, so the shell
+    asks the compositor to bind key combinations with this protocol and
+    relays presses back to D-Bus clients as AcceleratorActivated.
+
+    The global is only advertised to privileged clients: the shell process
+    the compositor launched itself on a pre-connected socket
+    (WAYLAND_SOCKET). Ordinary clients cannot see it.
+  </description>
+
+  <interface name="helix_keybindings_manager_v1" version="1">
+    <description summary="binds global key combinations">
+      Bound keys are taken away from the focused client: their presses and
+      releases are delivered only as helix_keybinding_v1 events. Shortcuts
+      the compositor handles itself always take precedence.
+    </description>
+
+    <enum name="modifier" bitfield="true">
+      <entry name="shift" value="1"/>
+      <entry name="ctrl" value="2"/>
+      <entry name="alt" value="4"/>
+      <entry name="logo" value="8"/>
+    </enum>
+
+    <request name="bind">
+      <description summary="bind a key combination">
+        Bind the key named keysym (an XKB keysym name such as "a", "F9" or
+        "XF86AudioMute"), with exactly the given modifiers held. The
+        result is reported with bound or failed on the new object.
+      </description>
+      <arg name="id" type="new_id" interface="helix_keybinding_v1"/>
+      <arg name="modifiers" type="uint" enum="modifier"/>
+      <arg name="keysym" type="string"/>
+    </request>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager">
+        Existing bindings stay valid.
+      </description>
+    </request>
+  </interface>
+
+  <interface name="helix_keybinding_v1" version="1">
+    <description summary="one bound key combination"/>
+
+    <enum name="error_reason">
+      <entry name="unknown_key" value="0" summary="the keysym name is not known"/>
+      <entry name="taken" value="1" summary="already bound, or reserved by the compositor"/>
+    </enum>
+
+    <event name="bound">
+      <description summary="the binding is active"/>
+    </event>
+
+    <event name="failed">
+      <description summary="the binding could not be made">
+        The object is inert afterwards; destroy it.
+      </description>
+      <arg name="reason" type="uint" enum="error_reason"/>
+    </event>
+
+    <event name="pressed">
+      <description summary="the combination was pressed"/>
+      <arg name="time" type="uint" summary="timestamp in milliseconds"/>
+    </event>
+
+    <event name="released">
+      <description summary="the key of the combination was released"/>
+      <arg name="time" type="uint" summary="timestamp in milliseconds"/>
+    </event>
+
+    <request name="destroy" type="destructor">
+      <description summary="unbind and destroy"/>
+    </request>
+  </interface>
+</protocol>

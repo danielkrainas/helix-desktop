@@ -1,0 +1,19 @@
+[package]
+name = "helix-protocols"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Helix-private Wayland protocols (compositor <-> shell)"
+
+[features]
+server = ["dep:wayland-server"]
+client = ["dep:wayland-client"]
+
+[dependencies]
+wayland-scanner = "0.31"
+wayland-backend = "0.3"
+wayland-server = { version = "0.31", optional = true }
+wayland-client = { version = "0.31", optional = true }
+bitflags = "2"

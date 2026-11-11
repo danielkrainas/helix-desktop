@@ -6,6 +6,7 @@ mod cursor;
 mod grabs;
 mod handlers;
 mod input;
+mod keybindings;
 mod shortcuts;
 pub mod udev;
 pub mod winit;
@@ -82,6 +83,7 @@ pub struct Helix {
     /// Interactive resize awaiting the client's commits.
     pub resize: Option<grabs::ResizeTracking>,
     pub shortcuts: shortcuts::Shortcuts,
+    pub keybindings: keybindings::Keybindings,
     /// Cursor requested by the focused client, for the host window.
     pub cursor: Option<CursorIcon>,
     /// Full cursor state, drawn by the compositor on bare hardware.
@@ -107,6 +109,8 @@ impl Helix {
         seat.add_keyboard(Default::default(), 200, 25)?;
         seat.add_pointer();
 
+        // Private protocol for the shell (visible to privileged clients only).
+        dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(1, ());
         let socket_name = Self::listen(display, event_loop)?;
         Ok(Self {
             start_time: Instant::now(),
@@ -137,6 +141,7 @@ impl Helix {
             restore: Vec::new(),
             resize: None,
             shortcuts: shortcuts::Shortcuts::default(),
+            keybindings: keybindings::Keybindings::default(),
             cursor: Some(CursorIcon::Default),
             cursor_status: CursorImageStatus::default_named(),
             dmabuf_state: DmabufState::new(),
@@ -173,6 +178,42 @@ impl Helix {
             },
         )?;
         Ok(name)
+    }
+
+    /// Connect the shell on a pre-connected socket, as a privileged client,
+    /// and start it with `WAYLAND_SOCKET` pointing at the other end.
+    pub fn spawn_privileged(&mut self, program: &str) -> std::io::Result<std::process::Child> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::net::UnixStream;
+        use std::os::unix::process::CommandExt;
+
+        let (ours, theirs) = UnixStream::pair()?;
+        self.display_handle
+            .insert_client(
+                ours,
+                Arc::new(ClientState {
+                    privileged: true,
+                    ..ClientState::default()
+                }),
+            )
+            .map_err(std::io::Error::other)?;
+        let fd = theirs.as_raw_fd();
+        let mut cmd = std::process::Command::new(program);
+        cmd.env("WAYLAND_SOCKET", fd.to_string());
+        // SAFETY: only async-signal-safe fcntl calls between fork and exec,
+        // to let the child inherit its end of the socket.
+        unsafe {
+            cmd.pre_exec(move || {
+                let flags = libc::fcntl(fd, libc::F_GETFD);
+                if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let child = cmd.spawn()?;
+        drop(theirs);
+        Ok(child)
     }
 
     pub fn send(&self, event: Event) {
@@ -244,6 +285,8 @@ impl Helix {
 #[derive(Default)]
 pub struct ClientState {
     pub compositor_state: CompositorClientState,
+    /// The shell launched by the compositor (may use private protocols).
+    pub privileged: bool,
 }
 
 impl ClientData for ClientState {

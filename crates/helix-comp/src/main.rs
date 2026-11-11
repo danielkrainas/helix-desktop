@@ -1,7 +1,7 @@
 //! `helix-comp`: the Helix compositor.
 //!
 //! ```text
-//! helix-comp [--backend winit|drm] [--command PROGRAM]
+//! helix-comp [--backend winit|drm] [--shell PROGRAM] [--command PROGRAM]
 //! ```
 //!
 //! Backends:
@@ -10,6 +10,10 @@
 //! - `drm`: on bare hardware from a text console, via libseat, KMS and
 //!   libinput (the default otherwise). Ctrl+Alt+Backspace quits;
 //!   Ctrl+Alt+F1..F12 switch VTs.
+//!
+//! `--shell` starts the shell as the compositor's privileged client (on a
+//! pre-connected socket), which is what lets it bind global keys through
+//! the private `helix_keybindings_v1` protocol.
 //!
 //! Serves `org.gnome.Mutter.IdleMonitor` and `org.gnome.Mutter.DisplayConfig`
 //! on the session bus and announces its Wayland socket to the session
@@ -53,11 +57,12 @@ enum Backend {
 
 struct Args {
     backend: Backend,
+    shell: Option<String>,
     command: Option<String>,
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let Args { backend, command } = parse_args()?;
+    let Args { backend, shell, command } = parse_args()?;
     tracing::info!(?backend, "starting");
 
     let (events_tx, events_rx) = mpsc::unbounded_channel();
@@ -76,6 +81,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     start_dbus_thread(socket, monitors, events_rx);
 
+    if let Some(program) = shell {
+        match state.spawn_privileged(&program) {
+            Ok(mut child) => {
+                tracing::info!(program, pid = child.id(), "started shell");
+                std::thread::spawn(move || match child.wait() {
+                    Ok(status) => tracing::warn!(program, %status, "shell exited"),
+                    Err(err) => tracing::warn!(program, %err, "lost track of shell"),
+                });
+            }
+            Err(err) => tracing::error!(%err, program, "cannot start shell"),
+        }
+    }
+
     if let Some(program) = command {
         if let Err(err) = std::process::Command::new(&program).spawn() {
             tracing::warn!(%err, program, "failed to start client");
@@ -87,10 +105,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn parse_args() -> Result<Args, String> {
-    const USAGE: &str = "usage: helix-comp [--backend winit|drm] [--command PROGRAM]";
+    const USAGE: &str = "usage: helix-comp [--backend winit|drm] [--shell PROGRAM] [--command PROGRAM]";
     let nested = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
     let mut parsed = Args {
         backend: if nested { Backend::Winit } else { Backend::Drm },
+        shell: None,
         command: None,
     };
     let mut args = std::env::args().skip(1);
@@ -104,6 +123,7 @@ fn parse_args() -> Result<Args, String> {
                 }
             }
             "--command" | "-c" => parsed.command = Some(args.next().ok_or(USAGE)?),
+            "--shell" => parsed.shell = Some(args.next().ok_or(USAGE)?),
             _ => return Err(USAGE.into()),
         }
     }

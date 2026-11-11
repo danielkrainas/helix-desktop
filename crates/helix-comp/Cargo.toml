@@ -16,6 +16,8 @@ tracing-subscriber.workspace = true
 helix-session.workspace = true
 smithay.workspace = true
 smithay-drm-extras.workspace = true
+helix-protocols = { workspace = true, features = ["server"] }
+libc.workspace = true
 
 [[bin]]
 name = "helix-comp"

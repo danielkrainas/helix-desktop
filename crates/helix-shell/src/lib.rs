@@ -68,6 +68,20 @@ pub enum UiEvent {
     Osd(Osd),
     MonitorLabels(HashMap<String, i32>),
     HideMonitorLabels,
+    /// Ask the compositor to deliver this accelerator for `action`.
+    Bind { action: u32, accelerator: accel::Accelerator },
+    Unbind { action: u32 },
+}
+
+/// Reports from the shell UI back to the D-Bus side.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UiRequest {
+    /// The UI opened/closed the launcher itself.
+    Overview(bool),
+    /// A bound accelerator was pressed or released.
+    Accelerator { action: u32, pressed: bool, time: u32 },
+    /// The compositor refused (or cannot offer) the binding.
+    GrabFailed { action: u32 },
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -79,6 +93,55 @@ pub struct Shell {
 impl Shell {
     fn state(&self) -> MutexGuard<'_, ShellState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn bind_in_compositor(&self, action: u32) {
+        if action == 0 {
+            return;
+        }
+        let accelerator = self.state().grab_for(action).map(|g| g.accelerator.clone());
+        if let Some(accelerator) = accelerator {
+            let _ = self.ui.send(UiEvent::Bind { action, accelerator });
+        }
+    }
+
+    /// Emit AcceleratorActivated/Deactivated if the grab applies in the
+    /// current action mode.
+    pub async fn accelerator_event(
+        &self,
+        action: u32,
+        pressed: bool,
+        time: u32,
+        emitter: &SignalEmitter<'_>,
+    ) -> zbus::Result<()> {
+        let (applies, mode) = {
+            let state = self.state();
+            let mode = state.action_mode();
+            let applies = state.grab_for(action).is_some_and(|g| g.mode_flags & mode != 0);
+            (applies, mode)
+        };
+        if !applies {
+            return Ok(());
+        }
+        let params = HashMap::from([
+            ("device-id", Value::from(0u32)),
+            ("timestamp", Value::from(time)),
+            ("action-mode", Value::from(mode)),
+            ("device-node", Value::from("")),
+        ]);
+        tracing::debug!(action, pressed, "accelerator");
+        if pressed {
+            Self::accelerator_activated(emitter, action, params).await
+        } else {
+            Self::accelerator_deactivated(emitter, action, params).await
+        }
+    }
+
+    /// The compositor could not bind the accelerator; forget the grab.
+    pub fn grab_failed(&self, action: u32) {
+        if self.state().ungrab(action) {
+            tracing::warn!(action, "accelerator could not be bound by the compositor; grab dropped");
+        }
     }
 
     /// Overview state changed by the shell UI itself (no echo to the UI).
@@ -159,6 +222,7 @@ impl Shell {
             .state()
             .grab(accelerator, mode_flags, grab_flags, sender(&header).as_deref());
         tracing::info!(accelerator, action, "GrabAccelerator");
+        self.bind_in_compositor(action);
         action
     }
 
@@ -168,16 +232,26 @@ impl Shell {
         #[zbus(header)] header: Header<'_>,
     ) -> Vec<u32> {
         let owner = sender(&header);
-        let mut state = self.state();
-        accelerators
-            .iter()
-            .map(|(accel, modes, flags)| state.grab(accel, *modes, *flags, owner.as_deref()))
-            .collect()
+        let actions: Vec<u32> = {
+            let mut state = self.state();
+            accelerators
+                .iter()
+                .map(|(accel, modes, flags)| state.grab(accel, *modes, *flags, owner.as_deref()))
+                .collect()
+        };
+        for action in &actions {
+            self.bind_in_compositor(*action);
+        }
+        actions
     }
 
     /// False if `action` was not grabbed.
     async fn ungrab_accelerator(&self, action: u32) -> bool {
-        self.state().ungrab(action)
+        let found = self.state().ungrab(action);
+        if found {
+            let _ = self.ui.send(UiEvent::Unbind { action });
+        }
+        found
     }
 
     /// Releases every listed grab; false if any of them was not grabbed.
@@ -186,7 +260,11 @@ impl Shell {
         let mut all_found = true;
         for action in actions {
             // No short-circuit: release the rest even after a miss.
-            all_found &= state.ungrab(action);
+            let found = state.ungrab(action);
+            if found {
+                let _ = self.ui.send(UiEvent::Unbind { action });
+            }
+            all_found &= found;
         }
         all_found
     }
@@ -246,6 +324,7 @@ impl ShellService {
     ) -> zbus::Result<(Self, mpsc::UnboundedReceiver<UiEvent>)> {
         let state = Arc::new(Mutex::new(ShellState::new()));
         let (ui, ui_rx) = mpsc::unbounded_channel();
+        let ui_for_watcher = ui.clone();
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui })?
             .build()
@@ -261,6 +340,7 @@ impl ShellService {
 
         let mut changes = DBusProxy::new(&conn).await?.receive_name_owner_changed().await?;
         let watched = state.clone();
+        let watcher_ui = ui_for_watcher;
         let watcher = tokio::spawn(async move {
             while let Some(signal) = changes.next().await {
                 let Ok(args) = signal.args() else { continue };
@@ -270,8 +350,11 @@ impl ShellService {
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .remove_owner(name);
-                    if removed > 0 {
-                        tracing::debug!(name, removed, "released accelerators of departed client");
+                    if !removed.is_empty() {
+                        tracing::debug!(name, ?removed, "released accelerators of departed client");
+                    }
+                    for action in removed {
+                        let _ = watcher_ui.send(UiEvent::Unbind { action });
                     }
                 }
             }
@@ -293,10 +376,9 @@ impl ShellService {
             .collect()
     }
 
-    /// Lets the UI report overview changes it made (e.g. the launcher was
-    /// closed with Escape).
-    pub fn overview_handle(&self) -> OverviewHandle {
-        OverviewHandle {
+    /// Lets the UI report back (overview changes, key presses).
+    pub fn ui_bridge(&self) -> UiBridge {
+        UiBridge {
             conn: self.conn.clone(),
         }
     }
@@ -308,20 +390,30 @@ impl ShellService {
     }
 }
 
-/// See [`ShellService::overview_handle`].
+/// See [`ShellService::ui_bridge`].
 #[derive(Clone)]
-pub struct OverviewHandle {
+pub struct UiBridge {
     conn: Connection,
 }
 
-impl OverviewHandle {
-    pub async fn set(&self, active: bool) -> zbus::Result<()> {
+impl UiBridge {
+    pub async fn handle(&self, request: UiRequest) -> zbus::Result<()> {
         let iface = self
             .conn
             .object_server()
             .interface::<_, Shell>(OBJECT_PATH)
             .await?;
         let shell = iface.get().await;
-        shell.set_overview_from_ui(active, iface.signal_emitter()).await
+        let emitter = iface.signal_emitter();
+        match request {
+            UiRequest::Overview(active) => shell.set_overview_from_ui(active, emitter).await,
+            UiRequest::Accelerator { action, pressed, time } => {
+                shell.accelerator_event(action, pressed, time, emitter).await
+            }
+            UiRequest::GrabFailed { action } => {
+                shell.grab_failed(action);
+                Ok(())
+            }
+        }
     }
 }

@@ -39,9 +39,18 @@ impl Helix {
         }
     }
 
-    fn run_shortcut(&mut self, action: Action) {
+    fn run_shortcut(&mut self, action: Action, time: u32) {
         tracing::debug!(?action, "shortcut");
         match action {
+            Action::Binding(id, pressed) => {
+                if let Some(obj) = self.keybindings.object(id) {
+                    if pressed {
+                        obj.pressed(time);
+                    } else {
+                        obj.released(time);
+                    }
+                }
+            }
             Action::ShowApplications => self.send(helix_comp::Event::ShowApplications),
             Action::CycleWindows => self.cycle_windows(),
             Action::CloseWindow => self.close_focused(),
@@ -106,7 +115,7 @@ impl Helix {
                     },
                 );
                 if let Some(Some(action)) = action {
-                    self.run_shortcut(action);
+                    self.run_shortcut(action, time);
                 }
             }
             InputEvent::PointerMotionAbsolute { event, .. } => {
