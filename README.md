@@ -278,16 +278,20 @@ Shortcuts handled by the compositor:
 | Keys | Action |
 |------|--------|
 | Super (alone) | Show applications (asks the shell over `org.gnome.Shell`) |
-| Alt+F4 | Close the focused window |
-| Super+Up | Toggle maximize |
-| Super+Down | Restore a maximized window, else minimize |
 | Super+drag | Move the window under the pointer |
 | Super+L | Lock the screen |
 
 Alt+Tab (the application switcher), Alt+\` (windows of the current
-application), Super+Space (keyboard layouts), Print (screenshots) and the
-volume and brightness keys belong to the shell, which binds them from
-GSettings. Volume and brightness keys keep working while the screen is
+application), Super+Space (keyboard layouts), Print (screenshots), the
+volume and brightness keys, and GNOME's window keys (Alt+F4 close,
+Super+Up/Down maximize and restore, Super+H minimize, Alt+Space window
+menu, Alt+F7/F8 move and resize, Super+Shift+arrows to another monitor,
+and the rest of `org.gnome.desktop.wm.keybindings`) belong to the shell,
+which binds them from GSettings.
+
+The window menu (Alt+Space, a right click on a GTK header bar or on an X11
+title bar) offers minimize, maximize, move, resize, Always on Top, Always
+on Visible Workspace, moving to another workspace or monitor, and close. Volume and brightness keys keep working while the screen is
 locked.
 
 On laptops, DisplayConfig's `Backlight` and `SetBacklight` control the

@@ -17,8 +17,8 @@ use super::{ClientState, Helix};
 /// What the shell was last told.
 #[derive(Debug, Default)]
 pub struct WindowList {
-    listeners: Vec<HelixWindowListV1>,
-    ids: Vec<(Window, u32)>,
+    pub(super) listeners: Vec<HelixWindowListV1>,
+    pub(super) ids: Vec<(Window, u32)>,
     next_id: u32,
     sent: HashMap<u32, (String, String)>,
     sent_focus: u32,
@@ -223,6 +223,9 @@ impl Dispatch<HelixWindowListV1, ()> for Helix {
                 if let Some(window) = state.window_by_list_id(id) {
                     state.set_on_all_workspaces(&window, on != 0);
                 }
+            }
+            helix_window_list_v1::Request::WindowAction { id, action: smithay::reexports::wayland_server::WEnum::Value(action) } => {
+                state.window_action(id, action);
             }
             helix_window_list_v1::Request::MoveWindow { id, workspace } => {
                 let window = state.window_list.ids.iter().find(|(_, i)| *i == id).map(|(w, _)| w.clone());

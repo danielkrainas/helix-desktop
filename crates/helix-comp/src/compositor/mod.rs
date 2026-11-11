@@ -2,6 +2,7 @@
 //!
 //! Structure follows Smithay's `smallvil` example (MIT licensed).
 
+mod actions;
 mod capture;
 mod cursor;
 mod frames;
@@ -101,6 +102,12 @@ pub struct Helix {
     pub restore: Vec<(Window, Rectangle<i32, Logical>, wm::Takeover)>,
     /// Interactive resize awaiting the client's commits.
     pub resize: Option<grabs::ResizeTracking>,
+    /// Always on Top windows.
+    pub above: Vec<Window>,
+    /// A Move/Resize following the pointer: window, geometry before, resize.
+    pub follow: Option<(Window, Rectangle<i32, Logical>, bool)>,
+    /// Windows `show-desktop` minimized.
+    pub shown_desktop: Option<Vec<Window>>,
     /// Last known usable areas (outputs minus panels), to notice changes.
     pub work_areas: Vec<(String, Rectangle<i32, Logical>)>,
     pub shortcuts: shortcuts::Shortcuts,
@@ -161,7 +168,7 @@ impl Helix {
 
         // Private protocol for the shell (visible to privileged clients only).
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
-        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(3, ());
+        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(4, ());
         dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(3, ());
         let socket_name = Self::listen(display, event_loop)?;
         let mut helix = Self {
@@ -196,6 +203,9 @@ impl Helix {
             minimized_at: Vec::new(),
             restore: Vec::new(),
             resize: None,
+            above: Vec::new(),
+            follow: None,
+            shown_desktop: None,
             work_areas: Vec::new(),
             shortcuts: shortcuts::Shortcuts::default(),
             keybindings: keybindings::Keybindings::default(),

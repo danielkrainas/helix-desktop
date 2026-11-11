@@ -67,21 +67,11 @@ impl Helix {
                 }
             }
             Action::ShowApplications => self.send(helix_comp::Event::ShowApplications),
-            Action::CloseWindow => self.close_focused(),
-            Action::ToggleMaximize => self.toggle_maximize_focused(),
+            Action::CancelFollow => self.cancel_follow(),
             Action::SwitchVt(vt) => self.switch_vt(vt),
             Action::Quit => {
                 tracing::info!("quit requested (Ctrl+Alt+Backspace)");
                 self.loop_signal.stop();
-            }
-            Action::RestoreOrMinimize => {
-                if let Some(window) = self.top_window() {
-                    if self.is_taken_over(&window, super::wm::Takeover::Maximized) {
-                        self.restore_window(&window);
-                    } else {
-                        self.minimize(&window);
-                    }
-                }
             }
         }
     }
@@ -122,6 +112,9 @@ impl Helix {
                         let sym = handle
                             .raw_latin_sym_or_raw_current_sym()
                             .unwrap_or_else(|| handle.modified_sym());
+                        if pressed && state.follow.is_some() && handle.modified_sym() == smithay::input::keyboard::Keysym::Escape {
+                            return FilterResult::Intercept(Some(Action::CancelFollow));
+                        }
                         let decision = state.shortcuts.key(keycode.raw(), pressed, mods, sym);
                         if decision.intercept {
                             FilterResult::Intercept(decision.action)
@@ -188,7 +181,7 @@ impl Helix {
                             };
                             pointer.set_grab(
                                 self,
-                                super::grabs::MoveGrab { start_data, window, initial_location },
+                                super::grabs::MoveGrab { start_data, window, initial_location, follow: false, unmaximize: false },
                                 serial,
                                 smithay::input::pointer::Focus::Clear,
                             );

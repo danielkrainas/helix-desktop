@@ -42,6 +42,8 @@ pub enum TitleAction {
     ToggleMaximizeVertically,
     Minimize,
     Lower,
+    /// The window menu.
+    Menu,
     None,
 }
 
@@ -53,7 +55,8 @@ impl TitleAction {
             "toggle-maximize-vertically" => Self::ToggleMaximizeVertically,
             "minimize" => Self::Minimize,
             "lower" => Self::Lower,
-            // `menu` (no window menu), `toggle-shade` (no shading), `none`.
+            "menu" => Self::Menu,
+            // `toggle-shade` (no shading), `none`.
             _ => Self::None,
         }
     }
@@ -141,7 +144,7 @@ impl Default for FrameConfig {
             dark: false,
             double_click: TitleAction::ToggleMaximize,
             middle_click: TitleAction::None,
-            right_click: TitleAction::None,
+            right_click: TitleAction::Menu,
             double_click_ms: 400,
             border: 10,
         }
@@ -295,7 +298,7 @@ mod tests {
     #[test]
     fn actions() {
         assert_eq!(TitleAction::parse("lower"), TitleAction::Lower);
-        assert_eq!(TitleAction::parse("menu"), TitleAction::None);
+        assert_eq!(TitleAction::parse("menu"), TitleAction::Menu);
         assert_eq!(TitleAction::parse("toggle-shade"), TitleAction::None);
     }
 

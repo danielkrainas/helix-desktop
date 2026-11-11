@@ -56,6 +56,7 @@ mod capture;
 mod ime;
 mod notify;
 mod scale;
+mod window_menu;
 use notify::BannerHit;
 
 pub const PANEL_HEIGHT: u32 = 32;
@@ -172,6 +173,7 @@ struct Ui {
     /// Full-screen overlays: the end-session dialog and the power menu.
     dialog: Option<Overlay<DialogState>>,
     power_menu: Option<Overlay<()>>,
+    window_menu: Option<window_menu::WindowMenu>,
     /// Numbers identifying monitors (`ShowMonitorLabels`), one per output.
     monitor_labels: Vec<Overlay<i32>>,
     /// Which power actions logind allows (entries shown in the menu).
@@ -756,6 +758,7 @@ impl Ui {
         }
         self.redraw_picker();
         self.draw_notification_list();
+        self.draw_window_menu();
     }
 
     fn draw_switcher(&mut self) {
@@ -1569,6 +1572,11 @@ impl Ui {
             Some(Internal::Wm(crate::windows::WmKey::Cycle { group, backward })) => self.cycle_windows(group, backward),
             Some(Internal::Wm(crate::windows::WmKey::Panels { backward })) => self.focus_panel(backward),
             Some(Internal::Wm(crate::windows::WmKey::ToggleOnAllWorkspaces)) => self.toggle_on_all_workspaces(),
+            Some(Internal::Wm(crate::windows::WmKey::Window(action))) => {
+                if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 4) {
+                    list.window_action(0, action);
+                }
+            }
             None => {}
         }
     }
@@ -1643,7 +1651,7 @@ pub fn run(
     let shm = Shm::bind(&globals, &qh)?;
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=3, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=4, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=3, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
@@ -1711,6 +1719,7 @@ pub fn run(
         banner: None,
         dialog: None,
         power_menu: None,
+        window_menu: None,
         monitor_labels: Vec::new(),
         power: Default::default(),
         sharing: false,
@@ -1788,7 +1797,7 @@ impl OutputHandler for Ui {
 
 impl LayerShellHandler for Ui {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
-        if self.picker_closed(layer) || self.flash_closed(layer) || self.notify_closed(layer) {
+        if self.picker_closed(layer) || self.flash_closed(layer) || self.notify_closed(layer) || self.window_menu_closed(layer) {
             return;
         }
         if layer == &self.panel {
@@ -1823,6 +1832,7 @@ impl LayerShellHandler for Ui {
         if self.picker_configured(layer, configure.new_size)
             || self.flash_configured(layer, configure.new_size)
             || self.notify_configured(layer, configure.new_size)
+            || self.window_menu_configured(layer, configure.new_size)
         {
             return;
         }
@@ -1923,6 +1933,8 @@ impl KeyboardHandler for Ui {
     fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
         if self.lock.session.is_some() {
             self.lock_key(&event);
+        } else if self.window_menu.is_some() {
+            self.window_menu_key(&event);
         } else if self.picker.is_some() {
             self.picker_key(&event);
         } else if self.dialog.is_some() {
@@ -2006,7 +2018,7 @@ impl TouchHandler for Ui {
 impl Ui {
     fn pointer_events(&mut self, events: &[PointerEvent]) {
         for event in events {
-            if self.picker_pointer(event) || self.notification_list_pointer(event) {
+            if self.picker_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
@@ -2280,6 +2292,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                     }
                 }
             }
+            helix_window_list_v1::Event::Menu { id, x, y, state: WEnum::Value(state) } => ui.show_window_menu(id, x, y, state),
             helix_window_list_v1::Event::Workspaces { count, active } => {
                 ui.windows.set_workspaces(count, active);
                 ui.draw_panel();

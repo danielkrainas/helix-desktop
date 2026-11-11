@@ -435,30 +435,46 @@ impl Helix {
             TitleAction::ToggleMaximizeVertically => self.toggle_maximize_direction(window, false),
             TitleAction::Minimize => self.minimize(window),
             TitleAction::Lower => self.lower_window(window),
+            TitleAction::Menu => {
+                let pos = self.seat.get_pointer().unwrap().current_location().to_i32_round();
+                self.send_window_menu(window, pos);
+            }
             TitleAction::None => {}
         }
     }
 
-    fn start_frame_move(&mut self, window: Window, pos: Point<f64, Logical>) -> bool {
-        let pointer = self.seat.get_pointer().unwrap();
-        let before = client_rect(&self.space, &window);
-        self.restore_window(&window);
-        // A restored window comes back under the pointer, keeping where
-        // along the title bar it was grabbed.
-        if let (Some(before), Some(after)) = (before, client_rect(&self.space, &window)) {
+    /// Restore a maximized window being dragged so it comes back under
+    /// the pointer, keeping where along its top it was grabbed.
+    pub fn restore_under_pointer(&mut self, window: &Window, pos: Point<f64, Logical>) {
+        let before = client_rect(&self.space, window);
+        self.restore_window(window);
+        if let (Some(before), Some(after)) = (before, client_rect(&self.space, window)) {
             if before != after {
                 let fraction = (pos.x - f64::from(before.loc.x)) / f64::from(before.size.w.max(1));
                 let x = (pos.x - fraction * f64::from(after.size.w)) as i32;
                 let loc: Point<i32, Logical> = (x, before.loc.y).into();
                 self.space.map_element(window.clone(), loc, true);
+                self.restack_above();
                 if let Some(x11) = window.x11_surface() {
                     let _ = x11.configure(Rectangle::new(loc, after.size));
                 }
             }
         }
+    }
+
+    fn start_frame_move(&mut self, window: Window, pos: Point<f64, Logical>) -> bool {
+        let pointer = self.seat.get_pointer().unwrap();
+        // A maximized window is restored once the pointer really drags
+        // (so a double click can restore it instead).
+        let unmaximize = self.is_taken_over(&window, Takeover::Maximized);
         let initial_location = self.space.element_location(&window).unwrap_or_default();
         let start_data = GrabStartData { focus: None, button: super::input::BTN_LEFT, location: pos };
-        pointer.set_grab(self, MoveGrab { start_data, window, initial_location }, SERIAL_COUNTER.next_serial(), Focus::Clear);
+        pointer.set_grab(
+            self,
+            MoveGrab { start_data, window, initial_location, follow: false, unmaximize },
+            SERIAL_COUNTER.next_serial(),
+            Focus::Clear,
+        );
         true
     }
 
@@ -473,7 +489,7 @@ impl Helix {
         let start_data = GrabStartData { focus: None, button: super::input::BTN_LEFT, location: pos };
         pointer.set_grab(
             self,
-            ResizeGrab { start_data, window, edges, initial, last_size: initial.size },
+            ResizeGrab { start_data, window, edges, initial, last_size: initial.size, follow: false },
             SERIAL_COUNTER.next_serial(),
             Focus::Clear,
         );
@@ -481,7 +497,7 @@ impl Helix {
     }
 
     /// Fill the work area in one direction, or restore.
-    fn toggle_maximize_direction(&mut self, window: &Window, horizontal: bool) {
+    pub(super) fn toggle_maximize_direction(&mut self, window: &Window, horizontal: bool) {
         if self.is_taken_over(window, Takeover::Maximized) {
             self.restore_window(window);
             return;
@@ -496,7 +512,7 @@ impl Helix {
     }
 
     /// Put `window` below every other window; the new top one gets focus.
-    fn lower_window(&mut self, window: &Window) {
+    pub(super) fn lower_window(&mut self, window: &Window) {
         let others: Vec<Window> = self.space.elements().filter(|w| *w != window).cloned().collect();
         for other in others {
             self.space.raise_element(&other, false);

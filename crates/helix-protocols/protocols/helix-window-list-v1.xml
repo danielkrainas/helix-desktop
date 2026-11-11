@@ -10,7 +10,7 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="3">
+  <interface name="helix_window_list_v1" version="4">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
       open window, topmost first, then a focused event (and, since version
@@ -78,5 +78,68 @@
       <arg name="id" type="uint"/>
       <arg name="workspace" type="uint"/>
     </request>
+    <enum name="action" since="4">
+      <description summary="window-management actions">
+        See helix-desktop-spec contracts/wayland/README.md, "Window menu and
+        window keys".
+      </description>
+      <entry name="close" value="0"/>
+      <entry name="minimize" value="1"/>
+      <entry name="maximize" value="2"/>
+      <entry name="unmaximize" value="3"/>
+      <entry name="toggle_maximize" value="4"/>
+      <entry name="maximize_horizontally" value="5"/>
+      <entry name="maximize_vertically" value="6"/>
+      <entry name="toggle_fullscreen" value="7"/>
+      <entry name="toggle_above" value="8"/>
+      <entry name="begin_move" value="9"/>
+      <entry name="begin_resize" value="10"/>
+      <entry name="show_menu" value="11"/>
+      <entry name="move_to_monitor_left" value="12"/>
+      <entry name="move_to_monitor_right" value="13"/>
+      <entry name="move_to_monitor_up" value="14"/>
+      <entry name="move_to_monitor_down" value="15"/>
+      <entry name="move_to_center" value="16"/>
+      <entry name="move_to_side_n" value="17"/>
+      <entry name="move_to_side_s" value="18"/>
+      <entry name="move_to_side_e" value="19"/>
+      <entry name="move_to_side_w" value="20"/>
+      <entry name="move_to_corner_ne" value="21"/>
+      <entry name="move_to_corner_nw" value="22"/>
+      <entry name="move_to_corner_se" value="23"/>
+      <entry name="move_to_corner_sw" value="24"/>
+      <entry name="raise" value="25"/>
+      <entry name="lower" value="26"/>
+      <entry name="raise_or_lower" value="27"/>
+      <entry name="show_desktop" value="28"/>
+    </enum>
+    <request name="window_action" since="4">
+      <description summary="act on a window">
+        Do action to window id, or to the focused window when id is 0.
+        show_menu makes the compositor send a menu event.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="action" type="uint" enum="action"/>
+    </request>
+    <enum name="menu_state" bitfield="true" since="4">
+      <entry name="maximized" value="1"/>
+      <entry name="fullscreen" value="2"/>
+      <entry name="above" value="4"/>
+      <entry name="on_all_workspaces" value="8"/>
+      <entry name="monitor_left" value="16" summary="there is a monitor to the left"/>
+      <entry name="monitor_right" value="32"/>
+      <entry name="monitor_up" value="64"/>
+      <entry name="monitor_down" value="128"/>
+    </enum>
+    <event name="menu" since="4">
+      <description summary="show the window menu">
+        Show the window menu of window id at x, y (layout coordinates,
+        logical pixels). state describes the window, for the entries.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="state" type="uint" enum="menu_state"/>
+    </event>
   </interface>
 </protocol>

@@ -262,6 +262,8 @@ impl XdgShellHandler for Helix {
                 start_data,
                 window,
                 initial_location,
+                follow: false,
+                unmaximize: false,
             },
             serial,
             Focus::Clear,
@@ -300,6 +302,7 @@ impl XdgShellHandler for Helix {
                 edges,
                 initial,
                 last_size: initial.size,
+                follow: false,
             },
             serial,
             Focus::Clear,
@@ -329,6 +332,20 @@ impl XdgShellHandler for Helix {
         if let Some(window) = self.window_for_surface(surface.wl_surface()) {
             self.restore_window(&window);
         }
+    }
+
+    /// The app asks for the window menu (e.g. a right click on its header
+    /// bar), at `location` relative to its surface.
+    fn show_window_menu(
+        &mut self,
+        surface: ToplevelSurface,
+        _seat: smithay::reexports::wayland_server::protocol::wl_seat::WlSeat,
+        _serial: smithay::utils::Serial,
+        location: smithay::utils::Point<i32, smithay::utils::Logical>,
+    ) {
+        let Some(window) = self.window_for_surface(surface.wl_surface()) else { return };
+        let Some(at) = self.space.element_location(&window) else { return };
+        self.send_window_menu(&window, at - window.geometry().loc + location);
     }
 
     fn minimize_request(&mut self, surface: ToplevelSurface) {

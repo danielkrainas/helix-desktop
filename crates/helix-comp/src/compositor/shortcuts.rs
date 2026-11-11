@@ -19,9 +19,8 @@ use smithay::input::keyboard::Keysym;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     ShowApplications,
-    CloseWindow,
-    ToggleMaximize,
-    RestoreOrMinimize,
+    /// Escape during a window menu Move/Resize.
+    CancelFollow,
     SwitchVt(i32),
     Quit,
     Lock,
@@ -105,9 +104,6 @@ fn builtin(mods: Mods, sym: Keysym) -> Option<Action> {
     match sym {
         Keysym::BackSpace if ctrl_alt => Some(Action::Quit),
         _ if ctrl_alt && function_key(sym).is_some() => function_key(sym).map(Action::SwitchVt),
-        Keysym::F4 if mods.alt && !mods.logo && !mods.ctrl => Some(Action::CloseWindow),
-        Keysym::Up if mods.logo && !mods.alt && !mods.ctrl => Some(Action::ToggleMaximize),
-        Keysym::Down if mods.logo && !mods.alt && !mods.ctrl => Some(Action::RestoreOrMinimize),
         Keysym::l if mods.logo && !mods.alt && !mods.ctrl => Some(Action::Lock),
         _ => None,
     }
@@ -250,7 +246,7 @@ mod tests {
         // A plain Tab goes to the client.
         assert_eq!(s.key(TAB, true, Mods::default(), Keysym::Tab), FORWARD);
         assert_eq!(s.key(TAB, false, Mods::default(), Keysym::Tab), FORWARD);
-        assert_eq!(s.key(F4, true, alt(), Keysym::F4).action, Some(Action::CloseWindow));
+        assert_eq!(s.key(F4, true, alt(), Keysym::F4), FORWARD, "Alt+F4 is the shell's (close)");
     }
 
     #[test]
@@ -271,7 +267,7 @@ mod tests {
         let ctrl_shift = Mods { ctrl: true, shift: true, ..Mods::default() };
         assert_eq!(s.bind(7, ctrl_shift, Key::Sym(Keysym::F9)), Ok(()));
         assert_eq!(s.bind(8, ctrl_shift, Key::Sym(Keysym::F9)), Err(BindError::Taken), "duplicate");
-        assert_eq!(s.bind(9, alt(), Key::Sym(Keysym::F4)), Err(BindError::Taken), "compositor shortcut");
+        assert_eq!(s.bind(9, ctrl_alt_f1().0, Key::Sym(Keysym::F1)), Err(BindError::Taken), "compositor shortcut");
         assert_eq!(s.bind(10, Mods::default(), Key::Sym(Keysym::Super_L)), Err(BindError::Taken), "Super");
 
         let d = s.key(75, true, ctrl_shift, Keysym::F9);
@@ -302,11 +298,7 @@ mod tests {
         assert!(!s.works_when_locked(99));
     }
 
-    #[test]
-    fn super_arrows() {
-        let mut s = Shortcuts::default();
-        assert_eq!(s.key(111, true, logo(), Keysym::Up).action, Some(Action::ToggleMaximize));
-        assert_eq!(s.key(116, true, logo(), Keysym::Down).action, Some(Action::RestoreOrMinimize));
-        assert_eq!(s.key(111, true, Mods::default(), Keysym::Up), FORWARD);
+    fn ctrl_alt_f1() -> (Mods, Keysym) {
+        (Mods { ctrl: true, alt: true, ..Mods::default() }, Keysym::F1)
     }
 }

@@ -18,7 +18,46 @@ pub enum WmKey {
     Panels { backward: bool },
     /// `toggle-on-all-workspaces`.
     ToggleOnAllWorkspaces,
+    /// A key acting on the focused window through the compositor (window
+    /// menu and window keys).
+    Window(WindowAction),
 }
+
+pub use helix_protocols::client::helix_window_list_v1::Action as WindowAction;
+
+/// `org.gnome.desktop.wm.keybindings` keys the compositor carries out.
+pub const WINDOW_KEYS: [(&str, WindowAction); 30] = [
+    ("activate-window-menu", WindowAction::ShowMenu),
+    ("close", WindowAction::Close),
+    ("minimize", WindowAction::Minimize),
+    ("maximize", WindowAction::Maximize),
+    ("unmaximize", WindowAction::Unmaximize),
+    ("toggle-maximized", WindowAction::ToggleMaximize),
+    ("maximize-horizontally", WindowAction::MaximizeHorizontally),
+    ("maximize-vertically", WindowAction::MaximizeVertically),
+    ("toggle-fullscreen", WindowAction::ToggleFullscreen),
+    ("toggle-above", WindowAction::ToggleAbove),
+    ("always-on-top", WindowAction::ToggleAbove),
+    ("begin-move", WindowAction::BeginMove),
+    ("begin-resize", WindowAction::BeginResize),
+    ("move-to-monitor-left", WindowAction::MoveToMonitorLeft),
+    ("move-to-monitor-right", WindowAction::MoveToMonitorRight),
+    ("move-to-monitor-up", WindowAction::MoveToMonitorUp),
+    ("move-to-monitor-down", WindowAction::MoveToMonitorDown),
+    ("move-to-center", WindowAction::MoveToCenter),
+    ("move-to-side-n", WindowAction::MoveToSideN),
+    ("move-to-side-s", WindowAction::MoveToSideS),
+    ("move-to-side-e", WindowAction::MoveToSideE),
+    ("move-to-side-w", WindowAction::MoveToSideW),
+    ("move-to-corner-ne", WindowAction::MoveToCornerNe),
+    ("move-to-corner-nw", WindowAction::MoveToCornerNw),
+    ("move-to-corner-se", WindowAction::MoveToCornerSe),
+    ("move-to-corner-sw", WindowAction::MoveToCornerSw),
+    ("raise", WindowAction::Raise),
+    ("lower", WindowAction::Lower),
+    ("raise-or-lower", WindowAction::RaiseOrLower),
+    ("show-desktop", WindowAction::ShowDesktop),
+];
 
 /// The configured keys of [`WmKey`]s.
 pub fn wm_key_accelerators() -> Vec<(String, WmKey)> {
@@ -35,7 +74,10 @@ pub fn wm_key_accelerators() -> Vec<(String, WmKey)> {
         ("switch-panels", WmKey::Panels { backward: false }),
         ("switch-panels-backward", WmKey::Panels { backward: true }),
         ("toggle-on-all-workspaces", WmKey::ToggleOnAllWorkspaces),
-    ] {
+    ]
+    .into_iter()
+    .chain(WINDOW_KEYS.iter().map(|(k, a)| (*k, WmKey::Window(*a))))
+    {
         for accel in settings.strv(key) {
             let accel = accel.to_string();
             if !accel.is_empty() && !out.iter().any(|(a, _)| *a == accel) {
@@ -253,6 +295,11 @@ impl Windows {
             let entry = self.entries.remove(pos);
             self.entries.insert(0, entry);
         }
+    }
+
+    /// The workspace window `id` is on.
+    pub fn workspace_of(&self, id: u32) -> Option<u32> {
+        self.entries.iter().find(|e| e.id == id).map(|e| e.workspace)
     }
 
     pub fn focused(&self) -> u32 {

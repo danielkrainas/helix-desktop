@@ -72,6 +72,11 @@ pub struct MoveGrab {
     pub start_data: GrabStartData<Helix>,
     pub window: Window,
     pub initial_location: Point<i32, Logical>,
+    /// Following the pointer with no button held (window menu Move): a
+    /// click ends it.
+    pub follow: bool,
+    /// The window is maximized: restore it once the pointer has moved.
+    pub unmaximize: bool,
 }
 
 impl PointerGrab<Helix> for MoveGrab {
@@ -83,9 +88,19 @@ impl PointerGrab<Helix> for MoveGrab {
         event: &MotionEvent,
     ) {
         handle.motion(data, None, event);
-        let delta = event.location - self.start_data.location;
+        let mut delta = event.location - self.start_data.location;
+        if self.unmaximize {
+            if delta.x.abs() + delta.y.abs() < 8.0 {
+                return;
+            }
+            self.unmaximize = false;
+            data.restore_under_pointer(&self.window, self.start_data.location);
+            self.initial_location = data.space.element_location(&self.window).unwrap_or(self.initial_location);
+            delta = event.location - self.start_data.location;
+        }
         let location = (self.initial_location.to_f64() + delta).to_i32_round();
         data.space.map_element(self.window.clone(), location, true);
+        data.restack_above();
         // X11 apps need to know where they are (for menus and input).
         if let Some(x11) = self.window.x11_surface() {
             let _ = x11.configure(Rectangle::new(location, x11.geometry().size));
@@ -93,6 +108,13 @@ impl PointerGrab<Helix> for MoveGrab {
     }
 
     fn button(&mut self, data: &mut Helix, handle: &mut PointerInnerHandle<'_, Helix>, event: &ButtonEvent) {
+        if self.follow {
+            if event.state == smithay::backend::input::ButtonState::Pressed {
+                data.follow = None;
+                handle.unset_grab(self, data, event.serial, event.time, true);
+            }
+            return;
+        }
         handle.button(data, event);
         if !handle.current_pressed().contains(&BTN_LEFT) {
             tracing::debug!(
@@ -161,6 +183,8 @@ pub struct ResizeGrab {
     pub edges: Edges,
     pub initial: Rectangle<i32, Logical>,
     pub last_size: Size<i32, Logical>,
+    /// Following the pointer with no button held: a click ends it.
+    pub follow: bool,
 }
 
 /// New size for a drag of `delta` on `edges`, clamped to the client's
@@ -215,6 +239,7 @@ impl PointerGrab<Helix> for ResizeGrab {
             }
             let _ = x11.configure(Rectangle::new(location, self.last_size));
             data.space.map_element(self.window.clone(), location, true);
+            data.restack_above();
             return;
         }
         let Some(toplevel) = self.window.toplevel() else { return };
@@ -232,9 +257,16 @@ impl PointerGrab<Helix> for ResizeGrab {
     }
 
     fn button(&mut self, data: &mut Helix, handle: &mut PointerInnerHandle<'_, Helix>, event: &ButtonEvent) {
-        handle.button(data, event);
-        if handle.current_pressed().contains(&BTN_LEFT) {
-            return;
+        if self.follow {
+            if event.state != smithay::backend::input::ButtonState::Pressed {
+                return;
+            }
+            data.follow = None;
+        } else {
+            handle.button(data, event);
+            if handle.current_pressed().contains(&BTN_LEFT) {
+                return;
+            }
         }
         handle.unset_grab(self, data, event.serial, event.time, true);
         if let Some(toplevel) = self.window.toplevel() {

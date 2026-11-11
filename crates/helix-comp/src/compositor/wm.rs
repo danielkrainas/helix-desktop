@@ -86,6 +86,7 @@ impl Helix {
             self.space.map_element(window, location, false);
         }
         self.space.raise_element(window, true);
+        self.restack_above();
         if let (Some(xwm), Some(x11)) = (self.xwm.as_mut(), window.x11_surface()) {
             let _ = xwm.raise_window(x11);
         }
@@ -116,16 +117,6 @@ impl Helix {
             if let Some(t) = w.toplevel() {
                 t.send_pending_configure();
             }
-        }
-    }
-
-    /// Ask the focused window to close (Alt+F4).
-    pub fn close_focused(&mut self) {
-        let Some(window) = self.top_window() else { return };
-        if let Some(t) = window.toplevel() {
-            t.send_close();
-        } else if let Some(x11) = window.x11_surface() {
-            let _ = x11.close();
         }
     }
 
@@ -200,6 +191,7 @@ impl Helix {
             let _ = x11.configure(area);
         }
         self.space.map_element(window.clone(), area.loc, true);
+        self.restack_above();
     }
 
     /// Undo maximize/fullscreen, restoring the previous geometry.
@@ -221,6 +213,7 @@ impl Helix {
             let _ = x11.configure(geometry);
         }
         self.space.map_element(window.clone(), geometry.loc, true);
+        self.restack_above();
     }
 
     pub fn maximize(&mut self, window: &Window) {
@@ -331,17 +324,6 @@ impl Helix {
         }
     }
 
-    /// Toggle maximize on the focused window (Super+Up / Super+Down).
-    pub fn toggle_maximize_focused(&mut self) {
-        if let Some(window) = self.top_window() {
-            if self.is_taken_over(&window, Takeover::Maximized) {
-                self.restore_window(&window);
-            } else {
-                self.maximize(&window);
-            }
-        }
-    }
-
     /// Hide a window until it is cycled back to.
     pub fn minimize(&mut self, window: &Window) {
         let location = self.space.element_location(window).unwrap_or_default();
@@ -358,6 +340,7 @@ impl Helix {
     /// and focus whatever is on top now if it had focus.
     pub fn forget_window(&mut self, window: &Window) {
         self.frames.forget(window);
+        self.above.retain(|w| w != window);
         if let Some(pos) = self.minimized.iter().position(|w| w == window) {
             self.minimized.remove(pos);
             self.minimized_at.remove(pos);
