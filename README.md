@@ -210,7 +210,11 @@ Screen sharing works through the ScreenCast portal: when an app asks, the
 shell lets you pick a monitor ("Share your screen?"), the compositor
 records it into a PipeWire video stream (`org.gnome.Mutter.ScreenCast`,
 BGRx, up to 30 frames a second), and the panel shows a red "Sharing" label
-until it ends. Windows, areas and virtual monitors cannot be shared yet.
+until it ends. Single windows can be shared too (the stream follows the
+window's size; nothing is sent while it is hidden). When an app asks to
+remember the choice, a shared monitor is shared again later without
+asking, as long as the same monitor is connected. Areas and virtual
+monitors cannot be shared yet.
 
 Night Light follows GNOME's settings (enabled, temperature, manual
 schedule, or sunset to sunrise at the last known location): the shell

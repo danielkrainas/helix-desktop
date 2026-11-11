@@ -355,6 +355,18 @@ impl Helix {
     ) -> Result<(Rectangle<i32, Logical>, Image), Option<String>> {
         let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
         let window: Window = focus.and_then(|s| self.window_for_surface(&s)).ok_or(None)?;
+        self.window_image(renderer, &window, cursor)
+    }
+
+    /// One window, cropped to its window geometry, at the highest scale of
+    /// the monitors it is on. `Err(None)`: not shown (hidden or minimized).
+    pub fn window_image(
+        &self,
+        renderer: &mut GlesRenderer,
+        window: &Window,
+        cursor: Option<Option<&MemoryRenderBuffer>>,
+    ) -> Result<(Rectangle<i32, Logical>, Image), Option<String>> {
+        let window = window.clone();
         let location = self.space.element_location(&window).ok_or(None)?;
         let geometry = window.geometry();
         let rect = Rectangle::new(location, geometry.size);

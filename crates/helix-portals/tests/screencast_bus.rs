@@ -18,18 +18,27 @@ use tokio::sync::mpsc;
 use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 use zbus::Connection;
 
-/// (app id, monitors offered)
-type Asked = (String, Vec<(String, String)>);
+/// (app id, monitors offered, windows offered, remember)
+type Asked = (String, Vec<(String, String)>, bool, bool);
+
+/// (chosen, source type, connector, window)
+type Answer = (bool, u32, String, u32);
 
 struct Chooser {
-    answers: Arc<Mutex<Vec<(bool, String)>>>,
+    answers: Arc<Mutex<Vec<Answer>>>,
     asked: Arc<Mutex<Vec<Asked>>>,
 }
 
 #[zbus::interface(name = "org.helix.ScreenCastChooser")]
 impl Chooser {
-    async fn choose_monitor(&self, app_id: String, monitors: Vec<(String, String)>) -> (bool, String) {
-        self.asked.lock().unwrap().push((app_id, monitors));
+    async fn choose_source(
+        &self,
+        app_id: String,
+        monitors: Vec<(String, String)>,
+        options: HashMap<String, OwnedValue>,
+    ) -> (bool, u32, String, u32) {
+        let flag = |k: &str| options.get(k).and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(false);
+        self.asked.lock().unwrap().push((app_id, monitors, flag("windows"), flag("remember")));
         self.answers.lock().unwrap().remove(0)
     }
 }
@@ -58,9 +67,12 @@ fn fake_recorder(log: Arc<Mutex<Vec<String>>>) -> mpsc::UnboundedSender<CastRequ
     tokio::spawn(async move {
         while let Some(request) = rx.recv().await {
             match request {
-                CastRequest::Start { stream, connector, cursor, reply } => {
-                    log.lock().unwrap().push(format!("start {stream} {connector} cursor={cursor}"));
+                CastRequest::Start { stream, source, cursor, reply } => {
+                    log.lock().unwrap().push(format!("start {stream} {source:?} cursor={cursor}"));
                     let _ = reply.send(Ok(42));
+                }
+                CastRequest::WindowSize { window, reply } => {
+                    let _ = reply.send((window == 7).then_some((800, 600)));
                 }
                 CastRequest::Stop { stream } => log.lock().unwrap().push(format!("stop {stream}")),
             }
@@ -97,7 +109,14 @@ async fn share_a_monitor() {
     let services = CompositorServices::start_with(bus.builder(), vec![monitor("DP-1")], control).await.unwrap();
     let (events, rx) = mpsc::unbounded_channel();
     tokio::spawn(services.run(rx));
-    let answers = Arc::new(Mutex::new(vec![(false, String::new()), (true, "DP-1".to_owned()), (true, "DP-1".to_owned())]));
+    let dp1 = (true, 1, "DP-1".to_owned(), 0);
+    let answers = Arc::new(Mutex::new(vec![
+        (false, 0, String::new(), 0),
+        dp1.clone(),
+        dp1.clone(),
+        (true, 2, String::new(), 7),
+        dp1,
+    ]));
     let asked = Arc::new(Mutex::new(Vec::new()));
     let _shell = bus
         .builder()
@@ -132,7 +151,10 @@ async fn share_a_monitor() {
     let s1 = start_session(1).await;
     let none: HashMap<&str, Value<'_>> = HashMap::new();
     assert_eq!(call(&conn, "Start", &(&request, &s1, "org.example.Meet", "", none.clone())).await.0, 1);
-    assert_eq!(asked.lock().unwrap()[0], ("org.example.Meet".to_owned(), vec![("DP-1".to_owned(), "Acme 24\"".to_owned())]));
+    assert_eq!(
+        asked.lock().unwrap()[0],
+        ("org.example.Meet".to_owned(), vec![("DP-1".to_owned(), "Acme 24\"".to_owned())], false, false)
+    );
 
     // The user picks DP-1: one stream, node 42.
     let s2 = start_session(2).await;
@@ -146,7 +168,7 @@ async fn share_a_monitor() {
     assert_eq!(<(i32, i32)>::try_from(props["position"].clone()).unwrap(), (0, 0));
     assert_eq!(u32::try_from(props["source_type"].clone()).unwrap(), 1);
     assert!(sharing(&conn).await);
-    assert!(log.lock().unwrap()[0].ends_with("DP-1 cursor=true"), "{:?}", log.lock().unwrap());
+    assert!(log.lock().unwrap()[0].ends_with("Monitor(\"DP-1\") cursor=true"), "{:?}", log.lock().unwrap());
 
     // The frontend closes the session: the recording stops.
     conn.call_method(Some(BUS_NAME), s2.as_str(), Some("org.freedesktop.impl.portal.Session"), "Close", &()).await.unwrap();
@@ -175,6 +197,48 @@ async fn share_a_monitor() {
     let message = tokio::time::timeout(Duration::from_secs(5), closed.next()).await.unwrap().unwrap().unwrap();
     assert_eq!(message.header().path().unwrap().as_str(), s3.as_str());
     assert!(!sharing(&conn).await);
+
+    // A window, chosen in the dialog.
+    let s4 = ObjectPath::try_from("/org/freedesktop/portal/desktop/session/1_1/s4").unwrap();
+    let none: HashMap<&str, Value<'_>> = HashMap::new();
+    assert_eq!(call(&conn, "CreateSession", &(&request, &s4, "org.example.Meet", none.clone())).await.0, 0);
+    let options = HashMap::from([("types", Value::from(2u32)), ("persist_mode", Value::from(2u32))]);
+    assert_eq!(call(&conn, "SelectSources", &(&request, &s4, "org.example.Meet", options)).await.0, 0);
+    let (r, results) = call(&conn, "Start", &(&request, &s4, "org.example.Meet", "", none.clone())).await;
+    assert_eq!(r, 0);
+    assert_eq!(asked.lock().unwrap().last().unwrap().1, vec![], "windows only: no monitors offered");
+    assert!(asked.lock().unwrap().last().unwrap().2, "windows offered");
+    let streams = <Vec<(u32, HashMap<String, OwnedValue>)>>::try_from(results["streams"].clone()).unwrap();
+    assert_eq!(u32::try_from(streams[0].1["source_type"].clone()).unwrap(), 2);
+    assert_eq!(<(i32, i32)>::try_from(streams[0].1["size"].clone()).unwrap(), (800, 600));
+    assert_eq!(u32::try_from(results["persist_mode"].clone()).unwrap(), 0, "windows are not remembered");
+    assert!(!results.contains_key("restore_data"));
+    assert!(log.lock().unwrap().last().unwrap().contains("Window(7)"));
+
+    // A monitor, remembered; then shared again without asking.
+    let s5 = ObjectPath::try_from("/org/freedesktop/portal/desktop/session/1_1/s5").unwrap();
+    assert_eq!(call(&conn, "CreateSession", &(&request, &s5, "org.example.Meet", none.clone())).await.0, 0);
+    let options = HashMap::from([("types", Value::from(1u32)), ("persist_mode", Value::from(2u32))]);
+    assert_eq!(call(&conn, "SelectSources", &(&request, &s5, "org.example.Meet", options)).await.0, 0);
+    let (r, results) = call(&conn, "Start", &(&request, &s5, "org.example.Meet", "", none.clone())).await;
+    assert_eq!(r, 0);
+    assert!(asked.lock().unwrap().last().unwrap().3, "the dialog says it will be remembered");
+    assert_eq!(u32::try_from(results["persist_mode"].clone()).unwrap(), 2);
+    let restore = results["restore_data"].clone();
+    let asked_before = asked.lock().unwrap().len();
+    let s6 = ObjectPath::try_from("/org/freedesktop/portal/desktop/session/1_1/s6").unwrap();
+    assert_eq!(call(&conn, "CreateSession", &(&request, &s6, "org.example.Meet", none.clone())).await.0, 0);
+    let options = HashMap::from([
+        ("types", Value::from(1u32)),
+        ("persist_mode", Value::from(2u32)),
+        ("restore_data", Value::from(restore)),
+    ]);
+    assert_eq!(call(&conn, "SelectSources", &(&request, &s6, "org.example.Meet", options)).await.0, 0);
+    let (r, results) = call(&conn, "Start", &(&request, &s6, "org.example.Meet", "", none.clone())).await;
+    assert_eq!(r, 0);
+    assert_eq!(asked.lock().unwrap().len(), asked_before, "not asked again");
+    assert!(results.contains_key("restore_data"));
+    assert!(log.lock().unwrap().last().unwrap().contains("Monitor(\"DP-1\")"));
 
     // Only the portal may record directly.
     let stranger = bus.connect().await;

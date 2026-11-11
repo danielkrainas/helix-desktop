@@ -20,6 +20,10 @@ use zbus::{fdo, interface, Connection, ObjectServer};
 use crate::screenshot::{response, with_request};
 
 pub const SOURCE_MONITOR: u32 = 1;
+pub const SOURCE_WINDOW: u32 = 2;
+/// The vendor name in `restore_data`.
+pub const RESTORE_VENDOR: &str = "Helix";
+pub const RESTORE_VERSION: u32 = 1;
 pub const CURSOR_HIDDEN: u32 = 1;
 pub const CURSOR_EMBEDDED: u32 = 2;
 
@@ -35,8 +39,61 @@ type Results = HashMap<String, OwnedValue>;
 struct Cast {
     app_id: String,
     cursor_mode: u32,
+    types: u32,
+    persist_mode: u32,
+    /// The monitor to share again, from `restore_data`.
+    restore: Option<MonitorId>,
     /// The compositor's session, once started.
     mutter: Option<OwnedObjectPath>,
+}
+
+/// What identifies a monitor across sessions.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MonitorId {
+    pub connector: String,
+    pub vendor: String,
+    pub product: String,
+    pub serial: String,
+}
+
+impl MonitorId {
+    fn known_identity(&self) -> bool {
+        !(self.vendor.is_empty() || self.vendor == "Unknown") || !(self.product.is_empty() || self.product == "Unknown")
+    }
+
+    /// `restore_data` for this monitor.
+    pub fn restore_data(&self) -> (String, u32, OwnedValue) {
+        let dict = HashMap::from([
+            ("connector", Value::from(self.connector.as_str())),
+            ("vendor", Value::from(self.vendor.as_str())),
+            ("product", Value::from(self.product.as_str())),
+            ("serial", Value::from(self.serial.as_str())),
+        ]);
+        (RESTORE_VENDOR.to_owned(), RESTORE_VERSION, owned(Value::from(dict)))
+    }
+
+    /// The monitor described by `restore_data`, if it is Helix's.
+    pub fn from_restore_data(value: &Value<'_>) -> Option<Self> {
+        let Value::Structure(s) = value else { return None };
+        let [Value::Str(vendor), Value::U32(version), Value::Value(data)] = s.fields() else { return None };
+        if vendor.as_str() != RESTORE_VENDOR || *version != RESTORE_VERSION {
+            return None;
+        }
+        let dict = HashMap::<String, OwnedValue>::try_from(OwnedValue::try_from((**data).try_clone().ok()?).ok()?).ok()?;
+        let get = |k: &str| dict.get(k).and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default();
+        Some(Self { connector: get("connector"), vendor: get("vendor"), product: get("product"), serial: get("serial") })
+    }
+
+    /// The connector of the monitor in `on` this one is, if any: the same
+    /// identity, else (when the identity is unknown) the same connector.
+    pub fn find_in(&self, on: &[(MonitorId, String)]) -> Option<String> {
+        let same = |m: &MonitorId| m.vendor == self.vendor && m.product == self.product && m.serial == self.serial;
+        if self.known_identity() {
+            on.iter().find(|(m, _)| m.known_identity() && same(m)).map(|(m, _)| m.connector.clone())
+        } else {
+            on.iter().find(|(m, _)| !m.known_identity() && m.connector == self.connector).map(|(m, _)| m.connector.clone())
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -99,8 +156,8 @@ async fn end(conn: &Connection, shared: &Shared, path: &OwnedObjectPath, notify:
     tracing::info!(%path, app_id = cast.app_id, "screen cast ended");
 }
 
-/// Monitors to offer: (connector, display name), from DisplayConfig.
-async fn monitors(conn: &Connection) -> zbus::Result<Vec<(String, String)>> {
+/// Monitors that are on: (identity, display name), from DisplayConfig.
+async fn monitors(conn: &Connection) -> zbus::Result<Vec<(MonitorId, String)>> {
     type Spec = (String, String, String, String);
     type Mode = (String, i32, i32, f64, f64, Vec<f64>, HashMap<String, OwnedValue>);
     type Logical = (i32, i32, f64, u32, bool, Vec<Spec>, HashMap<String, OwnedValue>);
@@ -119,45 +176,82 @@ async fn monitors(conn: &Connection) -> zbus::Result<Vec<(String, String)>> {
                 .get("display-name")
                 .and_then(|v| String::try_from(v.clone()).ok())
                 .unwrap_or_else(|| spec.0.clone());
-            (spec.0, name)
+            (MonitorId { connector: spec.0, vendor: spec.1, product: spec.2, serial: spec.3 }, name)
         })
         .collect())
 }
 
+/// What the user chose (or what was restored).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Source {
+    Monitor(String),
+    Window(u32),
+}
+
 async fn start(conn: &Connection, shared: &Shared, session: &OwnedObjectPath) -> (u32, Results) {
-    let (app_id, cursor_mode) = match lock(shared).sessions.get(session) {
-        Some(cast) => (cast.app_id.clone(), cast.cursor_mode),
+    let (app_id, cursor_mode, types, persist_mode, restore) = match lock(shared).sessions.get(session) {
+        Some(c) => (c.app_id.clone(), c.cursor_mode, c.types, c.persist_mode, c.restore.clone()),
         None => return (response::OTHER, Results::new()),
     };
-    let offered = match monitors(conn).await {
-        Ok(m) if !m.is_empty() => m,
-        other => {
-            tracing::warn!(?other, "no monitors to share");
-            return (response::OTHER, Results::new());
-        }
-    };
-    let choice = conn
-        .call_method(Some(SHELL), CHOOSER_PATH, Some("org.helix.ScreenCastChooser"), "ChooseMonitor", &(app_id.as_str(), &offered))
-        .await
-        .and_then(|r| r.body().deserialize::<(bool, String)>());
-    let connector = match choice {
-        Ok((true, connector)) => connector,
-        Ok((false, _)) => return (response::CANCELLED, Results::new()),
+    let on = match monitors(conn).await {
+        Ok(m) => m,
         Err(err) => {
-            tracing::warn!(%err, "cannot ask which monitor to share");
+            tracing::warn!(%err, "cannot list monitors");
             return (response::OTHER, Results::new());
         }
     };
-    match record(conn, shared, session, &connector, cursor_mode).await {
-        Ok(stream) => {
-            let results = HashMap::from([
-                ("streams".to_owned(), owned(Value::from(vec![stream]))),
-                ("persist_mode".to_owned(), owned(Value::from(0u32))),
+    let restored = restore.as_ref().filter(|_| types & SOURCE_MONITOR != 0).and_then(|r| r.find_in(&on));
+    let source = match restored {
+        Some(connector) => {
+            tracing::info!(connector, app_id, "sharing a remembered monitor");
+            Source::Monitor(connector)
+        }
+        None => {
+            let offered: Vec<(String, String)> = if types & SOURCE_MONITOR != 0 {
+                on.iter().map(|(m, name)| (m.connector.clone(), name.clone())).collect()
+            } else {
+                Vec::new()
+            };
+            let options = HashMap::from([
+                ("monitors", Value::from(types & SOURCE_MONITOR != 0)),
+                ("windows", Value::from(types & SOURCE_WINDOW != 0)),
+                ("remember", Value::from(persist_mode != 0)),
             ]);
+            let choice = conn
+                .call_method(Some(SHELL), CHOOSER_PATH, Some("org.helix.ScreenCastChooser"), "ChooseSource", &(app_id.as_str(), &offered, options))
+                .await
+                .and_then(|r| r.body().deserialize::<(bool, u32, String, u32)>());
+            match choice {
+                Ok((true, SOURCE_MONITOR, connector, _)) => Source::Monitor(connector),
+                Ok((true, SOURCE_WINDOW, _, window)) => Source::Window(window),
+                Ok(_) => return (response::CANCELLED, Results::new()),
+                Err(err) => {
+                    tracing::warn!(%err, "cannot ask what to share");
+                    return (response::OTHER, Results::new());
+                }
+            }
+        }
+    };
+    match record(conn, shared, session, &source, cursor_mode).await {
+        Ok(stream) => {
+            let mut results = HashMap::from([("streams".to_owned(), owned(Value::from(vec![stream])))]);
+            let remembered = match &source {
+                Source::Monitor(connector) if persist_mode != 0 => on.iter().find(|(m, _)| m.connector == *connector).map(|(m, _)| m.clone()),
+                _ => None,
+            };
+            match remembered {
+                Some(monitor) => {
+                    results.insert("persist_mode".to_owned(), owned(Value::from(persist_mode)));
+                    results.insert("restore_data".to_owned(), owned(Value::from(monitor.restore_data())));
+                }
+                None => {
+                    results.insert("persist_mode".to_owned(), owned(Value::from(0u32)));
+                }
+            }
             (response::SUCCESS, results)
         }
         Err(err) => {
-            tracing::warn!(%err, connector, "cannot start the screen cast");
+            tracing::warn!(%err, ?source, "cannot start the screen cast");
             end(conn, shared, session, true).await;
             (response::OTHER, Results::new())
         }
@@ -169,7 +263,7 @@ async fn record(
     conn: &Connection,
     shared: &Shared,
     session: &OwnedObjectPath,
-    connector: &str,
+    source: &Source,
     cursor_mode: u32,
 ) -> zbus::Result<(u32, HashMap<String, OwnedValue>)> {
     let reply = conn
@@ -180,10 +274,18 @@ async fn record(
         cast.mutter = Some(mutter.clone());
     }
     let mutter_cursor = if cursor_mode == CURSOR_EMBEDDED { 1u32 } else { 0 };
-    let props = HashMap::from([("cursor-mode", Value::from(mutter_cursor))]);
-    let reply = conn
-        .call_method(Some(MUTTER), mutter.as_str(), Some("org.gnome.Mutter.ScreenCast.Session"), "RecordMonitor", &(connector, props))
-        .await?;
+    let mut props = HashMap::from([("cursor-mode", Value::from(mutter_cursor))]);
+    let session_iface = Some("org.gnome.Mutter.ScreenCast.Session");
+    let (reply, source_type) = match source {
+        Source::Monitor(connector) => (
+            conn.call_method(Some(MUTTER), mutter.as_str(), session_iface, "RecordMonitor", &(connector.as_str(), props)).await?,
+            SOURCE_MONITOR,
+        ),
+        Source::Window(window) => {
+            props.insert("window-id", Value::from(u64::from(*window)));
+            (conn.call_method(Some(MUTTER), mutter.as_str(), session_iface, "RecordWindow", &(props,)).await?, SOURCE_WINDOW)
+        }
+    };
     let stream: OwnedObjectPath = reply.body().deserialize()?;
     let parameters: HashMap<String, OwnedValue> = zbus::Proxy::new(conn, MUTTER, stream.as_str(), "org.gnome.Mutter.ScreenCast.Stream")
         .await?
@@ -222,13 +324,13 @@ async fn record(
             }
         });
     }
-    let mut props = HashMap::from([("source_type".to_owned(), owned(Value::from(SOURCE_MONITOR)))]);
+    let mut props = HashMap::from([("source_type".to_owned(), owned(Value::from(source_type)))]);
     for key in ["position", "size"] {
         if let Some(value) = parameters.get(key) {
             props.insert(key.to_owned(), value.try_clone().expect("plain values"));
         }
     }
-    tracing::info!(node, connector, "screen cast stream ready");
+    tracing::info!(node, ?source, "screen cast stream ready");
     Ok((node, props))
 }
 
@@ -250,7 +352,7 @@ impl ScreenCastBackend {
         let session = OwnedObjectPath::from(session_handle.into_owned());
         let shared = self.shared.clone();
         Ok(with_request(server, handle, || async move {
-            lock(&shared).sessions.insert(session.clone(), Cast { app_id: app_id.to_owned(), cursor_mode: CURSOR_HIDDEN, mutter: None });
+            lock(&shared).sessions.insert(session.clone(), Cast { app_id: app_id.to_owned(), cursor_mode: CURSOR_HIDDEN, types: SOURCE_MONITOR, ..Cast::default() });
             if !server.at(&session, CastSession { shared: shared.clone() }).await.unwrap_or(false) {
                 lock(&shared).sessions.remove(&session);
                 return (response::OTHER, Results::new());
@@ -279,6 +381,11 @@ impl ScreenCastBackend {
             Some(Value::U32(m)) => *m,
             _ => CURSOR_HIDDEN,
         };
+        let persist_mode = match options.get("persist_mode") {
+            Some(Value::U32(m)) if *m <= 2 => *m,
+            _ => 0,
+        };
+        let restore = options.get("restore_data").and_then(MonitorId::from_restore_data);
         let shared = self.shared.clone();
         Ok(with_request(server, handle, || async move {
             if !lock(&shared).sessions.contains_key(&session) {
@@ -288,11 +395,14 @@ impl ScreenCastBackend {
                 end(conn, &shared, &session, true).await;
                 return (response::OTHER, Results::new());
             }
-            if types & SOURCE_MONITOR == 0 {
+            if types & (SOURCE_MONITOR | SOURCE_WINDOW) == 0 {
                 return (response::OTHER, Results::new());
             }
             if let Some(cast) = lock(&shared).sessions.get_mut(&session) {
                 cast.cursor_mode = cursor_mode;
+                cast.types = types & (SOURCE_MONITOR | SOURCE_WINDOW);
+                cast.persist_mode = persist_mode;
+                cast.restore = restore;
             }
             (response::SUCCESS, Results::new())
         })
@@ -317,7 +427,7 @@ impl ScreenCastBackend {
 
     #[zbus(property)]
     async fn available_source_types(&self) -> u32 {
-        SOURCE_MONITOR
+        SOURCE_MONITOR | SOURCE_WINDOW
     }
 
     #[zbus(property)]
@@ -328,5 +438,32 @@ impl ScreenCastBackend {
     #[zbus(property, name = "version")]
     async fn version(&self) -> u32 {
         4
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn id(connector: &str, vendor: &str, serial: &str) -> MonitorId {
+        MonitorId { connector: connector.into(), vendor: vendor.into(), product: "P".into(), serial: serial.into() }
+    }
+
+    #[test]
+    fn restore_data_round_trip_and_matching() {
+        let monitor = id("DP-1", "Acme", "123");
+        let (vendor, version, data) = monitor.restore_data();
+        let value = Value::from((vendor, version, data));
+        let value = OwnedValue::try_from(value).unwrap();
+        assert_eq!(MonitorId::from_restore_data(&value), Some(monitor.clone()));
+        assert_eq!(MonitorId::from_restore_data(&Value::from(("GNOME", 1u32, Value::from(1u32)))), None, "not ours");
+        // Same monitor on another connector: found by identity.
+        let on = vec![(id("HDMI-1", "Acme", "123"), "x".to_owned()), (id("DP-1", "Other", "9"), "y".to_owned())];
+        assert_eq!(monitor.find_in(&on), Some("HDMI-1".to_owned()));
+        assert_eq!(monitor.find_in(&on[1..]), None, "a different monitor on that connector");
+        // Unknown identity: the same connector.
+        let anonymous = MonitorId { connector: "eDP-1".into(), vendor: "Unknown".into(), product: "Unknown".into(), serial: "0".into() };
+        let on = vec![(anonymous.clone(), "z".to_owned())];
+        assert_eq!(anonymous.find_in(&on), Some("eDP-1".to_owned()));
     }
 }

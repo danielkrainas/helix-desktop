@@ -192,7 +192,13 @@ enum DialogKind {
     /// (`org.helix.DisplayChangeDialog`).
     DisplayChange,
     /// Which monitor to share with an app (`org.helix.ScreenCastChooser`).
-    ShareScreen { app: String, monitors: Vec<(String, String)>, reply: Option<tokio::sync::oneshot::Sender<Option<String>>> },
+    ShareScreen {
+        app: String,
+        /// (what, label, detail)
+        sources: Vec<(crate::screencast_chooser::Shared, String, String)>,
+        remember: bool,
+        reply: Option<tokio::sync::oneshot::Sender<Option<crate::screencast_chooser::Shared>>>,
+    },
 }
 
 const POWER_LABEL: &str = "Power";
@@ -1037,9 +1043,9 @@ impl Ui {
         let request = match dialog.state.kind {
             DialogKind::End(_) => UiRequest::EndDialogAnswer(choice),
             DialogKind::DisplayChange => UiRequest::DisplayChangeAnswer { keep: choice == Choice::Confirmed },
-            DialogKind::ShareScreen { monitors, reply, .. } => {
-                // Confirm (Enter) shares the first monitor.
-                let chosen = (choice == Choice::Confirmed).then(|| monitors.first().map(|m| m.0.clone())).flatten();
+            DialogKind::ShareScreen { sources, reply, .. } => {
+                // Confirm (Enter) shares the first entry.
+                let chosen = (choice == Choice::Confirmed).then(|| sources.first().map(|s| s.0.clone())).flatten();
                 if let Some(reply) = reply {
                     let _ = reply.send(chosen);
                 }
@@ -1052,8 +1058,8 @@ impl Ui {
     /// A monitor was picked in the share dialog.
     fn share_monitor(&mut self, index: usize) {
         let Some(dialog) = self.dialog.take() else { return };
-        if let DialogKind::ShareScreen { monitors, reply: Some(reply), .. } = dialog.state.kind {
-            let _ = reply.send(monitors.get(index).map(|m| m.0.clone()));
+        if let DialogKind::ShareScreen { sources, reply: Some(reply), .. } = dialog.state.kind {
+            let _ = reply.send(sources.get(index).map(|s| s.0.clone()));
         }
     }
 
@@ -1171,7 +1177,7 @@ impl Ui {
 
     /// "Share your screen?": one row per monitor, and Cancel.
     fn paint_share_dialog(&mut self, overlay: &mut Overlay<DialogState>) {
-        let DialogKind::ShareScreen { app, monitors, .. } = &overlay.state.kind else { return };
+        let DialogKind::ShareScreen { app, sources, remember, .. } = &overlay.state.kind else { return };
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let Ok((buffer, data)) = self.pool.create_buffer(w as i32, h as i32, (w * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
@@ -1179,9 +1185,9 @@ impl Ui {
         let mut canvas = Canvas { data, width: w, height: h };
         canvas.fill(SCRIM);
         let text = self.text.as_ref();
-        let rows = monitors.len().min(8) as i32;
+        let rows = sources.len().min(8) as i32;
         let bw = 460.min(w as i32 - 40);
-        let bh = 140 + rows * (ROW_H + 8) + 56;
+        let bh = 140 + rows * (ROW_H + 8) + 56 + if *remember { 12 } else { 0 };
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
@@ -1192,9 +1198,14 @@ impl Ui {
         label(text, &mut canvas, title, center(title, 20.0), (by + 44) as f32, 20.0, FG, inner);
         let message = format!("{app} wants to see your screen. Choose what to share.");
         label(text, &mut canvas, &message, center(&message, 14.0), (by + 78) as f32, 14.0, DIM_FG, inner);
+        if *remember {
+            let note = "It will be able to share the same screen again without asking.";
+            label(text, &mut canvas, note, center(note, 13.0), (by + 96) as f32, 13.0, DIM_FG, inner);
+        }
         let mut hits = Vec::new();
-        for (i, (connector, name)) in monitors.iter().take(8).enumerate() {
-            let r = Rect { x: bx + 24, y: by + 100 + i as i32 * (ROW_H + 8), w: bw - 48, h: ROW_H };
+        let top = if *remember { by + 112 } else { by + 100 };
+        for (i, (_, name, connector)) in sources.iter().take(8).enumerate() {
+            let r = Rect { x: bx + 24, y: top + i as i32 * (ROW_H + 8), w: bw - 48, h: ROW_H };
             canvas.rect(r.x, r.y, r.w, r.h, HOVER_BG);
             let base = baseline(text, r.y, r.h, 15.0);
             label(text, &mut canvas, name, (r.x + 12) as f32, base, 15.0, FG, r.w as f32 - 120.0);
@@ -1326,8 +1337,21 @@ impl Ui {
                     if self.lock.session.is_some() {
                         let _ = q.reply.send(None);
                     } else {
-                        let kind = DialogKind::ShareScreen { app: q.app, monitors: q.monitors, reply: Some(q.reply) };
-                        self.show_dialog(DialogState { kind, remaining: 0 });
+                        use crate::screencast_chooser::Shared;
+                        let mut sources: Vec<(Shared, String, String)> = q
+                            .monitors
+                            .into_iter()
+                            .map(|(connector, name)| (Shared::Monitor(connector.clone()), name, connector))
+                            .collect();
+                        if q.windows {
+                            sources.extend(self.windows.mru().iter().map(|w| (Shared::Window(w.id), w.label().to_owned(), w.app_id.clone())));
+                        }
+                        if sources.is_empty() {
+                            let _ = q.reply.send(None);
+                        } else {
+                            let kind = DialogKind::ShareScreen { app: q.app, sources, remember: q.remember, reply: Some(q.reply) };
+                            self.show_dialog(DialogState { kind, remaining: 0 });
+                        }
                     }
                 }
             }

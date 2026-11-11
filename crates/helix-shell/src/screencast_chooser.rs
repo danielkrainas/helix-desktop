@@ -16,13 +16,24 @@ use crate::UiEvent;
 pub const OBJECT_PATH: &str = "/org/helix/ScreenCastChooser";
 const ALLOWED_CALLER: &str = "org.freedesktop.impl.portal.desktop.helix";
 
-/// A question for the UI: which of `monitors` (connector, label) to share
-/// with `app`. The answer is the connector, or `None`.
+/// What the user chose to share.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Shared {
+    Monitor(String),
+    /// A window, by its window list id.
+    Window(u32),
+}
+
+/// A question for the UI: what to share with `app` — one of `monitors`
+/// (connector, label), or (with `windows`) an open window.
 #[derive(Debug)]
 pub struct ShareQuestion {
     pub app: String,
     pub monitors: Vec<(String, String)>,
-    pub reply: oneshot::Sender<Option<String>>,
+    pub windows: bool,
+    /// The app will be able to share it again without asking.
+    pub remember: bool,
+    pub reply: oneshot::Sender<Option<Shared>>,
 }
 
 /// A [`ShareQuestion`] that can travel in a [`UiEvent`].
@@ -60,13 +71,17 @@ pub struct ScreenCastChooser {
 
 #[interface(name = "org.helix.ScreenCastChooser")]
 impl ScreenCastChooser {
-    async fn choose_monitor(
+    async fn choose_source(
         &self,
         app_id: &str,
         monitors: Vec<(String, String)>,
+        options: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
         #[zbus(header)] header: Header<'_>,
         #[zbus(connection)] conn: &Connection,
-    ) -> fdo::Result<(bool, String)> {
+    ) -> fdo::Result<(bool, u32, String, u32)> {
+        let flag = |key: &str, default: bool| options.get(key).and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(default);
+        let monitors = if flag("monitors", true) { monitors } else { Vec::new() };
+        let (windows, remember) = (flag("windows", false), flag("remember", false));
         let sender = header.sender().map(|s| s.to_string()).unwrap_or_default();
         let allowed = match (DBusProxy::new(conn).await, zbus::names::BusName::try_from(ALLOWED_CALLER)) {
             (Ok(dbus), Ok(name)) => dbus.get_name_owner(name).await.is_ok_and(|o| o.as_str() == sender),
@@ -83,14 +98,15 @@ impl ScreenCastChooser {
             *busy = true;
         }
         let (reply, answer) = oneshot::channel();
-        let question = ShareQuestion { app: app_label(app_id), monitors, reply };
+        let question = ShareQuestion { app: app_label(app_id), monitors, windows, remember, reply };
         let sent = self.ui.send(UiEvent::ShareScreen(QuestionSlot::new(question))).is_ok();
         let chosen = if sent { answer.await.ok().flatten() } else { None };
         *self.busy.lock().unwrap_or_else(|e| e.into_inner()) = false;
         tracing::info!(app_id, ?chosen, "screen share answered");
         Ok(match chosen {
-            Some(connector) => (true, connector),
-            None => (false, String::new()),
+            Some(Shared::Monitor(connector)) => (true, 1, connector, 0),
+            Some(Shared::Window(id)) => (true, 2, String::new(), id),
+            None => (false, 0, String::new(), 0),
         })
     }
 }

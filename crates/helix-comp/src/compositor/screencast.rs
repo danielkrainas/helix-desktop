@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use helix_comp::screencast::CastRequest;
+use helix_comp::screencast::{CastRequest, CastSource};
 use helix_comp::Event;
 use smithay::backend::renderer::element::memory::MemoryRenderBuffer;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -19,7 +19,7 @@ use super::Helix;
 const FRAME: Duration = Duration::from_millis(1000 / MAX_FPS as u64);
 
 struct Cast {
-    connector: String,
+    source: CastSource,
     cursor: bool,
     size: Size<i32, Physical>,
     streaming: bool,
@@ -63,19 +63,50 @@ impl Helix {
         Ok(self.screencast.pipewire.as_ref().expect("just started"))
     }
 
+    /// The pixel size frames of `source` have now, if it can be shown.
+    fn source_size(&self, source: &CastSource) -> Result<Size<i32, Physical>, String> {
+        match source {
+            CastSource::Monitor(connector) => {
+                let output = self.output_named(connector).ok_or_else(|| format!("no monitor {connector}"))?;
+                let geometry = self.space.output_geometry(&output).ok_or_else(|| format!("monitor {connector} is off"))?;
+                let scale = output.current_scale().fractional_scale();
+                Ok(geometry.size.to_f64().to_physical(scale).to_i32_round())
+            }
+            CastSource::Window(id) => {
+                let window = self.window_by_list_id(*id).ok_or_else(|| format!("no window {id}"))?;
+                let scale = self
+                    .space
+                    .outputs_for_element(&window)
+                    .iter()
+                    .map(|o| o.current_scale().fractional_scale())
+                    .fold(0.0, f64::max);
+                let scale = if scale > 0.0 { scale } else { 1.0 };
+                Ok(window.geometry().size.to_f64().to_physical(scale).to_i32_round())
+            }
+        }
+    }
+
     pub fn cast_request(&mut self, request: CastRequest) {
         match request {
-            CastRequest::Start { stream, connector, cursor, reply } => {
-                let Some(output) = self.output_named(&connector) else {
-                    let _ = reply.send(Err(format!("no monitor {connector}")));
-                    return;
+            CastRequest::WindowSize { window, reply } => {
+                let size = self.window_by_list_id(window).map(|w| {
+                    let s = w.geometry().size;
+                    (s.w, s.h)
+                });
+                let _ = reply.send(size);
+            }
+            CastRequest::Start { stream, source, cursor, reply } => {
+                let size = match self.source_size(&source) {
+                    Ok(size) if size.w > 0 && size.h > 0 => size,
+                    Ok(_) => {
+                        let _ = reply.send(Err("nothing to show yet".into()));
+                        return;
+                    }
+                    Err(err) => {
+                        let _ = reply.send(Err(err));
+                        return;
+                    }
                 };
-                let Some(geometry) = self.space.output_geometry(&output) else {
-                    let _ = reply.send(Err(format!("monitor {connector} is off")));
-                    return;
-                };
-                let scale = output.current_scale().fractional_scale();
-                let size: Size<i32, Physical> = geometry.size.to_f64().to_physical(scale).to_i32_round();
                 let (node_tx, node_rx) = std::sync::mpsc::channel();
                 let created = self.pipewire().map(|pw| {
                     pw.send(Command::Create { id: stream, width: size.w as u32, height: size.h as u32, reply: node_tx })
@@ -99,7 +130,7 @@ impl Helix {
                         .unwrap_or_else(|_| Err("PipeWire did not set up the stream".into()));
                     let _ = reply.send(node);
                 });
-                self.screencast.casts.insert(stream, Cast { connector, cursor, size, streaming: false, last: None });
+                self.screencast.casts.insert(stream, Cast { source, cursor, size, streaming: false, last: None });
                 self.start_cast_timer();
             }
             CastRequest::Stop { stream } => {
@@ -165,33 +196,54 @@ impl Helix {
             .collect();
         for id in due {
             let Some(cast) = self.screencast.casts.get(&id) else { continue };
-            let (connector, cursor, size) = (cast.connector.clone(), cast.cursor, cast.size);
-            let Some(output) = self.output_named(&connector) else {
-                // The monitor went away.
-                self.end_cast(id);
-                continue;
-            };
-            let bytes = (size.w * size.h * 4) as usize;
-            let frame = if self.lock.locked {
-                let mut black = vec![0u8; bytes];
-                to_bgrx(&mut black);
-                Some(black)
-            } else {
-                match self.output_image(renderer, &output, cursor.then_some(named_cursor)) {
-                    Ok(image) if image.rgba.len() == bytes => {
-                        let mut pixels = image.rgba;
-                        to_bgrx(&mut pixels);
-                        Some(pixels)
-                    }
-                    Ok(_) => {
-                        // The monitor changed size; this stream can't follow.
+            let (source, cursor, size) = (cast.source.clone(), cast.cursor, cast.size);
+            let cursor = cursor.then_some(named_cursor);
+            let image = match &source {
+                CastSource::Monitor(connector) => match self.output_named(connector) {
+                    Some(output) => self.output_image(renderer, &output, cursor).map(Some),
+                    None => {
+                        // The monitor went away.
                         self.end_cast(id);
-                        None
+                        continue;
                     }
-                    Err(err) => {
-                        tracing::debug!(err, "screen cast frame failed");
-                        None
+                },
+                CastSource::Window(window_id) => match self.window_by_list_id(*window_id) {
+                    // Hidden (another workspace, minimized): no frames.
+                    Some(window) => match self.window_image(renderer, &window, cursor) {
+                        Ok((_, image)) => Ok(Some(image)),
+                        Err(None) => Ok(None),
+                        Err(Some(err)) => Err(err),
+                    },
+                    None => {
+                        // The window closed.
+                        self.end_cast(id);
+                        continue;
                     }
+                },
+            };
+            let frame = match image {
+                Ok(Some(image)) => {
+                    let new_size: Size<i32, Physical> = (image.width as i32, image.height as i32).into();
+                    if new_size != size {
+                        tracing::info!(stream = id, ?new_size, "screen cast size changed");
+                        if let Some(cast) = self.screencast.casts.get_mut(&id) {
+                            cast.size = new_size;
+                        }
+                        if let Some(pw) = &self.screencast.pipewire {
+                            pw.send(Command::Resize { id, width: new_size.w as u32, height: new_size.h as u32 });
+                        }
+                    }
+                    let mut pixels = image.rgba;
+                    if self.lock.locked {
+                        pixels.fill(0);
+                    }
+                    to_bgrx(&mut pixels);
+                    Some(pixels)
+                }
+                Ok(None) => None,
+                Err(err) => {
+                    tracing::debug!(err, "screen cast frame failed");
+                    None
                 }
             };
             if let Some(cast) = self.screencast.casts.get_mut(&id) {

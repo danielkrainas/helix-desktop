@@ -21,12 +21,23 @@ pub const VERSION: i32 = 2;
 /// Only Helix's portal backend may record the screen.
 pub const ALLOWED_CALLER: &str = "org.freedesktop.impl.portal.desktop.helix";
 
-/// Ask the compositor to start or stop recording a monitor.
+/// What a stream records.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CastSource {
+    /// A monitor, by connector.
+    Monitor(String),
+    /// A window, by its id in the window list.
+    Window(u32),
+}
+
+/// Ask the compositor to start or stop recording, or about a window.
 #[derive(Debug)]
 pub enum CastRequest {
     /// Reply: the PipeWire node id.
-    Start { stream: u32, connector: String, cursor: bool, reply: oneshot::Sender<Result<u32, String>> },
+    Start { stream: u32, source: CastSource, cursor: bool, reply: oneshot::Sender<Result<u32, String>> },
     Stop { stream: u32 },
+    /// A window's size in layout coordinates, if it exists.
+    WindowSize { window: u32, reply: oneshot::Sender<Option<(i32, i32)>> },
 }
 
 #[derive(Debug)]
@@ -38,7 +49,7 @@ struct SessionState {
 
 #[derive(Debug, Clone)]
 struct StreamState {
-    connector: String,
+    source: CastSource,
     cursor: bool,
 }
 
@@ -185,7 +196,41 @@ pub struct Session {
     owner: String,
 }
 
+fn cursor_mode(properties: &HashMap<String, OwnedValue>) -> fdo::Result<bool> {
+    match properties.get("cursor-mode").map(|v| &**v) {
+        None | Some(Value::U32(0)) => Ok(false),
+        Some(Value::U32(1)) => Ok(true),
+        _ => Err(fdo::Error::InvalidArgs("unsupported cursor mode".into())),
+    }
+}
+
 impl Session {
+    /// Add a stream to the (not yet started) session.
+    async fn add_stream(
+        &self,
+        source: CastSource,
+        cursor: bool,
+        parameters: HashMap<String, OwnedValue>,
+        server: &zbus::ObjectServer,
+    ) -> fdo::Result<OwnedObjectPath> {
+        let id = {
+            let mut casts = lock(&self.shared);
+            let started = casts.sessions.get(&self.id).map(|s| s.started);
+            match started {
+                None => return Err(fdo::Error::Failed("session closed".into())),
+                Some(true) => return Err(fdo::Error::Failed("session already started".into())),
+                Some(false) => {}
+            }
+            let id = casts.next_id();
+            casts.streams.insert(id, StreamState { source, cursor });
+            casts.sessions.get_mut(&self.id).expect("checked above").streams.push(id);
+            id
+        };
+        let path = stream_path(id);
+        server.at(path.as_str(), Stream { parameters }).await?;
+        OwnedObjectPath::try_from(path).map_err(|e| fdo::Error::Failed(e.to_string()))
+    }
+
     fn check_owner(&self, header: &Header<'_>) -> fdo::Result<()> {
         if header.sender().is_some_and(|s| s.as_str() == self.owner) {
             Ok(())
@@ -216,7 +261,7 @@ impl Session {
         active_changed(conn).await;
         for (id, stream) in streams {
             let (reply, answer) = oneshot::channel();
-            let request = CastRequest::Start { stream: id, connector: stream.connector.clone(), cursor: stream.cursor, reply };
+            let request = CastRequest::Start { stream: id, source: stream.source.clone(), cursor: stream.cursor, reply };
             if self.compositor.send(request).is_err() {
                 return Err(fdo::Error::Failed("the compositor is gone".into()));
             }
@@ -227,16 +272,16 @@ impl Session {
                         Ok(Err(err)) => err,
                         _ => "the compositor did not answer".to_owned(),
                     };
-                    tracing::warn!(err, connector = stream.connector, "cannot record the monitor");
+                    tracing::warn!(err, source = ?stream.source, "cannot record");
                     close_session(conn, &self.shared, &self.compositor, self.id).await;
-                    return Err(fdo::Error::Failed(format!("cannot record the monitor: {err}")));
+                    return Err(fdo::Error::Failed(format!("cannot record: {err}")));
                 }
             };
             let path = stream_path(id);
             if let Ok(emitter) = SignalEmitter::new(conn, path.as_str()) {
                 let _ = Stream::pipe_wire_stream_added(&emitter, node).await;
             }
-            tracing::info!(stream = id, node, connector = stream.connector, "screen cast started");
+            tracing::info!(stream = id, node, source = ?stream.source, "screen cast started");
         }
         Ok(())
     }
@@ -258,11 +303,7 @@ impl Session {
         #[zbus(object_server)] server: &zbus::ObjectServer,
     ) -> fdo::Result<OwnedObjectPath> {
         self.check_owner(&header)?;
-        let cursor = match properties.get("cursor-mode").map(|v| &**v) {
-            None | Some(Value::U32(0)) => false,
-            Some(Value::U32(1)) => true,
-            _ => return Err(fdo::Error::InvalidArgs("unsupported cursor mode".into())),
-        };
+        let cursor = cursor_mode(&properties)?;
         let parameters = {
             let layout = self.layout.lock().unwrap_or_else(|e| e.into_inner());
             let monitor = layout
@@ -274,26 +315,29 @@ impl Session {
             let (w, h) = crate::display_config::logical_size(mode.width, mode.height, monitor.scale, monitor.transform);
             stream_parameters((monitor.x, monitor.y), (w, h), connector)
         };
-        let id = {
-            let mut casts = lock(&self.shared);
-            let started = casts.sessions.get(&self.id).map(|s| s.started);
-            match started {
-                None => return Err(fdo::Error::Failed("session closed".into())),
-                Some(true) => return Err(fdo::Error::Failed("session already started".into())),
-                Some(false) => {}
-            }
-            let id = casts.next_id();
-            casts.streams.insert(id, StreamState { connector: connector.to_owned(), cursor });
-            casts.sessions.get_mut(&self.id).expect("checked above").streams.push(id);
-            id
-        };
-        let path = stream_path(id);
-        server.at(path.as_str(), Stream { parameters }).await?;
-        OwnedObjectPath::try_from(path).map_err(|e| fdo::Error::Failed(e.to_string()))
+        self.add_stream(CastSource::Monitor(connector.to_owned()), cursor, parameters, server).await
     }
 
-    async fn record_window(&self, _properties: HashMap<String, OwnedValue>) -> fdo::Result<OwnedObjectPath> {
-        Err(fdo::Error::NotSupported("recording windows is not supported".into()))
+    async fn record_window(
+        &self,
+        properties: HashMap<String, OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(object_server)] server: &zbus::ObjectServer,
+    ) -> fdo::Result<OwnedObjectPath> {
+        self.check_owner(&header)?;
+        let cursor = cursor_mode(&properties)?;
+        let window = match properties.get("window-id").map(|v| &**v) {
+            Some(Value::U64(id)) => u32::try_from(*id).map_err(|_| fdo::Error::InvalidArgs("unknown window".into()))?,
+            _ => return Err(fdo::Error::InvalidArgs("window-id (t) is required".into())),
+        };
+        let (reply, answer) = oneshot::channel();
+        self.compositor
+            .send(CastRequest::WindowSize { window, reply })
+            .map_err(|_| fdo::Error::Failed("the compositor is gone".into()))?;
+        let (w, h) = answer.await.ok().flatten().ok_or_else(|| fdo::Error::InvalidArgs(format!("no window {window}")))?;
+        let owned = |v: Value<'_>| OwnedValue::try_from(v).expect("plain values");
+        let parameters = HashMap::from([("size".to_owned(), owned(Value::from((w, h))))]);
+        self.add_stream(CastSource::Window(window), cursor, parameters, server).await
     }
 
     async fn record_area(

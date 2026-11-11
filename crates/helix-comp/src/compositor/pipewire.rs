@@ -24,6 +24,8 @@ pub const MAX_FPS: u32 = 30;
 pub enum Command {
     /// Create a stream; the reply is its node id once PipeWire assigned it.
     Create { id: u32, width: u32, height: u32, reply: std::sync::mpsc::Sender<Result<u32, String>> },
+    /// The stream's frames change size (renegotiates the format).
+    Resize { id: u32, width: u32, height: u32 },
     /// A frame for a stream: BGRx, rows of `width * 4` bytes.
     Frame { id: u32, bgrx: Vec<u8> },
     Destroy { id: u32 },
@@ -126,8 +128,7 @@ struct Live {
     stream: pw::stream::StreamRc,
     _listener: pw::stream::StreamListener<()>,
     frame: Rc<RefCell<Option<Vec<u8>>>>,
-    width: u32,
-    height: u32,
+    size: Rc<std::cell::Cell<(u32, u32)>>,
 }
 
 /// Give a buffer's first data block a memfd of one frame, mapped.
@@ -221,11 +222,28 @@ fn run(
             }
             Command::Frame { id, bgrx } => {
                 if let Some(live) = streams.borrow().get(&id) {
-                    if bgrx.len() == (live.width * live.height * 4) as usize {
+                    let (width, height) = live.size.get();
+                    if bgrx.len() == (width * height * 4) as usize {
                         *live.frame.borrow_mut() = Some(bgrx);
                         if let Err(err) = live.stream.trigger_process() {
                             tracing::debug!(id, %err, "cannot trigger a frame");
                         }
+                    }
+                }
+            }
+            Command::Resize { id, width, height } => {
+                if let Some(live) = streams.borrow().get(&id) {
+                    live.size.set((width, height));
+                    *live.frame.borrow_mut() = None;
+                    match format_pod(width, height) {
+                        Ok(bytes) => {
+                            if let Some(pod) = Pod::from_bytes(&bytes) {
+                                if let Err(err) = live.stream.update_params(&mut [pod]) {
+                                    tracing::warn!(id, %err, "cannot change the stream size");
+                                }
+                            }
+                        }
+                        Err(err) => tracing::warn!(id, err, "cannot describe the new size"),
                     }
                 }
             }
@@ -256,6 +274,7 @@ fn create(
     };
     let stream = pw::stream::StreamRc::new(core.clone(), "helix-screen-cast", props).map_err(|e| e.to_string())?;
     let frame: Rc<RefCell<Option<Vec<u8>>>> = Rc::default();
+    let size = Rc::new(std::cell::Cell::new((width, height)));
     let listener = stream
         .add_local_listener_with_user_data(())
         .state_changed({
@@ -288,7 +307,10 @@ fn create(
                 }
             }
         })
-        .param_changed(move |stream, _, param_id, param| {
+        .param_changed({
+            let size = size.clone();
+            move |stream, _, param_id, param| {
+            let (width, height) = size.get();
             if param_id != spa::param::ParamType::Format.as_raw() || param.is_none() {
                 return;
             }
@@ -297,11 +319,15 @@ fn create(
                 Ok((Some(Ok(())), _)) => tracing::debug!(id, "buffer parameters set"),
                 other => tracing::warn!(id, ?other, "cannot set buffer parameters"),
             }
-        })
-        .add_buffer(move |_, _, buffer| {
-            // SAFETY: PipeWire hands us a buffer with one data block to fill
-            // in; we own the memfd and mapping until remove_buffer.
-            unsafe { allocate(buffer, width, height) };
+        }})
+        .add_buffer({
+            let size = size.clone();
+            move |_, _, buffer| {
+                let (width, height) = size.get();
+                // SAFETY: PipeWire hands us a buffer with one data block to
+                // fill in; we own the memfd and mapping until remove_buffer.
+                unsafe { allocate(buffer, width, height) };
+            }
         })
         .remove_buffer(|_, _, buffer| {
             // SAFETY: the same buffer, allocated by `allocate`.
@@ -309,7 +335,9 @@ fn create(
         })
         .process({
             let frame = frame.clone();
+            let size = size.clone();
             move |stream, _| {
+                let (width, _) = size.get();
                 let Some(pixels) = frame.borrow_mut().take() else {
                     tracing::trace!(id, "process without a frame");
                     return;
@@ -347,5 +375,5 @@ fn create(
             &mut params,
         )
         .map_err(|e| e.to_string())?;
-    Ok(Live { stream, _listener: listener, frame, width, height })
+    Ok(Live { stream, _listener: listener, frame, size })
 }
