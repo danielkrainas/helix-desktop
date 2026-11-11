@@ -1,5 +1,6 @@
 //! Unresponsive apps (helix-desktop-spec `contracts/wayland/README.md`,
-//! "Unresponsive apps"): ping a Wayland app when its window gets focus,
+//! "Unresponsive apps"): ping an app (Wayland, or X11 with `_NET_WM_PING`)
+//! when its window gets focus,
 //! and have the shell ask whether to wait or force it to quit when it does
 //! not answer within `check-alive-timeout`.
 
@@ -7,13 +8,21 @@ use std::time::{Duration, Instant};
 
 use smithay::desktop::Window;
 use smithay::reexports::wayland_server::Resource;
-use smithay::utils::SERIAL_COUNTER;
+use smithay::utils::{IsAlive, SERIAL_COUNTER};
 use smithay::wayland::shell::xdg::ShellClient;
 
 use super::{ClientState, Helix};
 
+/// Who was pinged.
+#[derive(PartialEq)]
+enum Target {
+    Wayland(ShellClient),
+    /// An X11 window (its id).
+    X11(u32),
+}
+
 struct Ping {
-    client: ShellClient,
+    target: Target,
     window: Window,
     /// When the ping went out (or the user chose to wait).
     since: Instant,
@@ -32,20 +41,36 @@ impl Helix {
         if self.wm_settings.check_alive_ms == 0 {
             return;
         }
-        let Some(toplevel) = window.toplevel() else { return };
-        let client = toplevel.client();
-        if self.alive.pings.iter().any(|p| p.client == client) {
+        let target = match (window.toplevel(), window.x11_surface()) {
+            (Some(toplevel), _) => Target::Wayland(toplevel.client()),
+            (None, Some(x11)) => Target::X11(x11.window_id()),
+            _ => return,
+        };
+        if self.alive.pings.iter().any(|p| p.target == target) {
             return;
         }
-        if client.send_ping(SERIAL_COUNTER.next_serial()).is_ok() {
-            self.alive.pings.push(Ping { client, window: window.clone(), since: Instant::now(), told: false });
+        let sent = match &target {
+            Target::Wayland(client) => client.send_ping(SERIAL_COUNTER.next_serial()).is_ok(),
+            Target::X11(id) => self.x11ping.as_ref().is_some_and(|p| p.ping(*id)),
+        };
+        if sent {
+            self.alive.pings.push(Ping { target, window: window.clone(), since: Instant::now(), told: false });
         }
+    }
+
+    /// An X11 window answered `_NET_WM_PING`.
+    pub fn x11_pong(&mut self, id: u32) {
+        self.answered(|t| *t == Target::X11(id));
     }
 
     /// An app answered.
     pub fn pong(&mut self, client: &ShellClient) {
+        self.answered(|t| matches!(t, Target::Wayland(c) if c == client));
+    }
+
+    fn answered(&mut self, matches: impl Fn(&Target) -> bool) {
         let answered: Vec<Ping> = {
-            let (answered, rest) = std::mem::take(&mut self.alive.pings).into_iter().partition(|p| p.client == *client);
+            let (answered, rest) = std::mem::take(&mut self.alive.pings).into_iter().partition(|p| matches(&p.target));
             self.alive.pings = rest;
             answered
         };
@@ -57,7 +82,10 @@ impl Helix {
     /// Every tick: tell the shell about apps that did not answer in time.
     pub fn alive_tick(&mut self, now: Instant) {
         let timeout = Duration::from_millis(u64::from(self.wm_settings.check_alive_ms));
-        self.alive.pings.retain(|p| p.client.alive());
+        self.alive.pings.retain(|p| match &p.target {
+            Target::Wayland(client) => client.alive(),
+            Target::X11(_) => p.window.alive(),
+        });
         let late: Vec<Window> = self
             .alive
             .pings
@@ -92,6 +120,14 @@ impl Helix {
 
     /// "Force Quit": kill the app's process.
     pub fn force_quit(&mut self, window: &Window) {
+        if let Some(x11) = window.x11_surface() {
+            if let Some(ping) = &self.x11ping {
+                tracing::info!("force quitting an unresponsive X11 app");
+                ping.kill(x11.window_id());
+            }
+            self.alive.pings.retain(|p| p.window != *window);
+            return;
+        }
         let Some(toplevel) = window.toplevel() else { return };
         let Some(client) = toplevel.wl_surface().client() else { return };
         // Never the shell (or anything Helix started as privileged).

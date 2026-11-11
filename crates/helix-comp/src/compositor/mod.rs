@@ -17,6 +17,7 @@ mod remote;
 mod protocols;
 mod remote_share;
 mod scales;
+mod x11ping;
 mod sync;
 mod timing;
 mod tiling;
@@ -142,6 +143,8 @@ pub struct Helix {
     pub cursor_status: CursorImageStatus,
     /// Named cursors from the theme.
     pub cursors: cursor::Cursors,
+    /// `_NET_WM_PING` for X11 apps, once Xwayland runs.
+    pub x11ping: Option<x11ping::X11Ping>,
     /// `wp_color_manager_v1`.
     pub color: color::ColorState,
     /// Explicit sync, when the GPU supports it.
@@ -257,6 +260,7 @@ impl Helix {
             remote_share: Default::default(),
             syncobj_state: None,
             color: color::ColorState::new::<Self>(&dh),
+            x11ping: None,
             cursor_status: CursorImageStatus::default_named(),
             dmabuf_state: DmabufState::new(),
             pending_dmabufs: Vec::new(),

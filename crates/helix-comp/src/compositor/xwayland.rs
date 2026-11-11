@@ -67,6 +67,18 @@ impl Helix {
                             }
                             state.xwm = Some(wm);
                             state.xdisplay = Some(display_number);
+                            let (answers, received) = smithay::reexports::calloop::channel::channel::<u32>();
+                            match super::x11ping::X11Ping::start(display_number, answers) {
+                                Ok(ping) => {
+                                    state.x11ping = Some(ping);
+                                    let _ = state.loop_handle.insert_source(received, |event, _, state| {
+                                        if let smithay::reexports::calloop::channel::Event::Msg(id) = event {
+                                            state.x11_pong(id);
+                                        }
+                                    });
+                                }
+                                Err(err) => tracing::warn!(%err, "cannot check X11 apps are responding"),
+                            }
                             tracing::info!(display = display_number, "Xwayland ready");
                             Some(display_number)
                         }

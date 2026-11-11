@@ -336,7 +336,8 @@ attached with `attach-modal-dialogs`), the `overlay-key`, audible and
 visual bells for apps using `xdg_system_bell_v1`, and locate pointer
 (`locate-pointer`, Ctrl).
 
-When a Wayland app stops answering (no reply to a ping within
+When an app stops answering (no reply to a ping, or for X11 apps to
+`_NET_WM_PING`, within
 `check-alive-timeout` after its window gets focus), the shell asks
 whether to wait or force it to quit.
 
