@@ -144,6 +144,8 @@ pub struct Helix {
     pub cursor_status: CursorImageStatus,
     /// Named cursors from the theme.
     pub cursors: cursor::Cursors,
+    /// Window icons of X11 apps.
+    pub icons: icons::IconState,
     /// `_NET_WM_PING` for X11 apps, once Xwayland runs.
     pub x11ping: Option<x11ping::X11Ping>,
     /// `wp_color_manager_v1`.
@@ -262,6 +264,7 @@ impl Helix {
             syncobj_state: None,
             color: color::ColorState::new::<Self>(&dh),
             x11ping: None,
+            icons: Default::default(),
             cursor_status: CursorImageStatus::default_named(),
             dmabuf_state: DmabufState::new(),
             pending_dmabufs: Vec::new(),

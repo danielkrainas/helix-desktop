@@ -207,22 +207,23 @@ impl Helix {
             }
         }
         // Icons apps set (version 7).
-        let icons: Vec<(u32, Window, super::icons::IconKey)> = self
-            .listed_windows()
+        let listed = self.listed_windows();
+        let x11_alive: Vec<u32> = listed.iter().filter_map(|(_, w)| w.x11_surface().map(|x| x.window_id())).collect();
+        self.forget_x11_icons(&x11_alive);
+        let icons: Vec<(u32, Window, super::icons::IconKey)> = listed
             .into_iter()
             .map(|(id, w)| {
-                let key = super::icons::icon_key(&w);
+                let key = self.icon_key(&w);
                 (id, w, key)
             })
             .collect();
-        let list = &mut self.window_list;
-        list.sent_icons.retain(|id, _| list.sent.contains_key(id));
+        self.window_list.sent_icons.retain(|id, _| self.window_list.sent.contains_key(id));
         for (id, window, key) in icons {
-            if list.sent_icons.get(&id).unwrap_or(&Default::default()) != &key {
-                for l in &list.listeners {
-                    super::icons::send_icon(l, id, &window);
+            if self.window_list.sent_icons.get(&id).unwrap_or(&Default::default()) != &key {
+                for l in &self.window_list.listeners {
+                    self.send_icon(l, id, &window);
                 }
-                list.sent_icons.insert(id, key);
+                self.window_list.sent_icons.insert(id, key);
             }
         }
     }
@@ -279,9 +280,9 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
         }
         let mut icons = HashMap::new();
         for (id, window) in &windows {
-            let key = super::icons::icon_key(window);
+            let key = state.icon_key(window);
             if key != super::icons::IconKey::default() {
-                super::icons::send_icon(&listener, *id, window);
+                state.send_icon(&listener, *id, window);
             }
             icons.insert(*id, key);
         }

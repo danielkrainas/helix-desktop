@@ -67,13 +67,15 @@ impl Helix {
                             }
                             state.xwm = Some(wm);
                             state.xdisplay = Some(display_number);
-                            let (answers, received) = smithay::reexports::calloop::channel::channel::<u32>();
+                            let (answers, received) = smithay::reexports::calloop::channel::channel::<super::x11ping::X11Note>();
                             match super::x11ping::X11Ping::start(display_number, answers) {
                                 Ok(ping) => {
                                     state.x11ping = Some(ping);
                                     let _ = state.loop_handle.insert_source(received, |event, _, state| {
-                                        if let smithay::reexports::calloop::channel::Event::Msg(id) = event {
-                                            state.x11_pong(id);
+                                        match event {
+                                            smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::Pong(id)) => state.x11_pong(id),
+                                            smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::IconChanged(id)) => state.x11_icon_changed(id),
+                                            _ => {}
                                         }
                                     });
                                 }

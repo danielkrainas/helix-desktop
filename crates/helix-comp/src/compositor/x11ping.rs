@@ -1,7 +1,8 @@
-//! `_NET_WM_PING` for X11 apps (helix-desktop-spec `contracts/wayland/README.md`,
-//! "Unresponsive apps"). Smithay's window manager does not pass the answers
-//! on, so Helix keeps a connection of its own to Xwayland: it sends the
-//! pings and a thread watches the root window for the answers.
+//! `_NET_WM_PING` and `_NET_WM_ICON` for X11 apps (helix-desktop-spec
+//! `contracts/wayland/README.md`, "Unresponsive apps" and "Window
+//! switching"). Smithay's window manager does not pass these on, so Helix
+//! keeps a connection of its own to Xwayland: it sends the pings, reads
+//! icons, and a thread watches for ping answers and icon changes.
 
 use std::sync::Arc;
 
@@ -17,17 +18,57 @@ pub struct X11Ping {
     conn: Arc<RustConnection>,
     wm_protocols: Atom,
     net_wm_ping: Atom,
+    net_wm_icon: Atom,
+}
+
+/// What the watching thread reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum X11Note {
+    /// A window answered a ping.
+    Pong(Window),
+    /// A window's `_NET_WM_ICON` changed.
+    IconChanged(Window),
+}
+
+/// An icon: premultiplied ARGB8888 (native byte order) and its size.
+pub type X11Icon = (Vec<u8>, u32);
+
+/// The largest square image of a `_NET_WM_ICON` value (width, height,
+/// then width×height straight-alpha ARGB pixels, repeated).
+pub fn pick_icon(values: &[u32]) -> Option<X11Icon> {
+    let mut best: Option<(usize, &[u32])> = None;
+    let mut rest = values;
+    while let [w, h, tail @ ..] = rest {
+        let (w, h) = (*w as usize, *h as usize);
+        let n = w.checked_mul(h)?;
+        if n == 0 || tail.len() < n {
+            break;
+        }
+        if w == h && w <= 512 && best.is_none_or(|(s, _)| w > s) {
+            best = Some((w, &tail[..n]));
+        }
+        rest = &tail[n..];
+    }
+    let (size, pixels) = best?;
+    let mut out = Vec::with_capacity(size * size * 4);
+    for p in pixels {
+        let a = p >> 24;
+        let m = |c: u32| (c * a + 127) / 255;
+        let premul = (a << 24) | (m((p >> 16) & 0xff) << 16) | (m((p >> 8) & 0xff) << 8) | m(p & 0xff);
+        out.extend_from_slice(&premul.to_ne_bytes());
+    }
+    Some((out, size as u32))
 }
 
 impl X11Ping {
     /// Connect to Xwayland `:display`; answers (their window) go to `answers`.
-    pub fn start(display: u32, answers: Sender<Window>) -> Result<Self, String> {
+    pub fn start(display: u32, answers: Sender<X11Note>) -> Result<Self, String> {
         let (conn, screen) = RustConnection::connect(Some(&format!(":{display}"))).map_err(|e| e.to_string())?;
         let root = conn.setup().roots[screen].root;
         let atom = |name: &str| -> Result<Atom, String> {
             Ok(conn.intern_atom(false, name.as_bytes()).map_err(|e| e.to_string())?.reply().map_err(|e| e.to_string())?.atom)
         };
-        let (wm_protocols, net_wm_ping) = (atom("WM_PROTOCOLS")?, atom("_NET_WM_PING")?);
+        let (wm_protocols, net_wm_ping, net_wm_icon) = (atom("WM_PROTOCOLS")?, atom("_NET_WM_PING")?, atom("_NET_WM_ICON")?);
         // Answers are sent to the root window with the substructure masks.
         conn.change_window_attributes(root, &ChangeWindowAttributesAux::new().event_mask(EventMask::SUBSTRUCTURE_NOTIFY))
             .map_err(|e| e.to_string())?
@@ -39,16 +80,23 @@ impl X11Ping {
             .name("helix-x11-ping".into())
             .spawn(move || {
                 while let Ok(event) = reader.wait_for_event() {
-                    if let Event::ClientMessage(msg) = event {
-                        let data = msg.data.as_data32();
-                        if msg.type_ == wm_protocols && data[0] == net_wm_ping && answers.send(data[2]).is_err() {
+                    let note = match event {
+                        Event::ClientMessage(msg) => {
+                            let data = msg.data.as_data32();
+                            (msg.type_ == wm_protocols && data[0] == net_wm_ping).then_some(X11Note::Pong(data[2]))
+                        }
+                        Event::PropertyNotify(p) if p.atom == net_wm_icon => Some(X11Note::IconChanged(p.window)),
+                        _ => None,
+                    };
+                    if let Some(note) = note {
+                        if answers.send(note).is_err() {
                             break;
                         }
                     }
                 }
             })
             .map_err(|e| e.to_string())?;
-        Ok(Self { conn, wm_protocols, net_wm_ping })
+        Ok(Self { conn, wm_protocols, net_wm_ping, net_wm_icon })
     }
 
     /// Ping `window` if it takes part (`WM_PROTOCOLS` lists `_NET_WM_PING`).
@@ -69,9 +117,47 @@ impl X11Ping {
         sent
     }
 
+    /// Follow `window`'s icon changes, and read its icon now.
+    pub fn watch_icon(&self, window: Window) -> Option<X11Icon> {
+        let _ = self.conn.change_window_attributes(window, &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE));
+        let _ = self.conn.flush();
+        self.icon(window)
+    }
+
+    /// `window`'s icon, if it has a usable one.
+    pub fn icon(&self, window: Window) -> Option<X11Icon> {
+        let reply = self
+            .conn
+            .get_property(false, window, self.net_wm_icon, AtomEnum::CARDINAL, 0, 4 * 1024 * 1024)
+            .ok()?
+            .reply()
+            .ok()?;
+        let values: Vec<u32> = reply.value32()?.collect();
+        pick_icon(&values)
+    }
+
     /// Force Quit: close the app's connection to the display.
     pub fn kill(&self, window: Window) {
         let _ = self.conn.kill_client(window);
         let _ = self.conn.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn largest_square_icon() {
+        // A 2x1 (not square), a 1x1 and a 2x2.
+        let mut v = vec![2, 1, 0xFFFF0000, 0xFFFF0000, 1, 1, 0xFF00FF00, 2, 2];
+        v.extend([0x80FFFFFF, 0xFF0000FF, 0, 0xFF000000]);
+        let (pixels, size) = pick_icon(&v).unwrap();
+        assert_eq!(size, 2);
+        // Half-transparent white premultiplied: 0x80808080.
+        assert_eq!(u32::from_ne_bytes(pixels[0..4].try_into().unwrap()), 0x80808080);
+        assert_eq!(u32::from_ne_bytes(pixels[4..8].try_into().unwrap()), 0xFF0000FF);
+        assert!(pick_icon(&[3, 3, 1]).is_none(), "truncated");
+        assert!(pick_icon(&[]).is_none());
     }
 }

@@ -20,8 +20,15 @@ use super::Helix;
 /// Image sizes Helix asks apps for.
 pub const ICON_SIZES: [i32; 3] = [24, 48, 96];
 
-/// What a window's icon is: its name and image buffers (by object).
-pub type IconKey = (String, Vec<(ObjectId, i32)>);
+/// What a window's icon is: its name, image buffers (by object), and for
+/// X11 windows how many times its `_NET_WM_ICON` was read.
+pub type IconKey = (String, Vec<(ObjectId, i32)>, u64);
+
+/// X11 window icons, by X window id: (times read, icon).
+#[derive(Default)]
+pub struct IconState {
+    x11: std::collections::HashMap<u32, (u64, Option<super::x11ping::X11Icon>)>,
+}
 
 /// The icon `window`'s app set: (name, buffers with their scale).
 fn icon_of(window: &Window) -> (String, Vec<(WlBuffer, i32)>) {
@@ -33,9 +40,52 @@ fn icon_of(window: &Window) -> (String, Vec<(WlBuffer, i32)>) {
     })
 }
 
-pub fn icon_key(window: &Window) -> IconKey {
-    let (name, buffers) = icon_of(window);
-    (name, buffers.iter().map(|(b, s)| (b.id(), *s)).collect())
+impl Helix {
+    /// What `window`'s icon is now (reading an X11 window's the first time).
+    pub fn icon_key(&mut self, window: &Window) -> IconKey {
+        if let Some(x11) = window.x11_surface() {
+            let id = x11.window_id();
+            if !self.icons.x11.contains_key(&id) {
+                let icon = self.x11ping.as_ref().and_then(|p| p.watch_icon(id));
+                self.icons.x11.insert(id, (1, icon));
+            }
+            return match self.icons.x11.get(&id) {
+                Some((generation, Some(_))) => (String::new(), Vec::new(), *generation),
+                _ => IconKey::default(),
+            };
+        }
+        let (name, buffers) = icon_of(window);
+        (name, buffers.iter().map(|(b, s)| (b.id(), *s)).collect(), 0)
+    }
+
+    /// An X11 window's `_NET_WM_ICON` changed.
+    pub fn x11_icon_changed(&mut self, id: u32) {
+        let icon = self.x11ping.as_ref().and_then(|p| p.icon(id));
+        let entry = self.icons.x11.entry(id).or_insert((0, None));
+        entry.0 += 1;
+        entry.1 = icon;
+    }
+
+    /// Tell `listener` window `id`'s icon.
+    pub fn send_icon(&self, listener: &HelixWindowListV1, id: u32, window: &Window) {
+        if listener.version() < 7 {
+            return;
+        }
+        let (name, (pixels, size)) = match window.x11_surface() {
+            Some(x11) => (String::new(), self.icons.x11.get(&x11.window_id()).and_then(|(_, i)| i.clone()).unwrap_or_default()),
+            None => {
+                let (name, buffers) = icon_of(window);
+                (name, largest_image(&buffers).unwrap_or_default())
+            }
+        };
+        let Some(fd) = memfd(&pixels) else { return };
+        listener.icon(id, name, size, fd.as_fd());
+    }
+
+    /// Forget icons of X11 windows that are gone.
+    pub fn forget_x11_icons(&mut self, alive: &[u32]) {
+        self.icons.x11.retain(|id, _| alive.contains(id));
+    }
 }
 
 /// The largest image as premultiplied ARGB8888 (native order), and its size.
@@ -88,17 +138,6 @@ fn memfd(bytes: &[u8]) -> Option<OwnedFd> {
     let mut file = std::fs::File::from(fd.try_clone().ok()?);
     file.write_all(bytes).ok()?;
     Some(fd)
-}
-
-/// Tell `listener` window `id`'s icon.
-pub fn send_icon(listener: &HelixWindowListV1, id: u32, window: &Window) {
-    if listener.version() < 7 {
-        return;
-    }
-    let (name, buffers) = icon_of(window);
-    let (pixels, size) = largest_image(&buffers).unwrap_or_default();
-    let Some(fd) = memfd(&pixels) else { return };
-    listener.icon(id, name, size, fd.as_fd());
 }
 
 impl XdgToplevelIconHandler for Helix {}

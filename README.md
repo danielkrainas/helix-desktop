@@ -304,7 +304,7 @@ unless `org.gnome.mutter.wayland xwayland-allow-grabs` and the access
 rules allow it), and color-management (sRGB only: Helix does not convert
 colors and has no HDR output; `output-luminance` dims a monitor through its
 gamma ramps on bare hardware), xdg-toplevel-icon (window icons, shown in the
-switchers; otherwise the app's icon). Not yet: HDR.
+switchers; X11 windows' `_NET_WM_ICON` too; otherwise the app's icon). Not yet: HDR.
 
 The pointer: apps' own cursor images are drawn by Helix (nested too, with
 the host's pointer hidden over the window) and get frame callbacks; named
