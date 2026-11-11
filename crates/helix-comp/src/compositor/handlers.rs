@@ -128,12 +128,6 @@ impl SeatHandler for Helix {
     }
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
-        // Nested: show named cursors on the host window. Surface cursors are
-        // not composited yet, so they fall back to the default arrow.
-        self.cursor = Some(match &image {
-            CursorImageStatus::Named(icon) => *icon,
-            _ => smithay::input::pointer::CursorIcon::Default,
-        });
         self.cursor_status = image;
     }
 }

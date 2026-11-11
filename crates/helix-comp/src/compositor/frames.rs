@@ -452,7 +452,6 @@ impl Helix {
             _ => CursorIcon::Default,
         };
         if self.cursor_status != CursorImageStatus::Named(icon) {
-            self.cursor = Some(icon);
             self.cursor_status = CursorImageStatus::Named(icon);
         }
         true

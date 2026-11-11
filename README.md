@@ -290,8 +290,14 @@ the answer in the permission store; Super+Escape takes the shortcuts
 back), xdg-foreign, presentation-time, fifo, commit-timing,
 single-pixel-buffer and, for Xwayland, xwayland-keyboard-grab (off
 unless `org.gnome.mutter.wayland xwayland-allow-grabs` and the access
-rules allow it). Not yet: compositing client-drawn cursor surfaces,
-xdg-toplevel-icon.
+rules allow it). Not yet: xdg-toplevel-icon.
+
+The pointer: apps' own cursor images are drawn by Helix (nested too, with
+the host's pointer hidden over the window) and get frame callbacks; named
+cursors come from the XCursor theme (`cursor-theme`, `cursor-size`,
+animated ones animate) on bare hardware, and from the host when nested.
+Screenshots and screen casts (embedded or as metadata) show the same
+image.
 
 Shortcuts handled by the compositor:
 

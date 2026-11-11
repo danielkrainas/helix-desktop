@@ -18,7 +18,7 @@ use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmEvent, DrmNode, NodeType}
 use smithay::backend::egl::context::ContextPriority;
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
-use smithay::backend::renderer::element::memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement};
+use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
 use smithay::backend::renderer::element::surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement};
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -27,7 +27,6 @@ use smithay::backend::session::libseat::LibSeatSession;
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::backend::udev::{all_gpus, primary_gpu, UdevBackend, UdevEvent};
 use smithay::desktop::layer_map_for_output;
-use smithay::input::pointer::{CursorImageStatus, CursorImageSurfaceData};
 use smithay::output::{Mode as WlMode, Output, PhysicalProperties};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::EventLoop;
@@ -38,7 +37,6 @@ use smithay::reexports::input::Libinput;
 use smithay::reexports::rustix::fs::OFlags;
 use smithay::reexports::wayland_server::backend::GlobalId;
 use smithay::utils::{DeviceFd, Scale, Transform};
-use smithay::wayland::compositor::with_states;
 use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner};
 
 use super::Helix;
@@ -81,7 +79,6 @@ pub struct UdevData {
     manager: Manager,
     scanner: DrmScanner,
     surfaces: HashMap<crtc::Handle, Surface>,
-    cursor: MemoryRenderBuffer,
 }
 
 impl UdevData {
@@ -130,10 +127,6 @@ impl UdevData {
         self.surfaces.values().filter(|s| s.current.is_none()).map(|s| s.output.clone()).collect()
     }
 
-    /// The image drawn for named cursors.
-    pub fn cursor_buffer(&self) -> &MemoryRenderBuffer {
-        &self.cursor
-    }
 }
 
 /// Bring up the session, GPU, outputs and input. Returns the initial
@@ -179,8 +172,6 @@ pub fn init(
         render_formats,
     );
 
-    let (pixels, w, h) = super::cursor::arrow();
-    let cursor = MemoryRenderBuffer::from_slice(&pixels, Fourcc::Argb8888, (w as i32, h as i32), 1, Transform::Normal, None);
 
     let handle = event_loop.handle();
     handle.insert_source(drm_notifier, |event, meta, state| match event {
@@ -264,7 +255,6 @@ pub fn init(
         manager,
         scanner: DrmScanner::new(),
         surfaces: HashMap::new(),
-        cursor,
     });
     state.scan_connectors();
     if state.space.outputs().next().is_none() {
@@ -502,6 +492,7 @@ impl Helix {
             frames,
             space,
             cursor_status,
+            cursors,
             start_time,
             lock,
             ..
@@ -521,38 +512,14 @@ impl Helix {
 
         let mut elements: Vec<OutputElements> = Vec::new();
         if geo.to_f64().contains(pointer_location) {
-            let local = pointer_location - geo.loc.to_f64();
-            match cursor_status {
-                CursorImageStatus::Hidden => {}
-                CursorImageStatus::Surface(cursor_surface) => {
-                    let hotspot = with_states(cursor_surface, |states| {
-                        states
-                            .data_map
-                            .get::<CursorImageSurfaceData>()
-                            .map(|d| d.lock().unwrap().hotspot)
-                            .unwrap_or_default()
-                    });
-                    let at = (local - hotspot.to_f64()).to_physical(scale).to_i32_round();
-                    elements.extend(
-                        render_elements_from_surface_tree(renderer, cursor_surface, at, Scale::from(scale), 1.0, Kind::Cursor)
-                            .into_iter()
-                            .map(OutputElements::CursorSurface),
-                    );
-                }
-                CursorImageStatus::Named(_) => {
-                    match MemoryRenderBufferRenderElement::from_buffer(
-                        renderer,
-                        local.to_physical(scale),
-                        &udev.cursor,
-                        None,
-                        None,
-                        None,
-                        Kind::Cursor,
-                    ) {
-                        Ok(e) => elements.push(OutputElements::Cursor(e)),
-                        Err(err) => tracing::warn!(?err, "cannot draw cursor"),
-                    }
-                }
+            let origin = geo.loc.to_f64();
+            elements.extend(
+                super::cursor::surface_elements(renderer, cursor_status, pointer_location, origin, scale)
+                    .into_iter()
+                    .map(OutputElements::CursorSurface),
+            );
+            if let Some(named) = super::cursor::named_element(renderer, cursor_status, cursors, pointer_location, origin, scale) {
+                elements.push(OutputElements::Cursor(named));
             }
         }
         if lock.locked {
@@ -613,6 +580,7 @@ impl Helix {
             // Nothing new to show: what waited for this frame may go on.
             self.frame_shown(&output);
         }
+        self.send_cursor_frame(&output, elapsed);
         if locked {
             if rendered {
                 self.lock_frame_shown();

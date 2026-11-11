@@ -132,10 +132,13 @@ pub struct Helix {
     pub shell: Option<supervise::Shell>,
     /// Shell process exits, reported by waiter threads.
     shell_exits: Option<smithay::reexports::calloop::channel::Sender<std::process::ExitStatus>>,
-    /// Cursor requested by the focused client, for the host window.
-    pub cursor: Option<CursorIcon>,
-    /// Full cursor state, drawn by the compositor on bare hardware.
+    /// What the host window's pointer was last set to (nested): a named
+    /// cursor, or hidden (`None`) while Helix draws an app's image.
+    pub host_cursor: Option<Option<CursorIcon>>,
+    /// The pointer image apps (or Helix's frames) asked for.
     pub cursor_status: CursorImageStatus,
+    /// Named cursors from the theme.
+    pub cursors: cursor::Cursors,
     pub dmabuf_state: DmabufState,
     /// GPU buffers waiting for the nested renderer to test them.
     pub pending_dmabufs: Vec<(smithay::backend::allocator::dmabuf::Dmabuf, smithay::wayland::dmabuf::ImportNotifier)>,
@@ -240,7 +243,8 @@ impl Helix {
             keybindings: keybindings::Keybindings::default(),
             shell: None,
             shell_exits: None,
-            cursor: Some(CursorIcon::Default),
+            host_cursor: None,
+            cursors: cursor::Cursors::new("Adwaita", 24),
             cursor_status: CursorImageStatus::default_named(),
             dmabuf_state: DmabufState::new(),
             pending_dmabufs: Vec::new(),

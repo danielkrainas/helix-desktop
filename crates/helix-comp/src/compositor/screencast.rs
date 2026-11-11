@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 
 use helix_comp::screencast::{CastRequest, CastSource, CursorMode};
 use helix_comp::Event;
-use smithay::backend::renderer::element::memory::MemoryRenderBuffer;
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::gles::{GlesMapping, GlesRenderer, GlesTexture};
@@ -44,8 +43,8 @@ pub struct CastState {
     /// Virtual monitors, by the stream they were made for.
     virtuals: HashMap<u32, (smithay::output::Output, smithay::reexports::wayland_server::backend::GlobalId)>,
     next_virtual: u32,
-    /// Helix's arrow as cursor metadata (BGRA).
-    arrow: Option<std::sync::Arc<(Vec<u8>, u32, u32)>>,
+    /// An empty image, for "no pointer" (not sent).
+    empty_cursor: std::sync::Arc<(Vec<u8>, u32, u32)>,
 }
 
 /// Size of virtual monitors.
@@ -263,21 +262,32 @@ impl Helix {
     }
 
     /// The pointer for cursor metadata, relative to a source at `origin`
-    /// (logical) of `size` (logical) drawn at `scale`.
-    fn cursor_meta(&mut self, origin: smithay::utils::Point<f64, smithay::utils::Logical>, size: Size<i32, smithay::utils::Logical>, scale: f64) -> CursorMeta {
-        let bitmap = self
-            .screencast
-            .arrow
-            .get_or_insert_with(|| {
-                let (pixels, w, h) = super::cursor::arrow();
-                std::sync::Arc::new((pixels, w as u32, h as u32))
-            })
-            .clone();
+    /// (logical) of `size` (logical) drawn at `scale`: the app's own image,
+    /// or the theme's named cursor.
+    fn cursor_meta(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        origin: smithay::utils::Point<f64, smithay::utils::Logical>,
+        size: Size<i32, smithay::utils::Logical>,
+        scale: f64,
+    ) -> CursorMeta {
+        use smithay::input::pointer::CursorImageStatus;
         let pos = self.seat.get_pointer().unwrap().current_location() - origin;
         let inside = pos.x >= 0.0 && pos.y >= 0.0 && pos.x < f64::from(size.w) && pos.y < f64::from(size.h);
-        let hidden = matches!(self.cursor_status, smithay::input::pointer::CursorImageStatus::Hidden);
+        let image = match &self.cursor_status {
+            CursorImageStatus::Hidden => None,
+            CursorImageStatus::Named(icon) => {
+                let frame = self.cursors.frame(*icon, scale);
+                Some((frame.bgra, frame.hotspot))
+            }
+            CursorImageStatus::Surface(surface) => surface_bitmap(renderer, surface, scale),
+        };
         let at = pos.to_physical(scale);
-        CursorMeta { visible: inside && !hidden, x: at.x.round() as i32, y: at.y.round() as i32, hotspot: (0, 0), bitmap }
+        let (bitmap, hotspot, visible) = match image {
+            Some((bitmap, hotspot)) => (bitmap, hotspot, inside),
+            None => (self.screencast.empty_cursor.clone(), (0, 0), false),
+        };
+        CursorMeta { visible, x: at.x.round() as i32, y: at.y.round() as i32, hotspot, bitmap }
     }
 
     fn end_cast(&mut self, id: u32) {
@@ -302,8 +312,7 @@ impl Helix {
                 return TimeoutAction::Drop;
             }
             if let Some(mut udev) = state.udev.take() {
-                let cursor = udev.cursor_buffer().clone();
-                state.cast_frames(udev.renderer(), Some(&cursor));
+                state.cast_frames(udev.renderer(), true);
                 state.udev = Some(udev);
             }
             TimeoutAction::ToDuration(FRAME)
@@ -314,7 +323,7 @@ impl Helix {
     /// target with damage tracking: nothing is read back when nothing
     /// changed. Read-back finishes on the next tick, so the GPU is not
     /// waited on.
-    pub fn cast_frames(&mut self, renderer: &mut GlesRenderer, named_cursor: Option<&MemoryRenderBuffer>) {
+    pub fn cast_frames(&mut self, renderer: &mut GlesRenderer, named_cursor: bool) {
         let now = Instant::now();
         let locked = self.lock.locked;
         let due: Vec<u32> = self
@@ -374,7 +383,7 @@ impl Helix {
             // Hidden window (or monitor briefly unmapped): no frame.
             let Some((size, scale, elements)) = scene else { continue };
             let source_size = crop.map_or(size, |c| c.size);
-            let pointer = (mode == CursorMode::Metadata).then(|| self.cursor_meta(origin, source_size, scale));
+            let pointer = (mode == CursorMode::Metadata).then(|| self.cursor_meta(renderer, origin, source_size, scale));
             let crop_px = crop.map(|c| Rectangle::new(c.loc.to_f64().to_physical(scale).to_i32_round(), c.size.to_f64().to_physical(scale).to_i32_round()));
             let physical: Size<i32, Physical> = crop_px.map_or_else(|| size.to_f64().to_physical(scale).to_i32_round(), |c| c.size);
             let target_size: Size<i32, Physical> = size.to_f64().to_physical(scale).to_i32_round();
@@ -517,6 +526,42 @@ impl FrameTarget {
     }
 }
 
+/// An app's pointer image as straight-alpha BGRA at `scale`, with its
+/// hotspot in image pixels.
+fn surface_bitmap(
+    renderer: &mut GlesRenderer,
+    surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    scale: f64,
+) -> Option<(super::cursor::Bitmap, (i32, i32))> {
+    use smithay::input::pointer::CursorImageSurfaceData;
+    let bbox = smithay::desktop::utils::bbox_from_surface_tree(surface, (0, 0));
+    if bbox.is_empty() {
+        return None;
+    }
+    let hotspot = smithay::wayland::compositor::with_states(surface, |states| {
+        states.data_map.get::<CursorImageSurfaceData>().map(|d| d.lock().unwrap().hotspot).unwrap_or_default()
+    });
+    let at = bbox.loc.upscale(-1).to_f64().to_physical(scale).to_i32_round();
+    let elements: Vec<super::capture::CaptureElement> = smithay::backend::renderer::element::surface::render_elements_from_surface_tree(
+        renderer,
+        surface,
+        at,
+        smithay::utils::Scale::from(scale),
+        1.0,
+        smithay::backend::renderer::element::Kind::Cursor,
+    )
+    .into_iter()
+    .map(super::capture::CaptureElement::Surface)
+    .collect();
+    let image = super::capture::render(renderer, bbox.size, scale, &elements).ok()?;
+    let mut bgra = image.rgba;
+    for px in bgra.as_chunks_mut::<4>().0 {
+        px.swap(0, 2);
+    }
+    let hot = (hotspot - bbox.loc).to_f64().to_physical(scale).to_i32_round();
+    Some((std::sync::Arc::new((bgra, image.width, image.height)), (hot.x, hot.y)))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -526,3 +571,4 @@ mod tests {
         assert_eq!(px, [3, 2, 1, 255, 7, 6, 5, 255]);
     }
 }
+

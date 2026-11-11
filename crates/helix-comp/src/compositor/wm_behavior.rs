@@ -90,6 +90,7 @@ impl Helix {
         if settings != self.wm_settings {
             tracing::info!(?settings.focus_mode, "window-management settings");
         }
+        self.cursors.set_theme(&settings.cursor_theme, settings.cursor_size);
         self.wm_settings = settings;
     }
 

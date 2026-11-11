@@ -10,6 +10,7 @@ use smithay::backend::renderer::element::surface::{render_elements_from_surface_
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::winit::{self, WinitEvent};
+use smithay::input::pointer::CursorImageStatus;
 use smithay::desktop::layer_map_for_output;
 use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
 use smithay::reexports::calloop::EventLoop;
@@ -123,8 +124,21 @@ pub fn init(
             }
             WinitEvent::Input(event) => state.process_input_event(event),
             WinitEvent::Redraw => {
-                if let Some(icon) = state.cursor.take() {
-                    backend.window().set_cursor(icon);
+                // Named cursors are the host's; Helix draws an app's image
+                // itself, with the host's pointer hidden.
+                let host = match &state.cursor_status {
+                    CursorImageStatus::Named(icon) => Some(*icon),
+                    _ => None,
+                };
+                if state.host_cursor != Some(host) {
+                    state.host_cursor = Some(host);
+                    match host {
+                        Some(icon) => {
+                            backend.window().set_cursor(icon);
+                            backend.window().set_cursor_visible(true);
+                        }
+                        None => backend.window().set_cursor_visible(false),
+                    }
                 }
                 for (dmabuf, notifier) in std::mem::take(&mut state.pending_dmabufs) {
                     if backend.renderer().import_dmabuf(&dmabuf, None).is_ok() {
@@ -146,7 +160,9 @@ pub fn init(
                     if state.lock.locked {
                         // Locked: only the lock surface (if any), on black.
                         let scale = output.current_scale().fractional_scale();
-                        let elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = state
+                        let origin = state.space.output_geometry(&output).map(|g| g.loc.to_f64()).unwrap_or_default();
+                        let mut elements = state.cursor_surface_elements(renderer, origin, scale);
+                        let lock: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = state
                             .lock
                             .surface_for(&output)
                             .map(|s| {
@@ -160,6 +176,7 @@ pub fn init(
                                 )
                             })
                             .unwrap_or_default();
+                        elements.extend(lock);
                         if let Err(err) = damage_tracker.render_output(
                             renderer,
                             &mut framebuffer,
@@ -171,7 +188,15 @@ pub fn init(
                         }
                     } else {
                         let focused = state.focused_window();
-                        let elements = super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref());
+                        let origin = state.space.output_geometry(&output).map(|g| g.loc.to_f64()).unwrap_or_default();
+                        let scale = output.current_scale().fractional_scale();
+                        // An app's own pointer image, in front.
+                        let mut elements: Vec<super::frames::SceneElement> = state
+                            .cursor_surface_elements(renderer, origin, scale)
+                            .into_iter()
+                            .map(super::frames::SceneElement::Surface)
+                            .collect();
+                        elements.extend(super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref()));
                         if let Err(err) =
                             damage_tracker.render_output(renderer, &mut framebuffer, 0, &elements, [0.12, 0.12, 0.14, 1.0])
                         {
@@ -194,9 +219,10 @@ pub fn init(
                     );
                     state.frame_shown(&output);
                 }
-                // The host draws the pointer, so named cursors can't be captured.
-                state.run_captures(backend.renderer(), None);
-                state.cast_frames(backend.renderer(), None);
+                // The host draws named cursors, so they can't be captured.
+                state.run_captures(backend.renderer(), false);
+                state.cast_frames(backend.renderer(), false);
+                state.send_cursor_frame(&output, state.start_time.elapsed());
                 if state.lock.locked {
                     state.lock_frame_shown();
                     state.lock_send_frames(&output);

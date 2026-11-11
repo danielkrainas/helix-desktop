@@ -14,17 +14,15 @@ use helix_protocols::server::helix_screenshot_frame_v1::{self, HelixScreenshotFr
 use helix_protocols::server::helix_screenshot_manager_v1::{self, Cursor, HelixScreenshotManagerV1};
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::damage::OutputDamageTracker;
-use smithay::backend::renderer::element::memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement};
-use smithay::backend::renderer::element::surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement};
-use smithay::backend::renderer::element::{AsRenderElements, Kind};
+use smithay::backend::renderer::element::memory::MemoryRenderBufferRenderElement;
+use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
+use smithay::backend::renderer::element::AsRenderElements;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::backend::renderer::{Bind, ExportMem, Offscreen, TextureMapping};
 use smithay::desktop::Window;
-use smithay::input::pointer::{CursorImageStatus, CursorImageSurfaceData};
 use smithay::reexports::calloop::channel::{self, Sender};
 use smithay::reexports::wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, WEnum};
 use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, Transform};
-use smithay::wayland::compositor::with_states;
 
 use super::{ClientState, Helix};
 
@@ -141,7 +139,7 @@ pub fn encode_png(image: &Image, out: impl std::io::Write) -> Result<(), png::En
 
 /// Render `elements` (front to back) into an image of `size` logical
 /// pixels at `scale`.
-fn render(
+pub(super) fn render(
     renderer: &mut GlesRenderer,
     size: Size<i32, Logical>,
     scale: f64,
@@ -245,14 +243,13 @@ impl Helix {
 
     fn run_captures_udev(&mut self) {
         let Some(mut udev) = self.udev.take() else { return };
-        let cursor = udev.cursor_buffer().clone();
-        self.run_captures(udev.renderer(), Some(&cursor));
+        self.run_captures(udev.renderer(), true);
         self.udev = Some(udev);
     }
 
-    /// Render queued captures with `renderer`. `named_cursor` is the image
-    /// drawn for named cursors, if the compositor draws them itself.
-    pub fn run_captures(&mut self, renderer: &mut GlesRenderer, named_cursor: Option<&MemoryRenderBuffer>) {
+    /// Render queued captures with `renderer`. `named_cursor`: Helix draws
+    /// named cursors itself (bare hardware).
+    pub fn run_captures(&mut self, renderer: &mut GlesRenderer, named_cursor: bool) {
         for pending in std::mem::take(&mut self.captures.pending) {
             let Pending { frame, target, cursor, fd } = pending;
             if !frame.is_alive() {
@@ -291,7 +288,7 @@ impl Helix {
         &mut self,
         renderer: &mut GlesRenderer,
         target: Target,
-        cursor: Option<Option<&MemoryRenderBuffer>>,
+        cursor: Option<bool>,
         _frame: &HelixScreenshotFrameV1,
     ) -> Result<(Rectangle<i32, Logical>, Image), Reason> {
         let failed = |err: String| {
@@ -338,7 +335,7 @@ impl Helix {
         &self,
         renderer: &mut GlesRenderer,
         output: &smithay::output::Output,
-        cursor: Option<Option<&MemoryRenderBuffer>>,
+        cursor: Option<bool>,
     ) -> Result<Image, String> {
         let (size, scale, elements) = self.output_elements(renderer, output, cursor)?;
         render(renderer, size, scale, &elements)
@@ -349,7 +346,7 @@ impl Helix {
         &self,
         renderer: &mut GlesRenderer,
         output: &smithay::output::Output,
-        cursor: Option<Option<&MemoryRenderBuffer>>,
+        cursor: Option<bool>,
     ) -> Result<Scene, String> {
         let geometry = self.space.output_geometry(output).ok_or("output not mapped")?;
         let scale = output.current_scale().fractional_scale();
@@ -367,7 +364,7 @@ impl Helix {
     fn capture_window(
         &mut self,
         renderer: &mut GlesRenderer,
-        cursor: Option<Option<&MemoryRenderBuffer>>,
+        cursor: Option<bool>,
         frame: bool,
     ) -> Result<(Rectangle<i32, Logical>, Image), Option<String>> {
         let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
@@ -382,7 +379,7 @@ impl Helix {
         &self,
         renderer: &mut GlesRenderer,
         window: &Window,
-        cursor: Option<Option<&MemoryRenderBuffer>>,
+        cursor: Option<bool>,
         frame: bool,
     ) -> Result<(Rectangle<i32, Logical>, Image), Option<String>> {
         let (rect, scale, elements) = self.window_elements(renderer, window, cursor, frame).ok_or(None)?;
@@ -396,7 +393,7 @@ impl Helix {
         &self,
         renderer: &mut GlesRenderer,
         window: &Window,
-        cursor: Option<Option<&MemoryRenderBuffer>>,
+        cursor: Option<bool>,
         frame: bool,
     ) -> Option<(Rectangle<i32, Logical>, f64, Vec<CaptureElement>)> {
         let window = window.clone();
@@ -428,39 +425,21 @@ impl Helix {
         Some((rect, scale, elements))
     }
 
-    /// The pointer, relative to `origin`, if it is drawn by us.
+    /// The pointer, relative to `origin`, if it is drawn by us (`named`:
+    /// named cursors too).
     fn cursor_elements(
         &self,
         renderer: &mut GlesRenderer,
         origin: Point<f64, Logical>,
         scale: f64,
-        named: Option<&MemoryRenderBuffer>,
+        named: bool,
     ) -> Vec<CaptureElement> {
-        let Some(pointer) = self.seat.get_pointer() else { return Vec::new() };
-        let local = pointer.current_location() - origin;
-        match &self.cursor_status {
-            CursorImageStatus::Hidden => Vec::new(),
-            CursorImageStatus::Surface(surface) => {
-                let hotspot = with_states(surface, |states| {
-                    states
-                        .data_map
-                        .get::<CursorImageSurfaceData>()
-                        .map(|d| d.lock().unwrap().hotspot)
-                        .unwrap_or_default()
-                });
-                let at = (local - hotspot.to_f64()).to_physical(scale).to_i32_round();
-                render_elements_from_surface_tree(renderer, surface, at, Scale::from(scale), 1.0, Kind::Cursor)
-                    .into_iter()
-                    .map(CaptureElement::Surface)
-                    .collect()
-            }
-            CursorImageStatus::Named(_) => {
-                let Some(buffer) = named else { return Vec::new() };
-                MemoryRenderBufferRenderElement::from_buffer(renderer, local.to_physical(scale), buffer, None, None, None, Kind::Cursor)
-                    .map(|e| vec![CaptureElement::Memory(e)])
-                    .unwrap_or_default()
-            }
+        let mut out: Vec<CaptureElement> =
+            self.cursor_surface_elements(renderer, origin, scale).into_iter().map(CaptureElement::Surface).collect();
+        if named {
+            out.extend(self.named_cursor_element(renderer, origin, scale).map(CaptureElement::Memory));
         }
+        out
     }
 }
 

@@ -28,6 +28,7 @@ toml.workspace = true
 png.workspace = true
 input-sys.workspace = true
 pipewire.workspace = true
+xcursor.workspace = true
 
 [[bin]]
 name = "helix-comp"
