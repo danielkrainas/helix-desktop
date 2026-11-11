@@ -212,6 +212,15 @@ async fn org_gnome_shell() {
     assert_matches_contract(
         service.connection(),
         helix_shell::BUS_NAME,
+        helix_shell::night_light::OBJECT_PATH,
+        "org.gnome.SettingsDaemon.Color",
+        "org.gnome.SettingsDaemon.Color.xml",
+        &[],
+    )
+    .await;
+    assert_matches_contract(
+        service.connection(),
+        helix_shell::BUS_NAME,
         helix_shell::screencast_chooser::OBJECT_PATH,
         "org.helix.ScreenCastChooser",
         "org.helix.ScreenCastChooser.xml",

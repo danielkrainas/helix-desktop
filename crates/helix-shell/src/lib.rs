@@ -378,6 +378,7 @@ pub struct ShellService {
     center: notifications::Center,
     ticker: JoinHandle<()>,
     ui: mpsc::UnboundedSender<UiEvent>,
+    night_light: night_light::Handle,
 }
 
 impl ShellService {
@@ -396,6 +397,7 @@ impl ShellService {
             auth: auth.clone(),
         };
         let center = notifications::Center::new(ui.clone(), lock_status);
+        let night_light = night_light::Handle::default();
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone() })?
             .serve_at(screensaver::OBJECT_PATH, saver)?
@@ -409,6 +411,7 @@ impl ShellService {
                 screenshot::OBJECT_PATH,
                 screenshot::Screenshot { screens: screenshot::Screens::with_notifications(ui.clone(), center.clone()) },
             )?
+            .serve_at(night_light::OBJECT_PATH, night_light::ColorService { handle: night_light.clone() })?
             .serve_at(
                 screencast_chooser::OBJECT_PATH,
                 screencast_chooser::ScreenCastChooser { ui: ui.clone(), busy: Default::default() },
@@ -438,10 +441,10 @@ impl ShellService {
             }
             other => tracing::warn!(?other, "cannot own org.gnome.ScreenSaver; screen locking unavailable"),
         }
-        for name in [notifications::FDO_BUS_NAME, notifications::GTK_BUS_NAME] {
+        for name in [notifications::FDO_BUS_NAME, notifications::GTK_BUS_NAME, night_light::BUS_NAME] {
             match conn.request_name_with_flags(name, RequestNameFlags::DoNotQueue.into()).await {
                 Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => {}
-                other => tracing::warn!(name, ?other, "cannot own notification service name"),
+                other => tracing::warn!(name, ?other, "cannot own service name"),
             }
         }
         let ticker = notifications::spawn_ticker(center.clone(), conn.clone());
@@ -467,7 +470,7 @@ impl ShellService {
                 }
             }
         });
-        Ok((Self { conn, state, watcher, auth, center, ticker, ui }, ui_rx))
+        Ok((Self { conn, state, watcher, auth, center, ticker, ui, night_light }, ui_rx))
     }
 
     pub fn connection(&self) -> &Connection {
@@ -492,6 +495,11 @@ impl ShellService {
             .grabs()
             .map(|(id, g)| (*id, g.accelerator.to_string()))
             .collect()
+    }
+
+    /// Night Light's state, shared with `org.gnome.SettingsDaemon.Color`.
+    pub fn night_light(&self) -> night_light::Handle {
+        self.night_light.clone()
     }
 
     /// Where UI events go (for tasks that report to the UI).

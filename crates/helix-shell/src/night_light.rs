@@ -3,6 +3,7 @@
 //! CRTC through DisplayConfig.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -182,21 +183,169 @@ pub async fn set_temperature(conn: &Connection, kelvin: f64) -> zbus::Result<()>
     Ok(())
 }
 
-/// The temperature wanted now.
-fn wanted() -> f64 {
-    let settings = read();
-    let Ok(now) = gio::glib::DateTime::now_local() else { return NEUTRAL };
-    let hour = f64::from(now.hour()) + f64::from(now.minute()) / 60.0;
-    let offset = now.utc_offset().as_seconds() as f64 / 3600.0;
-    if is_on(&settings, now.day_of_year() as u32, hour, offset) {
-        settings.temperature.clamp(1000.0, 10000.0)
-    } else {
-        NEUTRAL
+pub const BUS_NAME: &str = "org.gnome.SettingsDaemon.Color";
+pub const OBJECT_PATH: &str = "/org/gnome/SettingsDaemon/Color";
+/// Longest preview, in seconds.
+pub const MAX_PREVIEW: u32 = 20;
+
+/// Night Light as published on `org.gnome.SettingsDaemon.Color`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Status {
+    pub active: bool,
+    pub temperature: u32,
+    pub disabled_until_tomorrow: bool,
+    pub sunrise: f64,
+    pub sunset: f64,
+}
+
+impl Default for Status {
+    fn default() -> Self {
+        Self { active: false, temperature: NEUTRAL as u32, disabled_until_tomorrow: false, sunrise: -1.0, sunset: -1.0 }
     }
 }
 
-/// Run Night Light: follow the settings, the clock and monitor changes.
-pub async fn run(conn: Connection) {
+#[derive(Debug, Default)]
+struct State {
+    status: Status,
+    preview_until: Option<tokio::time::Instant>,
+    /// The schedule said "on" last time (to end "until tomorrow").
+    was_scheduled: bool,
+}
+
+/// Shared between the D-Bus object and the runner.
+#[derive(Debug, Clone, Default)]
+pub struct Handle {
+    state: Arc<Mutex<State>>,
+    wake: Arc<tokio::sync::Notify>,
+}
+
+impl Handle {
+    fn state(&self) -> std::sync::MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn status(&self) -> Status {
+        self.state().status.clone()
+    }
+}
+
+/// What Night Light does now, given the schedule, "disabled until
+/// tomorrow" and a preview. Returns (target kelvin, active, disabled flag
+/// after this check).
+pub fn decide(scheduled: bool, was_scheduled: bool, disabled: bool, previewing: bool, temperature: f64) -> (f64, bool, bool) {
+    // The period ended: "until tomorrow" is over.
+    let disabled = disabled && !(was_scheduled && !scheduled);
+    let on = previewing || (scheduled && !disabled);
+    (if on { temperature } else { NEUTRAL }, on, disabled)
+}
+
+/// The served `org.gnome.SettingsDaemon.Color` object.
+pub struct ColorService {
+    pub handle: Handle,
+}
+
+#[zbus::interface(name = "org.gnome.SettingsDaemon.Color")]
+impl ColorService {
+    async fn night_light_preview(&self, duration: u32) {
+        let seconds = u64::from(duration.clamp(1, MAX_PREVIEW));
+        self.handle.state().preview_until = Some(tokio::time::Instant::now() + Duration::from_secs(seconds));
+        tracing::info!(seconds, "night light preview");
+        self.handle.wake.notify_one();
+    }
+
+    #[zbus(property)]
+    async fn night_light_active(&self) -> bool {
+        self.handle.status().active
+    }
+
+    #[zbus(property)]
+    async fn temperature(&self) -> u32 {
+        self.handle.status().temperature
+    }
+
+    #[zbus(property)]
+    async fn set_temperature(&self, _value: u32) -> zbus::fdo::Result<()> {
+        Err(zbus::fdo::Error::PropertyReadOnly("set night-light-temperature instead".into()))
+    }
+
+    #[zbus(property)]
+    async fn disabled_until_tomorrow(&self) -> bool {
+        self.handle.status().disabled_until_tomorrow
+    }
+
+    #[zbus(property)]
+    async fn set_disabled_until_tomorrow(&self, value: bool) {
+        self.handle.state().status.disabled_until_tomorrow = value;
+        self.handle.wake.notify_one();
+    }
+
+    #[zbus(property)]
+    async fn sunrise(&self) -> f64 {
+        self.handle.status().sunrise
+    }
+
+    #[zbus(property)]
+    async fn sunset(&self) -> f64 {
+        self.handle.status().sunset
+    }
+}
+
+/// Work out the target and publish what changed.
+async fn check(conn: &Connection, handle: &Handle) -> f64 {
+    let settings = read();
+    let now = gio::glib::DateTime::now_local().ok();
+    let (day, hour, offset) = match &now {
+        Some(now) => (
+            now.day_of_year() as u32,
+            f64::from(now.hour()) + f64::from(now.minute()) / 60.0,
+            now.utc_offset().as_seconds() as f64 / 3600.0,
+        ),
+        None => (1, 12.0, 0.0),
+    };
+    let scheduled = now.is_some() && is_on(&Settings { enabled: settings.enabled, ..settings }, day, hour, offset);
+    let (sunrise, sunset) = match settings.location.map(|(lat, lon)| daylight(lat, lon, day, offset)) {
+        Some(Daylight::Times { sunrise, sunset }) => (sunrise, sunset),
+        _ => (-1.0, -1.0),
+    };
+    let temperature = settings.temperature.clamp(1000.0, 10000.0);
+    let (target, old, new) = {
+        let mut state = handle.state();
+        let previewing = state.preview_until.is_some_and(|t| t > tokio::time::Instant::now());
+        if !previewing {
+            state.preview_until = None;
+        }
+        let (target, active, disabled) = decide(scheduled, state.was_scheduled, state.status.disabled_until_tomorrow, previewing, temperature);
+        state.was_scheduled = scheduled;
+        let old = state.status.clone();
+        state.status = Status { active, temperature: target as u32, disabled_until_tomorrow: disabled, sunrise, sunset };
+        (target, old, state.status.clone())
+    };
+    if old != new {
+        if let Ok(iface) = conn.object_server().interface::<_, ColorService>(OBJECT_PATH).await {
+            let (service, emitter) = (iface.get().await, iface.signal_emitter().clone());
+            if old.active != new.active {
+                let _ = service.night_light_active_changed(&emitter).await;
+            }
+            if old.temperature != new.temperature {
+                let _ = service.temperature_changed(&emitter).await;
+            }
+            if old.disabled_until_tomorrow != new.disabled_until_tomorrow {
+                let _ = service.disabled_until_tomorrow_changed(&emitter).await;
+            }
+            if old.sunrise != new.sunrise {
+                let _ = service.sunrise_changed(&emitter).await;
+            }
+            if old.sunset != new.sunset {
+                let _ = service.sunset_changed(&emitter).await;
+            }
+        }
+    }
+    target
+}
+
+/// Run Night Light: follow the settings, the clock, monitor changes and
+/// requests on `org.gnome.SettingsDaemon.Color`.
+pub async fn run(conn: Connection, handle: Handle) {
     let watched = helix_settings::GSettings::new(&[SCHEMA]);
     let (mut changes, _watch) = watched.watch();
     let monitors = zbus::MatchRule::builder()
@@ -211,7 +360,7 @@ pub async fn run(conn: Connection) {
     // `None`: never touched (leave the gamma alone while off).
     let mut current: Option<f64> = None;
     loop {
-        let target = wanted();
+        let target = check(&conn, &handle).await;
         let touched = current.is_some_and(|c| c != NEUTRAL);
         if current != Some(target) && (target != NEUTRAL || touched) {
             let from = current.unwrap_or(NEUTRAL);
@@ -234,8 +383,12 @@ pub async fn run(conn: Connection) {
                 None => std::future::pending().await,
             }
         };
+        // Wake when a preview ends, too.
+        let preview_end = handle.state().preview_until;
+        let next = preview_end.map_or(RECHECK, |t| t.saturating_duration_since(tokio::time::Instant::now()).min(RECHECK));
         tokio::select! {
-            _ = tokio::time::sleep(RECHECK) => {}
+            _ = tokio::time::sleep(next) => {}
+            _ = handle.wake.notified() => {}
             Some(_) = changes.recv() => {}
             _ = monitor_change => {
                 // New CRTCs start neutral: set the gamma again.
@@ -282,6 +435,17 @@ mod tests {
         assert!(is_on(&s, 172, 23.0, 2.0));
         assert!(!is_on(&s, 172, 12.0, 2.0));
         assert!(location(91.0, 181.0).is_none(), "the schema's 'unknown'");
+    }
+
+    #[test]
+    fn until_tomorrow_and_preview() {
+        let t = 2700.0;
+        assert_eq!(decide(true, true, false, false, t), (t, true, false), "scheduled");
+        assert_eq!(decide(true, true, true, false, t), (NEUTRAL, false, true), "disabled until tomorrow");
+        assert_eq!(decide(false, true, true, false, t), (NEUTRAL, false, false), "period over: cleared");
+        assert_eq!(decide(false, false, true, false, t), (NEUTRAL, false, true), "set while off: kept for the next period");
+        assert_eq!(decide(true, false, true, false, t), (NEUTRAL, false, true), "...which it skips");
+        assert_eq!(decide(false, false, false, true, t), (t, true, false), "preview");
     }
 
     #[test]

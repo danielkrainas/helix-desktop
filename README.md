@@ -221,7 +221,9 @@ Night Light follows GNOME's settings (enabled, temperature, manual
 schedule, or sunset to sunrise at the last known location): the shell
 fades every monitor's gamma through DisplayConfig's `SetCrtcGamma`, which
 the compositor applies to the DRM CRTCs (nested, the ramps are accepted
-but have no visible effect).
+but have no visible effect). Its state is published as gnome-settings-daemon's
+`org.gnome.SettingsDaemon.Color` (active, temperature, sunrise and sunset),
+which also lets GNOME Settings preview it and disable it until tomorrow.
 
 Workspaces follow GNOME's settings: a fixed number (`num-workspaces`) or
 dynamic ones (always one empty workspace at the end), optionally only on
