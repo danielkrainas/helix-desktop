@@ -71,6 +71,23 @@ pub struct ProtocolState {
     suspended: Option<WlSurface>,
     /// The X11 window holding an Xwayland keyboard grab.
     xwayland_grab: Option<WlSurface>,
+    /// A 3/4-finger swipe Helix keeps: how far it went.
+    swipe: Option<Point<f64, Logical>>,
+}
+
+/// Fingers a swipe needs to be Helix's.
+const SWIPE_FINGERS: std::ops::RangeInclusive<u32> = 3..=4;
+/// How far (logical pixels) a swipe goes sideways to switch workspace.
+const SWIPE_DISTANCE: f64 = 100.0;
+
+/// The workspace a finished swipe of `moved` leads to from `active` (of
+/// `count`): fingers moving left show the next one.
+pub fn swipe_target(active: usize, count: usize, moved: Point<f64, Logical>) -> Option<usize> {
+    if moved.x.abs() < SWIPE_DISTANCE || moved.x.abs() <= moved.y.abs() {
+        return None;
+    }
+    let target = if moved.x < 0.0 { active.checked_add(1)? } else { active.checked_sub(1)? };
+    (target < count).then_some(target)
 }
 
 fn root_of(surface: &WlSurface) -> WlSurface {
@@ -205,17 +222,36 @@ impl Helix {
     // ---- Gestures -----------------------------------------------------------
 
     pub(super) fn gesture_swipe_begin(&mut self, fingers: u32, time: u32) {
+        if SWIPE_FINGERS.contains(&fingers) {
+            self.protocols.swipe = Some(Point::default());
+            return;
+        }
+        self.protocols.swipe = None;
         let pointer = self.seat.get_pointer().unwrap();
         let e = smithay::input::pointer::GestureSwipeBeginEvent { serial: SERIAL_COUNTER.next_serial(), time, fingers };
         pointer.gesture_swipe_begin(self, &e);
     }
 
     pub(super) fn gesture_swipe_update(&mut self, delta: Point<f64, Logical>, time: u32) {
+        if let Some(moved) = self.protocols.swipe.as_mut() {
+            *moved += delta;
+            return;
+        }
         let pointer = self.seat.get_pointer().unwrap();
         pointer.gesture_swipe_update(self, &smithay::input::pointer::GestureSwipeUpdateEvent { time, delta });
     }
 
     pub(super) fn gesture_swipe_end(&mut self, cancelled: bool, time: u32) {
+        if let Some(moved) = self.protocols.swipe.take() {
+            let layout = self.workspaces.layout;
+            if !cancelled && !self.lock.locked {
+                if let Some(target) = swipe_target(layout.active, layout.count, moved) {
+                    tracing::debug!(target, "workspace swipe");
+                    self.switch_workspace(target);
+                }
+            }
+            return;
+        }
         let pointer = self.seat.get_pointer().unwrap();
         let e = smithay::input::pointer::GestureSwipeEndEvent { serial: SERIAL_COUNTER.next_serial(), time, cancelled };
         pointer.gesture_swipe_end(self, &e);
@@ -392,6 +428,22 @@ impl XWaylandKeyboardGrabHandler for Helix {
         let window = self.window_for_surface(surface)?;
         window.x11_surface()?;
         super::focus::focus_target(&window)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn swipes() {
+        let p = |x: f64, y: f64| Point::<f64, Logical>::from((x, y));
+        assert_eq!(swipe_target(1, 4, p(-150.0, 20.0)), Some(2), "left: next");
+        assert_eq!(swipe_target(1, 4, p(150.0, 20.0)), Some(0), "right: previous");
+        assert_eq!(swipe_target(0, 4, p(150.0, 0.0)), None, "none before the first");
+        assert_eq!(swipe_target(3, 4, p(-150.0, 0.0)), None, "none past the last");
+        assert_eq!(swipe_target(1, 4, p(-90.0, 0.0)), None, "too short");
+        assert_eq!(swipe_target(1, 4, p(-150.0, 160.0)), None, "mostly vertical");
     }
 }
 

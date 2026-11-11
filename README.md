@@ -289,7 +289,8 @@ fractional-scale, primary selection, cursor-shape, text-input and
 cursors are shown on the host window when nested), and linux-dmabuf with
 feedback naming the GPU, so GTK 4 and other GL/Vulkan apps hand over GPU
 buffers instead of copying pixels (nested too). Also: idle-inhibit,
-pointer-constraints and relative-pointer (for games), pointer-gestures,
+pointer-constraints and relative-pointer (for games), pointer-gestures
+(3- and 4-finger sideways swipes switch workspaces instead),
 keyboard-shortcuts-inhibit (the shell asks once per app and remembers
 the answer in the permission store; Super+Escape takes the shortcuts
 back), xdg-foreign, presentation-time, fifo, commit-timing,
