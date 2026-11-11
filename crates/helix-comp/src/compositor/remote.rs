@@ -75,14 +75,14 @@ impl Helix {
                 self.button_input(button, state, time);
             }
             RemoteInput::Motion { dx, dy } => {
-                let current = self.seat.get_pointer().unwrap().current_location();
-                let pos = self.clamp_to_outputs(current + Point::from((dx, dy)));
-                self.pointer_to(pos, time);
+                let delta = Point::from((dx, dy));
+                self.pointer_moved_by(delta, delta, u64::from(time) * 1000, time);
             }
             RemoteInput::MotionAbsolute { stream, x, y } => {
                 if let Some(pos) = self.stream_point(stream, x, y) {
                     let pos = self.clamp_to_outputs(pos);
                     self.pointer_to(pos, time);
+                    self.activate_constraint_under();
                 }
             }
             RemoteInput::Axis { dx, dy, finish, source } => {
@@ -283,6 +283,7 @@ impl Helix {
                 let time = self.now_ms();
                 self.note_activity();
                 self.pointer_to(pos, time);
+                self.activate_constraint_under();
             }
             EisRequest::Button(b) => {
                 let pressed = b.state == eis::button::ButtonState::Press;

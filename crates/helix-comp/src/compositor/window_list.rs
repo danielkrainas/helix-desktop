@@ -227,6 +227,9 @@ impl Dispatch<HelixWindowListV1, ()> for Helix {
             helix_window_list_v1::Request::WindowAction { id, action: smithay::reexports::wayland_server::WEnum::Value(action) } => {
                 state.window_action(id, action);
             }
+            helix_window_list_v1::Request::AllowShortcutsInhibit { id, allowed } => {
+                state.answer_shortcuts_inhibit(id, allowed != 0);
+            }
             helix_window_list_v1::Request::MoveWindow { id, workspace } => {
                 let window = state.window_list.ids.iter().find(|(_, i)| *i == id).map(|(w, _)| w.clone());
                 if let Some(window) = window {

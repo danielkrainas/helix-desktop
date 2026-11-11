@@ -283,8 +283,15 @@ fractional-scale, primary selection, cursor-shape, text-input and
 (for the shell) input-method and virtual-keyboard (named
 cursors are shown on the host window when nested), and linux-dmabuf with
 feedback naming the GPU, so GTK 4 and other GL/Vulkan apps hand over GPU
-buffers instead of copying pixels (nested too). Not yet: compositing
-client-drawn cursor surfaces.
+buffers instead of copying pixels (nested too). Also: idle-inhibit,
+pointer-constraints and relative-pointer (for games), pointer-gestures,
+keyboard-shortcuts-inhibit (the shell asks once per app and remembers
+the answer in the permission store; Super+Escape takes the shortcuts
+back), xdg-foreign, presentation-time, fifo, commit-timing,
+single-pixel-buffer and, for Xwayland, xwayland-keyboard-grab (off
+unless `org.gnome.mutter.wayland xwayland-allow-grabs` and the access
+rules allow it). Not yet: compositing client-drawn cursor surfaces,
+xdg-toplevel-icon.
 
 Shortcuts handled by the compositor:
 

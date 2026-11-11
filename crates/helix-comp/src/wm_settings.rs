@@ -8,7 +8,9 @@ use gio::prelude::*;
 pub const MUTTER: &str = "org.gnome.mutter";
 pub const WM_PREFERENCES: &str = "org.gnome.desktop.wm.preferences";
 pub const INTERFACE: &str = "org.gnome.desktop.interface";
-pub const SCHEMAS: [&str; 3] = [MUTTER, WM_PREFERENCES, INTERFACE];
+pub const MUTTER_WAYLAND: &str = "org.gnome.mutter.wayland";
+pub const MUTTER_WAYLAND_KEYS: &str = "org.gnome.mutter.wayland.keybindings";
+pub const SCHEMAS: [&str; 5] = [MUTTER, WM_PREFERENCES, INTERFACE, MUTTER_WAYLAND, MUTTER_WAYLAND_KEYS];
 
 /// `focus-mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -50,6 +52,49 @@ pub fn parse_modifier(value: &str) -> Option<Modifiers> {
     (rest.is_empty() && mods != Modifiers::default()).then_some(mods)
 }
 
+/// An accelerator (`<Super>Escape`): its modifiers and key name.
+pub fn parse_accelerator(value: &str) -> Option<(Modifiers, String)> {
+    let mut mods = Modifiers::default();
+    let mut rest = value.trim();
+    while let Some(after) = rest.strip_prefix('<') {
+        let end = after.find('>')?;
+        match after[..end].to_ascii_lowercase().as_str() {
+            "super" | "mod4" | "hyper" => mods.logo = true,
+            "alt" | "mod1" | "meta" => mods.alt = true,
+            "control" | "ctrl" | "primary" => mods.ctrl = true,
+            "shift" => mods.shift = true,
+            _ => return None,
+        }
+        rest = &after[end + 1..];
+    }
+    (!rest.is_empty()).then(|| (mods, rest.to_owned()))
+}
+
+/// Whether `xwayland-grab-access-rules` let an X11 app with this WM_CLASS
+/// name and class grab the keyboard: some entry matches (`*`, `?`
+/// wildcards) and no `!` entry does.
+pub fn grab_allowed(rules: &[String], name: &str, class: &str) -> bool {
+    let hits = |pattern: &str| glob(pattern, name) || glob(pattern, class);
+    if rules.iter().filter_map(|r| r.strip_prefix('!')).any(hits) {
+        return false;
+    }
+    rules.iter().filter(|r| !r.starts_with('!')).any(|r| hits(r))
+}
+
+fn glob(pattern: &str, text: &str) -> bool {
+    fn go(p: &[char], t: &[char]) -> bool {
+        match p.split_first() {
+            None => t.is_empty(),
+            Some(('*', rest)) => (0..=t.len()).any(|i| go(rest, &t[i..])),
+            Some(('?', rest)) => !t.is_empty() && go(rest, &t[1..]),
+            Some((c, rest)) => t.first() == Some(c) && go(rest, &t[1..]),
+        }
+    }
+    let p: Vec<char> = pattern.chars().collect();
+    let t: Vec<char> = text.chars().collect();
+    !text.is_empty() && go(&p, &t)
+}
+
 /// Key names of `overlay-key`: `Super` means either Super key; empty: none.
 pub fn overlay_keys(value: &str) -> Vec<String> {
     match value.trim() {
@@ -85,6 +130,12 @@ pub struct WmSettings {
     pub locate_pointer_key: Option<String>,
     /// `check-alive-timeout` (ms; 0: off).
     pub check_alive_ms: u32,
+    /// `restore-shortcuts`.
+    pub restore_shortcuts: Vec<(Modifiers, String)>,
+    /// `xwayland-allow-grabs`.
+    pub xwayland_allow_grabs: bool,
+    /// `xwayland-grab-access-rules`.
+    pub xwayland_grab_rules: Vec<String>,
 }
 
 impl Default for WmSettings {
@@ -108,6 +159,9 @@ impl Default for WmSettings {
             fullscreen_flash: true,
             locate_pointer_key: None,
             check_alive_ms: 5000,
+            restore_shortcuts: parse_accelerator("<Super>Escape").into_iter().collect(),
+            xwayland_allow_grabs: false,
+            xwayland_grab_rules: Vec::new(),
         }
     }
 }
@@ -153,6 +207,12 @@ pub fn read() -> WmSettings {
         visual_bell: boolean(WM_PREFERENCES, "visual-bell", d.visual_bell),
         fullscreen_flash: string(WM_PREFERENCES, "visual-bell-type").as_deref() != Some("frame-flash"),
         check_alive_ms: settings_with(MUTTER, "check-alive-timeout").map_or(d.check_alive_ms, |s| s.uint("check-alive-timeout")),
+        restore_shortcuts: settings_with(MUTTER_WAYLAND_KEYS, "restore-shortcuts").map_or(d.restore_shortcuts, |s| {
+            s.strv("restore-shortcuts").iter().filter_map(|a| parse_accelerator(a.as_str())).collect()
+        }),
+        xwayland_allow_grabs: boolean(MUTTER_WAYLAND, "xwayland-allow-grabs", d.xwayland_allow_grabs),
+        xwayland_grab_rules: settings_with(MUTTER_WAYLAND, "xwayland-grab-access-rules")
+            .map_or(d.xwayland_grab_rules, |s| s.strv("xwayland-grab-access-rules").iter().map(|r| r.to_string()).collect()),
         locate_pointer_key: locate.then(|| string(MUTTER, "locate-pointer-key").unwrap_or_else(|| "Control_L".into())),
     }
 }
@@ -168,6 +228,26 @@ mod tests {
         assert_eq!(parse_modifier(""), None);
         assert_eq!(parse_modifier("<Super>a"), None, "a key, not only modifiers");
         assert_eq!(parse_modifier("<Bogus>"), None);
+    }
+
+    #[test]
+    fn accelerators() {
+        let logo = Modifiers { logo: true, ..Default::default() };
+        assert_eq!(parse_accelerator("<Super>Escape"), Some((logo, "Escape".into())));
+        assert_eq!(parse_accelerator("<Primary><Alt>F1").map(|a| a.0.ctrl && a.0.alt), Some(true));
+        assert_eq!(parse_accelerator("<Super>"), None);
+        assert_eq!(parse_accelerator("<Bogus>a"), None);
+    }
+
+    #[test]
+    fn grab_rules() {
+        let rules: Vec<String> = ["Xephyr", "*vnc*", "!xvncviewer", "Rem?te"].iter().map(|s| s.to_string()).collect();
+        assert!(grab_allowed(&rules, "Xephyr", ""));
+        assert!(grab_allowed(&rules, "", "Tigervnc"), "class matches too");
+        assert!(!grab_allowed(&rules, "xvncviewer", "Xvncviewer"), "! entries win");
+        assert!(grab_allowed(&rules, "Remote", ""));
+        assert!(!grab_allowed(&rules, "xterm", "XTerm"));
+        assert!(!grab_allowed(&[], "Xephyr", "Xephyr"));
     }
 
     #[test]

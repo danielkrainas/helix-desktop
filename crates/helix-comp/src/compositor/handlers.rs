@@ -120,9 +120,11 @@ impl SeatHandler for Helix {
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&super::focus::KeyboardFocusTarget>) {
         use smithay::wayland::seat::WaylandFocus;
         let dh = &self.display_handle;
-        let client = focused.and_then(|f| f.wl_surface()).and_then(|s| dh.get_client(s.id()).ok());
+        let surface = focused.and_then(|f| f.wl_surface()).map(|s| s.into_owned());
+        let client = surface.as_ref().and_then(|s| dh.get_client(s.id()).ok());
         set_data_device_focus(dh, seat, client.clone());
         smithay::wayland::selection::primary_selection::set_primary_focus(dh, seat, client);
+        self.update_shortcut_inhibit(surface);
     }
 
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
@@ -681,3 +683,8 @@ impl smithay::wayland::input_method::InputMethodHandler for Helix {
 smithay::delegate_text_input_manager!(Helix);
 smithay::delegate_input_method_manager!(Helix);
 smithay::delegate_virtual_keyboard_manager!(Helix);
+
+smithay::delegate_presentation!(Helix);
+smithay::delegate_single_pixel_buffer!(Helix);
+smithay::delegate_fifo!(Helix);
+smithay::delegate_commit_timing!(Helix);

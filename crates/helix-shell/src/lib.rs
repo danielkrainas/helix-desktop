@@ -26,6 +26,7 @@ pub use helix_settings::sound;
 pub mod screencast_chooser;
 pub mod screenshot;
 pub mod shell_keys;
+pub mod shortcuts_inhibit;
 pub mod state;
 pub mod text;
 pub mod ui;
@@ -120,6 +121,10 @@ pub enum UiEvent {
     Sharing(bool),
     /// From IBus, for the input method.
     Ime(ibus::ImEvent),
+    /// The remembered answer for a window asking for all shortcuts.
+    ShortcutsAnswer { id: u32, allowed: bool },
+    /// Ask whether a window may have all shortcuts (no answer stored).
+    AskShortcuts { id: u32, app_id: String },
 }
 
 /// Power menu entries.
@@ -169,6 +174,11 @@ pub enum UiRequest {
     ShellKey(shell_keys::KeyAction),
     /// For IBus, from the input method.
     Ime(ibus::ImRequest),
+    /// Window `id` of app `app_id` asks for all keyboard shortcuts: look
+    /// up the remembered answer.
+    ShortcutsInhibit { id: u32, app_id: String },
+    /// Remember the user's answer for `app_id`.
+    StoreShortcutsAnswer { app_id: String, allowed: bool },
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -617,6 +627,20 @@ impl UiBridge {
                 let object = dialog.get().await;
                 let result = object.answer(choice, dialog.signal_emitter()).await;
                 result
+            }
+            UiRequest::ShortcutsInhibit { id, app_id } => {
+                let event = match shortcuts_inhibit::lookup(&self.conn, &app_id).await {
+                    Some(allowed) => UiEvent::ShortcutsAnswer { id, allowed },
+                    None => UiEvent::AskShortcuts { id, app_id },
+                };
+                let _ = self.ui.send(event);
+                Ok(())
+            }
+            UiRequest::StoreShortcutsAnswer { app_id, allowed } => {
+                if let Err(err) = shortcuts_inhibit::store(&self.conn, &app_id, allowed).await {
+                    tracing::warn!(%err, "cannot remember the shortcuts answer");
+                }
+                Ok(())
             }
             UiRequest::DisplayChangeAnswer { keep } => {
                 let dialog = self

@@ -10,7 +10,7 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="5">
+  <interface name="helix_window_list_v1" version="6">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
       open window, topmost first, then a focused event (and, since version
@@ -143,6 +143,22 @@
       <arg name="id" type="uint"/>
       <arg name="responding" type="uint"/>
     </event>
+    <event name="shortcuts_inhibit" since="6">
+      <description summary="an app asks for all keyboard shortcuts">
+        Window id asks to get all keyboard shortcuts while it has keyboard
+        focus (zwp_keyboard_shortcuts_inhibit_manager_v1). Answer with
+        allow_shortcuts_inhibit; until then it does not get them.
+      </description>
+      <arg name="id" type="uint"/>
+    </event>
+    <request name="allow_shortcuts_inhibit" since="6">
+      <description summary="answer shortcuts_inhibit">
+        Whether window id may get all keyboard shortcuts (allowed 1) or
+        not (0).
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="allowed" type="uint"/>
+    </request>
     <event name="menu" since="4">
       <description summary="show the window menu">
         Show the window menu of window id at x, y (layout coordinates,

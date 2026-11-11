@@ -76,6 +76,12 @@ impl Shared {
         Ok(())
     }
 
+    /// Start or end idle inhibition.
+    pub fn set_inhibited(&self, inhibited: bool) {
+        self.core().set_inhibited(inhibited, self.clock.now());
+        self.rearm.notify_one();
+    }
+
     /// Fire due idle watches.
     pub async fn poll(&self, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
         let fired = self.core().poll(self.clock.now());

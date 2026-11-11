@@ -49,7 +49,7 @@ impl Helix {
         tracing::debug!(?action, "shortcut");
         // While locked only the escape hatches work.
         let allowed = match action {
-            Action::Quit | Action::SwitchVt(_) => true,
+            Action::Quit | Action::SwitchVt(_) | Action::RestoreShortcuts => true,
             Action::Binding(id, _) => self.shortcuts.works_when_locked(id),
             _ => false,
         };
@@ -68,6 +68,7 @@ impl Helix {
                 }
             }
             Action::ShowApplications => self.send(helix_comp::Event::ShowApplications),
+            Action::RestoreShortcuts => self.restore_shortcuts(),
             Action::CancelFollow => self.cancel_follow(),
             Action::LocatePointer => self.locate_pointer(),
             Action::SwitchVt(vt) => self.switch_vt(vt),
@@ -79,6 +80,7 @@ impl Helix {
     }
 
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
+        use smithay::backend::input::{GestureBeginEvent, GestureEndEvent, GesturePinchUpdateEvent as _, GestureSwipeUpdateEvent as _};
         if matches!(
             event,
             InputEvent::Keyboard { .. }
@@ -104,13 +106,39 @@ impl Helix {
                     return;
                 };
                 let pos = event.position_transformed(output_geo.size) + output_geo.loc.to_f64();
-                self.pointer_to(pos, event.time_msec());
+                self.pointer_moved_to_host(pos, Event::time(&event), event.time_msec());
             }
             InputEvent::PointerMotion { event, .. } => {
                 // Relative motion (real mice/touchpads on bare hardware).
-                let current = self.seat.get_pointer().unwrap().current_location();
-                let pos = self.clamp_to_outputs(current + event.delta());
-                self.pointer_to(pos, event.time_msec());
+                self.pointer_moved_by(event.delta(), event.delta_unaccel(), Event::time(&event), event.time_msec());
+            }
+            InputEvent::GestureSwipeBegin { event } => self.gesture_swipe_begin(event.fingers(), event.time_msec()),
+            InputEvent::GestureSwipeUpdate { event } => self.gesture_swipe_update(event.delta(), event.time_msec()),
+            InputEvent::GestureSwipeEnd { event } => self.gesture_swipe_end(event.cancelled(), event.time_msec()),
+            InputEvent::GesturePinchBegin { event } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let e = smithay::input::pointer::GesturePinchBeginEvent { serial: SERIAL_COUNTER.next_serial(), time: event.time_msec(), fingers: event.fingers() };
+                pointer.gesture_pinch_begin(self, &e);
+            }
+            InputEvent::GesturePinchUpdate { event } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let e = smithay::input::pointer::GesturePinchUpdateEvent { time: event.time_msec(), delta: event.delta(), scale: event.scale(), rotation: event.rotation() };
+                pointer.gesture_pinch_update(self, &e);
+            }
+            InputEvent::GesturePinchEnd { event } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let e = smithay::input::pointer::GesturePinchEndEvent { serial: SERIAL_COUNTER.next_serial(), time: event.time_msec(), cancelled: event.cancelled() };
+                pointer.gesture_pinch_end(self, &e);
+            }
+            InputEvent::GestureHoldBegin { event } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let e = smithay::input::pointer::GestureHoldBeginEvent { serial: SERIAL_COUNTER.next_serial(), time: event.time_msec(), fingers: event.fingers() };
+                pointer.gesture_hold_begin(self, &e);
+            }
+            InputEvent::GestureHoldEnd { event } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let e = smithay::input::pointer::GestureHoldEndEvent { serial: SERIAL_COUNTER.next_serial(), time: event.time_msec(), cancelled: event.cancelled() };
+                pointer.gesture_hold_end(self, &e);
             }
             InputEvent::PointerButton { event, .. } => {
                 self.button_input(event.button_code(), event.state(), event.time_msec());
@@ -189,6 +217,18 @@ impl Helix {
                     .unwrap_or_else(|| handle.modified_sym());
                 if pressed && state.follow.is_some() && handle.modified_sym() == smithay::input::keyboard::Keysym::Escape {
                     return FilterResult::Intercept(Some(Action::CancelFollow));
+                }
+                if state.shortcuts_inhibited() {
+                    // The app gets every key but restore-shortcuts and VT
+                    // switching.
+                    if pressed && state.is_restore_shortcuts(mods, sym) {
+                        return FilterResult::Intercept(Some(Action::RestoreShortcuts));
+                    }
+                    let decision = state.shortcuts.key(keycode.raw(), pressed, mods, sym);
+                    if matches!(decision.action, Some(Action::SwitchVt(_))) {
+                        return FilterResult::Intercept(decision.action);
+                    }
+                    return FilterResult::Forward;
                 }
                 let decision = state.shortcuts.key(keycode.raw(), pressed, mods, sym);
                 if decision.intercept {

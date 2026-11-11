@@ -41,6 +41,8 @@ pub struct IdleCore {
     last_activity: u64,
     watches: BTreeMap<u32, Watch>,
     next_id: u32,
+    /// A shown surface inhibits idling (`zwp_idle_inhibitor_v1`).
+    inhibited: bool,
 }
 
 impl IdleCore {
@@ -49,11 +51,33 @@ impl IdleCore {
             last_activity: now,
             watches: BTreeMap::new(),
             next_id: 1,
+            inhibited: false,
         }
     }
 
     pub fn idletime(&self, now: u64) -> u64 {
+        if self.inhibited {
+            return 0;
+        }
         now.saturating_sub(self.last_activity)
+    }
+
+    /// Start or end idle inhibition. While inhibited the idle time stays 0
+    /// and no idle watch fires; when it ends, idling starts over (without
+    /// firing user-active watches).
+    pub fn set_inhibited(&mut self, inhibited: bool, now: u64) {
+        if self.inhibited == inhibited {
+            return;
+        }
+        self.inhibited = inhibited;
+        if !inhibited {
+            self.last_activity = now;
+            for w in self.watches.values_mut() {
+                if let Kind::Idle { fired, .. } = &mut w.kind {
+                    *fired = false;
+                }
+            }
+        }
     }
 
     fn allocate_id(&mut self) -> u32 {
@@ -132,6 +156,9 @@ impl IdleCore {
     pub fn poll(&mut self, now: u64) -> Vec<u32> {
         let idle = self.idletime(now);
         let mut out = Vec::new();
+        if self.inhibited {
+            return out;
+        }
         for (id, w) in &mut self.watches {
             if let Kind::Idle { interval, fired } = &mut w.kind {
                 if !*fired && idle >= *interval {
@@ -145,6 +172,9 @@ impl IdleCore {
 
     /// Milliseconds until the next idle watch is due, if any is pending.
     pub fn next_due(&self, now: u64) -> Option<u64> {
+        if self.inhibited {
+            return None;
+        }
         let idle = self.idletime(now);
         self.watches
             .values()
@@ -211,6 +241,24 @@ mod tests {
         m.remove_watch(w).unwrap();
         assert_eq!(m.remove_watch(w), Err(IdleError::UnknownWatch(w)));
         assert!(m.poll(100).is_empty());
+    }
+
+    #[test]
+    fn inhibition_holds_idle_at_zero() {
+        let mut core = IdleCore::new(0);
+        let idle = core.add_idle_watch(100, None).unwrap();
+        let active = core.add_user_active_watch(None);
+        core.set_inhibited(true, 50);
+        assert_eq!(core.idletime(500), 0);
+        assert!(core.poll(500).is_empty());
+        assert_eq!(core.next_due(500), None);
+        core.set_inhibited(false, 1000);
+        assert_eq!(core.idletime(1050), 50);
+        assert!(core.poll(1050).is_empty());
+        assert_eq!(core.poll(1100), vec![idle]);
+        // Ending inhibition is not user activity.
+        assert_eq!(core.watch_count(), 2);
+        assert_eq!(core.activity(1200), vec![active]);
     }
 
     #[test]

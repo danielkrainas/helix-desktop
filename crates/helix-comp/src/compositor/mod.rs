@@ -13,7 +13,9 @@ mod grabs;
 mod handlers;
 mod input;
 mod remote;
+mod protocols;
 mod scales;
+mod timing;
 mod tiling;
 mod wm_behavior;
 mod input_config;
@@ -101,6 +103,13 @@ pub struct Helix {
         smithay::wayland::xdg_system_bell::XdgSystemBellState,
         smithay::wayland::shell::xdg::dialog::XdgDialogState,
     ),
+    #[allow(dead_code)]
+    protocol_globals: protocols::Globals,
+    pub keyboard_shortcuts_inhibit_state: smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState,
+    pub xdg_foreign_state: smithay::wayland::xdg_foreign::XdgForeignState,
+    /// The clock frame times are given in (`wp_presentation`).
+    pub clock: smithay::utils::Clock<smithay::utils::Monotonic>,
+    pub protocols: protocols::ProtocolState,
 
     /// Minimized windows (unmapped) and where they were.
     pub minimized: Vec<Window>,
@@ -181,7 +190,7 @@ impl Helix {
 
         // Private protocol for the shell (visible to privileged clients only).
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
-        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(5, ());
+        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(6, ());
         dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(3, ());
         let socket_name = Self::listen(display, event_loop)?;
         let mut helix = Self {
@@ -211,6 +220,11 @@ impl Helix {
                 smithay::wayland::xdg_system_bell::XdgSystemBellState::new::<Self>(&dh),
                 smithay::wayland::shell::xdg::dialog::XdgDialogState::new::<Self>(&dh),
             ),
+            protocol_globals: protocols::globals(&dh),
+            keyboard_shortcuts_inhibit_state: smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState::new::<Self>(&dh),
+            xdg_foreign_state: smithay::wayland::xdg_foreign::XdgForeignState::new::<Self>(&dh),
+            clock: smithay::utils::Clock::new(),
+            protocols: Default::default(),
             seat_state,
             popups: PopupManager::default(),
             seat,

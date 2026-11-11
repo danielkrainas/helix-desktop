@@ -54,8 +54,10 @@ smithay::backend::renderer::element::render_elements! {
     CursorSurface = WaylandSurfaceRenderElement<GlesRenderer>,
 }
 
-type Manager = DrmOutputManager<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
-type Output_ = DrmOutput<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
+type Manager = DrmOutputManager<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, Feedback, DrmDeviceFd>;
+type Output_ = DrmOutput<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, Feedback, DrmDeviceFd>;
+/// The presentation feedback of a queued frame.
+type Feedback = Option<smithay::desktop::utils::OutputPresentationFeedback>;
 
 struct Surface {
     output: Output,
@@ -181,8 +183,8 @@ pub fn init(
     let cursor = MemoryRenderBuffer::from_slice(&pixels, Fourcc::Argb8888, (w as i32, h as i32), 1, Transform::Normal, None);
 
     let handle = event_loop.handle();
-    handle.insert_source(drm_notifier, |event, _, state| match event {
-        DrmEvent::VBlank(crtc) => state.frame_finished(crtc),
+    handle.insert_source(drm_notifier, |event, meta, state| match event {
+        DrmEvent::VBlank(crtc) => state.frame_finished(crtc, meta.as_ref()),
         DrmEvent::Error(err) => tracing::warn!(%err, "DRM error"),
     })?;
 
@@ -443,13 +445,39 @@ impl Helix {
     }
 
     /// A queued frame reached the screen; draw the next one.
-    pub fn frame_finished(&mut self, crtc: crtc::Handle) {
+    pub fn frame_finished(&mut self, crtc: crtc::Handle, meta: Option<&smithay::backend::drm::DrmEventMetadata>) {
+        let now = self.clock.now();
         let Some(surface) = self.udev.as_mut().and_then(|u| u.surfaces.get_mut(&crtc)) else {
             return;
         };
-        if let Err(err) = surface.drm_output.frame_submitted() {
-            tracing::warn!(%err, "frame submission failed");
+        match surface.drm_output.frame_submitted() {
+            Ok(Some(Some(mut feedback))) => {
+                let output = surface.output.clone();
+                let (time, seq) = match meta {
+                    Some(m) => {
+                        let time = match m.time {
+                            smithay::backend::drm::DrmEventTime::Monotonic(t) => t,
+                            smithay::backend::drm::DrmEventTime::Realtime(_) => now.into(),
+                        };
+                        (time, u64::from(m.sequence))
+                    }
+                    None => (now.into(), 0),
+                };
+                use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback::Kind;
+                feedback.presented::<Duration, smithay::utils::Monotonic>(
+                    time,
+                    smithay::wayland::presentation::Refresh::fixed(super::timing::refresh_of(&output)),
+                    seq,
+                    Kind::Vsync | Kind::HwClock | Kind::HwCompletion,
+                );
+                self.frame_shown(&output);
+            }
+            Ok(_) => {}
+            Err(err) => tracing::warn!(%err, "frame submission failed"),
         }
+        let Some(surface) = self.udev.as_mut().and_then(|u| u.surfaces.get_mut(&crtc)) else {
+            return;
+        };
         surface.frame_pending = false;
         self.render_crtc(crtc);
     }
@@ -550,7 +578,8 @@ impl Helix {
             }
         };
         if rendered {
-            match surface.drm_output.queue_frame(()) {
+            let feedback = Some(super::timing::presentation_feedback(space, &output));
+            match surface.drm_output.queue_frame(feedback) {
                 Ok(()) => surface.frame_pending = true,
                 Err(err) => tracing::warn!(%err, "cannot queue frame"),
             }
@@ -580,6 +609,10 @@ impl Helix {
             });
         }
 
+        if !rendered {
+            // Nothing new to show: what waited for this frame may go on.
+            self.frame_shown(&output);
+        }
         if locked {
             if rendered {
                 self.lock_frame_shown();

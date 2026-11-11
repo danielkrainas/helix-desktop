@@ -28,6 +28,8 @@ pub enum Action {
     Lock,
     /// A shell binding was pressed (`true`) or released (`false`).
     Binding(u32, bool),
+    /// restore-shortcuts while an app has them.
+    RestoreShortcuts,
 }
 
 /// Why a binding was refused.

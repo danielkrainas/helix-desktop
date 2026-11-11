@@ -36,6 +36,8 @@ use crate::idle_monitor::{IdleMonitor, Shared};
 pub enum Event {
     /// Any user input.
     Activity,
+    /// Whether a shown surface inhibits idling.
+    IdleInhibited(bool),
     /// The output layout is now this.
     Monitors(Vec<Monitor>),
     /// The user asked for the application launcher (Super alone).
@@ -178,6 +180,10 @@ impl CompositorServices {
             Event::Activity => {
                 let emitter = SignalEmitter::new(&self.conn, idle_monitor::CORE_PATH)?;
                 self.idle.activity(&emitter).await
+            }
+            Event::IdleInhibited(inhibited) => {
+                self.idle.set_inhibited(inhibited);
+                Ok(())
             }
             Event::Monitors(monitors) => {
                 let (changed, set_changed) = {

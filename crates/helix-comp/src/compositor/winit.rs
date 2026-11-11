@@ -182,6 +182,18 @@ pub fn init(
                 if let Err(err) = backend.submit(Some(&[damage])) {
                     tracing::warn!(%err, "submit failed");
                 }
+                {
+                    // The host shows it at its next frame; we can't know
+                    // when exactly, so now it is.
+                    let mut feedback = super::timing::presentation_feedback(&state.space, &output);
+                    feedback.presented::<Duration, smithay::utils::Monotonic>(
+                        state.clock.now().into(),
+                        smithay::wayland::presentation::Refresh::fixed(super::timing::refresh_of(&output)),
+                        0,
+                        smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback::Kind::empty(),
+                    );
+                    state.frame_shown(&output);
+                }
                 // The host draws the pointer, so named cursors can't be captured.
                 state.run_captures(backend.renderer(), None);
                 state.cast_frames(backend.renderer(), None);

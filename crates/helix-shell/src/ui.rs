@@ -221,6 +221,9 @@ enum DialogKind {
     DisplayChange,
     /// An app does not answer: wait or force it to quit (window id, title).
     NotResponding { id: u32, title: String },
+    /// May window `id` have all keyboard shortcuts? (`app_id` empty: the
+    /// answer is not remembered.)
+    ShortcutsInhibit { id: u32, app_id: String, app: String },
     /// May an app control input (remote desktop)?
     RemoteControl { app: String, devices: Vec<String>, reply: Option<tokio::sync::oneshot::Sender<bool>> },
     /// Which monitor to share with an app (`org.helix.ScreenCastChooser`).
@@ -1131,9 +1134,50 @@ impl Ui {
         }
     }
 
-    /// Window `id`'s app answered (or the window went away).
+    /// Tell the compositor whether window `id` may have all shortcuts.
+    fn answer_shortcuts(&self, id: u32, allowed: bool) {
+        if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 6) {
+            list.allow_shortcuts_inhibit(id, u32::from(allowed));
+        }
+    }
+
+    /// Window `id` asks for all keyboard shortcuts.
+    fn shortcuts_inhibit(&mut self, id: u32) {
+        if self.lock.session.is_some() {
+            self.answer_shortcuts(id, false);
+            return;
+        }
+        let app_id = self.windows.mru().iter().find(|e| e.id == id).map(|e| e.app_id.clone()).unwrap_or_default();
+        if app_id.is_empty() {
+            self.ask_shortcuts(id, app_id);
+        } else {
+            let _ = self.requests.send(UiRequest::ShortcutsInhibit { id, app_id });
+        }
+    }
+
+    /// Ask the user (nothing remembered) whether window `id` may have all
+    /// shortcuts.
+    fn ask_shortcuts(&mut self, id: u32, app_id: String) {
+        if self.lock.session.is_some() || self.dialog.is_some() {
+            self.answer_shortcuts(id, false);
+            return;
+        }
+        let entry = self.windows.mru().iter().find(|e| e.id == id).cloned();
+        let Some(entry) = entry else { return };
+        let app = crate::windows::app_names()
+            .remove(&app_id.to_lowercase())
+            .unwrap_or_else(|| if app_id.is_empty() { entry.label().to_owned() } else { app_id.clone() });
+        self.show_dialog(DialogState { kind: DialogKind::ShortcutsInhibit { id, app_id, app }, remaining: 0 });
+    }
+
+    /// Window `id`'s app answered (or the window went away): close its
+    /// dialog.
     fn close_not_responding(&mut self, id: u32) {
-        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::NotResponding { id: shown, .. } if shown == id)) {
+        let about = |kind: &DialogKind| match kind {
+            DialogKind::NotResponding { id: shown, .. } | DialogKind::ShortcutsInhibit { id: shown, .. } => *shown == id,
+            _ => false,
+        };
+        if self.dialog.as_ref().is_some_and(|d| about(&d.state.kind)) {
             self.dialog = None;
         }
     }
@@ -1154,6 +1198,11 @@ impl Ui {
                         let _ = reply.send(false);
                     }
                 }
+                if let DialogKind::ShortcutsInhibit { id, .. } = open.state.kind {
+                    if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 6) {
+                        list.allow_shortcuts_inhibit(id, 0);
+                    }
+                }
                 open.state = state;
                 self.draw_dialog();
             }
@@ -1172,6 +1221,14 @@ impl Ui {
             DialogKind::RemoteControl { reply, .. } => {
                 if let Some(reply) = reply {
                     let _ = reply.send(choice == Choice::Confirmed);
+                }
+                return;
+            }
+            DialogKind::ShortcutsInhibit { id, app_id, .. } => {
+                let allowed = choice == Choice::Confirmed;
+                self.answer_shortcuts(id, allowed);
+                if !app_id.is_empty() {
+                    let _ = self.requests.send(UiRequest::StoreShortcutsAnswer { app_id, allowed });
                 }
                 return;
             }
@@ -1215,7 +1272,10 @@ impl Ui {
     fn dialog_tick(&mut self) {
         let Some(dialog) = self.dialog.as_mut() else { return };
         let on_timeout = match &dialog.state.kind {
-            DialogKind::ShareScreen { .. } | DialogKind::NotResponding { .. } | DialogKind::RemoteControl { .. } => return,
+            DialogKind::ShareScreen { .. }
+            | DialogKind::NotResponding { .. }
+            | DialogKind::RemoteControl { .. }
+            | DialogKind::ShortcutsInhibit { .. } => return,
             DialogKind::End(data) if !data.blockers.is_empty() => return,
             DialogKind::End(_) => Choice::Confirmed,
             DialogKind::DisplayChange => Choice::Canceled,
@@ -1266,6 +1326,13 @@ impl Ui {
             DialogKind::RemoteControl { app, devices, .. } => (
                 "Allow remote control?".to_owned(),
                 format!("{app} wants to control your {}.", crate::screencast_chooser::device_list(devices)),
+                "Deny",
+                "Allow".to_owned(),
+                &no_blockers,
+            ),
+            DialogKind::ShortcutsInhibit { app, .. } => (
+                format!("Allow {app} to use all keyboard shortcuts?"),
+                "While it has the keyboard, the desktop's shortcuts go to it. Super+Escape gives them back.".to_owned(),
                 "Deny",
                 "Allow".to_owned(),
                 &no_blockers,
@@ -1536,6 +1603,8 @@ impl Ui {
                 }
             }
             UiEvent::Ime(event) => self.ime_event(event),
+            UiEvent::ShortcutsAnswer { id, allowed } => self.answer_shortcuts(id, allowed),
+            UiEvent::AskShortcuts { id, app_id } => self.ask_shortcuts(id, app_id),
             UiEvent::Sharing(on) => {
                 self.sharing = on;
                 self.draw_panel();
@@ -1717,7 +1786,7 @@ pub fn run(
     let shm = Shm::bind(&globals, &qh)?;
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=5, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=6, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=3, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
@@ -2375,6 +2444,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                     ui.show_dialog(DialogState { kind: DialogKind::NotResponding { id, title }, remaining: 0 });
                 }
             }
+            helix_window_list_v1::Event::ShortcutsInhibit { id } => ui.shortcuts_inhibit(id),
             helix_window_list_v1::Event::Workspaces { count, active } => {
                 ui.windows.set_workspaces(count, active);
                 ui.draw_panel();
