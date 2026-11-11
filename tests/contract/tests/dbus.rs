@@ -123,7 +123,6 @@ async fn mutter_idle_monitor_and_display_config() {
         "org.gnome.Mutter.DisplayConfig.xml",
         &[
             "method ApplyConfiguration",
-            "method ApplyMonitorsConfig",
             "method SetBacklight",
             "method ChangeBacklight",
             "method GetCrtcGamma",

@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use helix_comp::display_config::{Mode as MonitorMode, Monitor};
+use helix_comp::display_config::{Mode as MonitorMode, Monitor, MonitorsConfig, ALL_TRANSFORMS};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::drm::compositor::FrameFlags;
@@ -32,7 +32,7 @@ use smithay::input::pointer::{CursorImageStatus, CursorImageSurfaceData};
 use smithay::output::{Mode as WlMode, Output, PhysicalProperties};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::EventLoop;
-use smithay::reexports::drm::control::{connector, crtc, ModeTypeFlags};
+use smithay::reexports::drm::control::{connector, crtc, Mode as DrmMode, ModeTypeFlags};
 use smithay::reexports::drm::Device as _;
 use smithay::reexports::input::Libinput;
 use smithay::reexports::rustix::fs::OFlags;
@@ -61,8 +61,12 @@ struct Surface {
     output: Output,
     drm_output: Output_,
     _global: GlobalId,
-    /// Connector modes (for DisplayConfig) and which one is current.
+    /// Connector modes (for DisplayConfig; their `current` flags are
+    /// ignored) and the same modes for DRM.
     modes: Vec<MonitorMode>,
+    drm_modes: Vec<DrmMode>,
+    /// Index of the mode shown; `None` when the monitor is turned off.
+    current: Option<usize>,
     /// A frame is queued; wait for its vblank before rendering again.
     frame_pending: bool,
     /// A retry timer is armed (nothing to draw last time).
@@ -309,6 +313,7 @@ impl Helix {
                 }
             })
             .collect();
+        let drm_modes = connector.modes().to_vec();
         tracing::info!(name, mode = ?wl_mode, "output connected");
         udev.surfaces.insert(
             crtc,
@@ -317,6 +322,8 @@ impl Helix {
                 drm_output,
                 _global: global,
                 modes,
+                drm_modes,
+                current: Some(mode_index),
                 frame_pending: false,
                 retry_armed: false,
             },
@@ -343,25 +350,33 @@ impl Helix {
             .map(|s| {
                 let geo = self.space.output_geometry(&s.output).unwrap_or_default();
                 let name = s.output.name();
+                let mut modes = s.modes.clone();
+                for (i, mode) in modes.iter_mut().enumerate() {
+                    mode.current = s.current == Some(i);
+                }
                 Monitor {
                     builtin: is_builtin(&name),
+                    primary: self.primary_output.as_deref() == Some(name.as_str()) && s.current.is_some(),
                     connector: name.clone(),
                     vendor: "Unknown".into(),
                     product: "Unknown".into(),
                     serial: "0".into(),
                     display_name: name,
-                    modes: s.modes.clone(),
+                    modes,
                     x: geo.loc.x,
                     y: geo.loc.y,
-                    scale: 1.0,
-                    transform: 0,
-                    primary: false,
+                    scale: s.output.current_scale().fractional_scale(),
+                    transform: super::monitors::from_transform(s.output.current_transform()),
+                    transforms: ALL_TRANSFORMS.to_vec(),
                 }
             })
             .collect();
-        monitors.sort_by_key(|m| m.x);
-        if let Some(first) = monitors.first_mut() {
-            first.primary = true;
+        monitors.sort_by_key(|m| (m.x, m.y));
+        // Without a configured primary that is on, the leftmost one is.
+        if !monitors.iter().any(|m| m.primary) {
+            if let Some(first) = monitors.iter_mut().find(|m| m.modes.iter().any(|mode| mode.current)) {
+                first.primary = true;
+            }
         }
         monitors
     }
@@ -405,12 +420,13 @@ impl Helix {
             return;
         }
         let Some(surface) = udev.surfaces.get_mut(&crtc) else { return };
-        if surface.frame_pending {
+        if surface.frame_pending || surface.current.is_none() {
             return;
         }
         let output = surface.output.clone();
         let Some(geo) = space.output_geometry(&output) else { return };
         let renderer = &mut udev.renderer;
+        let scale = output.current_scale().fractional_scale();
 
         let mut elements: Vec<OutputElements> = Vec::new();
         if geo.to_f64().contains(pointer_location) {
@@ -425,9 +441,9 @@ impl Helix {
                             .map(|d| d.lock().unwrap().hotspot)
                             .unwrap_or_default()
                     });
-                    let at = (local - hotspot.to_f64()).to_physical(1.0).to_i32_round();
+                    let at = (local - hotspot.to_f64()).to_physical(scale).to_i32_round();
                     elements.extend(
-                        render_elements_from_surface_tree(renderer, cursor_surface, at, Scale::from(1.0), 1.0, Kind::Cursor)
+                        render_elements_from_surface_tree(renderer, cursor_surface, at, Scale::from(scale), 1.0, Kind::Cursor)
                             .into_iter()
                             .map(OutputElements::CursorSurface),
                     );
@@ -435,7 +451,7 @@ impl Helix {
                 CursorImageStatus::Named(_) => {
                     match MemoryRenderBufferRenderElement::from_buffer(
                         renderer,
-                        local.to_physical(1.0),
+                        local.to_physical(scale),
                         &udev.cursor,
                         None,
                         None,
@@ -452,7 +468,7 @@ impl Helix {
             // Locked: only the lock surface (if any); nothing of the session.
             if let Some(lock_surface) = lock.surface_for(&output) {
                 elements.extend(
-                    render_elements_from_surface_tree(renderer, lock_surface.wl_surface(), (0, 0), Scale::from(1.0), 1.0, Kind::Unspecified)
+                    render_elements_from_surface_tree(renderer, lock_surface.wl_surface(), (0, 0), Scale::from(scale), 1.0, Kind::Unspecified)
                         .into_iter()
                         .map(OutputElements::CursorSurface),
                 );
@@ -512,6 +528,70 @@ impl Helix {
         self.space.refresh();
         self.popups.cleanup();
         let _ = self.display_handle.flush_clients();
+    }
+
+    /// Apply a checked monitor configuration to the DRM outputs.
+    pub fn apply_drm(&mut self, config: &MonitorsConfig) -> Result<Vec<Monitor>, String> {
+        let Helix { udev, space, .. } = self;
+        let udev = udev.as_mut().ok_or("not on DRM")?;
+        let find = |name: &str| {
+            config
+                .logical
+                .iter()
+                .find_map(|l| l.monitors.iter().find(|c| c.connector == name).map(|c| (l, c)))
+        };
+
+        // Modes first: the step that can fail. This also turns monitors
+        // that were off back on (their `current` was `None`).
+        for surface in udev.surfaces.values_mut() {
+            let name = surface.output.name();
+            let Some((_, choice)) = find(&name) else { continue };
+            let index = surface
+                .modes
+                .iter()
+                .position(|m| (m.width, m.height, m.refresh_mhz) == (choice.width, choice.height, choice.refresh_mhz))
+                .ok_or_else(|| format!("{name} has no such mode"))?;
+            if surface.current == Some(index) {
+                continue;
+            }
+            let drm_mode = surface.drm_modes[index];
+            surface
+                .drm_output
+                .use_mode(drm_mode, &mut udev.renderer, &DrmOutputRenderElements::<GlesRenderer, OutputElements>::default())
+                .map_err(|e| format!("{name} cannot use {}x{}: {e:?}", choice.width, choice.height))?;
+            surface.output.change_current_state(Some(WlMode::from(drm_mode)), None, None, None);
+            surface.output.set_preferred(WlMode::from(drm_mode));
+            surface.current = Some(index);
+            tracing::info!(name, width = choice.width, height = choice.height, "output mode changed");
+        }
+
+        // Then placement, scale and transform; outputs not mentioned go off.
+        for surface in udev.surfaces.values_mut() {
+            let name = surface.output.name();
+            match find(&name) {
+                Some((logical, _)) => {
+                    surface.output.change_current_state(
+                        None,
+                        Some(super::monitors::to_transform(logical.transform)),
+                        Some(super::monitors::to_scale(logical.scale)),
+                        Some((logical.x, logical.y).into()),
+                    );
+                    space.map_output(&surface.output, (logical.x, logical.y));
+                }
+                None if surface.current.is_some() => {
+                    tracing::info!(name, "output turned off");
+                    space.unmap_output(&surface.output);
+                    surface.current = None;
+                    surface.frame_pending = false;
+                    if let Err(err) = surface.drm_output.with_compositor(|c| c.clear()) {
+                        tracing::warn!(name, %err, "cannot turn the output off");
+                    }
+                }
+                None => {}
+            }
+        }
+        self.render_all();
+        Ok(self.describe_outputs())
     }
 
     /// Switch to another VT (Ctrl+Alt+F1..F12).

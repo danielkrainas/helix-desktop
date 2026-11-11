@@ -8,6 +8,7 @@ mod handlers;
 mod input;
 mod keybindings;
 mod lock;
+pub mod monitors;
 mod shortcuts;
 mod supervise;
 pub mod udev;
@@ -110,6 +111,8 @@ pub struct Helix {
     pub xwayland_shell_state: XWaylandShellState,
     pub session_lock_state: SessionLockManagerState,
     pub lock: lock::LockState,
+    /// Connector of the primary monitor, as last configured.
+    pub primary_output: Option<String>,
 
     events: UnboundedSender<Event>,
     last_activity_sent: Option<Instant>,
@@ -176,6 +179,7 @@ impl Helix {
             events,
             last_activity_sent: None,
             windows_mapped: 0,
+            primary_output: None,
         })
     }
 

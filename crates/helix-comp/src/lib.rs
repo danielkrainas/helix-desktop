@@ -5,7 +5,7 @@
 //! [`Event`]s:
 //!
 //! - [`idle_monitor`] — `org.gnome.Mutter.IdleMonitor`
-//! - [`display_config`] — `org.gnome.Mutter.DisplayConfig` (read side)
+//! - [`display_config`] — `org.gnome.Mutter.DisplayConfig`
 
 pub mod display_config;
 pub mod idle;
@@ -20,7 +20,7 @@ use zbus::fdo::{DBusProxy, ObjectManager, RequestNameFlags, RequestNameReply};
 use zbus::object_server::SignalEmitter;
 use zbus::{connection, Connection};
 
-use crate::display_config::{DisplayConfig, Layout, Monitor};
+use crate::display_config::{ApplyRequest, DisplayConfig, Layout, Monitor, Store};
 use crate::idle_monitor::{IdleMonitor, Shared};
 
 /// Something the compositor tells its D-Bus services.
@@ -54,17 +54,33 @@ async fn own(conn: &Connection, name: &'static str) -> zbus::Result<()> {
     }
 }
 
+/// How monitor configuration changes reach the compositor.
+#[derive(Debug, Default)]
+pub struct MonitorControl {
+    /// Where `ApplyMonitorsConfig` requests go; `None` refuses them.
+    pub applier: Option<mpsc::UnboundedSender<ApplyRequest>>,
+    /// Remembered configurations.
+    pub store: Store,
+}
+
 impl CompositorServices {
-    pub async fn start(
+    /// Serve with monitor changes refused (`ApplyMonitorsConfigAllowed` false).
+    pub async fn start(builder: connection::Builder<'_>, monitors: Vec<Monitor>) -> zbus::Result<Self> {
+        Self::start_with(builder, monitors, MonitorControl::default()).await
+    }
+
+    pub async fn start_with(
         builder: connection::Builder<'_>,
         monitors: Vec<Monitor>,
+        control: MonitorControl,
     ) -> zbus::Result<Self> {
         let idle = Shared::new();
         let layout = Arc::new(Mutex::new(Layout::new(monitors)));
+        let display_config = DisplayConfig::new(layout.clone(), control.applier, control.store);
         let conn = builder
             .serve_at(idle_monitor::MANAGER_PATH, ObjectManager)?
             .serve_at(idle_monitor::CORE_PATH, IdleMonitor::new(idle.clone()))?
-            .serve_at(display_config::OBJECT_PATH, DisplayConfig::new(layout.clone()))?
+            .serve_at(display_config::OBJECT_PATH, display_config)?
             .build()
             .await?;
         own(&conn, idle_monitor::BUS_NAME).await?;
@@ -94,11 +110,12 @@ impl CompositorServices {
                 self.idle.activity(&emitter).await
             }
             Event::Monitors(monitors) => {
-                let changed = self
-                    .layout
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .update(monitors);
+                let (changed, set_changed) = {
+                    let mut layout = self.layout.lock().unwrap_or_else(|e| e.into_inner());
+                    let before = layout.key();
+                    let changed = layout.update(monitors);
+                    (changed, layout.key() != before)
+                };
                 if changed {
                     let iface = self
                         .conn
@@ -108,6 +125,9 @@ impl CompositorServices {
                     let emitter = iface.signal_emitter();
                     DisplayConfig::monitors_changed(emitter).await?;
                     iface.get().await.has_external_monitor_changed(emitter).await?;
+                    if set_changed {
+                        iface.get().await.restore_saved(emitter).await;
+                    }
                 }
                 Ok(())
             }
@@ -147,8 +167,23 @@ impl CompositorServices {
         }
     }
 
-    /// Handle events until the sender side is dropped.
+    /// Bring back the configuration remembered for the current monitors.
+    pub async fn restore_saved(&self) {
+        let Ok(iface) = self
+            .conn
+            .object_server()
+            .interface::<_, DisplayConfig>(display_config::OBJECT_PATH)
+            .await
+        else {
+            return;
+        };
+        iface.get().await.restore_saved(iface.signal_emitter()).await;
+    }
+
+    /// Restore remembered monitors, then handle events until the sender
+    /// side is dropped.
     pub async fn run(self, mut events: mpsc::UnboundedReceiver<Event>) {
+        self.restore_saved().await;
         while let Some(event) = events.recv().await {
             if let Err(err) = self.handle(event).await {
                 tracing::warn!(%err, "failed to publish compositor event");

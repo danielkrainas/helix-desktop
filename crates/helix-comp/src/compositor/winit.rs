@@ -19,7 +19,12 @@ use super::Helix;
 const REFRESH_MHZ: i32 = 60_000;
 
 /// How the nested output looks to DisplayConfig clients.
-pub fn describe(size: Size<i32, Physical>) -> Vec<Monitor> {
+pub fn describe(output: &Output) -> Vec<Monitor> {
+    let size = output.current_mode().map(|m| m.size).unwrap_or_default();
+    describe_size(size, output.current_scale().fractional_scale())
+}
+
+fn describe_size(size: Size<i32, Physical>, scale: f64) -> Vec<Monitor> {
     vec![Monitor {
         connector: "WINIT-1".into(),
         vendor: "Helix".into(),
@@ -36,9 +41,11 @@ pub fn describe(size: Size<i32, Physical>) -> Vec<Monitor> {
         }],
         x: 0,
         y: 0,
-        scale: 1.0,
+        scale,
         transform: 0,
         primary: true,
+        // The window can't be rotated.
+        transforms: vec![0],
     }]
 }
 
@@ -89,7 +96,7 @@ pub fn init(
                     None,
                 );
                 layer_map_for_output(&output).arrange();
-                state.send(Event::Monitors(describe(size)));
+                state.send(Event::Monitors(describe(&output)));
             }
             WinitEvent::Input(event) => state.process_input_event(event),
             WinitEvent::Redraw => {
@@ -108,6 +115,7 @@ pub fn init(
                     };
                     if state.lock.locked {
                         // Locked: only the lock surface (if any), on black.
+                        let scale = output.current_scale().fractional_scale();
                         let elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = state
                             .lock
                             .surface_for(&output)
@@ -116,7 +124,7 @@ pub fn init(
                                     renderer,
                                     s.wl_surface(),
                                     (0, 0),
-                                    1.0,
+                                    scale,
                                     1.0,
                                     Kind::Unspecified,
                                 )
@@ -186,5 +194,5 @@ pub fn init(
             _ => {}
         })?;
 
-    Ok(describe(size))
+    Ok(describe_size(size, 1.0))
 }

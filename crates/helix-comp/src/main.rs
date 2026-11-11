@@ -23,8 +23,8 @@ mod compositor;
 
 use std::process::ExitCode;
 
-use helix_comp::display_config::Monitor;
-use helix_comp::{CompositorServices, Event};
+use helix_comp::display_config::{ApplyRequest, Monitor, Store};
+use helix_comp::{CompositorServices, Event, MonitorControl};
 use helix_session::client::SessionManagerProxy;
 use smithay::reexports::calloop::EventLoop;
 use smithay::reexports::wayland_server::Display;
@@ -74,6 +74,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Backend::Drm => compositor::udev::init(&mut event_loop, &mut state)?,
     };
 
+    // ApplyMonitorsConfig requests come from the D-Bus thread.
+    let (apply_tx, apply_rx) = smithay::reexports::calloop::channel::channel::<ApplyRequest>();
+    event_loop
+        .handle()
+        .insert_source(apply_rx, |event, _, state| {
+            if let smithay::reexports::calloop::channel::Event::Msg(request) = event {
+                let result = state.apply_monitors(&request.config);
+                if let Err(err) = &result {
+                    tracing::warn!(%err, "cannot apply the monitor configuration");
+                }
+                let _ = request.reply.send(result);
+            }
+        })
+        .map_err(|e| format!("cannot listen for monitor changes: {e}"))?;
+
     let socket = state.socket_name.to_string_lossy().into_owned();
     tracing::info!(socket, "listening for Wayland clients");
     // SAFETY: still single-threaded here; children inherit the variable.
@@ -82,7 +97,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Xwayland comes up first; then DISPLAY and WAYLAND_DISPLAY are
     // announced (in that order) and the shell and --command start.
     let (xdisplay_tx, xdisplay_rx) = tokio::sync::oneshot::channel();
-    start_dbus_thread(socket, monitors, events_rx, xdisplay_rx);
+    start_dbus_thread(socket, monitors, events_rx, xdisplay_rx, apply_tx);
 
     stop_on_signals(state.loop_signal.clone());
 
@@ -168,6 +183,7 @@ fn start_dbus_thread(
     monitors: Vec<Monitor>,
     events: mpsc::UnboundedReceiver<Event>,
     xdisplay: tokio::sync::oneshot::Receiver<Option<u32>>,
+    to_compositor: smithay::reexports::calloop::channel::Sender<ApplyRequest>,
 ) {
     std::thread::Builder::new()
         .name("helix-comp-dbus".into())
@@ -184,8 +200,20 @@ fn start_dbus_thread(
                 }
             };
             runtime.block_on(async move {
+                let (applier, mut requests) = mpsc::unbounded_channel::<ApplyRequest>();
+                tokio::spawn(async move {
+                    while let Some(request) = requests.recv().await {
+                        if to_compositor.send(request).is_err() {
+                            break;
+                        }
+                    }
+                });
+                let control = MonitorControl {
+                    applier: Some(applier),
+                    store: Store::user(),
+                };
                 let services = match zbus::connection::Builder::session() {
-                    Ok(builder) => CompositorServices::start(builder, monitors).await,
+                    Ok(builder) => CompositorServices::start_with(builder, monitors, control).await,
                     Err(err) => Err(err),
                 };
                 let services = match services {

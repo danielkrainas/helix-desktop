@@ -155,10 +155,20 @@ dbus-run-session -- bash -c '
   cargo run -p helix-comp -- --command gnome-calculator'
 ```
 
-It serves `org.gnome.Mutter.IdleMonitor` and the read side of
-`org.gnome.Mutter.DisplayConfig` (`ApplyMonitorsConfigAllowed` is false), and
-announces its socket with `SessionManager.Setenv("WAYLAND_DISPLAY", ...)`,
+It serves `org.gnome.Mutter.IdleMonitor` and `org.gnome.Mutter.DisplayConfig`,
+and announces its socket with `SessionManager.Setenv("WAYLAND_DISPLAY", ...)`,
 which is what the session launcher waits for.
+
+Monitor settings (e.g. from GNOME Settings' Displays panel) go through
+`ApplyMonitorsConfig`: verify, temporary or persistent. On bare hardware it
+changes modes, position, whole-number scale (1–4) and rotation, mirrors
+monitors, and turns monitors off; nested, only the scale can change (the
+window decides the size, and it can't rotate). A persistent configuration
+is saved in `~/.config/helix/monitors.toml` for that set of monitors and
+comes back when they are connected again or the compositor restarts.
+Changes apply at once: there is no "Keep these settings?" countdown yet.
+Mode changes and turning monitors off have only been tried in tests, not
+on real hardware.
 
 X11 apps run through Xwayland (the `xwayland` package must be installed):
 the compositor starts it, manages its windows alongside Wayland ones, and

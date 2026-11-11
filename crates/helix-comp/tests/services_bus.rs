@@ -68,6 +68,7 @@ fn monitor(width: i32, builtin: bool) -> Monitor {
         scale: 1.0,
         transform: 0,
         primary: true,
+        transforms: vec![0],
     }
 }
 
