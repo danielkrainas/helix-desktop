@@ -210,7 +210,8 @@ sources (Chinese, Japanese, Korean and other input methods) work as
 under GNOME, without environment variables: apps use the Wayland
 text-input protocol and the shell is the input method, starting its own
 `ibus-daemon` when needed and showing IBus's candidates next to the text
-cursor. Touchscreens work on bare hardware: touches go to the app under
+cursor; the keyboard layout follows the engine's (from IBus's component
+files). Touchscreens work on bare hardware: touches go to the app under
 the finger (and focus its window), the panel and launcher take a tap as a
 click, and the touchscreen covers the built-in panel, or else the primary
 monitor. No touch gestures yet.

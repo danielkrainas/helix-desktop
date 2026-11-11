@@ -80,8 +80,76 @@ pub fn active_source(sources: &[Source], mru: &[Source]) -> Option<usize> {
     Some(mru.iter().find_map(|m| sources.iter().position(|s| s == m)).unwrap_or(0))
 }
 
+/// An IBus engine's keyboard layout (from its component file).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EngineLayout {
+    pub layout: String,
+    pub variant: String,
+    pub option: String,
+}
+
+/// The text of `tag` in `block` (`<tag>text</tag>`), if any.
+fn tag<'a>(block: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}>");
+    let start = block.find(&open)? + open.len();
+    let end = block[start..].find(&format!("</{tag}>"))? + start;
+    Some(block[start..end].trim())
+}
+
+/// `engine`'s layout in an IBus component file's text.
+pub fn engine_layout_in(xml: &str, engine: &str) -> Option<EngineLayout> {
+    xml.split("<engine>").skip(1).find_map(|rest| {
+        let block = &rest[..rest.find("</engine>")?];
+        (tag(block, "name")? == engine).then(|| EngineLayout {
+            layout: tag(block, "layout").unwrap_or_default().to_owned(),
+            variant: tag(block, "layout_variant").unwrap_or_default().to_owned(),
+            option: tag(block, "layout_option").unwrap_or_default().to_owned(),
+        })
+    })
+}
+
+/// `engine`'s layout from the IBus component files of the system data
+/// directories.
+pub fn engine_layout(engine: &str) -> Option<EngineLayout> {
+    let dirs = std::env::var("XDG_DATA_DIRS").ok().filter(|d| !d.is_empty()).unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+    dirs.split(':').filter(|d| !d.is_empty()).find_map(|dir| {
+        let entries = std::fs::read_dir(std::path::Path::new(dir).join("ibus/component")).ok()?;
+        entries.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "xml")).find_map(|e| {
+            let text = std::fs::read_to_string(e.path()).ok()?;
+            engine_layout_in(&text, engine)
+        })
+    })
+}
+
 /// Build the keymap from the `xkb` sources; `None` keeps the default.
 pub fn keymap(sources: &[Source], mru: &[Source], model: &str, options: &[String]) -> Option<Keymap> {
+    keymap_with(sources, mru, model, options, |_| None)
+}
+
+/// As [`keymap`], with an active `ibus` source using its engine's layout
+/// (looked up with `engine`) when it has one.
+pub fn keymap_with(
+    sources: &[Source],
+    mru: &[Source],
+    model: &str,
+    options: &[String],
+    engine: impl Fn(&str) -> Option<EngineLayout>,
+) -> Option<Keymap> {
+    if let Some(i) = active_source(sources, mru) {
+        let (kind, id) = &sources[i];
+        if kind == "ibus" {
+            if let Some(e) = engine(id).filter(|e| !e.layout.is_empty() && e.layout != "default") {
+                let options: Vec<&str> = options.iter().map(String::as_str).chain(e.option.split(',')).filter(|o| !o.is_empty()).collect();
+                return Some(Keymap {
+                    model: model.to_owned(),
+                    layout: e.layout,
+                    variant: e.variant,
+                    options: options.join(","),
+                    active: 0,
+                });
+            }
+        }
+    }
     let xkb: Vec<Source> = sources.iter().filter(|(t, _)| t == "xkb").cloned().collect();
     let active = active_source(&xkb, mru)?;
     let (layouts, variants): (Vec<&str>, Vec<&str>) = xkb
@@ -254,7 +322,7 @@ pub fn read() -> InputSettings {
     let mut out = InputSettings::default();
     if let Some(s) = settings(INPUT_SOURCES) {
         let options: Vec<String> = s.strv("xkb-options").iter().map(|o| o.to_string()).collect();
-        out.keymap = keymap(&sources(&s, "sources"), &sources(&s, "mru-sources"), &s.string("xkb-model"), &options);
+        out.keymap = keymap_with(&sources(&s, "sources"), &sources(&s, "mru-sources"), &s.string("xkb-model"), &options, engine_layout);
     }
     if let Some(s) = settings(KEYBOARD) {
         out.repeat = repeat(s.boolean("repeat"), s.uint("delay"), s.uint("repeat-interval"));
@@ -355,6 +423,41 @@ mod tests {
 
         let mru = [src("xkb", "fr"), src("xkb", "de+nodeadkeys"), src("xkb", "us")];
         assert_eq!(keymap(&sources, &mru, "pc105", &[]).unwrap().active, 1, "first MRU entry still configured");
+    }
+
+    #[test]
+    fn ibus_engine_layouts() {
+        let xml = "<component><engines>\
+            <engine><name>anthy</name><layout>jp</layout></engine>\
+            <engine><name>xkb:de::ger</name><layout>de</layout><layout_variant>nodeadkeys</layout_variant><layout_option>lv3:ralt_switch</layout_option></engine>\
+            <engine><name>hangul</name><layout>default</layout></engine>\
+            </engines></component>";
+        assert_eq!(engine_layout_in(xml, "anthy").map(|e| e.layout), Some("jp".into()));
+        assert_eq!(engine_layout_in(xml, "xkb:de::ger").map(|e| (e.variant, e.option)), Some(("nodeadkeys".into(), "lv3:ralt_switch".into())));
+        assert_eq!(engine_layout_in(xml, "missing"), None);
+
+        let engine = |id: &str| engine_layout_in(xml, id);
+        let sources = [src("xkb", "us"), src("ibus", "anthy"), src("xkb", "de"), src("ibus", "hangul")];
+        let caps = ["caps:escape".to_owned()];
+        // The engine's layout while it is active.
+        let map = keymap_with(&sources, &[src("ibus", "anthy")], "pc105", &caps, engine).unwrap();
+        assert_eq!((map.layout.as_str(), map.options.as_str(), map.active), ("jp", "caps:escape", 0));
+        // `default`: the most recently used xkb layout.
+        let mru = [src("ibus", "hangul"), src("xkb", "de"), src("xkb", "us")];
+        let map = keymap_with(&sources, &mru, "pc105", &caps, engine).unwrap();
+        assert_eq!((map.layout.as_str(), map.active), ("us,de", 1));
+        // An xkb source active: as before.
+        assert_eq!(keymap_with(&sources, &[src("xkb", "de")], "pc105", &[], engine).unwrap().active, 1);
+    }
+
+    #[test]
+    fn system_component_files() {
+        // Only reads files; skipped where IBus is not installed.
+        if !std::path::Path::new("/usr/share/ibus/component/simple.xml").exists() {
+            return;
+        }
+        let de = engine_layout("xkb:de::deu").expect("listed by IBus's simple component");
+        assert_eq!(de.layout, "de");
     }
 
     #[test]
