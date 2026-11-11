@@ -258,6 +258,8 @@ struct BannerView {
     height: u32,
     configured: bool,
     hits: Vec<(Rect, BannerHit)>,
+    /// Has keyboard focus (`focus-active-notification`).
+    focused: bool,
 }
 
 const BANNER_W: u32 = 440;
@@ -1144,7 +1146,7 @@ impl Ui {
         layer.set_size(BANNER_W, height);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.commit();
-        self.banner = Some(BannerView { data, layer, width: 0, height: 0, configured: false, hits: Vec::new() });
+        self.banner = Some(BannerView { data, layer, width: 0, height: 0, configured: false, hits: Vec::new(), focused: false });
     }
 
     fn draw_banner(&mut self) {
@@ -1738,7 +1740,14 @@ impl Ui {
             }
             next += 1;
         }
-        for (key, defaults, internal) in [("toggle-overview", &[][..], Internal::Overview), ("toggle-application-view", &["<Super>a"][..], Internal::Launcher)] {
+        for (key, defaults, internal) in [
+            ("toggle-overview", &[][..], Internal::Overview),
+            ("toggle-application-view", &["<Super>a"][..], Internal::Launcher),
+            ("shift-overview-up", &["<Super><Alt>Up"][..], Internal::ShiftOverview(true)),
+            ("shift-overview-down", &["<Super><Alt>Down"][..], Internal::ShiftOverview(false)),
+            ("toggle-message-tray", &["<Super>v", "<Super>m"][..], Internal::MessageTray),
+            ("focus-active-notification", &["<Super>n"][..], Internal::FocusNotification),
+        ] {
             for text in crate::shell_keys::shell_strv(key, defaults) {
                 let Some(accelerator) = parse(&text, "overview") else { continue };
                 self.internal.insert(next, internal);
@@ -1786,6 +1795,15 @@ impl Ui {
                     self.open_overview(true);
                 }
             }
+            Some(Internal::ShiftOverview(up)) => match (up, self.overview_shown(), self.launcher.is_some()) {
+                (true, false, false) => self.open_overview(true),
+                (true, true, _) => self.open_launcher(true),
+                (false, _, true) => self.open_overview(true),
+                (false, true, _) => self.close_overview(true),
+                _ => {}
+            },
+            Some(Internal::MessageTray) => self.toggle_notification_list(),
+            Some(Internal::FocusNotification) => self.focus_banner(true),
             Some(Internal::Launcher) => {
                 if self.launcher.is_some() {
                     self.close_launcher(true);
@@ -2180,6 +2198,8 @@ impl KeyboardHandler for Ui {
             self.dialog_key(&event);
         } else if self.switcher.is_some() {
             self.switcher_key(&event);
+        } else if self.banner.as_ref().is_some_and(|b| b.focused) {
+            self.banner_key(&event);
         } else if self.overview.is_some() {
             self.overview_key(&event);
         } else if self.panel_focus.is_some() {
@@ -2449,6 +2469,12 @@ enum Internal {
     Overview,
     /// `toggle-application-view`
     Launcher,
+    /// `shift-overview-up` (true) / `-down`
+    ShiftOverview(bool),
+    /// `toggle-message-tray`
+    MessageTray,
+    /// `focus-active-notification`
+    FocusNotification,
 }
 
 /// Presses this close continue a window cycle.

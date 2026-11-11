@@ -163,8 +163,9 @@ impl Ui {
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
         // Lighter than the desktop, with a thin border, so it stands out.
-        canvas.fill(BANNER_BORDER);
-        canvas.rect(1, 1, w as i32 - 2, h as i32 - 2, BANNER_BG);
+        canvas.fill(if view.focused { ACCENT } else { BANNER_BORDER });
+        let edge = if view.focused { 2 } else { 1 };
+        canvas.rect(edge, edge, w as i32 - 2 * edge, h as i32 - 2 * edge, BANNER_BG);
         view.hits.clear();
         let inner = w as i32 - 2 * BANNER_PAD;
         // Close button, top right.
@@ -198,6 +199,36 @@ impl Ui {
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             view.layer.commit();
+        }
+    }
+
+    /// Give the banner keyboard focus (or take it away).
+    pub(super) fn focus_banner(&mut self, focus: bool) {
+        let Some(view) = self.banner.as_mut() else { return };
+        if view.focused == focus {
+            return;
+        }
+        view.focused = focus;
+        view.layer.set_keyboard_interactivity(if focus { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None });
+        view.layer.commit();
+        self.draw_banner();
+    }
+
+    /// A key while the banner has focus.
+    pub(super) fn banner_key(&mut self, event: &KeyEvent) {
+        let Some(view) = &self.banner else { return };
+        let id = view.data.id;
+        match event.keysym {
+            Keysym::Return | Keysym::KP_Enter => {
+                self.focus_banner(false);
+                let _ = self.requests.send(UiRequest::NotificationActivated { id, action: None });
+            }
+            Keysym::Delete | Keysym::KP_Delete => {
+                self.focus_banner(false);
+                let _ = self.requests.send(UiRequest::NotificationDismissed { id });
+            }
+            Keysym::Escape => self.focus_banner(false),
+            _ => {}
         }
     }
 

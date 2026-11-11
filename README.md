@@ -496,7 +496,8 @@ points at the compositor, draws:
 - an overview, opened by Super (or `toggle-overview`): workspace
   thumbnails (click to switch, drop a window there to move it) above
   pictures of the active workspace's windows (click to activate, × to
-  close, arrows and Enter); typing searches in the launcher;
+  close, arrows and Enter); typing searches in the launcher; Super+Alt+Up
+  / Down step between the desktop, the overview and the launcher;
 - an application launcher, opened by the Apps button, Super+A, or
   `ShowApplications`: open windows first, then installed apps (from their
   `.desktop` files); type to search, arrows to select, Enter or click to
