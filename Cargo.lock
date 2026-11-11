@@ -962,6 +962,7 @@ dependencies = [
  "helix-session",
  "helix-settings",
  "helix-test-support",
+ "input-sys",
  "libc",
  "pipewire",
  "png",

@@ -202,8 +202,13 @@ impl Helix {
                         .unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.0)
                 };
                 let mut frame = AxisFrame::new(event.time_msec()).source(source);
+                // Touchpad scrolling speed (`scroll-speed`).
+                let factor = match source {
+                    AxisSource::Finger => self.input_settings.as_ref().map_or(1.0, |s| s.touchpad.scroll_speed),
+                    _ => 1.0,
+                };
                 for axis in [Axis::Horizontal, Axis::Vertical] {
-                    let value = amount(axis);
+                    let value = amount(axis) * factor;
                     if value != 0.0 {
                         frame = frame.value(axis, value);
                         if let Some(discrete) = event.amount_v120(axis) {

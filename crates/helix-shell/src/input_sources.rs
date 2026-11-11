@@ -4,6 +4,8 @@
 //! and moves the chosen one to the front of `mru-sources`; the compositor
 //! follows that setting.
 
+use std::collections::HashMap;
+
 use gio::prelude::*;
 
 const INPUT_SOURCES: &str = "org.gnome.desktop.input-sources";
@@ -32,6 +34,80 @@ pub fn with_front(mru: &[Source], chosen: &Source) -> Vec<Source> {
 
 fn settings(schema: &str) -> Option<gio::Settings> {
     helix_settings::has_schema(schema).then(|| gio::Settings::new(schema))
+}
+
+/// The XKB rules listing layouts and variants with their descriptions.
+fn rules_path() -> std::path::PathBuf {
+    let root = std::env::var_os("XKB_CONFIG_ROOT").map(std::path::PathBuf::from).unwrap_or_else(|| "/usr/share/X11/xkb".into());
+    root.join("rules/evdev.xml")
+}
+
+fn unescape(text: &str) -> String {
+    text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+}
+
+/// Layout descriptions from an `evdev.xml`: id (`layout` or
+/// `layout+variant`) → description.
+pub fn parse_descriptions(xml: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let mut stack: Vec<String> = Vec::new();
+    let (mut layout, mut variant) = (String::new(), String::new());
+    let mut rest = xml;
+    while let Some(start) = rest.find('<') {
+        let text = rest[..start].trim();
+        if !text.is_empty() && stack.len() >= 3 {
+            let n = stack.len();
+            let (owner, item, field) = (&stack[n - 3], &stack[n - 2], &stack[n - 1]);
+            if item == "configItem" && (owner == "layout" || owner == "variant") {
+                let value = unescape(text);
+                match (owner.as_str(), field.as_str()) {
+                    ("layout", "name") => layout = value,
+                    ("variant", "name") => variant = value,
+                    ("layout", "description") if !layout.is_empty() => {
+                        out.insert(layout.clone(), value);
+                    }
+                    ("variant", "description") if !layout.is_empty() && !variant.is_empty() => {
+                        out.insert(format!("{layout}+{variant}"), value);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        rest = &rest[start..];
+        if let Some(after) = rest.strip_prefix("<!--") {
+            rest = after.find("-->").map_or("", |end| &after[end + 3..]);
+            continue;
+        }
+        let Some(end) = rest.find('>') else { break };
+        let tag = &rest[1..end];
+        rest = &rest[end + 1..];
+        if tag.starts_with('?') || tag.starts_with('!') || tag.ends_with('/') {
+            continue;
+        }
+        if let Some(name) = tag.strip_prefix('/') {
+            if stack.last().map(String::as_str) == Some(name.trim()) {
+                stack.pop();
+            }
+            if name.trim() == "layout" {
+                layout.clear();
+            }
+            if name.trim() == "variant" {
+                variant.clear();
+            }
+        } else {
+            stack.push(tag.split_whitespace().next().unwrap_or("").to_owned());
+        }
+    }
+    out
+}
+
+/// The description of a layout id, from the system's XKB rules.
+pub fn description(id: &str) -> Option<String> {
+    static DESCRIPTIONS: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
+    DESCRIPTIONS
+        .get_or_init(|| std::fs::read_to_string(rules_path()).map(|xml| parse_descriptions(&xml)).unwrap_or_default())
+        .get(id)
+        .cloned()
 }
 
 /// The sources, most recently used first.
@@ -69,6 +145,46 @@ mod tests {
 
     fn s(id: &str) -> Source {
         ("xkb".into(), id.into())
+    }
+
+    #[test]
+    fn layout_descriptions() {
+        let xml = r#"<?xml version="1.0"?>
+<!DOCTYPE xkbConfigRegistry SYSTEM "xkb.dtd">
+<xkbConfigRegistry version="1.1">
+  <modelList><model><configItem><name>pc105</name><description>Generic 105-key PC</description></configItem></model></modelList>
+  <layoutList>
+    <layout>
+      <configItem>
+        <name>de</name>
+        <!-- Keyboard indicator -->
+        <shortDescription>de</shortDescription>
+        <description>German</description>
+      </configItem>
+      <variantList>
+        <variant>
+          <configItem>
+            <name>nodeadkeys</name>
+            <description>German (no dead keys)</description>
+          </configItem>
+        </variant>
+      </variantList>
+    </layout>
+    <layout>
+      <configItem><name>us</name><description>English (US)</description></configItem>
+      <variantList><variant><configItem><name>dvorak</name><description>English (Dvorak) &amp; more</description></configItem></variant></variantList>
+    </layout>
+  </layoutList>
+</xkbConfigRegistry>"#;
+        let d = parse_descriptions(xml);
+        assert_eq!(d.get("de").map(String::as_str), Some("German"));
+        assert_eq!(d.get("de+nodeadkeys").map(String::as_str), Some("German (no dead keys)"));
+        assert_eq!(d.get("us+dvorak").map(String::as_str), Some("English (Dvorak) & more"));
+        assert!(!d.contains_key("pc105"), "models are not layouts");
+        // The real file, when installed.
+        if rules_path().exists() {
+            assert_eq!(description("us").as_deref(), Some("English (US)"));
+        }
     }
 
     #[test]

@@ -529,7 +529,11 @@ impl Ui {
         let entries = sources
             .iter()
             .enumerate()
-            .map(|(i, s)| SwitchEntry { id: i as u32, label: s.1.clone(), detail: String::new() })
+            .map(|(i, s)| SwitchEntry {
+                id: i as u32,
+                label: crate::input_sources::description(&s.1).unwrap_or_else(|| s.1.clone()),
+                detail: s.1.clone(),
+            })
             .collect();
         let Some(switcher) = Switcher::new(entries, true, backward) else { return };
         self.open_switcher(switcher, hold, SwitchKind::InputSources(sources));

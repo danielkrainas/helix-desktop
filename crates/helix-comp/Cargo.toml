@@ -23,6 +23,7 @@ helix-settings.workspace = true
 gio.workspace = true
 toml.workspace = true
 png.workspace = true
+input-sys.workspace = true
 pipewire.workspace = true
 
 [[bin]]
