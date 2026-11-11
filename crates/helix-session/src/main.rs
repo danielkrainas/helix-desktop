@@ -121,7 +121,9 @@ async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
             () = required_exit => {},
         }
     };
+    let conn = service.connection().clone();
     let end = service.run(stop).await?;
+    helix_session::environment::retract(&conn).await;
 
     if let Some(children) = children {
         children.terminate(Duration::from_secs(5)).await;

@@ -247,8 +247,9 @@ pub async fn launch(
     config: &SessionConfig,
     extra_env: &BTreeMap<String, String>,
 ) -> Result<Children, LaunchError> {
+    let env: HashMap<&str, &str> = config.environment.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    crate::environment::publish(service.connection(), &env).await;
     let dbus = DBusProxy::new(service.connection()).await?;
-    update_activation_env(&dbus, &config.environment).await;
 
     let mut children = Children { procs: Vec::new() };
     for component in &config.components {
@@ -355,16 +356,6 @@ async fn is_ready(
         }
     }
     Ok(true)
-}
-
-async fn update_activation_env(dbus: &DBusProxy<'_>, env: &BTreeMap<String, String>) {
-    if env.is_empty() {
-        return;
-    }
-    let env: HashMap<&str, &str> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    if let Err(err) = dbus.update_activation_environment(env).await {
-        tracing::warn!(%err, "could not update the D-Bus activation environment");
-    }
 }
 
 #[cfg(test)]

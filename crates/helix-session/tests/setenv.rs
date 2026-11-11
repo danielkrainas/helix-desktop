@@ -71,3 +71,42 @@ async fn setenv_reaches_activated_services() {
     drop(bus);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A stand-in systemd user manager recording environment changes.
+struct FakeSystemd {
+    calls: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[zbus::interface(name = "org.freedesktop.systemd1.Manager")]
+impl FakeSystemd {
+    fn set_environment(&self, assignments: Vec<String>) {
+        self.calls.lock().unwrap().push(format!("set {}", assignments.join(" ")));
+    }
+
+    fn unset_environment(&self, names: Vec<String>) {
+        self.calls.lock().unwrap().push(format!("unset {}", names.join(" ")));
+    }
+}
+
+#[tokio::test]
+async fn setenv_reaches_the_systemd_user_manager() {
+    let Some(bus) = TestBus::start() else { return };
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let _systemd = bus
+        .builder()
+        .serve_at("/org/freedesktop/systemd1", FakeSystemd { calls: calls.clone() })
+        .unwrap()
+        .name("org.freedesktop.systemd1")
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let service = SessionService::start(bus.builder()).await.unwrap();
+    let conn = bus.connect().await;
+    let sm = SessionManagerProxy::new(&conn).await.unwrap();
+    sm.setenv("WAYLAND_DISPLAY", "wayland-9").await.unwrap();
+    assert_eq!(*calls.lock().unwrap(), ["set WAYLAND_DISPLAY=wayland-9"]);
+    // The session ends: what was set is unset again.
+    helix_session::environment::retract(service.connection()).await;
+    assert_eq!(calls.lock().unwrap().last().map(String::as_str), Some("unset WAYLAND_DISPLAY"));
+}

@@ -93,7 +93,8 @@ Current behavior worth knowing:
   call returns, and to every component the launcher starts afterwards.
   Running processes keep their environment: apps the shell launches
   directly get the shell's environment, while D-Bus activatable apps get
-  the activation environment.
+  the activation environment. When a systemd user manager is on the bus,
+  the value is set there too (and unset when the session ends).
 - `Logout` accepts modes 0 (normal), 1 (no confirmation), 2 (force) and
   rejects anything else.
 - Ending the session follows the spec's sequence (see "Logging out"

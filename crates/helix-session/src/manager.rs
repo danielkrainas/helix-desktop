@@ -360,13 +360,7 @@ impl SessionManager {
         // services see it (components started later get it from the
         // launcher). A bus that refuses doesn't undo the Setenv.
         let env = std::collections::HashMap::from([(variable, value)]);
-        let updated = match zbus::fdo::DBusProxy::new(conn).await {
-            Ok(dbus) => dbus.update_activation_environment(env).await,
-            Err(err) => Err(err.into()),
-        };
-        if let Err(err) = updated {
-            tracing::warn!(%err, variable, "could not update the D-Bus activation environment");
-        }
+        crate::environment::publish(conn, &env).await;
         Ok(())
     }
 
