@@ -114,6 +114,8 @@ pub struct Helix {
     /// Full cursor state, drawn by the compositor on bare hardware.
     pub cursor_status: CursorImageStatus,
     pub dmabuf_state: DmabufState,
+    /// GPU buffers waiting for the nested renderer to test them.
+    pub pending_dmabufs: Vec<(smithay::backend::allocator::dmabuf::Dmabuf, smithay::wayland::dmabuf::ImportNotifier)>,
     /// Set when running on bare hardware (DRM/KMS).
     pub udev: Option<udev::UdevData>,
     /// The X11 window manager for Xwayland, once it is running.
@@ -202,6 +204,7 @@ impl Helix {
             cursor: Some(CursorIcon::Default),
             cursor_status: CursorImageStatus::default_named(),
             dmabuf_state: DmabufState::new(),
+            pending_dmabufs: Vec::new(),
             udev: None,
             xwm: None,
             xdisplay: None,

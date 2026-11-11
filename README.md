@@ -268,8 +268,10 @@ surfaces are supported, including exclusive keyboard focus.
 Protocols beyond the core: xdg-decoration, xdg-activation, viewporter,
 fractional-scale, primary selection, cursor-shape, text-input and
 (for the shell) input-method and virtual-keyboard (named
-cursors are shown on the host window when nested). Not yet: linux-dmabuf
-(GTK falls back to shared-memory rendering), compositing client-drawn cursor surfaces.
+cursors are shown on the host window when nested), and linux-dmabuf with
+feedback naming the GPU, so GTK 4 and other GL/Vulkan apps hand over GPU
+buffers instead of copying pixels (nested too). Not yet: compositing
+client-drawn cursor surfaces.
 
 Shortcuts handled by the compositor:
 

@@ -589,12 +589,14 @@ impl DmabufHandler for Helix {
     }
 
     fn dmabuf_imported(&mut self, _global: &DmabufGlobal, dmabuf: Dmabuf, notifier: ImportNotifier) {
-        // The dmabuf global only exists on bare hardware, where we can test
-        // the import against the renderer that will use it.
-        let ok = self
-            .udev
-            .as_mut()
-            .is_some_and(|u| u.renderer().import_dmabuf(&dmabuf, None).is_ok());
+        // Test the import against the renderer that will use it; nested,
+        // that renderer lives with the host window, which answers on its
+        // next frame.
+        let Some(udev) = self.udev.as_mut() else {
+            self.pending_dmabufs.push((dmabuf, notifier));
+            return;
+        };
+        let ok = udev.renderer().import_dmabuf(&dmabuf, None).is_ok();
         if ok {
             let _ = notifier.successful::<Helix>();
         } else {

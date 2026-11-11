@@ -189,10 +189,21 @@ pub fn init(
     // Clients may share GPU buffers (dmabuf) and use any shm format the
     // renderer can import.
     state.shm_state.update_formats(renderer.shm_formats());
+    // Default feedback names the GPU (its render node) so clients' EGL
+    // finds it.
     let dmabuf_formats = renderer.dmabuf_formats();
-    state
-        .dmabuf_state
-        .create_global::<Helix>(&state.display_handle, dmabuf_formats);
+    let main_device = node.node_with_type(NodeType::Render).and_then(Result::ok).unwrap_or(node);
+    match smithay::wayland::dmabuf::DmabufFeedbackBuilder::new(main_device.dev_id(), dmabuf_formats.clone()).build() {
+        Ok(feedback) => {
+            state
+                .dmabuf_state
+                .create_global_with_default_feedback::<Helix>(&state.display_handle, &feedback);
+        }
+        Err(err) => {
+            tracing::warn!(%err, "no dmabuf feedback; offering formats only");
+            state.dmabuf_state.create_global::<Helix>(&state.display_handle, dmabuf_formats);
+        }
+    }
 
     // Input.
     let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());

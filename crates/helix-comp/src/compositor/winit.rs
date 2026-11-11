@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use helix_comp::display_config::{Mode as MonitorMode, Monitor};
 use helix_comp::Event;
+use smithay::backend::renderer::{ImportDma, ImportMemWl};
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement};
 use smithay::backend::renderer::element::Kind;
@@ -82,6 +83,28 @@ pub fn init(
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
 
+    // GPU buffers from clients, with feedback naming the host's GPU when it
+    // can be found (helix-desktop-spec contracts/wayland/README.md, "GPU
+    // buffers").
+    state.shm_state.update_formats(backend.renderer().shm_formats());
+    let formats: Vec<_> = backend.renderer().dmabuf_formats().into_iter().collect();
+    let render_node = smithay::backend::egl::EGLDevice::device_for_display(backend.renderer().egl_context().display())
+        .ok()
+        .and_then(|device| device.try_get_render_node().ok().flatten());
+    let feedback = render_node.and_then(|node| {
+        smithay::wayland::dmabuf::DmabufFeedbackBuilder::new(node.dev_id(), formats.clone()).build().ok()
+    });
+    match feedback {
+        Some(feedback) => {
+            tracing::info!(?render_node, "dmabuf with feedback");
+            state.dmabuf_state.create_global_with_default_feedback::<Helix>(&state.display_handle, &feedback);
+        }
+        None => {
+            tracing::info!("dmabuf without feedback (no render node for the host GPU)");
+            state.dmabuf_state.create_global::<Helix>(&state.display_handle, formats);
+        }
+    }
+
     event_loop
         .handle()
         .insert_source(winit, move |event, _, state| match event {
@@ -102,6 +125,13 @@ pub fn init(
             WinitEvent::Redraw => {
                 if let Some(icon) = state.cursor.take() {
                     backend.window().set_cursor(icon);
+                }
+                for (dmabuf, notifier) in std::mem::take(&mut state.pending_dmabufs) {
+                    if backend.renderer().import_dmabuf(&dmabuf, None).is_ok() {
+                        let _ = notifier.successful::<Helix>();
+                    } else {
+                        notifier.failed();
+                    }
                 }
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
