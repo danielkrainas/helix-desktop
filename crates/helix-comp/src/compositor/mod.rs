@@ -87,6 +87,9 @@ pub struct Helix {
         FractionalScaleManagerState,
         CursorShapeManagerState,
         XdgDecorationState,
+        smithay::wayland::text_input::TextInputManagerState,
+        smithay::wayland::input_method::InputMethodManagerState,
+        smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState,
     ),
 
     /// Minimized windows (unmapped) and where they were.
@@ -174,6 +177,10 @@ impl Helix {
                 FractionalScaleManagerState::new::<Self>(&dh),
                 CursorShapeManagerState::new::<Self>(&dh),
                 XdgDecorationState::new::<Self>(&dh),
+                smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
+                // The input method and its virtual keyboard: the shell only.
+                smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, privileged),
+                smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, privileged),
             ),
             seat_state,
             popups: PopupManager::default(),
@@ -446,6 +453,11 @@ pub enum ServerSelection {
     X11,
     /// An image the compositor serves itself (screenshots), as PNG.
     Image(Arc<Vec<u8>>),
+}
+
+/// Whether `client` is the shell the compositor launched.
+fn privileged(client: &smithay::reexports::wayland_server::Client) -> bool {
+    client.get_data::<ClientState>().is_some_and(|c| c.privileged)
 }
 
 #[derive(Default)]

@@ -20,6 +20,9 @@ helix-settings.workspace = true
 ab_glyph.workspace = true
 gio.workspace = true
 png.workspace = true
+serde.workspace = true
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+xkbcommon = { version = "0.8", default-features = false }
 helix-protocols = { workspace = true, features = ["client"] }
 
 [features]

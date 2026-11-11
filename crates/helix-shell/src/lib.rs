@@ -10,6 +10,7 @@ pub mod auth;
 pub mod display_change;
 pub mod end_dialog;
 pub mod font;
+pub mod ibus;
 pub mod idle;
 pub mod input_sources;
 pub mod launcher;
@@ -107,6 +108,8 @@ pub enum UiEvent {
     ShareScreen(screencast_chooser::QuestionSlot),
     /// Whether the screen is being shared (panel indicator).
     Sharing(bool),
+    /// From IBus, for the input method.
+    Ime(ibus::ImEvent),
 }
 
 /// Power menu entries.
@@ -146,6 +149,8 @@ pub enum UiRequest {
     DisplayChangeAnswer { keep: bool },
     /// A screenshot, brightness or volume key was pressed.
     ShellKey(shell_keys::KeyAction),
+    /// For IBus, from the input method.
+    Ime(ibus::ImRequest),
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -391,6 +396,7 @@ pub struct ShellService {
     ticker: JoinHandle<()>,
     ui: mpsc::UnboundedSender<UiEvent>,
     night_light: night_light::Handle,
+    ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
 }
 
 impl ShellService {
@@ -482,7 +488,8 @@ impl ShellService {
                 }
             }
         });
-        Ok((Self { conn, state, watcher, auth, center, ticker, ui, night_light }, ui_rx))
+        let ibus = Arc::new(tokio::sync::Mutex::new(ibus::Ibus::new(ui.clone())));
+        Ok((Self { conn, state, watcher, auth, center, ticker, ui, night_light, ibus }, ui_rx))
     }
 
     pub fn connection(&self) -> &Connection {
@@ -525,6 +532,7 @@ impl ShellService {
             conn: self.conn.clone(),
             center: self.center.clone(),
             ui: self.ui.clone(),
+            ibus: self.ibus.clone(),
         }
     }
 
@@ -547,6 +555,7 @@ pub struct UiBridge {
     conn: Connection,
     center: notifications::Center,
     ui: mpsc::UnboundedSender<UiEvent>,
+    ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
 }
 
 impl UiBridge {
@@ -645,6 +654,10 @@ impl UiBridge {
                         let _ = ui.send(UiEvent::Osd(osd));
                     }
                 });
+                Ok(())
+            }
+            UiRequest::Ime(request) => {
+                self.ibus.lock().await.handle(request).await;
                 Ok(())
             }
             UiRequest::NotificationDismissed { id } => {

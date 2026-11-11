@@ -604,3 +604,31 @@ impl DmabufHandler for Helix {
 
 /// Required by cursor-shape (tablet tool cursors); defaults suffice.
 impl TabletSeatHandler for Helix {}
+
+impl smithay::wayland::input_method::InputMethodHandler for Helix {
+    fn new_popup(&mut self, surface: smithay::wayland::input_method::PopupSurface) {
+        if let Err(err) = self.popups.track_popup(smithay::desktop::PopupKind::from(surface)) {
+            tracing::warn!(%err, "cannot track input method popup");
+        }
+    }
+
+    fn dismiss_popup(&mut self, surface: smithay::wayland::input_method::PopupSurface) {
+        if let Some(parent) = surface.get_parent().map(|p| p.surface.clone()) {
+            let _ = smithay::desktop::PopupManager::dismiss_popup(&parent, &smithay::desktop::PopupKind::from(surface));
+        }
+    }
+
+    fn popup_repositioned(&mut self, _surface: smithay::wayland::input_method::PopupSurface) {}
+
+    fn parent_geometry(&self, parent: &WlSurface) -> smithay::utils::Rectangle<i32, smithay::utils::Logical> {
+        use smithay::wayland::seat::WaylandFocus;
+        self.space
+            .elements()
+            .find_map(|w| (w.wl_surface().as_deref() == Some(parent)).then(|| w.geometry()))
+            .unwrap_or_default()
+    }
+}
+
+smithay::delegate_text_input_manager!(Helix);
+smithay::delegate_input_method_manager!(Helix);
+smithay::delegate_virtual_keyboard_manager!(Helix);

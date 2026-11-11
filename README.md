@@ -197,7 +197,12 @@ most recently used first, and a quick press goes back to the previous
 one), key repeat, and, on bare hardware, mouse, touchpad, trackball and
 pointing stick settings (speed, acceleration including custom curves,
 natural scrolling, tap-to-click, touchpad scroll speed, scrolling with a
-held button, left-handed and more; custom curves need libinput 1.23). IBus input methods and per-window layouts are not supported yet.
+held button, left-handed and more; custom curves need libinput 1.23). With `per-window` set, each window keeps its own layout. IBus input
+sources (Chinese, Japanese, Korean and other input methods) work as
+under GNOME, without environment variables: apps use the Wayland
+text-input protocol and the shell is the input method, starting its own
+`ibus-daemon` when needed and showing IBus's candidates next to the text
+cursor.
 
 X11 apps run through Xwayland (the `xwayland` package must be installed):
 the compositor starts it, manages its windows alongside Wayland ones, and

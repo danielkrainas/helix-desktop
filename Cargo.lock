@@ -1062,6 +1062,8 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "wayland-protocols-misc",
+ "xkbcommon",
  "zbus",
 ]
 

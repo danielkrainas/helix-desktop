@@ -110,6 +110,31 @@ pub fn description(id: &str) -> Option<String> {
         .cloned()
 }
 
+/// `per-window`: each window keeps its own source.
+pub fn per_window() -> bool {
+    gio::SettingsSchemaSource::default()
+        .and_then(|s| s.lookup(INPUT_SOURCES, true))
+        .filter(|s| s.has_key("per-window"))
+        .is_some_and(|_| gio::Settings::new(INPUT_SOURCES).boolean("per-window"))
+}
+
+/// The active source.
+pub fn active() -> Option<Source> {
+    current().into_iter().next()
+}
+
+/// What to do when window focus changes, with `per-window`: the source to
+/// activate (if the window has one that is not active), and what to
+/// remember for the window.
+pub fn on_focus(remembered: Option<&Source>, active: Option<&Source>) -> (Option<Source>, Option<Source>) {
+    match (remembered, active) {
+        (Some(r), Some(a)) if r == a => (None, None),
+        (Some(r), _) => (Some(r.clone()), None),
+        (None, Some(a)) => (None, Some(a.clone())),
+        (None, None) => (None, None),
+    }
+}
+
 /// The sources, most recently used first.
 pub fn current() -> Vec<Source> {
     let Some(settings) = settings(INPUT_SOURCES) else { return Vec::new() };
@@ -185,6 +210,14 @@ mod tests {
         if rules_path().exists() {
             assert_eq!(description("us").as_deref(), Some("English (US)"));
         }
+    }
+
+    #[test]
+    fn per_window_focus() {
+        let (us, de) = (s("us"), s("de"));
+        assert_eq!(on_focus(None, Some(&us)), (None, Some(us.clone())), "first focus: remember the active one");
+        assert_eq!(on_focus(Some(&de), Some(&us)), (Some(de.clone()), None), "switch back to its own");
+        assert_eq!(on_focus(Some(&us), Some(&us)), (None, None));
     }
 
     #[test]

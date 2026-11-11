@@ -52,6 +52,7 @@ use crate::windows::{SwitchEntry, SwitchMode, Switcher};
 use std::collections::HashMap;
 
 mod capture;
+mod ime;
 
 pub const PANEL_HEIGHT: u32 = 32;
 const OSD_DURATION: Duration = Duration::from_secs(2);
@@ -142,6 +143,12 @@ struct Ui {
     cycle: Option<Cycle>,
     /// The panel control with keyboard focus (`switch-panels`).
     panel_focus: Option<usize>,
+    /// Each window's input source (`per-window`).
+    window_sources: HashMap<u32, crate::input_sources::Source>,
+    /// Input method globals (privileged shell only) and state.
+    im_manager: Option<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2>,
+    vk_manager: Option<wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1>,
+    ime: Option<ime::Ime>,
     /// Screen captures (privileged shell only).
     screenshots: Option<HelixScreenshotManagerV1>,
     /// Picking an area, a point or what to capture, while open.
@@ -679,6 +686,11 @@ impl Ui {
             SwitchKind::InputSources(sources) => {
                 if let Some(source) = sources.get(id as usize) {
                     crate::input_sources::activate(source);
+                    self.ime_sync();
+                    let focused = self.windows.focused();
+                    if focused != 0 {
+                        self.window_sources.insert(focused, source.clone());
+                    }
                 }
             }
         }
@@ -1490,6 +1502,7 @@ impl Ui {
                     }
                 }
             }
+            UiEvent::Ime(event) => self.ime_event(event),
             UiEvent::Sharing(on) => {
                 self.sharing = on;
                 self.draw_panel();
@@ -1626,6 +1639,8 @@ impl Ui {
 
     /// Redraw when the minute changes or an OSD expires.
     fn tick(&mut self) {
+        // Input sources may change from outside (Settings).
+        self.ime_sync();
         self.dialog_tick();
         let osd_expired = self.osd.as_ref().is_some_and(|(_, until)| Instant::now() >= *until);
         let minute_changed =
@@ -1665,6 +1680,12 @@ pub fn run(
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
     let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=3, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=2, ()).ok();
+    let im_manager = globals
+        .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
+        .ok();
+    let vk_manager = globals
+        .bind::<wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=1, ())
+        .ok();
     if keybindings.is_none() {
         tracing::warn!("compositor offers no key bindings to this process; accelerators will not fire");
     }
@@ -1706,6 +1727,10 @@ pub fn run(
         switcher_mode: None,
         cycle: None,
         panel_focus: None,
+        window_sources: HashMap::new(),
+        im_manager,
+        vk_manager,
+        ime: None,
         screenshots,
         picker: None,
         flashes: Vec::new(),
@@ -1873,6 +1898,9 @@ impl SeatHandler for Ui {
     }
     fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
     fn new_capability(&mut self, _: &Connection, qh: &QueueHandle<Self>, seat: wl_seat::WlSeat, capability: Capability) {
+        if capability == Capability::Keyboard {
+            self.start_ime(&seat);
+        }
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             match self.seat_state.get_keyboard(qh, &seat, None) {
                 Ok(k) => self.keyboard = Some(k),
@@ -2185,6 +2213,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
             helix_window_list_v1::Event::Window { id, app_id, title } => ui.windows.update(id, app_id, title),
             helix_window_list_v1::Event::Closed { id } => {
                 ui.windows.close(id);
+                ui.window_sources.remove(&id);
                 // A window that went away can't be switched to.
                 if let Some(open) = ui.switcher.as_mut().filter(|o| matches!(o.state.kind, SwitchKind::Windows { .. })) {
                     let entries = &mut open.state.switcher.entries;
@@ -2197,7 +2226,20 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                     }
                 }
             }
-            helix_window_list_v1::Event::Focused { id } => ui.windows.focus(id),
+            helix_window_list_v1::Event::Focused { id } => {
+                ui.windows.focus(id);
+                if id != 0 && crate::input_sources::per_window() {
+                    let active = crate::input_sources::active();
+                    let (switch, remember) = crate::input_sources::on_focus(ui.window_sources.get(&id), active.as_ref());
+                    if let Some(source) = switch {
+                        crate::input_sources::activate(&source);
+                        ui.ime_sync();
+                    }
+                    if let Some(source) = remember {
+                        ui.window_sources.insert(id, source);
+                    }
+                }
+            }
             helix_window_list_v1::Event::Workspaces { count, active } => {
                 ui.windows.set_workspaces(count, active);
                 ui.draw_panel();
