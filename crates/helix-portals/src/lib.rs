@@ -11,6 +11,7 @@ pub mod clipboard;
 pub mod dialogs;
 pub mod inhibit;
 pub mod lockdown;
+pub mod notification;
 pub mod remote_desktop;
 pub mod screencast;
 pub mod screenshot;
@@ -76,6 +77,8 @@ impl PortalService {
         server.at(OBJECT_PATH, dialogs::BackgroundBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, wallpaper::WallpaperBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, lockdown::LockdownBackend::default()).await?;
+        let added = notification::Added::default();
+        server.at(OBJECT_PATH, notification::NotificationBackend { conn: conn.clone(), added: added.clone() }).await?;
         lockdown::refresh(&conn, OBJECT_PATH).await?;
 
         // Tests may run a second backend beside the real one.
@@ -95,6 +98,7 @@ impl PortalService {
             spawn_session_watcher(&conn, sm.clone(), registry.clone()).await?,
             spawn_session_client(&conn, sm, registry.clone()),
             tokio::spawn(dialogs::follow_running(conn.clone(), OBJECT_PATH)),
+            tokio::spawn(notification::follow_actions(conn.clone(), OBJECT_PATH, added)),
         ];
         Ok(Self {
             conn,
@@ -155,6 +159,7 @@ impl PortalService {
         server.remove::<dialogs::BackgroundBackend, _>(OBJECT_PATH).await?;
         server.remove::<wallpaper::WallpaperBackend, _>(OBJECT_PATH).await?;
         server.remove::<lockdown::LockdownBackend, _>(OBJECT_PATH).await?;
+        server.remove::<notification::NotificationBackend, _>(OBJECT_PATH).await?;
         self.conn.graceful_shutdown().await;
         Ok(())
     }

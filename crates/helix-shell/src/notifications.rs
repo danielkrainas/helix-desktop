@@ -358,8 +358,20 @@ impl Center {
                         GtkNotifications::action_invoked(&emitter, app_id, &gtk_id, name, parameter, HashMap::new()).await?;
                     }
                     _ => {
+                        let parameter: Vec<OwnedValue> = target.as_ref().and_then(|t| t.try_clone().ok()).into_iter().collect();
                         if let Err(err) = activate_app(conn, app_id, action.as_deref(), target).await {
-                            tracing::warn!(%err, app_id, "cannot activate application");
+                            tracing::info!(%err, app_id, "cannot activate application");
+                            // An app that cannot be reached (not on the
+                            // bus, as portal clients may be) hears by signal.
+                            if let (Some(name), true) = (action.as_deref(), unreachable(&err)) {
+                                let emitter = SignalEmitter::new(conn, GTK_PATH)?;
+                                let gtk_id = match &n.origin {
+                                    Origin::Gtk { id, .. } => id.clone(),
+                                    _ => String::new(),
+                                };
+                                let parameter: Vec<Value<'_>> = parameter.into_iter().map(Value::from).collect();
+                                GtkNotifications::action_invoked(&emitter, app_id, &gtk_id, name, parameter, HashMap::new()).await?;
+                            }
                         }
                     }
                 }
@@ -435,6 +447,18 @@ async fn show_in_files(conn: &Connection, path: &std::path::Path) {
     }
 }
 
+/// Whether a call failed because nobody has (or may start) the app's name.
+fn unreachable(err: &zbus::Error) -> bool {
+    match err {
+        zbus::Error::MethodError(name, _, _) => matches!(
+            name.as_str(),
+            "org.freedesktop.DBus.Error.ServiceUnknown" | "org.freedesktop.DBus.Error.NameHasNoOwner" | "org.freedesktop.DBus.Error.InvalidArgs"
+        ),
+        zbus::Error::InterfaceNotFound | zbus::Error::Names(_) => true,
+        _ => false,
+    }
+}
+
 /// `org.gnome.Calculator` → `/org/gnome/Calculator`.
 pub fn app_object_path(app_id: &str) -> String {
     format!("/{}", app_id.replace('.', "/").replace('-', "_"))
@@ -467,6 +491,15 @@ async fn activate_app(
         }
     }
     Ok(())
+}
+
+/// The name of app `app_id` from its desktop file, else the id.
+fn app_display_name(app_id: &str) -> String {
+    if app_id.is_empty() {
+        return "Application".into();
+    }
+    let wanted = format!("{app_id}.desktop");
+    gio::AppInfo::all().into_iter().find(|a| a.id().is_some_and(|i| i == wanted)).map_or_else(|| app_id.to_owned(), |a| a.display_name().to_string())
 }
 
 fn hint_str(hints: &HashMap<String, OwnedValue>, key: &str) -> Option<String> {
@@ -623,18 +656,20 @@ impl GtkNotifications {
             }
         }
         let existing = self.center.store().find_gtk(&app_id, &id).unwrap_or(0);
+        // The portal's notifications may have a body with markup.
+        let markup_body = dict_str(&notification, "markup-body");
         let nid = self.center.post(Notification {
             id: existing,
-            app_name: app_id.clone(),
+            app_name: app_display_name(&app_id),
             summary: dict_str(&notification, "title").unwrap_or_default(),
-            body: dict_str(&notification, "body").unwrap_or_default(),
+            body: markup_body.clone().or_else(|| dict_str(&notification, "body")).unwrap_or_default(),
             actions,
             has_default: true,
             urgency,
             timeout: Notification::timeout_from(-1, urgency),
             icon: notification.get("icon").and_then(|v| IconSource::from_gicon(v)).or_else(|| IconSource::for_app(&app_id)),
             origin: Origin::Gtk { app_id, id, default_action, buttons: button_actions },
-            markup: false,
+            markup: markup_body.is_some(),
             transient: false,
             app_id: String::new(),
         }, None);
