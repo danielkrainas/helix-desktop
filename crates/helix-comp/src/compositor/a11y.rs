@@ -4,6 +4,9 @@
 
 use helix_comp::a11y_keys::{self, Out};
 use helix_comp::a11y_mouse;
+
+/// The shell's click type window.
+const CLICK_TYPE_NAMESPACE: &str = "helix-click-type";
 use smithay::backend::input::{ButtonState, KeyState};
 use smithay::input::keyboard::Keycode;
 
@@ -71,11 +74,30 @@ impl Helix {
         self.run_access(outs, time);
     }
 
+    /// The namespace of the shell surface under the pointer, if any.
+    fn layer_namespace_under_pointer(&self) -> Option<String> {
+        let pos = self.seat.get_pointer()?.current_location();
+        let output = self.space.outputs().find(|o| self.space.output_geometry(o).is_some_and(|g| g.to_f64().contains(pos)))?;
+        let origin = self.space.output_geometry(output)?.loc.to_f64();
+        let map = smithay::desktop::layer_map_for_output(output);
+        [smithay::wayland::shell::wlr_layer::Layer::Overlay, smithay::wayland::shell::wlr_layer::Layer::Top]
+            .into_iter()
+            .find_map(|layer| map.layer_under(layer, pos - origin).map(|l| l.namespace().to_owned()))
+    }
+
     /// Slow keys, mouse key motion, the Shift shortcut, the timeout.
     pub fn a11y_tick(&mut self) {
         let now = self.access_now();
         if self.mouse_access.busy() {
+            // Dwells on the click type window are plain clicks.
+            let on_chooser = self.layer_namespace_under_pointer().as_deref() == Some(CLICK_TYPE_NAMESPACE);
+            self.mouse_access.set_on_chooser(on_chooser);
+            let before = self.mouse_access.click_type();
             let outs = self.mouse_access.tick(now);
+            let after = self.mouse_access.click_type();
+            if after != before {
+                let _ = self.events.send(helix_comp::Event::ClickType(after));
+            }
             self.run_mouse_access(outs, now as u32);
         }
         if !self.access.busy() {

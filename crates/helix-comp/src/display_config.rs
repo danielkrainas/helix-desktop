@@ -671,6 +671,8 @@ pub enum ColorSet {
     /// The monitor's calibration curves (from its color profile), applied
     /// after the ramps clients set; `None` removes them.
     Calibration(Option<Ramps>),
+    /// The dwell click type (the connector is ignored).
+    ClickType(crate::a11y_mouse::ClickType),
 }
 
 /// Why a color request failed.
@@ -761,6 +763,47 @@ impl ScreenEffects {
     #[zbus(property)]
     fn grayscale(&self) -> bool {
         self.grayscale
+    }
+}
+
+/// `org.helix.ClickType` (helix-desktop-spec `contracts/gsettings/a11y-mouse.md`,
+/// "Click type window"): the dwell click's type, chosen in the shell's
+/// click type window.
+pub struct ClickTypeService {
+    pub compositor: Option<mpsc::UnboundedSender<ColorRequest>>,
+    pub current: crate::a11y_mouse::ClickType,
+}
+
+pub const CLICK_TYPE_PATH: &str = "/org/helix/ClickType";
+
+#[zbus::interface(name = "org.helix.ClickType")]
+impl ClickTypeService {
+    /// `single`, `double`, `drag` or `secondary`, for the next dwell click.
+    async fn set_click_type(&mut self, click_type: &str, #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>) -> fdo::Result<()> {
+        let parsed = crate::a11y_mouse::ClickType::parse(click_type).ok_or_else(|| fdo::Error::InvalidArgs(format!("no click type {click_type:?}")))?;
+        if let Some(compositor) = &self.compositor {
+            let (reply, answer) = oneshot::channel();
+            if compositor.send(ColorRequest { connector: String::new(), set: Some(ColorSet::ClickType(parsed)), reply }).is_ok() {
+                let _ = answer.await;
+            }
+        }
+        self.set(parsed, &emitter).await;
+        Ok(())
+    }
+
+    #[zbus(property)]
+    fn click_type(&self) -> String {
+        self.current.name().to_owned()
+    }
+}
+
+impl ClickTypeService {
+    /// The type is now `click_type` (chosen, or used up by a dwell).
+    pub async fn set(&mut self, click_type: crate::a11y_mouse::ClickType, emitter: &zbus::object_server::SignalEmitter<'_>) {
+        if self.current != click_type {
+            self.current = click_type;
+            let _ = self.click_type_changed(emitter).await;
+        }
     }
 }
 

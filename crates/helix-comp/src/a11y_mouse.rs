@@ -79,6 +79,38 @@ pub fn read() -> Settings {
     }
 }
 
+/// What a dwell does in the `window` mode: chosen in the click type
+/// window, used once, then back to `Single`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClickType {
+    #[default]
+    Single,
+    Double,
+    Drag,
+    Secondary,
+}
+
+impl ClickType {
+    pub fn name(self) -> &'static str {
+        match self {
+            ClickType::Single => "single",
+            ClickType::Double => "double",
+            ClickType::Drag => "drag",
+            ClickType::Secondary => "secondary",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "single" => ClickType::Single,
+            "double" => ClickType::Double,
+            "drag" => ClickType::Drag,
+            "secondary" => ClickType::Secondary,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Out {
     Button(u32, bool),
@@ -110,6 +142,11 @@ pub struct Mouse {
     gesture: Option<((f64, f64), u64)>,
     /// A dwell drag holds the primary button.
     dragging: bool,
+    /// The click type chosen for the next dwell (`window` mode).
+    click_type: ClickType,
+    /// The pointer is on the click type window: dwells there are single
+    /// clicks and keep the chosen type.
+    on_chooser: bool,
 }
 
 fn dist(a: (f64, f64), b: (f64, f64)) -> f64 {
@@ -134,6 +171,19 @@ impl Mouse {
         self.gesture = None;
         self.s = s;
         out
+    }
+
+    pub fn click_type(&self) -> ClickType {
+        self.click_type
+    }
+
+    pub fn set_click_type(&mut self, click_type: ClickType) {
+        self.click_type = click_type;
+    }
+
+    /// Whether the pointer is on the click type window.
+    pub fn set_on_chooser(&mut self, on: bool) {
+        self.on_chooser = on;
     }
 
     /// Whether ticks matter now.
@@ -253,7 +303,19 @@ impl Mouse {
             self.gesture = Some((at, now));
             return Vec::new();
         }
-        vec![Out::Button(BTN_LEFT, true), Out::Button(BTN_LEFT, false)]
+        if self.on_chooser {
+            return vec![Out::Button(BTN_LEFT, true), Out::Button(BTN_LEFT, false)];
+        }
+        match std::mem::take(&mut self.click_type) {
+            ClickType::Single => vec![Out::Button(BTN_LEFT, true), Out::Button(BTN_LEFT, false)],
+            ClickType::Double => vec![Out::Button(BTN_LEFT, true), Out::Button(BTN_LEFT, false), Out::Button(BTN_LEFT, true), Out::Button(BTN_LEFT, false)],
+            ClickType::Secondary => vec![Out::Button(BTN_RIGHT, true), Out::Button(BTN_RIGHT, false)],
+            ClickType::Drag => {
+                // Released by the next dwell.
+                self.dragging = true;
+                vec![Out::Button(BTN_LEFT, true)]
+            }
+        }
     }
 }
 
@@ -308,6 +370,31 @@ mod tests {
         m.moved((200.0, 0.0), 6100);
         m.button(BTN_RIGHT, true, 6100, (200.0, 0.0));
         assert!(m.tick(8000).is_empty());
+    }
+
+    #[test]
+    fn click_types() {
+        let mut m = with(|s| s.dwell = true);
+        let dwell = |m: &mut Mouse, at: f64, t: u64| {
+            m.moved((at, at), t);
+            m.moved((at + 50.0, at), t + 10);
+            m.tick(t + 10 + 1300)
+        };
+        m.set_click_type(ClickType::Double);
+        let double = [Out::Button(BTN_LEFT, true), Out::Button(BTN_LEFT, false), Out::Button(BTN_LEFT, true), Out::Button(BTN_LEFT, false)];
+        assert_eq!(dwell(&mut m, 0.0, 0), double);
+        assert_eq!(m.click_type(), ClickType::Single, "used once");
+        m.set_click_type(ClickType::Secondary);
+        // On the click type window: a single click, the type kept.
+        m.set_on_chooser(true);
+        assert_eq!(dwell(&mut m, 100.0, 5000), [Out::Button(BTN_LEFT, true), Out::Button(BTN_LEFT, false)]);
+        assert_eq!(m.click_type(), ClickType::Secondary);
+        m.set_on_chooser(false);
+        assert_eq!(dwell(&mut m, 200.0, 10000), [Out::Button(BTN_RIGHT, true), Out::Button(BTN_RIGHT, false)]);
+        m.set_click_type(ClickType::Drag);
+        assert_eq!(dwell(&mut m, 300.0, 15000), [Out::Button(BTN_LEFT, true)]);
+        assert_eq!(dwell(&mut m, 400.0, 20000), [Out::Button(BTN_LEFT, false)], "the next dwell drops");
+        assert_eq!((ClickType::parse("drag"), ClickType::parse("x"), ClickType::Double.name()), (Some(ClickType::Drag), None, "double"));
     }
 
     #[test]

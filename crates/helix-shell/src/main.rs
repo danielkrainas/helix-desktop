@@ -127,6 +127,8 @@ fn main() -> ExitCode {
             }
         }
     });
+    // The dwell click type window.
+    runtime.spawn(helix_shell::click_type::follow(service.connection().clone(), service.ui_sender()));
     // Network, battery, volume and radios for the panel.
     runtime.spawn(helix_shell::status::follow(service.ui_sender()));
     // Microphone and camera use, from PipeWire.

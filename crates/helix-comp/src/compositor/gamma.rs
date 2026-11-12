@@ -54,6 +54,12 @@ impl Helix {
             let _ = reply.send(Ok((Vec::new(), Vec::new(), Vec::new())));
             return;
         }
+        if let Some(ColorSet::ClickType(click_type)) = set {
+            tracing::info!(click_type = click_type.name(), "dwell click type");
+            self.mouse_access.set_click_type(click_type);
+            let _ = reply.send(Ok((Vec::new(), Vec::new(), Vec::new())));
+            return;
+        }
         if let Some(ColorSet::Grayscale(on)) = set {
             if self.zoom.grayscale != on {
                 tracing::info!(on, "grayscale");
@@ -94,7 +100,7 @@ impl Helix {
                         }
                         Ok(current)
                     }
-                    Some(ColorSet::PowerSave(_) | ColorSet::Grayscale(_)) => Ok(current),
+                    Some(ColorSet::PowerSave(_) | ColorSet::Grayscale(_) | ColorSet::ClickType(_)) => Ok(current),
                 }
             }
         };

@@ -80,6 +80,8 @@ pub enum Event {
     /// A swipe up (open the overview, or from it the app grid) or down
     /// (close the overview).
     OverviewGesture { up: bool },
+    /// The dwell click type changed (a dwell used it up).
+    ClickType(a11y_mouse::ClickType),
 }
 
 /// The running D-Bus services of the compositor.
@@ -163,6 +165,7 @@ impl CompositorServices {
         let cast = control.cast.clone();
         let effects = display_config::ScreenEffects { gamma: control.gamma.clone(), grayscale: false };
         let (color_profiles, gamma_for_profiles) = (control.color_profiles, control.gamma.clone());
+        let gamma_for_clicks = control.gamma.clone();
         let display_config = DisplayConfig::new(
             layout.clone(),
             control.applier,
@@ -176,6 +179,10 @@ impl CompositorServices {
             .serve_at(idle_monitor::CORE_PATH, IdleMonitor::new(idle.clone()))?
             .serve_at(display_config::OBJECT_PATH, display_config)?
             .serve_at(display_config::OBJECT_PATH, effects)?
+            .serve_at(
+                display_config::CLICK_TYPE_PATH,
+                display_config::ClickTypeService { compositor: gamma_for_clicks, current: Default::default() },
+            )?
             .serve_at(
                 screencast::OBJECT_PATH,
                 screencast::ScreenCast {
@@ -351,6 +358,11 @@ impl CompositorServices {
                 if let Err(err) = done.await {
                     tracing::info!(%err, "no shell for the overview gesture");
                 }
+                Ok(())
+            }
+            Event::ClickType(click_type) => {
+                let iface = self.conn.object_server().interface::<_, display_config::ClickTypeService>(display_config::CLICK_TYPE_PATH).await?;
+                iface.get_mut().await.set(click_type, iface.signal_emitter()).await;
                 Ok(())
             }
             Event::Osd { icon, label } => {

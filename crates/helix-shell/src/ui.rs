@@ -56,6 +56,7 @@ mod background;
 mod break_screen;
 mod calendar;
 mod capture;
+mod click_type;
 mod dash;
 mod dock;
 mod ime;
@@ -146,6 +147,7 @@ struct Ui {
     calendar: calendar::CalendarState,
     /// The on-screen keyboard.
     osk: osk::OskState,
+    click_type: click_type::ClickTypeState,
     osd: Option<(Osd, Instant)>,
     shown_minute: Option<String>,
 
@@ -1834,6 +1836,16 @@ impl Ui {
 
     fn handle(&mut self, event: UiEvent) {
         match event {
+            UiEvent::ClickTypeWindow(wanted) => {
+                self.click_type.wanted = wanted;
+                self.click_type_sync();
+            }
+            UiEvent::ClickType(current) => {
+                if self.click_type.current != current {
+                    self.click_type.current = current;
+                    self.draw_click_type();
+                }
+            }
             UiEvent::A11y(status) => {
                 let changed = status.shown != self.a11y.shown;
                 self.a11y = status;
@@ -2283,6 +2295,7 @@ pub fn run(
         notify: Default::default(),
         calendar: Default::default(),
         osk: Default::default(),
+        click_type: Default::default(),
         osd: None,
         shown_minute: None,
         keyboard: None,
@@ -2447,6 +2460,7 @@ impl LayerShellHandler for Ui {
             || self.notify_closed(layer)
             || self.window_menu_closed(layer)
             || self.osk_closed(layer)
+            || self.click_type_closed(layer)
             || self.workspace_popup_closed(layer)
         {
             return;
@@ -2490,6 +2504,7 @@ impl LayerShellHandler for Ui {
             || self.notify_configured(layer, configure.new_size)
             || self.window_menu_configured(layer, configure.new_size)
             || self.osk_configured(layer, configure.new_size)
+            || self.click_type_configured(layer, configure.new_size)
             || self.workspace_popup_configured(layer, configure.new_size)
         {
             return;
@@ -2698,7 +2713,7 @@ impl Ui {
                 }
                 continue;
             }
-            if self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) {
+            if self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {

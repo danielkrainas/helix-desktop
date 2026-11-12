@@ -26,6 +26,7 @@ pub mod bluetooth_agent;
 pub mod obex;
 pub mod osk_words;
 pub mod calendar;
+pub mod click_type;
 pub mod ical;
 pub mod icons;
 pub mod markup;
@@ -121,6 +122,10 @@ pub enum UiEvent {
     Overview(bool),
     /// The accessibility switches changed (or were read at start).
     A11y(a11y_menu::Status),
+    /// Whether the dwell click type window should show.
+    ClickTypeWindow(bool),
+    /// The compositor's dwell click type.
+    ClickType(String),
     /// The dock's settings changed (or were read at start).
     Dock(dock::DockSettings),
     /// An app's launcher entry (count, progress, urgency); `None` when it
@@ -228,6 +233,8 @@ pub enum UiRequest {
     EmptyTrash,
     /// An entry of an app's quicklist was chosen.
     QuickItem(launcher_entry::Quicklist, i32),
+    /// The dwell click type was chosen in its window.
+    SetClickType(String),
     /// A bound accelerator was pressed or released.
     Accelerator { action: u32, pressed: bool, time: u32 },
     /// The compositor refused (or cannot offer) the binding.
@@ -1006,6 +1013,11 @@ impl UiBridge {
                     let data = calendar::read(&conn, from, to).await;
                     let _ = ui.send(UiEvent::Calendar(Box::new(data)));
                 });
+                Ok(())
+            }
+            UiRequest::SetClickType(name) => {
+                let conn = self.conn.clone();
+                tokio::spawn(async move { click_type::set(&conn, &name).await });
                 Ok(())
             }
             UiRequest::QuickItem(list, id) => {
