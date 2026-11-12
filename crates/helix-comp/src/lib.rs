@@ -26,6 +26,7 @@ pub mod rotation;
 pub mod screencast;
 pub mod wm_settings;
 pub mod workspaces;
+pub mod xsettings;
 
 use std::sync::{Arc, Mutex};
 

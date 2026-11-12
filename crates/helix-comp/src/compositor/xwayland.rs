@@ -27,6 +27,9 @@ use smithay::xwayland::{X11Surface, X11Wm, XWayland, XWaylandEvent, XwmHandler};
 use super::grabs::{Edges, MoveGrab, ResizeGrab, ResizeTracking};
 use super::Helix;
 
+/// Displays tried after Smithay's own search (`:0` to `:32`) found none free.
+const FALLBACK_DISPLAYS: std::ops::RangeInclusive<u32> = 33..=99;
+
 impl Helix {
     /// Start Xwayland. `ready` runs once it is up (with its display number)
     /// or has failed (`None`).
@@ -34,15 +37,17 @@ impl Helix {
         // Smithay starts `Xwayland` from PATH with fixed options: a wrapper
         // first in PATH adds the ones the settings ask for.
         let envs = xwayland_wrapper(&self.wm_settings).unwrap_or_default();
-        let spawned = XWayland::spawn(
-            &self.display_handle,
-            None,
-            envs,
-            true,
-            Stdio::null(),
-            Stdio::null(),
-            |_| (),
-        );
+        let spawn = |display: Option<u32>| XWayland::spawn(&self.display_handle, display, envs.clone(), true, Stdio::null(), Stdio::null(), |_| ());
+        // Smithay looks for a free display among :0 to :32; when those are
+        // all taken (by other X servers or locks that stay behind), the next
+        // ones are tried one by one.
+        let mut spawned = spawn(None);
+        for display in FALLBACK_DISPLAYS {
+            if !matches!(&spawned, Err(err) if err.kind() == std::io::ErrorKind::AddrInUse) {
+                break;
+            }
+            spawned = spawn(Some(display));
+        }
         let (xwayland, client) = match spawned {
             Ok(x) => x,
             Err(err) => {
@@ -74,6 +79,8 @@ impl Helix {
                             }
                             state.xwm = Some(wm);
                             state.xdisplay = Some(display_number);
+                            state.xwayland_client = Some(client.clone());
+                            state.start_x11_settings(display_number);
                             let (answers, received) = smithay::reexports::calloop::channel::channel::<super::x11ping::X11Note>();
                             match super::x11ping::X11Ping::start(display_number, answers) {
                                 Ok(ping) => {

@@ -74,6 +74,8 @@ impl Helix {
         if result.is_ok() {
             self.rescue_windows();
             self.update_surface_scales();
+            // The automatic Xwayland scale follows the monitors.
+            self.apply_x11_settings();
         }
         result
     }

@@ -126,6 +126,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 state.apply_workspace_settings();
                 state.apply_frame_settings();
                 state.apply_wm_settings();
+                state.reread_x11_settings();
             }
         })
         .map_err(|e| format!("cannot follow input settings: {e}"))?;
@@ -140,6 +141,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .chain(helix_comp::a11y_keys::SCHEMAS.iter())
                 .chain(helix_comp::a11y_mouse::SCHEMAS.iter())
                 .chain(helix_comp::magnifier::SCHEMAS.iter())
+                .chain(helix_comp::xsettings::SCHEMAS.iter())
                 .copied()
                 .collect();
             schemas.sort_unstable();

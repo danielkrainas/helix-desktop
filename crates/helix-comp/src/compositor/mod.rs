@@ -40,6 +40,7 @@ pub mod winit;
 mod wm;
 mod workspaces;
 mod xwayland;
+mod xsettings;
 
 use std::ffi::OsString;
 use std::sync::Arc;
@@ -166,6 +167,14 @@ pub struct Helix {
     pub xwm: Option<X11Wm>,
     /// Xwayland's display number (`DISPLAY=:N`), once it is running.
     pub xdisplay: Option<u32>,
+    /// Xwayland's Wayland client, once it is running.
+    pub xwayland_client: Option<smithay::reexports::wayland_server::Client>,
+    /// The XSETTINGS manager on Xwayland.
+    pub xsettings: Option<xsettings::XSettings>,
+    /// What X11 apps are told (XSETTINGS, X resources, the scale setting).
+    pub x11_settings: helix_comp::xsettings::Settings,
+    /// Xwayland's scale as last applied (0: not yet).
+    pub xwayland_scale: i32,
     pub xwayland_shell_state: XWaylandShellState,
     pub session_lock_state: SessionLockManagerState,
     pub lock: lock::LockState,
@@ -285,6 +294,10 @@ impl Helix {
             udev: None,
             xwm: None,
             xdisplay: None,
+            xwayland_client: None,
+            xsettings: None,
+            x11_settings: helix_comp::xsettings::read(),
+            xwayland_scale: 0,
             xwayland_shell_state: XWaylandShellState::new::<Self>(&dh),
             session_lock_state: SessionLockManagerState::new::<Self, _>(&dh, lock::can_lock),
             lock: lock::LockState::default(),
