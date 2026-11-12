@@ -24,6 +24,7 @@ pub mod logind;
 pub mod night_light;
 pub mod bluetooth_agent;
 pub mod obex;
+pub mod osk_words;
 pub mod calendar;
 pub mod ical;
 pub mod icons;

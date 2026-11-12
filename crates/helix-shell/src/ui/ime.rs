@@ -47,6 +47,13 @@ pub(super) struct Ime {
     candidates: Option<(Vec<String>, usize)>,
     /// The virtual keyboard has a keymap.
     vk_keymap: bool,
+    /// The text around the cursor and the cursor's byte offset, as the
+    /// text field last said (pending until `done`).
+    pending_surrounding: Option<(String, u32)>,
+    surrounding: Option<(String, u32)>,
+    /// The text field's content hint and purpose (`zwp_text_input_v3`).
+    pending_content: (u32, u32),
+    content: (u32, u32),
 }
 
 /// The IBus engine of the active source, if it is an `ibus` one.
@@ -103,6 +110,10 @@ impl Ui {
             popup: None,
             candidates: None,
             vk_keymap: false,
+            pending_surrounding: None,
+            surrounding: None,
+            pending_content: (0, 0),
+            content: (0, 0),
         });
     }
 
@@ -138,6 +149,27 @@ impl Ui {
     /// A text field has focus (the input method is active).
     pub(super) fn ime_typing(&self) -> bool {
         self.ime.as_ref().is_some_and(|i| i.active)
+    }
+
+    /// The text around the cursor and the cursor's byte offset, if the
+    /// text field tells.
+    pub(super) fn ime_surrounding(&self) -> Option<(String, u32)> {
+        self.ime.as_ref().filter(|i| i.active)?.surrounding.clone()
+    }
+
+    /// The text field's content hint and purpose.
+    pub(super) fn ime_content(&self) -> (u32, u32) {
+        self.ime.as_ref().map_or((0, 0), |i| i.content)
+    }
+
+    /// Replace the `before` bytes before the cursor with `text`.
+    pub(super) fn ime_replace_before(&mut self, before: u32, text: &str) {
+        let Some(ime) = self.ime.as_mut().filter(|i| i.active) else { return };
+        if before > 0 {
+            ime.im.delete_surrounding_text(before, 0);
+        }
+        ime.im.commit_string(text.to_owned());
+        ime.im.commit(ime.serial);
     }
 
     /// Type `text` into the focused text field.
@@ -290,12 +322,23 @@ impl Dispatch<ZwpInputMethodV2, ()> for Ui {
     fn event(ui: &mut Self, _: &ZwpInputMethodV2, event: zwp_input_method_v2::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         let Some(ime) = ui.ime.as_mut() else { return };
         match event {
-            zwp_input_method_v2::Event::Activate => ime.pending_active = true,
+            zwp_input_method_v2::Event::Activate => {
+                // A new text field: its state starts over.
+                ime.pending_active = true;
+                ime.pending_surrounding = None;
+                ime.pending_content = (0, 0);
+            }
             zwp_input_method_v2::Event::Deactivate => ime.pending_active = false,
+            zwp_input_method_v2::Event::SurroundingText { text, cursor, .. } => ime.pending_surrounding = Some((text, cursor)),
+            zwp_input_method_v2::Event::ContentType { hint, purpose } => {
+                ime.pending_content = (u32::from(hint), u32::from(purpose));
+            }
             zwp_input_method_v2::Event::Done => {
                 ime.serial = ime.serial.wrapping_add(1);
                 let was = ime.active;
                 ime.active = ime.pending_active;
+                ime.surrounding = ime.pending_surrounding.clone();
+                ime.content = ime.pending_content;
                 if ime.active != was && ime.engine.is_some() {
                     let request = if ime.active { ImRequest::FocusIn } else { ImRequest::FocusOut };
                     let _ = ui.requests.send(UiRequest::Ime(request));
@@ -306,6 +349,7 @@ impl Dispatch<ZwpInputMethodV2, ()> for Ui {
                 ui.ime_sync();
                 ui.draw_candidates();
                 ui.osk_sync();
+                ui.osk_text_changed();
             }
             zwp_input_method_v2::Event::Unavailable => {
                 tracing::warn!("another input method is running; IBus input is off");

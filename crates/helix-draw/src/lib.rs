@@ -236,6 +236,11 @@ impl Text {
         matched.and_then(|path| load_path(&path)).or_else(Self::load)
     }
 
+    /// Whether the font has a glyph for every character of `text`.
+    pub fn covers(&self, text: &str) -> bool {
+        text.chars().all(|c| self.font.glyph_id(c).0 != 0)
+    }
+
     pub fn width(&self, text: &str, px: f32) -> f32 {
         let font = self.font.as_scaled(PxScale::from(px));
         let mut width = 0.0;
