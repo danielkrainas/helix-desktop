@@ -9,7 +9,7 @@ use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement};
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::winit::{self, WinitEvent};
+use smithay::backend::winit::{self, WinitEvent, WinitGraphicsBackend};
 use smithay::input::pointer::CursorImageStatus;
 use smithay::desktop::layer_map_for_output;
 use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
@@ -114,6 +114,13 @@ pub fn init(
         }
     }
 
+    // Shared with the timer that looks again when a frame had nothing new.
+    let backend = std::rc::Rc::new(std::cell::RefCell::new(backend));
+    let idle_check = backend.clone();
+    let (wake_tx, wake_rx) = smithay::reexports::calloop::ping::make_ping()?;
+    event_loop.handle().insert_source(wake_rx, move |_, _, _| {
+        idle_check.borrow().window().request_redraw();
+    })?;
     event_loop
         .handle()
         .insert_source(winit, move |event, _, state| match event {
@@ -132,6 +139,7 @@ pub fn init(
             }
             WinitEvent::Input(event) => state.process_input_event(event),
             WinitEvent::Redraw => {
+                let mut backend = backend.borrow_mut();
                 // Named cursors are the host's; Helix draws an app's image
                 // itself, with the host's pointer hidden.
                 let host = match &state.cursor_status {
@@ -155,8 +163,7 @@ pub fn init(
                         notifier.failed();
                     }
                 }
-                let size = backend.window_size();
-                let damage = Rectangle::from_size(size);
+                let rendered: Option<Vec<Rectangle<i32, smithay::utils::Physical>>>;
                 {
                     // The elements first (the magnifier's color effects draw
                     // offscreen, which must happen before the window is bound).
@@ -192,6 +199,14 @@ pub fn init(
                     // Monitors off: the window shows black.
                     let elements = if state.screens_off { Vec::new() } else { elements };
                     let clear = if locked || state.screens_off { [0.0, 0.0, 0.0, 1.0] } else { [0.12, 0.12, 0.14, 1.0] };
+                    // Only what changed since this buffer was last drawn.
+                    let age = {
+                        if let Err(err) = backend.bind() {
+                            tracing::warn!(%err, "cannot bind renderer");
+                            return;
+                        }
+                        backend.buffer_age().unwrap_or(0)
+                    };
                     let (renderer, mut framebuffer) = match backend.bind() {
                         Ok(bound) => bound,
                         Err(err) => {
@@ -199,14 +214,20 @@ pub fn init(
                             return;
                         }
                     };
-                    if let Err(err) = damage_tracker.render_output(renderer, &mut framebuffer, 0, &elements, clear) {
-                        tracing::warn!(?err, "render failed");
+                    rendered = match damage_tracker.render_output(renderer, &mut framebuffer, age, &elements, clear) {
+                        Ok(result) => result.damage.cloned(),
+                        Err(err) => {
+                            tracing::warn!(?err, "render failed");
+                            None
+                        }
+                    };
+                }
+                if let Some(damage) = rendered.as_ref() {
+                    if let Err(err) = backend.submit(Some(damage)) {
+                        tracing::warn!(%err, "submit failed");
                     }
                 }
-                if let Err(err) = backend.submit(Some(&[damage])) {
-                    tracing::warn!(%err, "submit failed");
-                }
-                {
+                if rendered.is_some() {
                     // The host shows it at its next frame; we can't know
                     // when exactly, so now it is.
                     let mut feedback = super::timing::presentation_feedback(&state.space, &output);
@@ -217,6 +238,9 @@ pub fn init(
                         smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback::Kind::empty(),
                     );
                     state.frame_shown(&output);
+                } else {
+                    // Nothing new to show: what waited for this frame may go on.
+                    state.frame_shown(&output);
                 }
                 // The host draws named cursors, so they can't be captured.
                 state.run_captures(backend.renderer(), false);
@@ -226,7 +250,7 @@ pub fn init(
                     state.lock_frame_shown();
                     state.lock_send_frames(&output);
                     let _ = state.display_handle.flush_clients();
-                    backend.window().request_redraw();
+                    next_frame(&backend, rendered.is_some(), &state.loop_handle, &wake_tx);
                     return;
                 }
 
@@ -249,11 +273,31 @@ pub fn init(
                 state.space.refresh();
                 state.popups.cleanup();
                 let _ = state.display_handle.flush_clients();
-                backend.window().request_redraw();
+                next_frame(&backend, rendered.is_some(), &state.loop_handle, &wake_tx);
             }
             WinitEvent::CloseRequested => state.loop_signal.stop(),
             _ => {}
         })?;
 
     Ok(describe_size(size, 1.0))
+}
+
+/// After a frame: draw again at once when something was drawn (the swap
+/// paces it), else look again in about a frame instead of spinning.
+fn next_frame(
+    backend: &WinitGraphicsBackend<GlesRenderer>,
+    rendered: bool,
+    handle: &smithay::reexports::calloop::LoopHandle<'static, Helix>,
+    wake: &smithay::reexports::calloop::ping::Ping,
+) {
+    if rendered {
+        backend.window().request_redraw();
+        return;
+    }
+    let wake = wake.clone();
+    let frame = Duration::from_micros(1_000_000_000 / REFRESH_MHZ.max(1) as u64);
+    let _ = handle.insert_source(smithay::reexports::calloop::timer::Timer::from_duration(frame), move |_, _, _| {
+        wake.ping();
+        smithay::reexports::calloop::timer::TimeoutAction::Drop
+    });
 }
