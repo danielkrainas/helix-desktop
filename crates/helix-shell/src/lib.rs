@@ -22,6 +22,7 @@ pub mod launcher;
 pub mod location;
 pub mod logind;
 pub mod night_light;
+pub mod bluetooth_agent;
 pub mod calendar;
 pub mod ical;
 pub mod icons;
@@ -788,7 +789,7 @@ impl UiBridge {
                 Ok(())
             }
             UiRequest::QuickSettings(change) => {
-                let (conn, ui) = (self.conn.clone(), self.ui.clone());
+                let (conn, ui, center) = (self.conn.clone(), self.ui.clone(), self.center.clone());
                 tokio::spawn(async move {
                     match change {
                         QuickChange::Refresh => {}
@@ -799,6 +800,13 @@ impl UiBridge {
                             Ok(system) => {
                                 if let Err(err) = status::apply(&system, toggle.clone()).await {
                                     tracing::warn!(%err, ?toggle, "cannot change the system setting");
+                                    if let status::Toggle::BluetoothPair { name, .. } = &toggle {
+                                        let reason = match &err {
+                                            zbus::Error::MethodError(_, Some(text), _) => text.clone(),
+                                            other => other.to_string(),
+                                        };
+                                        center.notice("Bluetooth", &format!("Cannot pair with {name}"), &reason, "bluetooth-active-symbolic", false);
+                                    }
                                 }
                             }
                             Err(err) => tracing::warn!(%err, "no system bus"),

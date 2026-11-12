@@ -197,6 +197,8 @@ struct Ui {
     quick: quick::QuickState,
     /// The quick settings list that is open (Wi-Fi or Bluetooth).
     quick_list: Option<quick::Switch>,
+    /// "Pair New Device…" started Bluetooth discovery.
+    bt_discovery: bool,
     window_menu: Option<window_menu::WindowMenu>,
     workspace_popup: Option<workspace_popup::WorkspacePopup>,
     overview: Option<Overlay<overview::OverviewState>>,
@@ -277,6 +279,9 @@ enum OverlayHit {
     Expand(quick::Switch),
     Network(usize),
     BtDevice(usize),
+    /// "Pair New Device…", and a device found nearby.
+    PairNew,
+    BtNearby(usize),
     Outside,
 }
 
@@ -2076,6 +2081,7 @@ impl Ui {
         // Input sources may change from outside (Settings).
         self.ime_sync();
         self.osk_sync();
+        self.quick_discovery_check();
         self.refresh_source_label();
         self.dialog_tick();
         let osd_expired = self.osd.as_ref().is_some_and(|(_, until)| Instant::now() >= *until);
@@ -2189,6 +2195,7 @@ pub fn run(
         break_screen: None,
         quick: Default::default(),
         quick_list: None,
+        bt_discovery: false,
         window_menu: None,
         workspace_popup: None,
         overview: None,
@@ -2576,6 +2583,7 @@ impl Ui {
                 self.break_click(x, y);
             } else if self.power_menu.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
                 let hit = self.power_menu.as_ref().and_then(|m| m.hits.iter().find(|(r, _)| r.contains(x, y)).copied());
+                tracing::debug!(x, y, hits = self.power_menu.as_ref().map_or(0, |m| m.hits.len()), "quick settings press");
                 let keep = hit.is_some_and(|(rect, hit)| self.quick_click(hit, x, rect));
                 if !keep {
                     self.power_menu = None;

@@ -105,6 +105,20 @@ fn main() -> ExitCode {
     helix_shell::media::run(service.notifications(), service.ui_sender(), runtime.handle().clone());
     // The desktop and lock screen backgrounds.
     runtime.spawn(helix_shell::wallpaper::follow(service.ui_sender()));
+    // BlueZ's pairing agent.
+    if std::env::var_os("HELIX_NO_BLUETOOTH_AGENT").is_none() {
+        let (ui, center) = (service.ui_sender(), service.notifications());
+        runtime.spawn(async move {
+            match zbus::Connection::system().await {
+                Ok(system) => {
+                    if let Err(err) = helix_shell::bluetooth_agent::run(system, ui, center).await {
+                        tracing::info!(%err, "no Bluetooth pairing agent");
+                    }
+                }
+                Err(err) => tracing::info!(%err, "no system bus; no Bluetooth pairing agent"),
+            }
+        });
+    }
     // NetworkManager's secret agent (Wi-Fi passwords).
     if std::env::var_os("HELIX_NO_NETWORK_AGENT").is_none() {
         let ui = service.ui_sender();

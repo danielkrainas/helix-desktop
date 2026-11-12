@@ -52,6 +52,10 @@ pub struct Status {
     pub networks: Vec<Network>,
     /// Paired Bluetooth devices (while Bluetooth is on).
     pub devices: Vec<BtDevice>,
+    /// An adapter is discovering, and the unpaired devices with a name
+    /// it found.
+    pub discovering: bool,
+    pub nearby: Vec<BtDevice>,
 }
 
 /// A Wi-Fi network in reach.
@@ -111,6 +115,10 @@ pub enum Toggle {
     ConnectWifi(String),
     /// Connect (true) or disconnect a Bluetooth device, by object path.
     BluetoothDevice { path: String, connect: bool },
+    /// Start or stop looking for devices to pair.
+    BluetoothDiscovery(bool),
+    /// Pair with a device, trust it and connect it.
+    BluetoothPair { path: String, name: String },
 }
 
 /// The Wi-Fi icon for an access point's strength (0–100).
@@ -166,23 +174,40 @@ async fn bluez_objects(conn: &Connection) -> Objects {
     }
 }
 
-/// BlueZ's paired devices, by name.
-async fn bt_devices(conn: &Connection) -> Vec<BtDevice> {
+/// BlueZ's devices: (paired, unpaired with a name), by name.
+async fn bt_devices(conn: &Connection) -> (Vec<BtDevice>, Vec<BtDevice>) {
     let get = |props: &HashMap<String, OwnedValue>, key: &str| props.get(key).cloned();
-    let mut out: Vec<BtDevice> = bluez_objects(conn)
-        .await
-        .into_iter()
-        .filter_map(|(path, ifaces)| {
-            let d = ifaces.get("org.bluez.Device1")?;
-            let paired = get(d, "Paired").and_then(|v| bool::try_from(v).ok()).unwrap_or(false);
-            let name = get(d, "Alias").or_else(|| get(d, "Name")).and_then(|v| String::try_from(v).ok()).unwrap_or_default();
-            let connected = get(d, "Connected").and_then(|v| bool::try_from(v).ok()).unwrap_or(false);
-            paired.then(|| BtDevice { path: path.to_string(), name, connected })
-        })
-        .collect();
-    out.sort_by(|a, b| b.connected.cmp(&a.connected).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
-    out.truncate(LISTED);
-    out
+    let flag = |props: &HashMap<String, OwnedValue>, key: &str| get(props, key).and_then(|v| bool::try_from(v).ok()).unwrap_or(false);
+    let (mut paired, mut nearby) = (Vec::new(), Vec::new());
+    for (path, ifaces) in bluez_objects(conn).await {
+        let Some(d) = ifaces.get("org.bluez.Device1") else { continue };
+        let named = get(d, "Name").and_then(|v| String::try_from(v).ok());
+        let name = get(d, "Alias").and_then(|v| String::try_from(v).ok()).or_else(|| named.clone()).unwrap_or_default();
+        let device = BtDevice { path: path.to_string(), name, connected: flag(d, "Connected") };
+        if flag(d, "Paired") {
+            paired.push(device);
+        } else if named.is_some() {
+            nearby.push(device);
+        }
+    }
+    paired.sort_by(|a, b| b.connected.cmp(&a.connected).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    nearby.sort_by_key(|d| d.name.to_lowercase());
+    paired.truncate(LISTED);
+    nearby.truncate(LISTED);
+    (paired, nearby)
+}
+
+/// BlueZ adapters that are discovering.
+async fn discovering(conn: &Connection) -> bool {
+    bluez_objects(conn).await.values().filter_map(|i| i.get("org.bluez.Adapter1")).any(|a| a.get("Discovering").and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(false))
+}
+
+/// Pair with `path`, then trust and connect it.
+async fn pair(system: &Connection, path: &str) -> zbus::Result<()> {
+    const DEVICE: &str = "org.bluez.Device1";
+    system.call_method(Some(BLUEZ), path, Some(DEVICE), "Pair", &()).await?;
+    set_prop(system, BLUEZ, path, DEVICE, "Trusted", Value::from(true)).await?;
+    system.call_method(Some(BLUEZ), path, Some(DEVICE), "Connect", &()).await.map(drop)
 }
 
 const NM_WIRELESS: &str = "org.freedesktop.NetworkManager.Device.Wireless";
@@ -319,7 +344,11 @@ pub async fn read(system: Option<&Connection>) -> Status {
     status.bluetooth = bluetooth;
     status.airplane = airplane(wifi_on, bluetooth);
     if bluetooth == Some(true) {
-        status.devices = bt_devices(conn).await;
+        (status.devices, status.nearby) = bt_devices(conn).await;
+        status.discovering = discovering(conn).await;
+        if !status.discovering {
+            status.nearby.clear();
+        }
     }
     if wifi_on == Some(true) {
         status.networks = group_networks(access_points(conn).await.into_iter().map(|(_, _, n)| n).collect());
@@ -394,6 +423,21 @@ pub async fn apply(system: &Connection, toggle: Toggle) -> zbus::Result<()> {
             set_prop(system, name, PROFILES_PATH, iface, "ActiveProfile", Value::from(profile.as_str())).await
         }
         Toggle::ConnectWifi(ssid) => connect_wifi(system, &ssid).await,
+        Toggle::BluetoothDiscovery(on) => {
+            let method = if on { "StartDiscovery" } else { "StopDiscovery" };
+            for (path, powered) in adapters(system).await {
+                if powered {
+                    // Already (not) discovering is fine.
+                    let _ = system.call_method(Some(BLUEZ), path.as_str(), Some("org.bluez.Adapter1"), method, &()).await;
+                }
+            }
+            Ok(())
+        }
+        Toggle::BluetoothPair { path, .. } => {
+            let result = pair(system, &path).await;
+            crate::bluetooth_agent::pairing_done();
+            result
+        }
         Toggle::BluetoothDevice { path, connect } => {
             let method = if connect { "Connect" } else { "Disconnect" };
             system.call_method(Some(BLUEZ), path.as_str(), Some("org.bluez.Device1"), method, &()).await.map(drop)

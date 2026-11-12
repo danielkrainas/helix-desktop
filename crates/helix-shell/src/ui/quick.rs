@@ -26,6 +26,17 @@ const ROW_H: i32 = 40;
 const PAD: i32 = 12;
 const LIST_ROW_H: i32 = 32;
 
+/// A row of the open Wi-Fi or Bluetooth list.
+struct ListRow {
+    icon: Option<Image>,
+    name: String,
+    secured: bool,
+    connected: bool,
+    /// What clicking it does (none: a heading or a note, drawn dim).
+    hit: Option<OverlayHit>,
+    dim: bool,
+}
+
 /// A quick settings switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Switch {
@@ -119,6 +130,15 @@ impl Ui {
         let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Refresh));
     }
 
+    /// Stop the discovery "Pair New Device…" started once the Bluetooth
+    /// list or the menu is closed.
+    pub(super) fn quick_discovery_check(&mut self) {
+        if self.bt_discovery && (self.power_menu.is_none() || self.quick_list != Some(Switch::Bluetooth)) {
+            self.bt_discovery = false;
+            let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Toggle(Toggle::BluetoothDiscovery(false))));
+        }
+    }
+
     pub(super) fn quick_settings_changed(&mut self, state: QuickState) {
         self.quick = state;
         self.draw_power_menu();
@@ -126,6 +146,7 @@ impl Ui {
 
     /// A click on the menu; false when it should close.
     pub(super) fn quick_click(&mut self, hit: OverlayHit, x: f64, rect: Rect) -> bool {
+        tracing::debug!(?hit, x, "quick settings click");
         match hit {
             OverlayHit::Power(action) => {
                 tracing::info!(?action, "power menu");
@@ -174,6 +195,19 @@ impl Ui {
                 }
                 true
             }
+            OverlayHit::PairNew => {
+                self.bt_discovery = true;
+                let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Toggle(Toggle::BluetoothDiscovery(true))));
+                self.draw_power_menu();
+                true
+            }
+            OverlayHit::BtNearby(index) => {
+                if let Some(device) = self.status.nearby.get(index) {
+                    let toggle = Toggle::BluetoothPair { path: device.path.clone(), name: device.name.clone() };
+                    let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Toggle(toggle)));
+                }
+                true
+            }
             OverlayHit::Inside => true,
             _ => false,
         }
@@ -206,17 +240,34 @@ impl Ui {
         let states: Vec<bool> = switches.iter().map(|(s, _)| self.switch_on(*s)).collect();
         let profiles: Vec<(String, bool)> = self.status.profiles.iter().map(|p| (profile_label(p), self.status.profile.as_deref() == Some(p.as_str()))).collect();
         let switch_rows = switches.len().div_ceil(3) as i32;
-        // The open list: (icon, name, secured, connected) rows.
+        // The open list.
         let list_open = self.quick_list.filter(|s| switches.iter().any(|(x, _)| x == s));
-        let rows: Vec<(Option<Image>, String, bool, bool)> = match list_open {
+        let row = |name: String, hit: Option<OverlayHit>| ListRow { icon: None, name, secured: false, connected: false, hit, dim: hit.is_none() };
+        let rows: Vec<ListRow> = match list_open {
             Some(Switch::Wifi) => {
                 let networks = self.status.networks.clone();
-                networks.iter().map(|n| (self.symbolic_icon(crate::status::wifi_icon(n.strength), scale), n.ssid.clone(), n.secured, n.active)).collect()
+                networks
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| ListRow { icon: self.symbolic_icon(crate::status::wifi_icon(n.strength), scale), name: n.ssid.clone(), secured: n.secured, connected: n.active, hit: Some(OverlayHit::Network(i)), dim: false })
+                    .collect()
             }
-            Some(Switch::Bluetooth) => self.status.devices.clone().into_iter().map(|d| (None, d.name, false, d.connected)).collect(),
+            Some(Switch::Bluetooth) => {
+                let mut rows: Vec<ListRow> = self.status.devices.iter().enumerate().map(|(i, d)| ListRow { connected: d.connected, ..row(d.name.clone(), Some(OverlayHit::BtDevice(i))) }).collect();
+                if self.bt_discovery || self.status.discovering {
+                    rows.push(row("Nearby Devices".into(), None));
+                    if self.status.nearby.is_empty() {
+                        rows.push(row("Searching…".into(), None));
+                    }
+                    rows.extend(self.status.nearby.iter().enumerate().map(|(i, d)| row(d.name.clone(), Some(OverlayHit::BtNearby(i)))));
+                } else {
+                    rows.push(row("Pair New Device…".into(), Some(OverlayHit::PairNew)));
+                }
+                rows
+            }
             _ => Vec::new(),
         };
-        let lock = if rows.iter().any(|r| r.2) { self.symbolic_icon("channel-secure-symbolic", scale) } else { None };
+        let lock = if rows.iter().any(|r| r.secured) { self.symbolic_icon("channel-secure-symbolic", scale) } else { None };
         let list_h = if list_open.is_some() { 8 + rows.len().max(1) as i32 * LIST_ROW_H + 8 } else { 0 };
         let profile_h = if profiles.is_empty() { 0 } else { 26 + 36 + 8 };
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
@@ -291,7 +342,7 @@ impl Ui {
                 let empty = if open == Switch::Wifi { "No Networks" } else { "No Devices" };
                 label(text, &mut canvas, empty, (lx + 12) as f32, baseline(text, ry, LIST_ROW_H, 13.0), 13.0, DIM_FG, (lw - 24) as f32);
             }
-            for (i, (icon, name, secured, connected)) in rows.iter().enumerate() {
+            for ListRow { icon, name, secured, connected, hit, dim } in &rows {
                 let r = Rect { x: lx, y: ry, w: lw, h: LIST_ROW_H };
                 let mut tx = r.x + 12;
                 if let Some(icon) = icon {
@@ -300,7 +351,7 @@ impl Ui {
                 }
                 let state_w = if *connected { 76 } else { 0 };
                 let lock_w = if *secured { 22 } else { 0 };
-                label(text, &mut canvas, name, tx as f32, baseline(text, r.y, r.h, 13.0), 13.0, FG, (r.x + r.w - tx - state_w - lock_w - 8) as f32);
+                label(text, &mut canvas, name, tx as f32, baseline(text, r.y, r.h, 13.0), 13.0, if *dim { DIM_FG } else { FG }, (r.x + r.w - tx - state_w - lock_w - 8) as f32);
                 if *secured {
                     if let Some(lock) = &lock {
                         canvas.image(f64::from(r.x + r.w - state_w - lock_w - 4), f64::from(r.y + (r.h - 14) / 2), 14.0, 14.0, lock);
@@ -309,8 +360,9 @@ impl Ui {
                 if *connected {
                     label(text, &mut canvas, "Connected", (r.x + r.w - state_w) as f32, baseline(text, r.y, r.h, 12.0), 12.0, ACCENT, (state_w - 8) as f32);
                 }
-                let hit = if open == Switch::Wifi { OverlayHit::Network(i) } else { OverlayHit::BtDevice(i) };
-                overlay.hits.push((r, hit));
+                if let Some(hit) = hit {
+                    overlay.hits.push((r, *hit));
+                }
                 ry += LIST_ROW_H;
             }
             y += list_h;
