@@ -91,6 +91,8 @@ fn main() -> ExitCode {
     });
     // Network, battery, volume and radios for the panel.
     runtime.spawn(helix_shell::status::follow(service.ui_sender()));
+    // Microphone and camera use, from PipeWire.
+    helix_shell::privacy::run(helix_shell::status::changed);
     // Dimming, blanking, automatic suspend, the power button, the battery.
     runtime.spawn(helix_shell::power::run_idle(service.connection().clone()));
     runtime.spawn(helix_shell::power::run_logind_locks(service.connection().clone()));

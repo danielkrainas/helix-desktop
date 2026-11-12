@@ -9,6 +9,7 @@ description = "Helix shell: org.gnome.Shell and the shell UI"
 
 [dependencies]
 zbus.workspace = true
+pipewire.workspace = true
 tokio.workspace = true
 futures-util.workspace = true
 tracing.workspace = true

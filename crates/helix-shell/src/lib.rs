@@ -28,6 +28,7 @@ pub mod media;
 pub mod notifications;
 pub mod polkit;
 pub mod power;
+pub mod privacy;
 pub mod prompt;
 pub mod notify_store;
 pub mod recording;

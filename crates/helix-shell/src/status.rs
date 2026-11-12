@@ -45,6 +45,9 @@ pub struct Status {
     pub accelerometer: bool,
     /// An app uses the location (GeoClue), with location services on.
     pub location: bool,
+    /// An app records from a microphone; a camera is running.
+    pub microphone: bool,
+    pub camera: bool,
 }
 
 /// A quick settings switch acting on the system.
@@ -133,7 +136,8 @@ fn location_enabled() -> bool {
 }
 
 pub async fn read(system: Option<&Connection>) -> Status {
-    let mut status = Status { show_percentage: show_percentage(), ..Status::default() };
+    let (microphone, camera) = crate::privacy::current();
+    let mut status = Status { show_percentage: show_percentage(), microphone, camera, ..Status::default() };
     if let Some((percent, muted)) = crate::shell_keys::volume_state().await {
         status.volume = Some(crate::shell_keys::volume_icon(percent, muted).to_owned());
     }
