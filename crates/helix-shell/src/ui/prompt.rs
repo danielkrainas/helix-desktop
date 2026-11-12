@@ -11,7 +11,7 @@ use crate::auth::Secret;
 use crate::prompt::{Answer, Prompt, Request};
 
 const LIST_ROW: i32 = 32;
-const LIST_SHOWN: usize = 8;
+const LIST_SHOWN: usize = 10;
 
 /// A prompt on screen.
 pub(super) struct PromptView {
@@ -24,8 +24,10 @@ pub(super) struct PromptView {
     /// 0, 1: a password field; 2: the check box; 3: the text field.
     focus: usize,
     choice: bool,
-    /// The list row picked.
+    /// The list row picked (with `multiple`: the current row).
     selected: usize,
+    /// With `multiple`: which rows are picked.
+    picked: Vec<bool>,
     /// Answered; waiting for the next prompt or the end.
     busy: bool,
 }
@@ -41,7 +43,8 @@ impl PromptView {
             (None, None) => 2,
         };
         let selected = request.prompt.selected.min(request.prompt.list.len().saturating_sub(1));
-        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, busy: false }
+        let picked = vec![false; request.prompt.list.len()];
+        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false }
     }
 
     /// Answer "cancel" if nobody answered yet.
@@ -126,7 +129,8 @@ impl Ui {
         let password = view.prompt.password.is_some().then(|| take(&mut view.fields[0]));
         let confirm = view.prompt.confirm.is_some().then(|| take(&mut view.fields[1]));
         let entry = view.prompt.entry.is_some().then(|| view.entry.clone());
-        let answer = Answer::Continue { entry, password, confirm, choice: view.choice, selected: view.selected };
+        let picked = view.picked.iter().enumerate().filter(|(_, p)| **p).map(|(i, _)| i).collect();
+        let answer = Answer::Continue { entry, password, confirm, choice: view.choice, selected: view.selected, picked };
         if let Some(reply) = view.reply.take() {
             let _ = reply.send(answer);
         }
@@ -140,7 +144,16 @@ impl Ui {
         if view.busy || row >= view.prompt.list.len() {
             return;
         }
+        let pickable = view.prompt.multiple && !view.prompt.unpickable.contains(&row);
+        // A second click on the current row answers (like a double click).
+        let again = view.prompt.activate_rows && !pickable && view.selected == row;
         view.selected = row;
+        if pickable {
+            view.picked[row] = !view.picked[row];
+        }
+        if again {
+            return self.prompt_answer(true);
+        }
         self.draw_dialog();
     }
 
@@ -184,6 +197,12 @@ impl Ui {
             }
             Keysym::Down if !view.prompt.list.is_empty() => view.selected = (view.selected + 1).min(view.prompt.list.len() - 1),
             Keysym::Up if !view.prompt.list.is_empty() => view.selected = view.selected.saturating_sub(1),
+            Keysym::space if view.focus == 2 && view.prompt.choice.is_none() && view.prompt.multiple && !view.prompt.list.is_empty() => {
+                let row = view.selected;
+                if !view.prompt.unpickable.contains(&row) {
+                    view.picked[row] = !view.picked[row];
+                }
+            }
             Keysym::space if view.focus == 2 => {
                 view.choice = !view.choice;
             }
@@ -263,7 +282,17 @@ impl Ui {
             canvas.rect(bx + 24, y, bw - 48, shown as i32 * LIST_ROW, FIELD_BG);
             for (i, name) in p.list.iter().enumerate().skip(first).take(shown) {
                 let r = Rect { x: bx + 24, y: y + (i - first) as i32 * LIST_ROW, w: bw - 48, h: LIST_ROW };
-                if i == view.selected {
+                if p.multiple {
+                    if view.picked[i] {
+                        canvas.rect(r.x, r.y, r.w, r.h, ACCENT);
+                    }
+                    if i == view.selected {
+                        // The current row: an outline.
+                        for (x, y, w, h) in [(r.x, r.y, r.w, 1), (r.x, r.y + r.h - 1, r.w, 1), (r.x, r.y, 1, r.h), (r.x + r.w - 1, r.y, 1, r.h)] {
+                            canvas.rect(x, y, w, h, FG);
+                        }
+                    }
+                } else if i == view.selected {
                     canvas.rect(r.x, r.y, r.w, r.h, ACCENT);
                 }
                 label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 24) as f32);

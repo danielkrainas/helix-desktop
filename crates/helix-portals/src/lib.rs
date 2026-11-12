@@ -9,6 +9,7 @@
 
 pub mod clipboard;
 pub mod dialogs;
+pub mod file_chooser;
 pub mod inhibit;
 pub mod lockdown;
 pub mod notification;
@@ -78,6 +79,7 @@ impl PortalService {
         server.at(OBJECT_PATH, dialogs::BackgroundBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, wallpaper::WallpaperBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, lockdown::LockdownBackend::default()).await?;
+        server.at(OBJECT_PATH, file_chooser::FileChooserBackend { conn: conn.clone(), folders: Default::default() }).await?;
         server.at(OBJECT_PATH, print::PrintBackend { conn: conn.clone(), prepared: Default::default() }).await?;
         let added = notification::Added::default();
         server.at(OBJECT_PATH, notification::NotificationBackend { conn: conn.clone(), added: added.clone() }).await?;
@@ -163,6 +165,7 @@ impl PortalService {
         server.remove::<lockdown::LockdownBackend, _>(OBJECT_PATH).await?;
         server.remove::<notification::NotificationBackend, _>(OBJECT_PATH).await?;
         server.remove::<print::PrintBackend, _>(OBJECT_PATH).await?;
+        server.remove::<file_chooser::FileChooserBackend, _>(OBJECT_PATH).await?;
         self.conn.graceful_shutdown().await;
         Ok(())
     }

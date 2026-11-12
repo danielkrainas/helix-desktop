@@ -27,6 +27,13 @@ pub struct Prompt {
     /// Rows to pick one of, and the one picked at first.
     pub list: Vec<String>,
     pub selected: usize,
+    /// Rows can be picked together (clicks and Space toggle them).
+    pub multiple: bool,
+    /// Clicking the current row again continues.
+    pub activate_rows: bool,
+    /// With `multiple`: rows that cannot be picked (they act as without
+    /// `multiple`).
+    pub unpickable: Vec<usize>,
     /// A picture below the text (e.g. a background to preview).
     pub picture: Option<std::sync::Arc<helix_draw::Image>>,
     /// Shown in a warning color, e.g. after a wrong password.
@@ -37,7 +44,8 @@ pub struct Prompt {
 
 /// The user's answer.
 pub enum Answer {
-    Continue { entry: Option<String>, password: Option<Secret>, confirm: Option<Secret>, choice: bool, selected: usize },
+    /// `picked`: with `multiple`, the rows picked (else none).
+    Continue { entry: Option<String>, password: Option<Secret>, confirm: Option<Secret>, choice: bool, selected: usize, picked: Vec<usize> },
     Cancel,
 }
 

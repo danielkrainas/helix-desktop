@@ -38,6 +38,9 @@ pub fn dialog_prompt(options: &HashMap<String, OwnedValue>) -> Prompt {
         choice: (!check_label.is_empty()).then(|| (check_label, get(options, "check").unwrap_or(false))),
         selected: selected.min(list.len().saturating_sub(1)),
         list,
+        multiple: get(options, "multiple").unwrap_or(false),
+        activate_rows: get(options, "activate-rows").unwrap_or(false),
+        unpickable: get::<Vec<i32>>(options, "unpickable").unwrap_or_default().into_iter().filter_map(|i| usize::try_from(i).ok()).collect(),
         continue_label: text("accept"),
         cancel_label: text("cancel"),
         entry: (!entry_label.is_empty()).then(|| (entry_label, text("entry"))),
@@ -121,6 +124,7 @@ impl PortalDialog {
     /// 0 accepted, 1 canceled.
     async fn dialog(&self, options: HashMap<String, OwnedValue>) -> (u32, HashMap<String, OwnedValue>) {
         let mut prompt = dialog_prompt(&options);
+        let prompt_multiple = prompt.multiple;
         if let Some(path) = get::<String>(&options, "picture").filter(|p| !p.is_empty()) {
             let decoded = tokio::task::spawn_blocking(move || crate::wallpaper::decode(std::path::Path::new(&path))).await;
             match decoded {
@@ -133,10 +137,14 @@ impl PortalDialog {
         let answer = prompt::ask(&self.ui, prompt).await;
         prompt::done(&self.ui);
         match answer {
-            Answer::Continue { choice, selected, entry, .. } => {
+            Answer::Continue { choice, selected, entry, picked, .. } => {
                 let mut results = HashMap::from([("check".to_owned(), owned(Value::from(choice))), ("selected".to_owned(), owned(Value::from(selected as i32)))]);
                 if let Some(entry) = entry {
                     results.insert("entry".to_owned(), owned(Value::from(entry)));
+                }
+                if prompt_multiple {
+                    let picked: Vec<i32> = picked.into_iter().map(|i| i as i32).collect();
+                    results.insert("picked".to_owned(), owned(Value::from(picked)));
                 }
                 (0, results)
             }
