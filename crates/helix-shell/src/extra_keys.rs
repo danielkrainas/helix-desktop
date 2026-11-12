@@ -131,22 +131,14 @@ pub async fn session(conn: &Connection, key: SessionKey) {
         SessionKey::Shutdown => sm("Shutdown", None).await,
         SessionKey::Reboot => sm("Reboot", None).await,
         SessionKey::Suspend => sm("Suspend", None).await,
-        SessionKey::Hibernate => hibernate().await,
+        SessionKey::Hibernate => {
+            crate::power::hibernate(conn).await;
+            Ok(())
+        }
     };
     if let Err(err) = result {
         tracing::warn!(%err, ?key, "session key failed");
     }
-}
-
-async fn hibernate() -> zbus::Result<()> {
-    let system = Connection::system().await?;
-    let (name, path, iface) = ("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager");
-    let can: String = system.call_method(Some(name), path, Some(iface), "CanHibernate", &()).await?.body().deserialize()?;
-    if can != "yes" {
-        tracing::info!(can, "cannot hibernate");
-        return Ok(());
-    }
-    system.call_method(Some(name), path, Some(iface), "Hibernate", &(false,)).await.map(drop)
 }
 
 // ----- Text size, contrast, touchpad -----------------------------------

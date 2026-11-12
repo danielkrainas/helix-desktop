@@ -473,6 +473,28 @@ impl Helix {
         self.render_crtc(crtc);
     }
 
+    /// Turn every monitor off (DPMS) or back on (`PowerSaveMode`).
+    pub fn set_power_save(&mut self, off: bool) {
+        if self.screens_off == off {
+            return;
+        }
+        self.screens_off = off;
+        tracing::info!(off, "monitor power");
+        if off {
+            if let Some(udev) = self.udev.as_mut() {
+                for surface in udev.surfaces.values_mut() {
+                    if let Err(err) = surface.drm_output.with_compositor(|c| c.clear()) {
+                        tracing::warn!(?err, "cannot turn a monitor off");
+                    }
+                    surface.frame_pending = false;
+                }
+            }
+        } else {
+            self.redraw_fully();
+        }
+        self.render_all();
+    }
+
     /// Draw every monitor in full next time (e.g. the magnifier's color
     /// effects changed, which no element's damage shows).
     pub fn redraw_fully(&mut self) {
@@ -507,6 +529,7 @@ impl Helix {
             start_time,
             lock,
             zoom,
+            screens_off,
             ..
         } = self;
         let Some(udev) = udev.as_mut() else { return };
@@ -514,7 +537,7 @@ impl Helix {
             return;
         }
         let Some(surface) = udev.surfaces.get_mut(&crtc) else { return };
-        if surface.frame_pending || surface.current.is_none() {
+        if surface.frame_pending || surface.current.is_none() || *screens_off {
             return;
         }
         let output = surface.output.clone();

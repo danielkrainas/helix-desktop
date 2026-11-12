@@ -649,6 +649,9 @@ pub const IDENTITY_CTM: Ctm = {
 pub enum ColorSet {
     Gamma(Ramps),
     Ctm(Ctm),
+    /// `PowerSaveMode` for every monitor (the connector is ignored): 0 on,
+    /// anything else off.
+    PowerSave(i32),
 }
 
 /// Why a color request failed.
@@ -1071,7 +1074,13 @@ impl DisplayConfig {
         if !(0..=3).contains(&mode) {
             return Err(zbus::fdo::Error::InvalidArgs(format!("invalid power save mode {mode}")));
         }
-        // Recorded only: the nested backend cannot blank outputs.
+        if let Some(compositor) = &self.gamma {
+            let (reply, answer) = oneshot::channel();
+            let request = ColorRequest { connector: String::new(), set: Some(ColorSet::PowerSave(mode)), reply };
+            if compositor.send(request).is_ok() {
+                let _ = answer.await;
+            }
+        }
         self.power_save_mode = mode;
         Ok(())
     }

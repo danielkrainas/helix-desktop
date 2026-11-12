@@ -162,6 +162,25 @@ impl Center {
         }, None)
     }
 
+    /// A notice from the system itself (battery warnings).
+    pub fn system_notice(&self, summary: &str, body: &str, critical: bool) -> u32 {
+        let urgency = if critical { Urgency::Critical } else { Urgency::Normal };
+        self.post(Notification {
+            id: 0,
+            app_name: "Power".into(),
+            summary: summary.into(),
+            body: body.into(),
+            actions: Vec::new(),
+            has_default: false,
+            urgency,
+            timeout: Notification::timeout_from(-1, urgency),
+            icon: Some(IconSource::Names(vec![if critical { "battery-caution-symbolic" } else { "battery-low-symbolic" }.into()])),
+            origin: Origin::Freedesktop { resident: false },
+            markup: false,
+            transient: false,
+        }, None)
+    }
+
     /// "Screencast recorded", naming the file.
     pub fn screencast_recorded(&self, path: std::path::PathBuf) -> u32 {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();

@@ -71,6 +71,7 @@ fn fake_compositor() -> (mpsc::UnboundedSender<ColorRequest>, mpsc::UnboundedRec
                     let _ = ctm_tx.send((connector, ctm));
                     Ok(current)
                 }
+                Some(ColorSet::PowerSave(_)) => Ok(current),
             };
             let _ = reply.send(result);
         }

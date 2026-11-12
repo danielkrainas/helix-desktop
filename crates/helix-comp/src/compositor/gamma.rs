@@ -47,6 +47,11 @@ impl Helix {
 
     pub fn gamma_request(&mut self, request: ColorRequest) {
         let ColorRequest { connector, set, reply } = request;
+        if let Some(ColorSet::PowerSave(mode)) = set {
+            self.set_power_save(mode != 0);
+            let _ = reply.send(Ok((Vec::new(), Vec::new(), Vec::new())));
+            return;
+        }
         let result = match self.gamma_size(&connector) {
             None => Err(ColorError::Invalid(format!("no monitor {connector}"))),
             Some(size) => {
@@ -62,6 +67,7 @@ impl Helix {
                         Ok(ramps)
                     }
                     Some(ColorSet::Ctm(ctm)) => self.set_ctm(&connector, ctm).map(|()| current),
+                    Some(ColorSet::PowerSave(_)) => Ok(current),
                 }
             }
         };

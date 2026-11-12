@@ -157,6 +157,8 @@ pub enum KeyAction {
     Custom(usize),
     /// `rotate-video-lock`: flip the orientation lock.
     RotationLock,
+    /// The power button (`power-button-action`).
+    PowerButton,
 }
 
 impl KeyAction {
@@ -165,6 +167,7 @@ impl KeyAction {
         match self {
             KeyAction::Brightness(_) | KeyAction::Volume(_) | KeyAction::Playback(_) | KeyAction::A11y(_) | KeyAction::KbdBacklight(_) | KeyAction::Battery => true,
             KeyAction::Session(key) => matches!(key, SessionKey::Suspend | SessionKey::Hibernate),
+            KeyAction::PowerButton => true,
             _ => false,
         }
     }
@@ -237,8 +240,8 @@ const KEYS: &[(&str, &str, &[&str], KeyAction)] = &[
     (MEDIA_KEYS, "screensaver-static", &["XF86ScreenSaver"], KeyAction::Session(SessionKey::Lock)),
     (MEDIA_KEYS, "logout", &["<Control><Alt>Delete"], KeyAction::Session(SessionKey::Logout)),
     (MEDIA_KEYS, "shutdown", &[], KeyAction::Session(SessionKey::Shutdown)),
-    (MEDIA_KEYS, "power", &[], KeyAction::Session(SessionKey::Shutdown)),
-    (MEDIA_KEYS, "power-static", &["XF86PowerOff"], KeyAction::Session(SessionKey::Shutdown)),
+    (MEDIA_KEYS, "power", &[], KeyAction::PowerButton),
+    (MEDIA_KEYS, "power-static", &["XF86PowerOff"], KeyAction::PowerButton),
     (MEDIA_KEYS, "reboot", &[], KeyAction::Session(SessionKey::Reboot)),
     (MEDIA_KEYS, "suspend", &[], KeyAction::Session(SessionKey::Suspend)),
     (MEDIA_KEYS, "suspend-static", &["XF86Sleep"], KeyAction::Session(SessionKey::Suspend)),

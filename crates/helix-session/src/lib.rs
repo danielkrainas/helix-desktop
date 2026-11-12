@@ -193,10 +193,10 @@ impl SessionService {
             task.abort();
         }
         // A round trip to the bus also ensures the end-request reply has
-        // been flushed before we disconnect.
+        // been flushed. (Not `graceful_shutdown`: it waits for every clone
+        // of the connection, and the caller keeps one to clean up.)
         self.conn.release_name(BUS_NAME).await?;
         self.conn.object_server().remove::<SessionManager, _>(OBJECT_PATH).await?;
-        self.conn.graceful_shutdown().await;
         Ok(end)
     }
 }

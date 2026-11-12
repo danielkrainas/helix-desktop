@@ -189,6 +189,8 @@ pub struct Helix {
     /// The magnifier.
     pub zoom: zoom::ZoomState,
     pub hot_corner: helix_comp::hot_corner::HotCorner,
+    /// `PowerSaveMode` turned the monitors off.
+    pub screens_off: bool,
     /// Where a dragged window would go if released now (edge tiling).
     pub tile_target: Option<wm::Takeover>,
     pub wm: wm_behavior::WmState,
@@ -298,6 +300,7 @@ impl Helix {
             mouse_access: Default::default(),
             zoom: Default::default(),
             hot_corner: Default::default(),
+            screens_off: false,
             tile_target: None,
             wm: Default::default(),
             alive: Default::default(),

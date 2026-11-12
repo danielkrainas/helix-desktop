@@ -25,6 +25,7 @@ pub mod icons;
 pub mod markup;
 pub mod notifications;
 pub mod polkit;
+pub mod power;
 pub mod prompt;
 pub mod notify_store;
 pub mod recording;
@@ -857,6 +858,10 @@ impl UiBridge {
                             Ok(system) => extra_keys::battery(&system).await,
                             Err(_) => None,
                         },
+                        shell_keys::KeyAction::PowerButton => {
+                            power::act(&conn, power::read().button).await;
+                            None
+                        }
                         shell_keys::KeyAction::RotationLock => {
                             extra_keys::toggle_orientation_lock();
                             let locked = extra_keys::orientation_locked();

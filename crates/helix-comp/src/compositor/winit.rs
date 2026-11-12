@@ -188,7 +188,9 @@ pub fn init(
                         elements
                     };
                     let elements = super::zoom::wrap(&mut state.zoom, renderer, &output, geo, pointer, elements);
-                    let clear = if locked { [0.0, 0.0, 0.0, 1.0] } else { [0.12, 0.12, 0.14, 1.0] };
+                    // Monitors off: the window shows black.
+                    let elements = if state.screens_off { Vec::new() } else { elements };
+                    let clear = if locked || state.screens_off { [0.0, 0.0, 0.0, 1.0] } else { [0.12, 0.12, 0.14, 1.0] };
                     let (renderer, mut framebuffer) = match backend.bind() {
                         Ok(bound) => bound,
                         Err(err) => {
