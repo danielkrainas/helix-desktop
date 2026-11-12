@@ -5,6 +5,7 @@
 
 pub const SCHEMA: &str = "org.gnome.shell.extensions.dash-to-dock";
 const SHELL: &str = "org.gnome.shell";
+pub const INTERFACE: &str = "org.gnome.desktop.interface";
 /// Extensions whose being listed in `org.gnome.shell disabled-extensions`
 /// turns the dock off.
 pub const DOCK_EXTENSIONS: [&str; 2] = ["ubuntu-dock@ubuntu.com", "dash-to-dock@micxgx.gmail.com"];
@@ -136,6 +137,11 @@ pub struct DockSettings {
     /// `require-pressure-to-show` and `pressure-threshold` (pixels).
     pub require_pressure: bool,
     pub pressure_threshold: f64,
+    /// How long showing and hiding slide, in seconds (`animation-time`;
+    /// 0 when `org.gnome.desktop.interface enable-animations` is off).
+    pub animation_time: f64,
+    /// The most of the edge the dock takes (`height-fraction`).
+    pub height_fraction: f64,
 }
 
 impl Default for DockSettings {
@@ -175,6 +181,8 @@ impl Default for DockSettings {
             previews: true,
             require_pressure: true,
             pressure_threshold: 100.0,
+            animation_time: 0.2,
+            height_fraction: 0.9,
         }
     }
 }
@@ -188,8 +196,12 @@ pub fn read() -> DockSettings {
     let disabled = has(SHELL)
         && gio::Settings::new(SHELL).settings_schema().is_some_and(|s| s.has_key("disabled-extensions"))
         && gio::Settings::new(SHELL).strv("disabled-extensions").iter().any(|e| DOCK_EXTENSIONS.contains(&e.as_str()));
+    let animations = !has(INTERFACE) || {
+        let i = gio::Settings::new(INTERFACE);
+        !i.settings_schema().is_some_and(|s| s.has_key("enable-animations")) || i.boolean("enable-animations")
+    };
     if !has(SCHEMA) {
-        return DockSettings { enabled: !disabled, ..d };
+        return DockSettings { enabled: !disabled, animation_time: if animations { d.animation_time } else { 0.0 }, ..d };
     }
     let s = gio::Settings::new(SCHEMA);
     let schema = s.settings_schema();
@@ -256,6 +268,8 @@ pub fn read() -> DockSettings {
         previews: b("show-windows-preview", d.previews),
         require_pressure: b("require-pressure-to-show", d.require_pressure),
         pressure_threshold: num("pressure-threshold", d.pressure_threshold).clamp(0.0, 10000.0),
+        animation_time: if animations { num("animation-time", d.animation_time).clamp(0.0, 2.0) } else { 0.0 },
+        height_fraction: num("height-fraction", d.height_fraction).clamp(0.1, 1.0),
     }
 }
 
@@ -370,6 +384,24 @@ pub fn items(s: &DockSettings, favorites: &[String], installed: &[String], runni
         out.push(Item::ShowApps);
     }
     out
+}
+
+/// The dock's room along an edge `edge` pixels long: `height-fraction`
+/// of what the panel's height at both ends leaves.
+pub fn room(s: &DockSettings, edge: i32, panel: i32) -> i32 {
+    ((f64::from(edge - 2 * panel)) * s.height_fraction).round() as i32
+}
+
+/// How far (pixels) a sliding dock is pushed off its edge, `elapsed`
+/// seconds into a slide from `from` to `to` lasting `total` seconds;
+/// `None` once it has arrived. Eases out.
+pub fn slide_offset(from: f64, to: f64, elapsed: f64, total: f64) -> Option<f64> {
+    if total <= 0.0 || elapsed >= total {
+        return None;
+    }
+    let t = (elapsed / total).clamp(0.0, 1.0);
+    let e = 1.0 - (1.0 - t).powi(3);
+    Some(from + (to - from) * e)
 }
 
 /// The icon size that fits `count` items in `room` pixels along the edge
@@ -628,6 +660,18 @@ mod tests {
     fn field_codes() {
         assert_eq!(strip_field_codes("firefox --private-window %u"), "firefox --private-window");
         assert_eq!(strip_field_codes("app --x=100%% %F"), "app --x=100%");
+    }
+
+    #[test]
+    fn slides_and_room() {
+        let d = DockSettings::default();
+        assert_eq!(room(&d, 1080, 32), 914);
+        assert_eq!(room(&DockSettings { height_fraction: 0.5, ..d }, 1032, 16), 500);
+        assert_eq!(slide_offset(60.0, 0.0, 0.0, 0.2), Some(60.0));
+        let mid = slide_offset(60.0, 0.0, 0.1, 0.2).unwrap();
+        assert!(mid < 30.0 && mid > 0.0, "eases out: {mid}");
+        assert_eq!(slide_offset(60.0, 0.0, 0.2, 0.2), None);
+        assert_eq!(slide_offset(0.0, 60.0, 0.0, 0.0), None, "no animation");
     }
 
     #[test]

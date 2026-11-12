@@ -131,7 +131,7 @@ fn main() -> ExitCode {
     // The dock's settings (Ubuntu's Dash to Dock schema, when installed).
     let dock_ui = service.ui_sender();
     runtime.spawn(async move {
-        let schemas: Vec<&str> = [helix_shell::dock::SCHEMA, "org.gnome.shell"].into_iter().filter(|s| helix_settings::has_schema(s)).collect();
+        let schemas: Vec<&str> = [helix_shell::dock::SCHEMA, "org.gnome.shell", helix_shell::dock::INTERFACE].into_iter().filter(|s| helix_settings::has_schema(s)).collect();
         let watched = helix_settings::GSettings::new(&schemas);
         let (mut changes, _watch) = watched.watch();
         loop {

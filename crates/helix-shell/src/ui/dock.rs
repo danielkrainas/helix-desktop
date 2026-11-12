@@ -75,6 +75,11 @@ pub(super) struct DockView {
     /// Revealed from the screen edge (until the pointer leaves).
     revealed: bool,
     timer: Option<RegistrationToken>,
+    /// How far (pixels) the bar is pushed off its edge: 0 when all in.
+    offset: f64,
+    /// Sliding: since when, from and to which offset, and the ticking timer.
+    slide: Option<(std::time::Instant, f64, f64)>,
+    slide_timer: Option<RegistrationToken>,
     press: Option<(usize, (f64, f64), u32)>,
     drag: Option<(usize, (f64, f64))>,
 }
@@ -277,7 +282,7 @@ impl Ui {
         let installed: Vec<String> = gio::AppInfo::all().into_iter().filter(|a| a.should_show()).filter_map(|a| a.id().map(|i| i.to_string())).collect();
         let running: Vec<String> = self.dock_running().into_iter().map(|a| desktop_id(&a).map_or(a, |d| d.trim_end_matches(".desktop").to_owned())).collect();
         let items = logic::items(&s, &crate::favorites::favorites(), &installed, &running, self.dock.mounts.len());
-        let room = if s.edge.vertical() { area.3 } else { area.2 } - 2 * PANEL_HEIGHT as i32;
+        let room = logic::room(&s, if s.edge.vertical() { area.3 } else { area.2 }, PANEL_HEIGHT as i32);
         let icon = logic::fit_icon_size(s.icon_size, s.icon_size_fixed, items.len(), room);
         let thickness = icon + icon / 3 + 8;
         let length = if s.extend { if s.edge.vertical() { area.3 } else { area.2 } } else { Self::dock_length(icon, &items).min(room) };
@@ -332,7 +337,9 @@ impl Ui {
                 layer.set_anchor(anchor);
                 layer.set_size(sw, sh);
                 layer.set_exclusive_zone(zone);
+                self.dock_set_margin();
                 layer.commit();
+                self.dock_slide_to(0.0);
                 if self.dock.views[self.dock.cur].configured && (sw == 0 || sw == self.dock.views[self.dock.cur].width) && (sh == 0 || sh == self.dock.views[self.dock.cur].height) {
                     self.dock_draw();
                 }
@@ -344,9 +351,16 @@ impl Ui {
                 layer.set_size(sw, sh);
                 layer.set_exclusive_zone(zone);
                 layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-                layer.commit();
                 self.dock.views[self.dock.cur].layer = Some(layer);
                 self.dock.views[self.dock.cur].configured = false;
+                // It slides in from beyond the edge.
+                self.dock.views[self.dock.cur].offset = if s.animation_time > 0.0 { f64::from(thickness) } else { 0.0 };
+                self.dock.views[self.dock.cur].slide = None;
+                self.dock_set_margin();
+                if let Some(layer) = self.dock.views[self.dock.cur].layer.as_ref() {
+                    layer.commit();
+                }
+                self.dock_slide_to(0.0);
             }
         }
     }
@@ -354,8 +368,13 @@ impl Ui {
     /// Take the dock down; with `trigger`, leave the edge strip that
     /// reveals it.
     fn dock_hide(&mut self, trigger: bool) {
-        self.dock.views[self.dock.cur].layer = None;
-        self.dock.views[self.dock.cur].configured = false;
+        if self.dock.views[self.dock.cur].layer.is_some() && self.dock.views[self.dock.cur].configured {
+            // It slides out, then goes.
+            let thickness = f64::from(self.dock.views[self.dock.cur].thickness);
+            self.dock_slide_to(thickness);
+        } else {
+            self.dock_drop_layer();
+        }
         self.dock.views[self.dock.cur].hover = None;
         self.dock.views[self.dock.cur].pointer_on = false;
         if !trigger {
@@ -381,6 +400,95 @@ impl Ui {
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.commit();
         self.dock.views[self.dock.cur].trigger = Some(layer);
+    }
+
+    fn dock_drop_layer(&mut self) {
+        let view = &mut self.dock.views[self.dock.cur];
+        view.layer = None;
+        view.configured = false;
+        view.slide = None;
+        view.offset = 0.0;
+        if let (Some(handle), Some(token)) = (self.loop_handle.as_ref(), view.slide_timer.take()) {
+            handle.remove(token);
+        }
+    }
+
+    /// Push the current view's surface `offset` pixels off its edge (not
+    /// committed).
+    fn dock_set_margin(&self) {
+        let view = &self.dock.views[self.dock.cur];
+        let Some(layer) = view.layer.as_ref() else { return };
+        let m = -(view.offset.round() as i32);
+        match self.dock.settings.edge {
+            Edge::Top => layer.set_margin(m, 0, 0, 0),
+            Edge::Right => layer.set_margin(0, m, 0, 0),
+            Edge::Bottom => layer.set_margin(0, 0, m, 0),
+            Edge::Left => layer.set_margin(0, 0, 0, m),
+        }
+    }
+
+    /// Slide the current view to `target` (0: all in; its thickness: out,
+    /// after which its surface goes), over `animation-time`.
+    fn dock_slide_to(&mut self, target: f64) {
+        let total = self.dock.settings.animation_time;
+        let view = &mut self.dock.views[self.dock.cur];
+        let heading = view.slide.map_or(view.offset, |(_, _, to)| to);
+        if heading == target && (view.slide.is_some() || view.offset == target) {
+            if view.offset == target && target > 0.0 {
+                self.dock_drop_layer();
+            }
+            return;
+        }
+        if total <= 0.0 || view.layer.is_none() {
+            view.offset = target;
+            view.slide = None;
+            if target > 0.0 {
+                self.dock_drop_layer();
+            } else {
+                self.dock_set_margin();
+            }
+            return;
+        }
+        view.slide = Some((std::time::Instant::now(), view.offset, target));
+        if view.slide_timer.is_some() {
+            return;
+        }
+        let Some(handle) = self.loop_handle.as_ref() else { return };
+        let output = view.output.clone();
+        const TICK: Duration = Duration::from_millis(16);
+        let token = handle.insert_source(Timer::from_duration(Duration::ZERO), move |_, _, ui: &mut Ui| {
+            let Some(i) = output.as_ref().and_then(|o| ui.dock.view_on(o)) else { return TimeoutAction::Drop };
+            let total = ui.dock.settings.animation_time;
+            let view = &mut ui.dock.views[i];
+            let Some((start, from, to)) = view.slide else {
+                view.slide_timer = None;
+                return TimeoutAction::Drop;
+            };
+            let at = logic::slide_offset(from, to, start.elapsed().as_secs_f64(), total);
+            view.offset = at.unwrap_or(to);
+            ui.dock.cur = i;
+            if at.is_none() {
+                ui.dock.views[i].slide = None;
+                ui.dock.views[i].slide_timer = None;
+                if to > 0.0 {
+                    ui.dock_drop_layer();
+                } else {
+                    ui.dock_set_margin();
+                    if let Some(layer) = ui.dock.views[i].layer.as_ref() {
+                        layer.commit();
+                    }
+                }
+                ui.dock.cur = 0;
+                return TimeoutAction::Drop;
+            }
+            ui.dock_set_margin();
+            if let Some(layer) = ui.dock.views[i].layer.as_ref() {
+                layer.commit();
+            }
+            ui.dock.cur = 0;
+            TimeoutAction::ToDuration(TICK)
+        });
+        self.dock.views[self.dock.cur].slide_timer = token.ok();
     }
 
     fn dock_drop_trigger(&mut self) {
