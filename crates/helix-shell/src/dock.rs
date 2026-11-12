@@ -137,6 +137,8 @@ pub struct DockSettings {
     /// `require-pressure-to-show` and `pressure-threshold` (pixels).
     pub require_pressure: bool,
     pub pressure_threshold: f64,
+    /// `hide-tooltip`: no names (or window lists) on pointing.
+    pub hide_tooltip: bool,
     /// How long showing and hiding slide, in seconds (`animation-time`;
     /// 0 when `org.gnome.desktop.interface enable-animations` is off).
     pub animation_time: f64,
@@ -181,6 +183,7 @@ impl Default for DockSettings {
             previews: true,
             require_pressure: true,
             pressure_threshold: 100.0,
+            hide_tooltip: false,
             animation_time: 0.2,
             height_fraction: 0.9,
         }
@@ -268,6 +271,7 @@ pub fn read() -> DockSettings {
         previews: b("show-windows-preview", d.previews),
         require_pressure: b("require-pressure-to-show", d.require_pressure),
         pressure_threshold: num("pressure-threshold", d.pressure_threshold).clamp(0.0, 10000.0),
+        hide_tooltip: b("hide-tooltip", d.hide_tooltip),
         animation_time: if animations { num("animation-time", d.animation_time).clamp(0.0, 2.0) } else { 0.0 },
         height_fraction: num("height-fraction", d.height_fraction).clamp(0.1, 1.0),
     }
@@ -385,6 +389,23 @@ pub fn items(s: &DockSettings, favorites: &[String], installed: &[String], runni
     }
     out
 }
+
+/// The lines of a running app's tooltip: its name, then its windows'
+/// titles (at most `MAX_TITLES`, then "N more"; untitled ones as
+/// "Untitled").
+pub fn tooltip_lines(name: &str, titles: &[String]) -> Vec<String> {
+    let mut out = vec![name.to_owned()];
+    for t in titles.iter().take(MAX_TITLES) {
+        out.push(if t.trim().is_empty() { "Untitled".into() } else { t.trim().to_owned() });
+    }
+    if titles.len() > MAX_TITLES {
+        out.push(format!("{} more", titles.len() - MAX_TITLES));
+    }
+    out
+}
+
+/// Most window titles in a tooltip.
+pub const MAX_TITLES: usize = 5;
 
 /// The dock's room along an edge `edge` pixels long: `height-fraction`
 /// of what the panel's height at both ends leaves.
@@ -660,6 +681,16 @@ mod tests {
     fn field_codes() {
         assert_eq!(strip_field_codes("firefox --private-window %u"), "firefox --private-window");
         assert_eq!(strip_field_codes("app --x=100%% %F"), "app --x=100%");
+    }
+
+    #[test]
+    fn tooltips() {
+        let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(tooltip_lines("Files", &[]), ["Files"]);
+        assert_eq!(tooltip_lines("Files", &t(&["Home", " "])), ["Files", "Home", "Untitled"]);
+        let many = t(&["a", "b", "c", "d", "e", "f", "g"]);
+        assert_eq!(tooltip_lines("X", &many).last().unwrap(), "2 more");
+        assert_eq!(tooltip_lines("X", &many).len(), 7);
     }
 
     #[test]

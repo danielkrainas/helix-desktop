@@ -20,6 +20,8 @@ pub const DBUSMENU: &str = "com.canonical.dbusmenu";
 pub enum QuickItem {
     Action { id: i32, label: String, enabled: bool, checked: Option<bool> },
     Separator,
+    /// An entry with its own entries.
+    Submenu { label: String, items: Vec<QuickItem> },
 }
 
 /// Where an app's quicklist is: its bus name and object path.
@@ -50,9 +52,12 @@ pub fn plain_label(label: &str) -> String {
 pub type Node = (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>);
 
 /// The entries of a dbusmenu layout's root: visible items in order,
-/// submenus flattened in place, separators kept between items only.
+/// entries with `children-display` `submenu` as submenus (of their own
+/// visible entries; none left: left out), separators kept between items
+/// only (in each menu).
 pub fn quick_items(root: &Node) -> Vec<QuickItem> {
-    fn walk(node: &Node, out: &mut Vec<QuickItem>) {
+    fn walk(node: &Node) -> Vec<QuickItem> {
+        let mut out = Vec::new();
         for child in &node.2 {
             let Ok(child) = child.try_clone().map_err(|_| ()).and_then(|v| Node::try_from(v).map_err(|_| ())) else { continue };
             let props = &child.1;
@@ -64,11 +69,14 @@ pub fn quick_items(root: &Node) -> Vec<QuickItem> {
                 out.push(QuickItem::Separator);
                 continue;
             }
+            let label = get("label").and_then(|v| String::try_from(v).ok()).map(|l| plain_label(&l)).unwrap_or_default();
             if get("children-display").and_then(|v| String::try_from(v).ok()).as_deref() == Some("submenu") {
-                walk(&child, out);
+                let items = walk(&child);
+                if items.iter().any(|i| *i != QuickItem::Separator) {
+                    out.push(QuickItem::Submenu { label: if label.is_empty() { "More".into() } else { label }, items });
+                }
                 continue;
             }
-            let label = get("label").and_then(|v| String::try_from(v).ok()).map(|l| plain_label(&l)).unwrap_or_default();
             if label.is_empty() {
                 continue;
             }
@@ -77,21 +85,20 @@ pub fn quick_items(root: &Node) -> Vec<QuickItem> {
             let checked = toggle.map(|_| get("toggle-state").and_then(|v| i32::try_from(v).ok()) == Some(1));
             out.push(QuickItem::Action { id: child.0, label, enabled, checked });
         }
-    }
-    let mut out = Vec::new();
-    walk(root, &mut out);
-    // No separators at the ends or twice in a row.
-    let mut tidy: Vec<QuickItem> = Vec::new();
-    for item in out {
-        if item == QuickItem::Separator && tidy.last().is_none_or(|l| *l == QuickItem::Separator) {
-            continue;
+        // No separators at the ends or twice in a row.
+        let mut tidy: Vec<QuickItem> = Vec::new();
+        for item in out {
+            if item == QuickItem::Separator && tidy.last().is_none_or(|l| *l == QuickItem::Separator) {
+                continue;
+            }
+            tidy.push(item);
         }
-        tidy.push(item);
+        while tidy.last() == Some(&QuickItem::Separator) {
+            tidy.pop();
+        }
+        tidy
     }
-    while tidy.last() == Some(&QuickItem::Separator) {
-        tidy.pop();
-    }
-    tidy
+    walk(root)
 }
 
 /// Read an app's quicklist.
@@ -278,7 +285,7 @@ mod tests {
                 QuickItem::Action { id: 2, label: "New Window".into(), enabled: true, checked: None },
                 QuickItem::Separator,
                 QuickItem::Action { id: 6, label: "Offline".into(), enabled: true, checked: Some(true) },
-                QuickItem::Action { id: 8, label: "Greyed".into(), enabled: false, checked: None },
+                QuickItem::Submenu { label: "More".into(), items: vec![QuickItem::Action { id: 8, label: "Greyed".into(), enabled: false, checked: None }] },
             ]
         );
         let mut e = Entry::default();

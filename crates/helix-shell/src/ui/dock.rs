@@ -16,8 +16,9 @@ use crate::windows::{WindowAction, ALL_WORKSPACES};
 const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
 /// Room beside the bar for an item's name.
-const TOOLTIP_ROOM_H: i32 = 36;
-const TOOLTIP_ROOM_W: i32 = 240;
+/// Room beside the bar for the tooltip (a name and up to six lines).
+const TOOLTIP_ROOM_H: i32 = 150;
+const TOOLTIP_ROOM_W: i32 = 280;
 /// Pointer travel before a press becomes a drag.
 const DRAG_START: f64 = 8.0;
 /// How far from the bar a dropped favorite is removed.
@@ -635,7 +636,18 @@ impl Ui {
             .collect();
         let focused_app = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).map(|e| e.app_id.clone()).unwrap_or_default();
         let focused_item = items.iter().position(|i| matches!(i, Item::App { id, .. } if !focused_app.is_empty() && (id.eq_ignore_ascii_case(&focused_app) || desktop_matches(&focused_app, id))));
-        let hover_name = self.dock.views[self.dock.cur].hover.and_then(|i| items.get(i)).map(|i| self.dock_item_name(i));
+        // The name, and for a running app its windows' titles.
+        let hover_name: Option<Vec<String>> = self.dock.views[self.dock.cur].hover.and_then(|i| items.get(i)).filter(|_| !s.hide_tooltip).map(|i| {
+            let name = self.dock_item_name(i);
+            let titles: Vec<String> = match i {
+                Item::App { id, .. } => {
+                    let ids = self.app_windows(id);
+                    ids.iter().filter_map(|w| self.windows.mru().iter().find(|e| e.id == *w).map(|e| e.title.clone())).collect()
+                }
+                _ => Vec::new(),
+            };
+            logic::tooltip_lines(&name, &titles)
+        });
         let (hover, drag) = (self.dock.views[self.dock.cur].hover, self.dock.views[self.dock.cur].drag);
 
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w as usize, scale) as i32, physical(h as usize, scale) as i32, (physical(w as usize, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
@@ -710,10 +722,12 @@ impl Ui {
             }
         }
         // The hovered item's name, beside the bar.
-        if let (Some(i), Some(name), None) = (hover, hover_name, drag) {
+        if let (Some(i), Some(lines), None) = (hover, hover_name, drag) {
             if let Some(&(cell, _)) = hits.iter().find(|(_, n)| *n == i) {
-                let tw = text.map_or(80.0, |t| t.width(&name, 13.0)).ceil() as i32 + 28;
-                let (lw, lh) = (tw.min(if vertical { TOOLTIP_ROOM_W - 12 } else { w }), 26);
+                let widest = lines.iter().map(|l| text.map_or(80.0, |t| t.width(l, 13.0))).fold(0.0f32, f32::max);
+                let tw = widest.ceil() as i32 + 28;
+                let lh = 26 + (lines.len() as i32 - 1) * 18;
+                let lw = tw.min(if vertical { TOOLTIP_ROOM_W - 12 } else { w });
                 let (lx, ly) = match s.edge {
                     Edge::Bottom => (cell.x + cell.w / 2 - lw / 2, bar.y - lh - 6),
                     Edge::Top => (cell.x + cell.w / 2 - lw / 2, bar.y + bar.h + 6),
@@ -722,8 +736,12 @@ impl Ui {
                 };
                 let lx = lx.clamp(0, (w - lw).max(0));
                 canvas.round_rect(f64::from(lx), f64::from(ly), f64::from(lw), f64::from(lh), 6.0, 0xF02E2E36);
-                let base = baseline(text, ly, lh, 13.0);
-                label(text, &mut canvas, &name, (lx + 12) as f32, base, 13.0, FG, (lw - 16) as f32);
+                let base = baseline(text, ly, 26, 13.0);
+                label(text, &mut canvas, &lines[0], (lx + 12) as f32, base, 13.0, FG, (lw - 16) as f32);
+                // The windows, dimmer, one per line.
+                for (n, line) in lines.iter().enumerate().skip(1) {
+                    label(text, &mut canvas, line, (lx + 12) as f32, base + n as f32 * 18.0, 13.0, DIM_FG, (lw - 16) as f32);
+                }
             }
         }
         self.dock.views[self.dock.cur].hits = hits;
@@ -1048,7 +1066,34 @@ impl Ui {
 
     fn dock_menu_item(&mut self, label: String, target: DockTarget) -> Option<window_menu::Item> {
         self.dock.menu_targets.push(target);
-        Some(window_menu::Item { label, choice: window_menu::Choice::Dock(self.dock.menu_targets.len() - 1), checked: None, active: false })
+        Some(window_menu::Item { label, choice: window_menu::Choice::Dock(self.dock.menu_targets.len() - 1), checked: None, active: false, sub: Vec::new() })
+    }
+
+    /// Menu entries for quicklist items (enabled ones; submenus as
+    /// submenus).
+    fn quick_menu_items(&mut self, list: &crate::launcher_entry::Quicklist, quick: Vec<crate::launcher_entry::QuickItem>) -> Vec<Option<window_menu::Item>> {
+        use crate::launcher_entry::QuickItem;
+        let mut items = Vec::new();
+        for q in quick {
+            match q {
+                QuickItem::Separator => items.push(None),
+                QuickItem::Action { id, label, enabled: true, checked } => {
+                    let mut item = self.dock_menu_item(label, DockTarget::Quick(list.clone(), id));
+                    if let Some(item) = item.as_mut() {
+                        item.checked = checked;
+                    }
+                    items.push(item);
+                }
+                QuickItem::Action { .. } => {}
+                QuickItem::Submenu { label, items: sub } => {
+                    let sub = self.quick_menu_items(list, sub);
+                    if sub.iter().any(Option::is_some) {
+                        items.push(Some(window_menu::Item { label, choice: window_menu::Choice::Submenu, checked: None, active: false, sub }));
+                    }
+                }
+            }
+        }
+        items
     }
 
     fn open_dock_menu(&mut self, x: i32, y: i32, items: Vec<Option<window_menu::Item>>) {
@@ -1099,19 +1144,8 @@ impl Ui {
                 let quick = self.dock_entry(&id).and_then(|e| Some((e.quicklist.clone()?, e.quick_items.clone())));
                 if let Some((list, quick)) = quick.filter(|(_, q)| !q.is_empty()) {
                     items.push(None);
-                    for q in quick {
-                        match q {
-                            crate::launcher_entry::QuickItem::Separator => items.push(None),
-                            crate::launcher_entry::QuickItem::Action { id: qid, label, enabled: true, checked } => {
-                                let mut item = self.dock_menu_item(label, DockTarget::Quick(list.clone(), qid));
-                                if let Some(item) = item.as_mut() {
-                                    item.checked = checked;
-                                }
-                                items.push(item);
-                            }
-                            crate::launcher_entry::QuickItem::Action { .. } => {}
-                        }
-                    }
+                    let entries = self.quick_menu_items(&list, quick);
+                    items.extend(entries);
                 }
                 items.push(None);
                 let pin = if favorite { "Unpin" } else { "Pin to Dash" };

@@ -32,6 +32,10 @@ pub(super) enum Choice {
     A11y(usize),
     /// An IBus engine property (index into the menu's properties).
     ImProperty(usize),
+    /// Show the item's submenu.
+    Submenu,
+    /// Back to the menu a submenu came from.
+    Back,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,12 +46,14 @@ pub(super) struct Item {
     pub checked: Option<bool>,
     /// The current one of a set (drawn with a dot).
     pub active: bool,
+    /// A submenu's entries (with `Choice::Submenu`).
+    pub sub: Vec<Option<Item>>,
 }
 
 /// The entries for a window in `state` on `workspace` of `count`; `None`
 /// is a separator.
 pub(super) fn items(state: MenuState, workspace: Option<u32>, count: u32) -> Vec<Option<Item>> {
-    let item = |label: &str, choice| Some(Item { label: label.to_owned(), choice, checked: None, active: false });
+    let item = |label: &str, choice| Some(Item { label: label.to_owned(), choice, checked: None, active: false, sub: Vec::new() });
     let maximized = state.contains(MenuState::Maximized);
     let fixed = maximized || state.contains(MenuState::Fullscreen);
     let mut out = vec![item("Minimize", Choice::Action(WindowAction::Minimize))];
@@ -62,9 +68,9 @@ pub(super) fn items(state: MenuState, workspace: Option<u32>, count: u32) -> Vec
     }
     out.push(None);
     let above = state.contains(MenuState::Above);
-    out.push(Some(Item { label: "Always on Top".into(), choice: Choice::Action(WindowAction::ToggleAbove), checked: Some(above), active: false }));
+    out.push(Some(Item { label: "Always on Top".into(), choice: Choice::Action(WindowAction::ToggleAbove), checked: Some(above), active: false, sub: Vec::new() }));
     let all = state.contains(MenuState::OnAllWorkspaces);
-    out.push(Some(Item { label: "Always on Visible Workspace".into(), choice: Choice::OnAllWorkspaces(!all), checked: Some(all), active: false }));
+    out.push(Some(Item { label: "Always on Visible Workspace".into(), choice: Choice::OnAllWorkspaces(!all), checked: Some(all), active: false, sub: Vec::new() }));
     if let Some(ws) = workspace.filter(|w| !all && *w != ALL_WORKSPACES) {
         if ws > 0 {
             out.push(item("Move to Workspace Left", Choice::Workspace(ws - 1)));
@@ -147,6 +153,8 @@ pub(super) struct WindowMenu {
     pub(super) previews: Vec<u32>,
     /// The keyboard highlight timed out (`keyboard-focus-visible-timeout`).
     focus_hidden: bool,
+    /// The menus a submenu was opened from, and their selection.
+    parents: Vec<(Vec<Option<Item>>, Option<usize>)>,
 }
 
 /// The size of a previews box for `count` windows.
@@ -174,7 +182,7 @@ impl Ui {
             .enumerate()
             .map(|(i, s)| {
                 let label = if s.0 == "xkb" { crate::input_sources::description(&s.1).unwrap_or_else(|| s.1.clone()) } else { s.1.clone() };
-                Some(Item { label, choice: Choice::InputSource(i), checked: None, active: i == 0 })
+                Some(Item { label, choice: Choice::InputSource(i), checked: None, active: i == 0, sub: Vec::new() })
             })
             .collect();
         // The IBus engine's properties, below its source.
@@ -192,7 +200,7 @@ impl Ui {
                         self.ime_menu.push((p.key.clone(), p.kind, p.state));
                         let checked = (p.kind == crate::ibus::PropKind::Toggle).then_some(p.state == 1);
                         let active = p.kind == crate::ibus::PropKind::Radio && p.state == 1;
-                        items.push(Some(Item { label: p.label.clone(), choice: Choice::ImProperty(index), checked, active }));
+                        items.push(Some(Item { label: p.label.clone(), choice: Choice::ImProperty(index), checked, active, sub: Vec::new() }));
                     }
                 }
             }
@@ -206,7 +214,7 @@ impl Ui {
             .iter()
             .zip(&self.a11y.switches)
             .enumerate()
-            .filter_map(|(i, (s, state))| Some(Some(Item { label: s.label.to_owned(), choice: Choice::A11y(i), checked: Some((*state)?), active: false })))
+            .filter_map(|(i, (s, state))| Some(Some(Item { label: s.label.to_owned(), choice: Choice::A11y(i), checked: Some((*state)?), active: false, sub: Vec::new() })))
             .collect();
         self.open_menu(0, x, PANEL_HEIGHT as i32, items, Vec::new());
     }
@@ -247,6 +255,7 @@ impl Ui {
             sources,
             previews: Vec::new(),
             focus_hidden: false,
+            parents: Vec::new(),
         });
     }
 
@@ -335,7 +344,23 @@ impl Ui {
                 }
                 x += 16;
             }
-            label(text, &mut canvas, &item.label, x as f32, base, 14.0, FG, (r.x + r.w - x - 8) as f32);
+            // A submenu: an arrow at the end; "Back": one at the start.
+            let cy = f64::from(r.y + r.h / 2);
+            match item.choice {
+                Choice::Submenu => {
+                    let ax = f64::from(r.x + r.w - 14);
+                    canvas.line((ax - 3.0, cy - 4.0), (ax + 1.0, cy), 1.6, DIM_FG);
+                    canvas.line((ax + 1.0, cy), (ax - 3.0, cy + 4.0), 1.6, DIM_FG);
+                }
+                Choice::Back => {
+                    let ax = f64::from(x);
+                    canvas.line((ax + 4.0, cy - 4.0), (ax, cy), 1.6, DIM_FG);
+                    canvas.line((ax, cy), (ax + 4.0, cy + 4.0), 1.6, DIM_FG);
+                    x += 14;
+                }
+                _ => {}
+            }
+            label(text, &mut canvas, &item.label, x as f32, base, 14.0, FG, (r.x + r.w - x - 24) as f32);
             menu.hits.push((r, i));
             y += ITEM_H;
         }
@@ -346,8 +371,36 @@ impl Ui {
         }
     }
 
+    /// Show the submenu of entry `index` in place of the menu (a "Back"
+    /// entry first), or (`None`) go back to the menu it came from.
+    fn window_submenu(&mut self, index: Option<usize>) {
+        let Some(menu) = self.window_menu.as_mut() else { return };
+        match index {
+            Some(index) => {
+                let Some(Some(item)) = menu.items.get(index).cloned() else { return };
+                let mut items = vec![Some(Item { label: "Back".into(), choice: Choice::Back, checked: None, active: false, sub: Vec::new() }), None];
+                items.extend(item.sub);
+                let parent = std::mem::replace(&mut menu.items, items);
+                menu.parents.push((parent, Some(index)));
+                menu.selected = Some(0);
+            }
+            None => {
+                let Some((items, selected)) = menu.parents.pop() else { return };
+                menu.items = items;
+                menu.selected = selected;
+            }
+        }
+        menu.hits.clear();
+        self.draw_window_menu();
+    }
+
     /// Carry out entry `index` of the open menu, and close it.
     fn choose_window_menu(&mut self, index: usize) {
+        match self.window_menu.as_ref().and_then(|m| m.items.get(index)).and_then(|i| i.as_ref()).map(|i| i.choice) {
+            Some(Choice::Submenu) => return self.window_submenu(Some(index)),
+            Some(Choice::Back) => return self.window_submenu(None),
+            _ => {}
+        }
         let Some(menu) = self.window_menu.take() else { return };
         let Some(Some(item)) = menu.items.get(index) else { return };
         if let Choice::ImProperty(i) = item.choice {
@@ -438,6 +491,11 @@ impl Ui {
         let pos = menu.selected.and_then(|s| selectable.iter().position(|n| *n == s));
         match event.keysym {
             Keysym::Escape => self.window_menu = None,
+            Keysym::Left if !menu.parents.is_empty() => self.window_submenu(None),
+            Keysym::Right if menu.selected.and_then(|s| menu.items.get(s)).and_then(|i| i.as_ref()).is_some_and(|i| i.choice == Choice::Submenu) => {
+                let index = menu.selected;
+                self.window_submenu(index);
+            }
             Keysym::Down | Keysym::Right if !selectable.is_empty() => {
                 menu.selected = Some(selectable[pos.map_or(0, |p| (p + 1) % selectable.len())]);
                 self.draw_window_menu();
