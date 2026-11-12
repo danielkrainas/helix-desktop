@@ -50,6 +50,10 @@ impl ColorManagementHandler for Helix {
     fn surface_preferred(&self, _surface: &WlSurface) -> Colorimetry {
         Colorimetry::srgb()
     }
+
+    fn defer(&mut self, job: Box<dyn FnOnce() + 'static>) {
+        self.loop_handle.insert_idle(move |_| job());
+    }
 }
 
 delegate_global_dispatch!(Helix: [cm::wp_color_manager_v1::WpColorManagerV1: ()] => ColorManager);

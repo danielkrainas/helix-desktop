@@ -30,6 +30,9 @@ pub trait ColorManagementHandler: 'static {
     fn output_colorimetry(&self, output: &WlOutput) -> Colorimetry;
     /// What `surface` should best be drawn as (its output's).
     fn surface_preferred(&self, surface: &WlSurface) -> Colorimetry;
+    /// Run `job` once the current request is through (events that destroy
+    /// an object created by that request must wait for it).
+    fn defer(&mut self, job: Box<dyn FnOnce() + 'static>);
 }
 
 /// Rendering intents taken: perceptual and relative (both drawn the same).
@@ -257,10 +260,9 @@ where
                 let f = init.init(id, surface.downgrade());
                 state.color_manager().feedbacks.push((f, preferred));
             }
-            R::CreateIccCreator { obj } => {
-                init.init(obj, ());
-                resource.post_error(wp_color_manager_v1::Error::UnsupportedFeature, "ICC profiles are not supported");
-            }
+            // On protocol errors the new object is left uninitialized: the
+            // client is gone anyway.
+            R::CreateIccCreator { .. } => resource.post_error(wp_color_manager_v1::Error::UnsupportedFeature, "ICC profiles are not supported"),
             R::CreateParametricCreator { obj } => {
                 init.init(obj, ParamsData::default());
             }
@@ -336,7 +338,7 @@ where
     fn request(state: &mut D, _: &Client, resource: &WpColorManagementSurfaceFeedbackV1, request: wp_color_management_surface_feedback_v1::Request, surface: &Weak<WlSurface>, _: &DisplayHandle, init: &mut DataInit<'_, D>) {
         if let wp_color_management_surface_feedback_v1::Request::GetPreferred { image_description } = request {
             let Ok(surface) = surface.upgrade() else {
-                init.init(image_description, Description { colorimetry: Arc::new(Colorimetry::srgb()), info: false });
+                let _ = image_description;
                 resource.post_error(wp_color_management_surface_feedback_v1::Error::Inert, "the surface is gone");
                 return;
             };
@@ -446,7 +448,7 @@ where
             R::Create { image_description } => match finish(&p) {
                 Ok(c) => init_description(init, image_description, c, false),
                 Err((code, msg)) => {
-                    init.init(image_description, Description { colorimetry: Arc::new(Colorimetry::srgb()), info: false });
+                    let _ = image_description;
                     error(code, msg);
                 }
             },
@@ -457,45 +459,56 @@ where
 
 impl<D> Dispatch<WpImageDescriptionV1, Description, D> for ColorManager
 where
-    D: Dispatch<WpImageDescriptionInfoV1, ()> + 'static,
+    D: ColorManagementHandler + Dispatch<WpImageDescriptionInfoV1, ()> + 'static,
 {
-    fn request(_: &mut D, _: &Client, resource: &WpImageDescriptionV1, request: wp_image_description_v1::Request, data: &Description, _: &DisplayHandle, init: &mut DataInit<'_, D>) {
+    fn request(state: &mut D, _: &Client, resource: &WpImageDescriptionV1, request: wp_image_description_v1::Request, data: &Description, _: &DisplayHandle, init: &mut DataInit<'_, D>) {
         if let wp_image_description_v1::Request::GetInformation { information } = request {
-            let info = init.init(information, ());
             if !data.info {
+                let _ = information;
                 resource.post_error(wp_image_description_v1::Error::NoInformation, "this image description gives no information");
                 return;
             }
-            let c = &data.colorimetry;
-            let m = |v: f64| (v * 1_000_000.0).round() as i32;
-            let [rx, ry, gx, gy, bx, by, wx, wy] = c.primaries.map(m);
-            info.primaries(rx, ry, gx, gy, bx, by, wx, wy);
-            if let Some(n) = c.primaries_named.and_then(|n| wp_color_manager_v1::Primaries::try_from(n).ok()) {
-                info.primaries_named(n);
-            }
-            match c.tf {
-                Tf::Named(t) => {
-                    if let Ok(t) = wp_color_manager_v1::TransferFunction::try_from(t) {
-                        info.tf_named(t);
-                    }
-                }
-                Tf::Power(p) => info.tf_power((p * 10000.0).round() as u32),
-            }
-            let (min, max, reference) = c.luminance;
-            info.luminances((min * 10000.0).round() as u32, max.round() as u32, reference.round() as u32);
-            let [rx, ry, gx, gy, bx, by, wx, wy] = c.target_primaries.unwrap_or(c.primaries).map(m);
-            info.target_primaries(rx, ry, gx, gy, bx, by, wx, wy);
-            let (tmin, tmax) = c.target_luminance.unwrap_or((min, max));
-            info.target_luminance((tmin * 10000.0).round() as u32, tmax.round() as u32);
-            if let Some(v) = c.max_cll {
-                info.target_max_cll(v);
-            }
-            if let Some(v) = c.max_fall {
-                info.target_max_fall(v);
-            }
-            info.done();
+            let info = init.init(information, ());
+            let c = data.colorimetry.clone();
+            // `done` destroys the object: send the events once this request
+            // is through.
+            state.defer(Box::new(move || send_information(&info, &c)));
         }
     }
+}
+
+/// The information events of `c`, then `done`.
+fn send_information(info: &WpImageDescriptionInfoV1, c: &Colorimetry) {
+    if !info.is_alive() {
+        return;
+    }
+    let m = |v: f64| (v * 1_000_000.0).round() as i32;
+    let [rx, ry, gx, gy, bx, by, wx, wy] = c.primaries.map(m);
+    info.primaries(rx, ry, gx, gy, bx, by, wx, wy);
+    if let Some(n) = c.primaries_named.and_then(|n| wp_color_manager_v1::Primaries::try_from(n).ok()) {
+        info.primaries_named(n);
+    }
+    match c.tf {
+        Tf::Named(t) => {
+            if let Ok(t) = wp_color_manager_v1::TransferFunction::try_from(t) {
+                info.tf_named(t);
+            }
+        }
+        Tf::Power(p) => info.tf_power((p * 10000.0).round() as u32),
+    }
+    let (min, max, reference) = c.luminance;
+    info.luminances((min * 10000.0).round() as u32, max.round() as u32, reference.round() as u32);
+    let [rx, ry, gx, gy, bx, by, wx, wy] = c.target_primaries.unwrap_or(c.primaries).map(m);
+    info.target_primaries(rx, ry, gx, gy, bx, by, wx, wy);
+    let (tmin, tmax) = c.target_luminance.unwrap_or((min, max));
+    info.target_luminance((tmin * 10000.0).round() as u32, tmax.round() as u32);
+    if let Some(v) = c.max_cll {
+        info.target_max_cll(v);
+    }
+    if let Some(v) = c.max_fall {
+        info.target_max_fall(v);
+    }
+    info.done();
 }
 
 impl<D> Dispatch<WpImageDescriptionInfoV1, (), D> for ColorManager
