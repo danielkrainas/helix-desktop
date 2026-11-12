@@ -149,8 +149,9 @@ fn parse_iso6709(s: &str) -> Option<(f64, f64)> {
     Some((part(&s[..split], 2)?, part(&s[split..], 3)?))
 }
 
-/// The zone of `zone1970.tab` whose principal city is nearest.
-pub fn nearest_zone(tab: &str, lat: f64, lon: f64) -> Option<String> {
+/// The zone of `zone1970.tab` whose principal city is nearest, and how far
+/// that city is (km).
+fn nearest(tab: &str, lat: f64, lon: f64) -> Option<(f64, String)> {
     let (lat, lon) = (lat.to_radians(), lon.to_radians());
     tab.lines()
         .filter(|l| !l.starts_with('#'))
@@ -159,12 +160,23 @@ pub fn nearest_zone(tab: &str, lat: f64, lon: f64) -> Option<String> {
             let (_, coord, zone) = (cols.next()?, cols.next()?, cols.next()?);
             let (zlat, zlon) = parse_iso6709(coord)?;
             let (zlat, zlon) = (zlat.to_radians(), zlon.to_radians());
-            // Great-circle distance (haversine; the radius does not matter).
+            // Great-circle distance (haversine).
             let a = ((zlat - lat) / 2.0).sin().powi(2) + lat.cos() * zlat.cos() * ((zlon - lon) / 2.0).sin().powi(2);
-            Some((a, zone.to_owned()))
+            Some((2.0 * 6371.0 * a.sqrt().min(1.0).asin(), zone.to_owned()))
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, zone)| zone)
+}
+
+/// The zone of `zone1970.tab` whose principal city is nearest.
+pub fn nearest_zone(tab: &str, lat: f64, lon: f64) -> Option<String> {
+    nearest(tab, lat, lon).map(|(_, zone)| zone)
+}
+
+/// The name of the `zone1970.tab` principal city within `max_km`, e.g.
+/// "New York" for `America/New_York`.
+pub fn nearby_city(tab: &str, lat: f64, lon: f64, max_km: f64) -> Option<String> {
+    let (km, zone) = nearest(tab, lat, lon)?;
+    (km <= max_km).then(|| zone.rsplit('/').next().unwrap_or(&zone).replace('_', " "))
 }
 
 /// The world clocks: (name, time zone).
@@ -222,6 +234,9 @@ mod tests {
         let tab = "# comment\nDE,DK,NO,SE,SJ\t+5230+01322\tEurope/Berlin\tmost of Germany\nFR,MC\t+4852+00220\tEurope/Paris\nUS\t+404251-0740023\tAmerica/New_York\tEastern (most areas)\n";
         assert_eq!(nearest_zone(tab, lat, lon).as_deref(), Some("Europe/Berlin"));
         assert_eq!(nearest_zone(tab, 40.71, -74.0).as_deref(), Some("America/New_York"));
+        assert_eq!(nearby_city(tab, 40.6, -73.9, 100.0).as_deref(), Some("New York"));
+        // Hamburg is some 250 km from Berlin.
+        assert_eq!(nearby_city(tab, 53.55, 9.99, 100.0), None);
         assert_eq!(parse_iso6709("+404251-0740023").map(|(a, b)| (a.round(), b.round())), Some((41.0, -74.0)));
     }
 }

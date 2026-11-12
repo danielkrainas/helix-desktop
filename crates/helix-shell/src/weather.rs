@@ -106,13 +106,25 @@ pub fn unit() -> Unit {
     unit_for(&setting, measurement)
 }
 
-/// The first configured location: name, latitude, longitude (degrees).
+/// Within this distance, a place is named after the nearest time zone city.
+const NEARBY_KM: f64 = 100.0;
+
+/// The weather's place: name, latitude, longitude (degrees). With
+/// `automatic-location`, where the user is (once known), else the first
+/// configured location.
 fn location() -> Option<(String, f64, f64)> {
     if !helix_settings::has_schema(SCHEMA) {
         return None;
     }
-    let locations = gio::Settings::new(SCHEMA).value("locations");
-    locations.iter().find_map(|v| crate::calendar::parse_location(&v))
+    let settings = gio::Settings::new(SCHEMA);
+    if settings.boolean("automatic-location") {
+        if let Some((lat, lon)) = crate::location::current() {
+            let tab = std::fs::read_to_string("/usr/share/zoneinfo/zone1970.tab").unwrap_or_default();
+            let name = crate::calendar::nearby_city(&tab, lat, lon, NEARBY_KM).unwrap_or_else(|| "Current Location".into());
+            return Some((name, lat, lon));
+        }
+    }
+    settings.value("locations").iter().find_map(|v| crate::calendar::parse_location(&v))
 }
 
 fn fetch(lat: f64, lon: f64) -> Result<String, String> {

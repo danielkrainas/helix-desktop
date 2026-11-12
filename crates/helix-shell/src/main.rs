@@ -65,7 +65,8 @@ fn main() -> ExitCode {
 
     runtime.spawn(helix_shell::idle::run(service.connection().clone()));
     runtime.spawn(helix_shell::night_light::run(service.connection().clone(), service.night_light()));
-    // Night Light's location from GeoClue (system bus), when allowed.
+    // The location from GeoClue (system bus) for night light and the
+    // weather, when allowed.
     runtime.spawn(async {
         match zbus::Connection::system().await {
             Ok(system) => helix_shell::location::follow(system).await,

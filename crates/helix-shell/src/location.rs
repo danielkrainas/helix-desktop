@@ -1,6 +1,8 @@
-//! The location for Night Light's automatic schedule (helix-desktop-spec
-//! `contracts/gsettings/night-light.md`): from GeoClue, while location
-//! services are on, into `night-light-last-coordinates`.
+//! The location from GeoClue, while location services are on, for Night
+//! Light's automatic schedule (helix-desktop-spec
+//! `contracts/gsettings/night-light.md`: into
+//! `night-light-last-coordinates`) and the weather's automatic location
+//! (`contracts/gsettings/calendar.md`, "Weather").
 
 use std::future::Future;
 
@@ -61,6 +63,23 @@ pub async fn track(conn: &Connection, accuracy: u32, mut sink: impl FnMut(f64, f
     Ok(())
 }
 
+/// The last location GeoClue reported while the weather wanted it.
+static CURRENT: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
+
+/// Where the user is, if known (only while the weather follows it).
+pub fn current() -> Option<(f64, f64)> {
+    *CURRENT.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+const WEATHER: &str = "org.gnome.shell.weather";
+
+/// Who wants the location: (night light, weather).
+fn wanting() -> (bool, bool) {
+    let night = crate::night_light::read();
+    let weather = settings(WEATHER, "automatic-location").is_some_and(|s| s.boolean("automatic-location"));
+    (night.enabled && night.automatic, weather)
+}
+
 fn settings(schema: &str, key: &str) -> Option<gio::Settings> {
     let source = gio::SettingsSchemaSource::default()?;
     source.lookup(schema, true)?.has_key(key).then(|| gio::Settings::new(schema))
@@ -68,25 +87,33 @@ fn settings(schema: &str, key: &str) -> Option<gio::Settings> {
 
 /// Whether to follow GeoClue now, and at what accuracy.
 fn wanted() -> Option<u32> {
-    let night = crate::night_light::read();
+    let (night, weather) = wanting();
     let on = settings(LOCATION, "enabled").is_some_and(|s| s.boolean("enabled"));
     let max = settings(LOCATION, "max-accuracy-level").map(|s| s.string("max-accuracy-level").to_string()).unwrap_or_default();
-    (night.enabled && night.automatic && on).then(|| accuracy(&max))
+    ((night || weather) && on).then(|| accuracy(&max))
 }
 
-/// Keep `night-light-last-coordinates` current while wanted (see the
-/// module notes); `system` is the system bus.
+/// Follow the location while wanted (see the module notes); `system` is
+/// the system bus.
 pub async fn follow(system: Connection) {
-    let watched = helix_settings::GSettings::new(&[crate::night_light::SCHEMA, LOCATION]);
+    let watched = helix_settings::GSettings::new(&[crate::night_light::SCHEMA, LOCATION, WEATHER]);
     let (mut changes, _watch) = watched.watch();
     loop {
+        *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = None;
         match wanted() {
             Some(level) => {
-                tracing::info!(level, "following the location for night light");
+                let (night, weather) = wanting();
+                tracing::info!(level, night, weather, "following the location");
                 let stop = async {
                     changes.recv().await;
                 };
                 let store = |lat: f64, lon: f64| {
+                    if weather {
+                        *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some((lat, lon));
+                    }
+                    if !night {
+                        return;
+                    }
                     if let Some(s) = settings(crate::night_light::SCHEMA, "night-light-last-coordinates") {
                         let _ = s.set_value("night-light-last-coordinates", &(lat, lon).to_variant());
                         gio::Settings::sync();
