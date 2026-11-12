@@ -15,8 +15,18 @@ use smithay::backend::renderer::{Bind, ExportMem, Offscreen, TextureMapping};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::utils::{Buffer, Physical, Rectangle, Size, Transform};
 
+use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement, RescaleRenderElement};
+
+use super::capture::CaptureElement;
 use super::pipewire::{Command, CursorMeta, Notice, PipeWire, MAX_FPS};
 use super::Helix;
+
+smithay::backend::renderer::element::render_elements! {
+    pub CastElement<=GlesRenderer>;
+    Plain = CaptureElement,
+    /// A monitor's element placed in an area spanning monitors.
+    Moved = RelocateRenderElement<RescaleRenderElement<CaptureElement>>,
+}
 
 const FRAME: Duration = Duration::from_millis(1000 / MAX_FPS as u64);
 
@@ -88,10 +98,10 @@ impl Helix {
                 let scale = output.current_scale().fractional_scale();
                 Ok(geometry.size.to_f64().to_physical(scale).to_i32_round())
             }
-            CastSource::Area { connector, width, height, .. } => {
-                let output = self.output_named(connector).ok_or_else(|| format!("no monitor {connector}"))?;
-                let scale = output.current_scale().fractional_scale();
-                Ok(Size::<i32, smithay::utils::Logical>::from((*width, *height)).to_f64().to_physical(scale).to_i32_round())
+            CastSource::Area { x, y, width, height } => {
+                let area = Rectangle::new((*x, *y).into(), (*width, *height).into());
+                let scale = self.area_scale(area).ok_or("the area is on no monitor")?;
+                Ok(area.size.to_f64().to_physical(scale).to_i32_round())
             }
             CastSource::Virtual(name) => {
                 let output = self.output_named(name).ok_or_else(|| format!("no virtual monitor {name}"))?;
@@ -231,6 +241,38 @@ impl Helix {
         (name, (x, 0), VIRTUAL_SIZE)
     }
 
+    /// The highest scale of the monitors `area` touches.
+    fn area_scale(&self, area: Rectangle<i32, smithay::utils::Logical>) -> Option<f64> {
+        self.space
+            .outputs()
+            .filter(|o| self.space.output_geometry(o).is_some_and(|g| g.overlaps(area)))
+            .map(|o| o.current_scale().fractional_scale())
+            .reduce(f64::max)
+    }
+
+    /// What `area` shows, from every monitor it touches, at the highest of
+    /// their scales: (size, scale, elements relative to the area).
+    fn area_elements(
+        &self,
+        renderer: &mut GlesRenderer,
+        area: Rectangle<i32, smithay::utils::Logical>,
+        cursor: Option<bool>,
+    ) -> Option<(Size<i32, smithay::utils::Logical>, f64, Vec<CastElement>)> {
+        let scale = self.area_scale(area)?;
+        let outputs: Vec<_> = self.space.outputs().cloned().collect();
+        let mut elements = Vec::new();
+        for output in outputs {
+            let Some(geo) = self.space.output_geometry(&output).filter(|g| g.overlaps(area)) else { continue };
+            let Ok((_, output_scale, list)) = self.output_elements(renderer, &output, cursor) else { continue };
+            let offset = ((geo.loc - area.loc).to_f64().to_physical(scale)).to_i32_round();
+            let factor = scale / output_scale;
+            elements.extend(list.into_iter().map(|e| {
+                CastElement::Moved(RelocateRenderElement::from_element(RescaleRenderElement::from_element(e, (0, 0).into(), factor), offset, Relocate::Relative))
+            }));
+        }
+        Some((area.size, scale, elements))
+    }
+
     /// Where stream `stream`'s logical coordinates start (layout
     /// coordinates).
     pub(super) fn stream_origin(&self, stream: u32) -> Option<smithay::utils::Point<f64, smithay::utils::Logical>> {
@@ -353,29 +395,37 @@ impl Helix {
                         if matches!(source, CastSource::Virtual(_)) {
                             self.virtual_frame_callbacks(&output);
                         }
-                        scene
+                        scene.map(plain)
                     }
                     None => {
                         self.end_cast(id);
                         continue;
                     }
                 },
-                CastSource::Area { connector, x, y, width, height } => match self.output_named(connector) {
-                    Some(output) => {
-                        let geo = self.space.output_geometry(&output).unwrap_or_default();
-                        origin = (f64::from(*x), f64::from(*y)).into();
-                        crop = Some(Rectangle::new((x - geo.loc.x, y - geo.loc.y).into(), (*width, *height).into()));
-                        self.output_elements(renderer, &output, cursor).ok()
+                CastSource::Area { x, y, width, height } => {
+                    let area = Rectangle::new((*x, *y).into(), (*width, *height).into());
+                    origin = area.loc.to_f64();
+                    // On one monitor: render it and read back the area.
+                    let single = self.space.outputs().find(|o| self.space.output_geometry(o).is_some_and(|g| g.contains_rect(area))).cloned();
+                    match single {
+                        Some(output) => {
+                            let geo = self.space.output_geometry(&output).unwrap_or_default();
+                            crop = Some(Rectangle::new(area.loc - geo.loc, area.size));
+                            self.output_elements(renderer, &output, cursor).ok().map(plain)
+                        }
+                        None => match self.area_elements(renderer, area, cursor) {
+                            Some(scene) => Some(scene),
+                            None => {
+                                self.end_cast(id);
+                                continue;
+                            }
+                        },
                     }
-                    None => {
-                        self.end_cast(id);
-                        continue;
-                    }
-                },
+                }
                 CastSource::Window(window_id) => match self.window_by_list_id(*window_id) {
                     Some(window) => self.window_elements(renderer, &window, cursor, false).map(|(r, scale, e)| {
                         origin = r.loc.to_f64();
-                        (r.size, scale, e)
+                        plain((r.size, scale, e))
                     }),
                     None => {
                         self.end_cast(id);
@@ -421,7 +471,7 @@ impl Helix {
                 }
                 let target = cast.target.as_mut().expect("just made");
                 let finished = target.finish(renderer);
-                let elements: &[super::capture::CaptureElement] = if locked { &[] } else { &elements };
+                let elements: &[CastElement] = if locked { &[] } else { &elements };
                 let clear = if locked { [0.0, 0.0, 0.0, 1.0] } else { super::capture::CLEAR };
                 if let Err(err) = target.render(renderer, elements, clear) {
                     tracing::debug!(err, "screen cast frame failed");
@@ -447,6 +497,11 @@ impl Helix {
             }
         }
     }
+}
+
+/// A one-monitor (or window) scene, as cast elements.
+fn plain((size, scale, elements): super::capture::Scene) -> (Size<i32, smithay::utils::Logical>, f64, Vec<CastElement>) {
+    (size, scale, elements.into_iter().map(CastElement::Plain).collect())
 }
 
 /// A stream's render target: kept between frames so damage tracking can
@@ -482,7 +537,7 @@ impl FrameTarget {
     }
 
     /// Draw `elements`; start reading back if anything changed.
-    fn render(&mut self, renderer: &mut GlesRenderer, elements: &[super::capture::CaptureElement], clear: [f32; 4]) -> Result<(), String> {
+    fn render(&mut self, renderer: &mut GlesRenderer, elements: &[CastElement], clear: [f32; 4]) -> Result<(), String> {
         let age = if self.fresh { 0 } else { 1 };
         let mut framebuffer = renderer.bind(&mut self.texture).map_err(|e| format!("{e:?}"))?;
         let result = self

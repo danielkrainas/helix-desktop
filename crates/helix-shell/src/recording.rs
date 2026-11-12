@@ -28,7 +28,6 @@ pub const ERROR_FAILED: &str = "org.gnome.Shell.Screencast.Error.Failed";
 
 const SCREEN_CAST: &str = "org.gnome.Mutter.ScreenCast";
 const SCREEN_CAST_PATH: &str = "/org/gnome/Mutter/ScreenCast";
-const DISPLAY_CONFIG: &str = "org.gnome.Mutter.DisplayConfig";
 /// The elements the default pipeline needs.
 const ELEMENTS: [&str; 6] = ["pipewiresrc", "videorate", "videoconvert", "vp8enc", "webmmux", "filesink"];
 /// How long GStreamer gets to finish the file.
@@ -37,7 +36,7 @@ const FINISH_TIMEOUT: Duration = Duration::from_secs(5);
 /// What to record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
-    /// The primary monitor.
+    /// Every monitor (the layout's bounding box).
     Screen,
     Area(Rect),
 }
@@ -186,26 +185,6 @@ async fn find_gstreamer() -> Option<PathBuf> {
     None
 }
 
-/// The primary monitor's connector, from DisplayConfig.
-async fn primary_connector(conn: &Connection) -> zbus::Result<String> {
-    type Spec = (String, String, String, String);
-    type Mode = (String, i32, i32, f64, f64, Vec<f64>, HashMap<String, OwnedValue>);
-    type Props = HashMap<String, OwnedValue>;
-    type Logical = (i32, i32, f64, u32, bool, Vec<Spec>, Props);
-    type State = (u32, Vec<(Spec, Vec<Mode>, Props)>, Vec<Logical>, Props);
-    let reply = conn
-        .call_method(Some(DISPLAY_CONFIG), "/org/gnome/Mutter/DisplayConfig", Some(DISPLAY_CONFIG), "GetCurrentState", &())
-        .await?;
-    let (_, _, logical, _): State = reply.body().deserialize()?;
-    logical
-        .iter()
-        .find(|l| l.4)
-        .or(logical.first())
-        .and_then(|l| l.5.first())
-        .map(|spec| spec.0.clone())
-        .ok_or_else(|| zbus::Error::Failure("no monitor".into()))
-}
-
 async fn stop_session(conn: &Connection, session: &OwnedObjectPath) {
     let _ = conn
         .call_method(Some(SCREEN_CAST), session.as_str(), Some("org.gnome.Mutter.ScreenCast.Session"), "Stop", &())
@@ -226,9 +205,10 @@ async fn start_cast(conn: &Connection, target: Target, cursor: bool) -> Result<(
         properties.insert("cursor-mode".into(), Value::U32(if cursor { 1 } else { 0 }));
         let session_iface = Some("org.gnome.Mutter.ScreenCast.Session");
         let reply = match target {
+            // An area covering everything: clipped to the layout.
             Target::Screen => {
-                let connector = primary_connector(conn).await.map_err(err)?;
-                conn.call_method(Some(SCREEN_CAST), session.as_str(), session_iface, "RecordMonitor", &(connector, properties)).await
+                let (x, y, w, h) = (i32::MIN / 4, i32::MIN / 4, i32::MAX / 2, i32::MAX / 2);
+                conn.call_method(Some(SCREEN_CAST), session.as_str(), session_iface, "RecordArea", &(x, y, w, h, properties)).await
             }
             Target::Area(r) => {
                 conn.call_method(Some(SCREEN_CAST), session.as_str(), session_iface, "RecordArea", &(r.x, r.y, r.width, r.height, properties))

@@ -30,8 +30,8 @@ pub enum CastSource {
     Monitor(String),
     /// A window, by its id in the window list.
     Window(u32),
-    /// A rectangle (layout coordinates) on the monitor with this connector.
-    Area { connector: String, x: i32, y: i32, width: i32, height: i32 },
+    /// A rectangle (layout coordinates), on one monitor or several.
+    Area { x: i32, y: i32, width: i32, height: i32 },
     /// A virtual monitor made for the stream, by its name.
     Virtual(String),
 }
@@ -101,6 +101,9 @@ struct StreamState {
 pub struct Casts {
     sessions: HashMap<u32, SessionState>,
     streams: HashMap<u32, StreamState>,
+    /// Virtual monitors, by stream: name and rectangle (part of the layout
+    /// for `RecordArea`).
+    virtuals: HashMap<u32, (String, Rect)>,
     next: u32,
 }
 
@@ -292,6 +295,7 @@ pub async fn close_session(conn: &Connection, shared: &Shared, compositor: &mpsc
     for stream in &session.streams {
         let _ = compositor.send(CastRequest::Stop { stream: *stream });
         lock(shared).streams.remove(stream);
+        lock(shared).virtuals.remove(stream);
         let _ = conn.object_server().remove::<Stream, _>(stream_path(*stream).as_str()).await;
     }
     let path = session_path(id);
@@ -322,6 +326,17 @@ fn cursor_mode(properties: &HashMap<String, OwnedValue>) -> fdo::Result<CursorMo
 
 /// `rect` (x, y, w, h) clipped to the monitor (connector, its rectangle)
 /// it mostly covers.
+/// `rect` clipped to the layout's bounding box, with the monitor it
+/// covers most; `None` when it is on no monitor.
+pub fn clip_to_layout(rect: Rect, monitors: &[(String, Rect)]) -> Option<(String, Rect)> {
+    let (connector, _) = clip_to_monitor(rect, monitors)?;
+    let (x0, y0) = monitors.iter().fold((i32::MAX, i32::MAX), |(x, y), (_, m)| (x.min(m.0), y.min(m.1)));
+    let (x1, y1) = monitors.iter().fold((i32::MIN, i32::MIN), |(x, y), (_, m)| (x.max(m.0 + m.2), y.max(m.1 + m.3)));
+    let (x, y) = (rect.0.max(x0), rect.1.max(y0));
+    let (right, bottom) = ((rect.0 + rect.2).min(x1), (rect.1 + rect.3).min(y1));
+    Some((connector, (x, y, right - x, bottom - y)))
+}
+
 pub fn clip_to_monitor(rect: Rect, monitors: &[(String, Rect)]) -> Option<(String, Rect)> {
     let (x, y, w, h) = rect;
     if w <= 0 || h <= 0 {
@@ -495,10 +510,12 @@ impl Session {
                 })
                 .collect()
         };
-        let (connector, (cx, cy, cw, ch)) = clip_to_monitor((x, y, width, height), &monitors)
+        let mut monitors = monitors;
+        monitors.extend(lock(&self.shared).virtuals.values().cloned());
+        let (connector, (cx, cy, cw, ch)) = clip_to_layout((x, y, width, height), &monitors)
             .ok_or_else(|| fdo::Error::InvalidArgs("the area is on no monitor".into()))?;
         let parameters = stream_parameters((cx, cy), (cw, ch), &connector);
-        let source = CastSource::Area { connector, x: cx, y: cy, width: cw, height: ch };
+        let source = CastSource::Area { x: cx, y: cy, width: cw, height: ch };
         self.add_stream(source, cursor, parameters, server).await
     }
 
@@ -520,6 +537,7 @@ impl Session {
             .map_err(|_| fdo::Error::Failed("the compositor did not answer".into()))?
             .map_err(fdo::Error::Failed)?;
         let parameters = stream_parameters(position, size, &name);
+        lock(&self.shared).virtuals.insert(id, (name.clone(), (position.0, position.1, size.0, size.1)));
         self.add_stream_as(id, CastSource::Virtual(name), cursor, parameters, server).await
     }
 }
@@ -567,5 +585,9 @@ mod clip_tests {
         assert_eq!(clip_to_monitor((1800, 0, 400, 100), &monitors), Some(("B".into(), (1920, 0, 280, 100))), "mostly on B");
         assert_eq!(clip_to_monitor((5000, 0, 10, 10), &monitors), None);
         assert_eq!(clip_to_monitor((0, 0, 0, 10), &monitors), None);
+        // Across monitors: kept whole within the layout.
+        assert_eq!(clip_to_layout((1800, 0, 400, 100), &monitors), Some(("B".into(), (1800, 0, 400, 100))));
+        assert_eq!(clip_to_layout((-50, -50, 4000, 2000), &monitors), Some(("A".into(), (0, 0, 3200, 1080))));
+        assert_eq!(clip_to_layout((5000, 0, 10, 10), &monitors), None);
     }
 }
