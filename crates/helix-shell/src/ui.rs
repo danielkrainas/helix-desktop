@@ -58,6 +58,7 @@ mod calendar;
 mod capture;
 mod click_type;
 mod dash;
+mod desktop_icons;
 mod dock;
 mod ime;
 mod notify;
@@ -150,6 +151,7 @@ struct Ui {
     /// The on-screen keyboard.
     osk: osk::OskState,
     click_type: click_type::ClickTypeState,
+    desktop_icons: desktop_icons::DesktopIconsState,
     osd: Option<(Osd, Instant)>,
     shown_minute: Option<String>,
 
@@ -1931,6 +1933,7 @@ impl Ui {
 
     fn handle(&mut self, event: UiEvent) {
         match event {
+            UiEvent::DesktopIcons(items) => self.desktop_icons_set(items),
             UiEvent::ClickTypeWindow(wanted) => {
                 self.click_type.wanted = wanted;
                 self.click_type_sync();
@@ -2403,6 +2406,7 @@ pub fn run(
         calendar: Default::default(),
         osk: Default::default(),
         click_type: Default::default(),
+        desktop_icons: Default::default(),
         osd: None,
         shown_minute: None,
         keyboard: None,
@@ -2540,11 +2544,13 @@ impl OutputHandler for Ui {
     fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
         self.add_background(output);
         self.dock_update();
+        self.desktop_icons_sync();
     }
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
         // Spanned pictures depend on every monitor.
         self.draw_backgrounds();
         self.dock_update();
+        self.desktop_icons_sync();
     }
     fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
         self.remove_background(&output);
@@ -2570,6 +2576,7 @@ impl LayerShellHandler for Ui {
             || self.window_menu_closed(layer)
             || self.osk_closed(layer)
             || self.click_type_closed(layer)
+            || self.desktop_icons_closed(layer)
             || self.workspace_popup_closed(layer)
         {
             return;
@@ -2614,6 +2621,7 @@ impl LayerShellHandler for Ui {
             || self.window_menu_configured(layer, configure.new_size)
             || self.osk_configured(layer, configure.new_size)
             || self.click_type_configured(layer, configure.new_size)
+            || self.desktop_icons_configured(layer, configure.new_size)
             || self.workspace_popup_configured(layer, configure.new_size)
         {
             return;
@@ -2822,7 +2830,7 @@ impl Ui {
                 }
                 continue;
             }
-            if self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) {
+            if self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
@@ -3235,6 +3243,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                 ui.primary_area = (x, y, width, height);
                 ui.draw_overview();
                 ui.dock_update();
+                ui.desktop_icons_sync();
             }
             _ => {}
         }

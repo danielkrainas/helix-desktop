@@ -35,6 +35,7 @@ pub mod vpn_secrets;
 pub mod media;
 pub mod a11y_menu;
 pub mod dock;
+pub mod desktop_icons;
 pub mod launcher_entry;
 pub mod mount_handler;
 pub mod notifications;
@@ -133,6 +134,8 @@ pub enum UiEvent {
     LauncherEntry(String, Option<launcher_entry::Entry>),
     /// Mounted drives (for the dock).
     Mounts(Vec<media::MountInfo>),
+    /// The desktop icons to show (`None`: none).
+    DesktopIcons(Option<Vec<desktop_icons::DesktopItem>>),
     /// Whether the trash holds anything.
     Trash(bool),
     Osd(Osd),
