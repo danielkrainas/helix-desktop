@@ -35,6 +35,8 @@ pub const OBJECT_PATH: &str = "/org/freedesktop/portal/desktop";
 /// The running portal backend service.
 pub struct PortalService {
     conn: Connection,
+    /// The bus name taken ([`BUS_NAME`] unless overridden).
+    name: zbus::names::WellKnownName<'static>,
     registry: SharedRegistry,
     tasks: Vec<JoinHandle<()>>,
 }
@@ -91,6 +93,7 @@ impl PortalService {
         ];
         Ok(Self {
             conn,
+            name,
             registry,
             tasks,
         })
@@ -124,7 +127,7 @@ impl PortalService {
         for task in self.tasks {
             let _ = task.await;
         }
-        self.conn.release_name(BUS_NAME).await?;
+        self.conn.release_name(self.name.clone()).await?;
         // Exported objects hold SessionManager proxies, which hold the
         // connection: unregister them or the connection never drops.
         inhibit::release_all(&self.conn, &self.registry).await;
@@ -135,6 +138,11 @@ impl PortalService {
         server.remove::<screencast::ScreenCastBackend, _>(OBJECT_PATH).await?;
         server.remove::<remote_desktop::RemoteDesktopBackend, _>(OBJECT_PATH).await?;
         server.remove::<clipboard::ClipboardBackend, _>(OBJECT_PATH).await?;
+        // These hold the connection too.
+        server.remove::<dialogs::AccessBackend, _>(OBJECT_PATH).await?;
+        server.remove::<dialogs::AccountBackend, _>(OBJECT_PATH).await?;
+        server.remove::<dialogs::AppChooserBackend, _>(OBJECT_PATH).await?;
+        server.remove::<dialogs::BackgroundBackend, _>(OBJECT_PATH).await?;
         self.conn.graceful_shutdown().await;
         Ok(())
     }
