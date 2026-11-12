@@ -49,6 +49,8 @@ pub(super) struct OverviewState {
     closes: Vec<(Rect, u32)>,
     workspaces: Vec<(Rect, u32)>,
     search: Rect,
+    /// Dash icons: (where, app id, newest window).
+    dash: Vec<(Rect, String, Option<u32>)>,
 }
 
 /// Pictures of windows for the overview, shared by its monitors.
@@ -292,6 +294,7 @@ impl Ui {
         };
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
+        let dash = if overlay.state.primary { self.dash_entries(scale) } else { Vec::new() };
         if !overlay.state.primary && self.overview_pool.is_none() {
             self.overview_pool = smithay_client_toolkit::shm::slot::SlotPool::new(w * h * 4, &self.shm).ok();
         }
@@ -354,8 +357,38 @@ impl Ui {
         }
         }
 
+        // The dash, at the bottom of the primary monitor.
+        state.dash.clear();
+        let dash_room = if dash.is_empty() { 0 } else { super::dash::DASH_H + 16 };
+        if !dash.is_empty() {
+            use super::dash::{DASH_GAP, DASH_H, DASH_ICON};
+            let gaps = dash.windows(2).filter(|p| p[1].running_only && !p[0].running_only).count() as i32;
+            let n = dash.len() as i32;
+            let dw = n * DASH_ICON + (n - 1) * DASH_GAP + gaps * 16 + 2 * 12;
+            let (dx, dy) = ((w - dw) / 2, h - DASH_H - 16);
+            canvas.rect(dx, dy, dw, DASH_H, 0xC02A2A30);
+            let mut x = dx + 12;
+            for (i, entry) in dash.iter().enumerate() {
+                if i > 0 && entry.running_only && !dash[i - 1].running_only {
+                    // A separator between favorites and the rest.
+                    canvas.rect(x + 2, dy + 14, 1, DASH_ICON - 8, BANNER_BORDER);
+                    x += 16;
+                }
+                let r = Rect { x, y: dy + 8, w: DASH_ICON, h: DASH_ICON };
+                match &entry.icon {
+                    Some(icon) => canvas.image(f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), icon),
+                    None => canvas.rect(r.x + 4, r.y + 4, r.w - 8, r.h - 8, FIELD_BG),
+                }
+                if !entry.windows.is_empty() {
+                    canvas.circle(f64::from(r.x + r.w / 2), f64::from(dy + DASH_H - 7), 2.5, FG);
+                }
+                state.dash.push((r, entry.app.clone(), entry.windows.first().copied()));
+                x += DASH_ICON + DASH_GAP;
+            }
+        }
+
         // The active workspace's windows on this monitor.
-        let area = Rect { x: 32, y: ty + THUMB_H + 32, w: w - 64, h: h - (ty + THUMB_H + 32) - 24 };
+        let area = Rect { x: 32, y: ty + THUMB_H + 32, w: w - 64, h: h - (ty + THUMB_H + 32) - 24 - dash_room };
         let sizes: Vec<(i32, i32)> = ids
             .iter()
             .map(|id| match (self.overview_shots.pictures.get(id), self.window_geometry.get(id)) {
@@ -451,6 +484,8 @@ impl Ui {
                     if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 2) {
                         list.switch_workspace(n);
                     }
+                } else if let Some((_, app, window)) = state.dash.iter().find(|(r, _, _)| r.contains(x, y)).cloned() {
+                    self.dash_activate(&app, window);
                 } else if state.search.contains(x, y) {
                     self.close_overview(false);
                     self.open_launcher(false);

@@ -11,6 +11,7 @@ pub mod auth;
 pub mod display_change;
 pub mod end_dialog;
 pub mod extra_keys;
+pub mod favorites;
 pub mod font;
 pub mod ibus;
 pub mod idle;

@@ -54,6 +54,7 @@ use std::collections::HashMap;
 
 mod background;
 mod capture;
+mod dash;
 mod ime;
 mod notify;
 mod overview;
@@ -220,6 +221,8 @@ struct Ui {
     search_serial: u64,
     /// The query last sent to the search providers.
     searched_query: Option<String>,
+    /// Control is held (launcher shortcuts).
+    ctrl_held: bool,
     /// Where the status area starts (clicking it opens quick settings).
     status_left: i32,
     exit: bool,
@@ -568,13 +571,19 @@ impl Ui {
         layer.commit();
         let apps = launcher::installed();
         tracing::info!(apps = apps.len(), "launcher opened");
+        let folders = crate::favorites::folders(&apps);
+        let favorites = crate::favorites::favorites();
         // The search providers are read again.
         self.searched_query = None;
         self.search_serial += 1;
         let _ = self.requests.send(UiRequest::Search { serial: self.search_serial, query: String::new() });
         self.launcher = Some(LauncherView {
             layer,
-            model: Launcher::with_windows(apps, self.windows.mru().to_vec()),
+            model: {
+                let mut model = Launcher::with_windows(apps, self.windows.mru().to_vec());
+                model.set_collections(favorites, folders);
+                model
+            },
             width: 0,
             height: 0,
             configured: false,
@@ -614,6 +623,13 @@ impl Ui {
     fn launch_selected(&mut self) {
         let Some(view) = &self.launcher else { return };
         match view.model.selected() {
+            Some(launcher::Hit::Folder(i)) => {
+                if let Some(view) = self.launcher.as_mut() {
+                    view.model.enter_folder(i);
+                }
+                self.draw_launcher();
+                return;
+            }
             Some(launcher::Hit::Search(i)) => {
                 let hit = &view.model.external[i];
                 tracing::info!(app = hit.app, id = hit.id, "opening search result");
@@ -1001,7 +1017,7 @@ impl Ui {
         let field = Rect { x: bx, y: by, w: bw, h: 48 };
         canvas.rect(field.x, field.y, field.w, field.h, FIELD_BG);
         let (q_text, q_color) = if view.model.query.is_empty() {
-            ("Type to search…", DIM_FG)
+            (view.model.folder_name().unwrap_or("Type to search…"), DIM_FG)
         } else {
             (view.model.query.as_str(), FG)
         };
@@ -1032,10 +1048,15 @@ impl Ui {
             if result == view.model.selected {
                 canvas.rect(rect.x, rect.y, rect.w, rect.h, ACCENT);
             }
-            let (name, is_window) = view.model.row_label(view.model.results[result]);
+            let (name, _) = view.model.row_label(view.model.results[result]);
             let base = baseline(self.text.as_ref(), rect.y, rect.h, 15.0);
             let found = view.model.search_hit(view.model.results[result]);
-            let tag_text = if is_window { Some("Open window") } else { found.map(|h| h.app.as_str()) };
+            let tag_text = match view.model.results[result] {
+                launcher::Hit::Window(_) => Some("Open window"),
+                launcher::Hit::Folder(_) => Some("Folder"),
+                launcher::Hit::App(i) if view.model.is_favorite(i) => Some("Favorite"),
+                _ => found.map(|h| h.app.as_str()),
+            };
             let tag_w = tag_text.map_or(0.0, |t| self.text.as_ref().map_or(96.0, |f| f.width(t, 13.0)).min(160.0) + 8.0);
             let name_max = rect.w as f32 - 24.0 - tag_w;
             label(self.text.as_ref(), &mut canvas, name, (rect.x + 12) as f32, base, 15.0, FG, name_max);
@@ -1064,11 +1085,27 @@ impl Ui {
     }
 
     fn launcher_key(&mut self, event: &KeyEvent) {
+        let ctrl = self.ctrl_held;
         let Some(view) = self.launcher.as_mut() else { return };
         match event.keysym {
             Keysym::Escape => {
-                self.close_launcher(true);
-                return;
+                // Out of a folder first.
+                if !view.model.leave_folder() {
+                    self.close_launcher(true);
+                    return;
+                }
+            }
+            Keysym::d | Keysym::D if ctrl => {
+                if let Some(app) = view.model.selected_app().map(|a| a.id.clone()) {
+                    let now = crate::favorites::toggle_favorite(&app);
+                    tracing::info!(app, favorite = now, "favorites changed");
+                    let selected = view.model.selected();
+                    view.model.set_collections(crate::favorites::favorites(), view.model.folders.clone());
+                    view.model.selected = selected.and_then(|s| view.model.results.iter().position(|r| *r == s)).unwrap_or(0);
+                }
+            }
+            Keysym::BackSpace if view.model.query.is_empty() => {
+                view.model.leave_folder();
             }
             Keysym::Return | Keysym::KP_Enter => {
                 self.launch_selected();
@@ -2119,6 +2156,7 @@ pub fn run(
         status_left: i32::MAX,
         search_serial: 0,
         searched_query: None,
+        ctrl_held: false,
         lock: LockScreen {
             state: SessionLockState::new(&globals, &qh),
             session: None,
@@ -2382,6 +2420,7 @@ impl KeyboardHandler for Ui {
     }
     fn release_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent) {}
     fn update_modifiers(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, modifiers: Modifiers, _: RawModifiers, _: u32) {
+        self.ctrl_held = modifiers.ctrl;
         if self.switcher.is_some() {
             self.switcher_modifiers(&modifiers);
         }

@@ -76,29 +76,13 @@ fn desktop_app(id: &str) -> Option<gio::AppInfo> {
     gio::AppInfo::all().into_iter().find(|a| a.id().is_some_and(|i| i == file.as_str()))
 }
 
-/// The `Categories` of desktop file `id`, from the XDG data directories.
-fn categories(id: &str) -> Vec<String> {
-    let mut dirs = vec![gio::glib::user_data_dir()];
-    dirs.extend(gio::glib::system_data_dirs());
-    for dir in dirs {
-        if let Ok(text) = std::fs::read_to_string(dir.join("applications").join(id)) {
-            return text
-                .lines()
-                .find_map(|l| l.strip_prefix("Categories="))
-                .map(|c| c.split(';').filter(|c| !c.is_empty()).map(str::to_owned).collect())
-                .unwrap_or_default();
-        }
-    }
-    Vec::new()
-}
-
 /// The calculator: `org.gnome.Calculator`, else an app in the
 /// `Calculator` category.
 fn calculator() -> Option<gio::AppInfo> {
     desktop_app("org.gnome.Calculator").or_else(|| {
         gio::AppInfo::all()
             .into_iter()
-            .find(|a| a.id().is_some_and(|id| categories(id.as_str()).iter().any(|c| c == "Calculator")))
+            .find(|a| a.id().is_some_and(|id| crate::favorites::categories(id.as_str()).iter().any(|c| c == "Calculator")))
     })
 }
 

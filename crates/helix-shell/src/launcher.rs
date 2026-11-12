@@ -16,6 +16,8 @@ pub struct App {
     pub name: String,
     /// Extra searchable text (description, command line).
     pub search: String,
+    /// Its desktop file's `Categories` (for app folders).
+    pub categories: Vec<String>,
 }
 
 /// Installed apps that should be shown in menus, sorted by name.
@@ -36,6 +38,7 @@ pub fn installed() -> Vec<App> {
                 search.push(description.to_string());
             }
             Some(App {
+                categories: crate::favorites::categories(&id),
                 id,
                 name: info.display_name().to_string(),
                 search: search.join(" ").to_lowercase(),
@@ -95,6 +98,8 @@ pub enum Hit {
     App(usize),
     /// Index into the search providers' results.
     Search(usize),
+    /// Index into the app folders.
+    Folder(usize),
 }
 
 /// A search provider's result.
@@ -120,6 +125,11 @@ pub struct Launcher {
     pub selected: usize,
     /// Search provider results for `query`, in provider order.
     pub external: Vec<SearchHit>,
+    /// Favorite app ids, in order.
+    pub favorites: Vec<String>,
+    pub folders: Vec<crate::favorites::Folder>,
+    /// The folder shown, if one is open.
+    pub open_folder: Option<usize>,
 }
 
 impl Launcher {
@@ -135,6 +145,61 @@ impl Launcher {
         };
         l.refilter();
         l
+    }
+
+    /// Show favorites and folders (with an empty search).
+    pub fn set_collections(&mut self, favorites: Vec<String>, folders: Vec<crate::favorites::Folder>) {
+        self.favorites = favorites;
+        self.folders = folders;
+        self.refilter();
+    }
+
+    /// Whether app `i` is a favorite.
+    pub fn is_favorite(&self, i: usize) -> bool {
+        self.favorites.contains(&self.apps[i].id)
+    }
+
+    /// Open folder `i`.
+    pub fn enter_folder(&mut self, i: usize) {
+        if i < self.folders.len() {
+            self.open_folder = Some(i);
+            self.query.clear();
+            self.refilter();
+        }
+    }
+
+    /// Back from an open folder; false if none was open.
+    pub fn leave_folder(&mut self) -> bool {
+        if self.open_folder.take().is_some() {
+            self.refilter();
+            return true;
+        }
+        false
+    }
+
+    /// The open folder's name.
+    pub fn folder_name(&self) -> Option<&str> {
+        self.open_folder.and_then(|i| self.folders.get(i)).map(|f| f.name.as_str())
+    }
+
+    fn index_of(&self, id: &str) -> Option<usize> {
+        self.apps.iter().position(|a| a.id == id)
+    }
+
+    /// The empty search: favorites, folders, then the other apps.
+    fn browse(&self) -> Vec<Hit> {
+        if let Some(folder) = self.open_folder.and_then(|i| self.folders.get(i)) {
+            return folder.apps.iter().filter_map(|id| self.index_of(id)).map(Hit::App).collect();
+        }
+        let in_folders: Vec<&String> = self.folders.iter().flat_map(|f| f.apps.iter()).collect();
+        let favorites: Vec<usize> = self.favorites.iter().filter_map(|id| self.index_of(id)).collect();
+        favorites
+            .iter()
+            .copied()
+            .map(Hit::App)
+            .chain((0..self.folders.len()).map(Hit::Folder))
+            .chain((0..self.apps.len()).filter(|i| !favorites.contains(i) && !in_folders.contains(&&self.apps[*i].id)).map(Hit::App))
+            .collect()
     }
 
     /// Windows whose title or app id match come first, then apps, then
@@ -158,6 +223,11 @@ impl Launcher {
 
     fn rebuild(&mut self) {
         let q = self.query.trim().to_lowercase();
+        if q.is_empty() && (self.open_folder.is_some() || !self.favorites.is_empty() || !self.folders.is_empty()) {
+            let windows = if self.open_folder.is_some() { Vec::new() } else { (0..self.windows.len()).map(Hit::Window).collect() };
+            self.results = windows.into_iter().chain(self.browse()).collect();
+            return;
+        }
         self.results = self
             .windows
             .iter()
@@ -187,6 +257,7 @@ impl Launcher {
             Hit::Window(i) => (self.windows[i].label(), true),
             Hit::App(i) => (&self.apps[i].name, false),
             Hit::Search(i) => (&self.external[i].name, false),
+            Hit::Folder(i) => (&self.folders[i].name, false),
         }
     }
 
@@ -216,7 +287,7 @@ impl Launcher {
     pub fn selected_app(&self) -> Option<&App> {
         match self.selected()? {
             Hit::App(i) => Some(&self.apps[i]),
-            Hit::Window(_) | Hit::Search(_) => None,
+            Hit::Window(_) | Hit::Search(_) | Hit::Folder(_) => None,
         }
     }
 }
@@ -227,6 +298,7 @@ mod tests {
 
     fn app(id: &str, name: &str, search: &str) -> App {
         App {
+            categories: Vec::new(),
             id: id.into(),
             name: name.into(),
             search: search.into(),
@@ -292,5 +364,27 @@ mod tests {
         assert_eq!(l.results, [Hit::Window(1), Hit::App(2)], "windows match by app id too");
         l.type_text("x");
         assert!(l.results.is_empty());
+    }
+
+    #[test]
+    fn favorites_and_folders() {
+        let mut l = Launcher::new(sample());
+        let folder = crate::favorites::Folder { id: "u".into(), name: "Utilities".into(), apps: vec!["org.gnome.Calculator.desktop".into(), "org.gnome.TextEditor.desktop".into()] };
+        l.set_collections(vec!["firefox.desktop".into(), "not.installed.desktop".into()], vec![folder]);
+        let labels = |l: &Launcher| l.results.iter().map(|h| l.row_label(*h).0.to_owned()).collect::<Vec<_>>();
+        assert_eq!(labels(&l), ["Firefox Web Browser", "Utilities", "Files"]);
+        assert!(l.is_favorite(2));
+        l.move_selection(1);
+        assert_eq!(l.selected(), Some(Hit::Folder(0)));
+        l.enter_folder(0);
+        assert_eq!(labels(&l), ["Calculator", "Text Editor"]);
+        assert_eq!(l.folder_name(), Some("Utilities"));
+        // Typing searches every app.
+        l.type_text("fi");
+        assert!(labels(&l).contains(&"Files".to_owned()));
+        assert!(l.leave_folder());
+        l.backspace();
+        l.backspace();
+        assert_eq!(labels(&l), ["Firefox Web Browser", "Utilities", "Files"]);
     }
 }
