@@ -79,12 +79,16 @@ pub struct SessionSection {
     /// `SessionName`.
     #[serde(default = "default_name")]
     pub name: String,
+    /// Start the XDG autostart apps (see `crate::autostart`).
+    #[serde(default)]
+    pub autostart: bool,
 }
 
 impl Default for SessionSection {
     fn default() -> Self {
         Self {
             name: default_name(),
+            autostart: false,
         }
     }
 }
@@ -277,6 +281,15 @@ pub fn desktop_file(app_id: &str) -> Option<PathBuf> {
         .chain(dirs.split(':').filter(|d| !d.is_empty()).map(PathBuf::from))
         .map(|d| d.join("applications").join(format!("{app_id}.desktop")))
         .find(|p| p.is_file())
+}
+
+/// The environment apps started by the session get: the session's
+/// environment plus `Setenv` values.
+pub fn app_environment(service: &SessionService, config: &SessionConfig, extra_env: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let mut env = extra_env.clone();
+    env.extend(config.environment.clone());
+    env.extend(service.environment());
+    env
 }
 
 /// Start apps to restore (session restore), each through its desktop file

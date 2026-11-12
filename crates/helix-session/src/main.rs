@@ -94,6 +94,10 @@ async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
     let mut children = match &config {
         Some(config) => match launcher::launch(&service, config, &BTreeMap::new()).await {
             Ok(children) => {
+                if config.session.autostart {
+                    let apps = helix_session::autostart::Autostart::new(launcher::app_environment(&service, config, &BTreeMap::new()));
+                    tokio::spawn(apps.run(std::future::pending()));
+                }
                 launcher::restore_apps(&service, config, &BTreeMap::new(), &service.apps_to_restore());
                 Some(children)
             }

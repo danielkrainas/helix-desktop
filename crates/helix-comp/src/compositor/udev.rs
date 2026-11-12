@@ -334,14 +334,14 @@ impl Helix {
                 planes.overlay.clear();
             }
         }
-        let drm_output = match udev.manager.initialize_output::<_, OutputElements>(
+        let drm_output = match udev.manager.initialize_output::<_, super::zoom::ScreenElement>(
             crtc,
             drm_mode,
             &[connector.handle()],
             &output,
             planes,
             &mut udev.renderer,
-            &DrmOutputRenderElements::default(),
+            &DrmOutputRenderElements::<GlesRenderer, super::zoom::ScreenElement>::default(),
         ) {
             Ok(o) => o,
             Err(err) => {
@@ -496,6 +496,7 @@ impl Helix {
             cursors,
             start_time,
             lock,
+            zoom,
             ..
         } = self;
         let Some(udev) = udev.as_mut() else { return };
@@ -537,6 +538,7 @@ impl Helix {
             elements.extend(scene.into_iter().map(OutputElements::Scene));
         }
 
+        let elements = super::zoom::wrap(zoom, &output, geo, pointer_location, elements);
         let clear = if lock.locked { [0.0, 0.0, 0.0, 1.0] } else { CLEAR_COLOR };
         let rendered = match surface.drm_output.render_frame(renderer, &elements, clear, FrameFlags::DEFAULT) {
             Ok(result) => !result.is_empty,
@@ -620,7 +622,7 @@ impl Helix {
             let drm_mode = surface.drm_modes[index];
             surface
                 .drm_output
-                .use_mode(drm_mode, &mut udev.renderer, &DrmOutputRenderElements::<GlesRenderer, OutputElements>::default())
+                .use_mode(drm_mode, &mut udev.renderer, &DrmOutputRenderElements::<GlesRenderer, super::zoom::ScreenElement>::default())
                 .map_err(|e| format!("{name} cannot use {}x{}: {e:?}", choice.width, choice.height))?;
             surface.output.change_current_state(Some(WlMode::from(drm_mode)), None, None, None);
             surface.output.set_preferred(WlMode::from(drm_mode));

@@ -39,6 +39,60 @@ pub enum Volume {
     MicMute,
 }
 
+/// Accessibility keys (helix-desktop-spec
+/// `contracts/gsettings/a11y-magnifier.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum A11yKey {
+    Magnifier,
+    ZoomIn,
+    ZoomOut,
+    ScreenReader,
+    OnScreenKeyboard,
+}
+
+const A11Y_APPS: &str = "org.gnome.desktop.a11y.applications";
+const MAGNIFIER: &str = "org.gnome.desktop.a11y.magnifier";
+
+/// Act on an accessibility key: flip or step the settings.
+pub fn run_a11y_key(key: A11yKey) {
+    let flip = |name: &str| {
+        if let Some(s) = settings_with(A11Y_APPS, name) {
+            let _ = s.set_boolean(name, !s.boolean(name));
+        }
+    };
+    match key {
+        A11yKey::Magnifier => flip("screen-magnifier-enabled"),
+        A11yKey::ScreenReader => flip("screen-reader-enabled"),
+        A11yKey::OnScreenKeyboard => flip("screen-keyboard-enabled"),
+        A11yKey::ZoomIn | A11yKey::ZoomOut => {
+            let (Some(apps), Some(mag)) = (settings_with(A11Y_APPS, "screen-magnifier-enabled"), settings_with(MAGNIFIER, "mag-factor")) else { return };
+            let (factor, enabled) = zoom_step(apps.boolean("screen-magnifier-enabled"), mag.double("mag-factor"), key == A11yKey::ZoomIn);
+            let _ = mag.set_double("mag-factor", factor);
+            let _ = apps.set_boolean("screen-magnifier-enabled", enabled);
+        }
+    }
+    gio::Settings::sync();
+}
+
+/// The new `mag-factor` and `screen-magnifier-enabled` for a zoom key:
+/// steps of 0.5, off at 1.
+pub fn zoom_step(enabled: bool, factor: f64, zoom_in: bool) -> (f64, bool) {
+    if zoom_in {
+        if enabled {
+            ((factor + 0.5).min(32.0), true)
+        } else {
+            (factor.max(1.5), true)
+        }
+    } else {
+        let next = factor - 0.5;
+        if next <= 1.0 {
+            (1.0, false)
+        } else {
+            (next, enabled)
+        }
+    }
+}
+
 /// Playback keys: the MPRIS method each calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Playback {
@@ -70,6 +124,7 @@ pub enum KeyAction {
     Brightness(Brightness),
     Volume(Volume),
     Playback(Playback),
+    A11y(A11yKey),
 }
 
 impl KeyAction {
@@ -119,6 +174,11 @@ const KEYS: &[(&str, &str, &[&str], KeyAction)] = &[
     (MEDIA_KEYS, "next-static", &["XF86AudioNext", "<Ctrl>XF86AudioNext"], KeyAction::Playback(Playback::Next)),
     (MEDIA_KEYS, "previous", &[], KeyAction::Playback(Playback::Previous)),
     (MEDIA_KEYS, "previous-static", &["XF86AudioPrev", "<Ctrl>XF86AudioPrev"], KeyAction::Playback(Playback::Previous)),
+    (MEDIA_KEYS, "magnifier", &["<Alt><Super>8"], KeyAction::A11y(A11yKey::Magnifier)),
+    (MEDIA_KEYS, "magnifier-zoom-in", &["<Alt><Super>equal"], KeyAction::A11y(A11yKey::ZoomIn)),
+    (MEDIA_KEYS, "magnifier-zoom-out", &["<Alt><Super>minus"], KeyAction::A11y(A11yKey::ZoomOut)),
+    (MEDIA_KEYS, "screenreader", &["<Alt><Super>s"], KeyAction::A11y(A11yKey::ScreenReader)),
+    (MEDIA_KEYS, "on-screen-keyboard", &[], KeyAction::A11y(A11yKey::OnScreenKeyboard)),
 ];
 
 /// The installed schema, if it has `key`.
@@ -397,6 +457,16 @@ pub async fn change_volume(action: Volume) -> Option<Osd> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zoom_keys() {
+        assert_eq!(zoom_step(false, 2.0, true), (2.0, true), "turns on at the stored factor");
+        assert_eq!(zoom_step(false, 1.0, true), (1.5, true));
+        assert_eq!(zoom_step(true, 2.0, true), (2.5, true));
+        assert_eq!(zoom_step(true, 32.0, true), (32.0, true));
+        assert_eq!(zoom_step(true, 2.0, false), (1.5, true));
+        assert_eq!(zoom_step(true, 1.5, false), (1.0, false), "off at 1");
+    }
 
     #[test]
     fn brightness_steps() {

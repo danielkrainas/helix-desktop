@@ -753,6 +753,11 @@ impl UiBridge {
                             shell_keys::control_player(&conn, command).await;
                             None
                         }
+                        shell_keys::KeyAction::A11y(key) => {
+                            tracing::info!(?key, "accessibility key");
+                            shell_keys::run_a11y_key(key);
+                            None
+                        }
                     };
                     if let Some(osd) = osd {
                         let _ = ui.send(UiEvent::Osd(osd));

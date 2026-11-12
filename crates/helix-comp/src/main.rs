@@ -108,6 +108,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Keyboard, mouse and touchpad settings: now, and whenever they change.
     state.apply_a11y_settings();
+    state.apply_magnifier_settings();
     state.apply_input_settings();
     state.apply_workspace_settings();
     state.apply_frame_settings();
@@ -118,6 +119,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .insert_source(settings_rx, |event, _, state| {
             if let smithay::reexports::calloop::channel::Event::Msg(()) = event {
                 state.apply_a11y_settings();
+                state.apply_magnifier_settings();
                 state.apply_input_settings();
                 state.apply_workspace_settings();
                 state.apply_frame_settings();
@@ -134,6 +136,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .chain(helix_comp::frames::SCHEMAS.iter())
                 .chain(helix_comp::wm_settings::SCHEMAS.iter())
                 .chain(helix_comp::a11y_keys::SCHEMAS.iter())
+                .chain(helix_comp::magnifier::SCHEMAS.iter())
                 .copied()
                 .collect();
             schemas.sort_unstable();

@@ -184,6 +184,10 @@ pub fn init(
                             })
                             .unwrap_or_default();
                         elements.extend(lock);
+                        let elements: Vec<super::udev::OutputElements> = elements.into_iter().map(super::udev::OutputElements::CursorSurface).collect();
+                        let geo = state.space.output_geometry(&output).unwrap_or_default();
+                        let pointer = state.seat.get_pointer().unwrap().current_location();
+                        let elements = super::zoom::wrap(&mut state.zoom, &output, geo, pointer, elements);
                         if let Err(err) = damage_tracker.render_output(
                             renderer,
                             &mut framebuffer,
@@ -198,12 +202,19 @@ pub fn init(
                         let origin = state.space.output_geometry(&output).map(|g| g.loc.to_f64()).unwrap_or_default();
                         let scale = output.current_scale().fractional_scale();
                         // An app's own pointer image, in front.
-                        let mut elements: Vec<super::frames::SceneElement> = state
+                        let mut elements: Vec<super::udev::OutputElements> = state
                             .cursor_surface_elements(renderer, origin, scale)
                             .into_iter()
-                            .map(super::frames::SceneElement::Surface)
+                            .map(super::udev::OutputElements::CursorSurface)
                             .collect();
-                        elements.extend(super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref()));
+                        elements.extend(
+                            super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref())
+                                .into_iter()
+                                .map(super::udev::OutputElements::Scene),
+                        );
+                        let geo = state.space.output_geometry(&output).unwrap_or_default();
+                        let pointer = state.seat.get_pointer().unwrap().current_location();
+                        let elements = super::zoom::wrap(&mut state.zoom, &output, geo, pointer, elements);
                         if let Err(err) =
                             damage_tracker.render_output(renderer, &mut framebuffer, 0, &elements, [0.12, 0.12, 0.14, 1.0])
                         {

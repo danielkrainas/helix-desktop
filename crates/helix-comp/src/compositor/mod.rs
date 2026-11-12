@@ -4,6 +4,7 @@
 
 mod a11y;
 mod actions;
+mod zoom;
 mod alive;
 mod capture;
 mod color;
@@ -183,6 +184,8 @@ pub struct Helix {
     pub wm_settings: helix_comp::wm_settings::WmSettings,
     /// Keyboard accessibility (sticky, slow, bounce, mouse keys…).
     pub access: helix_comp::a11y_keys::AccessX,
+    /// The magnifier.
+    pub zoom: zoom::ZoomState,
     /// Where a dragged window would go if released now (edge tiling).
     pub tile_target: Option<wm::Takeover>,
     pub wm: wm_behavior::WmState,
@@ -289,6 +292,7 @@ impl Helix {
             frames: Default::default(),
             wm_settings: Default::default(),
             access: Default::default(),
+            zoom: Default::default(),
             tile_target: None,
             wm: Default::default(),
             alive: Default::default(),

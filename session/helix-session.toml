@@ -3,6 +3,9 @@
 
 [session]
 name = "helix"
+# Start the apps in the XDG autostart directories (Orca when the screen
+# reader is turned on, and so on). Leave it out of nested test sessions.
+autostart = true
 
 [environment]
 # "Helix" first so xdg-desktop-portal picks helix-portals.conf; "GNOME" so
