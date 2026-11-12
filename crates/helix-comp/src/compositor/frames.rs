@@ -30,8 +30,11 @@ smithay::backend::renderer::element::render_elements! {
     Preview = SolidColorRenderElement,
     /// A window growing or shrinking as it opens.
     Scaled = smithay::backend::renderer::element::utils::RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>,
-    /// Something that went away, animating from a snapshot.
+    /// Something that went away, animating from a snapshot (and the
+    /// unconverted surfaces of a color-managed window).
     Ghost = smithay::backend::renderer::element::texture::TextureRenderElement<smithay::backend::renderer::gles::GlesTexture>,
+    /// A surface converted from its image description.
+    Converted = smithay::backend::renderer::gles::element::TextureShaderElement,
 }
 
 /// Whether Helix draws a title bar for `window`: managed X11 windows that
@@ -397,6 +400,19 @@ pub fn scene(
             continue;
         }
         let at = (location - window.geometry().loc - output_geo.loc).to_physical_precise_round(scale);
+        // Surfaces with an image description to convert.
+        // (They fade but do not grow or shrink as they open or close.)
+        if !shaded {
+            if let Some(converted) = super::color_surfaces::window_elements(renderer, window, at, scale, look.alpha as f32) {
+                elements.extend(converted);
+                if top > 0 {
+                    if let Some(frame) = frames.element(renderer, window, client, output_geo.loc, scale, focused == Some(window)) {
+                        elements.push(SceneElement::Frame(frame));
+                    }
+                }
+                continue;
+            }
+        }
         let surfaces = if shaded { Vec::new() } else { window.render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(renderer, at, Scale::from(scale), look.alpha as f32) };
         if look.scale == 1.0 {
             elements.extend(surfaces.into_iter().map(SceneElement::Surface));

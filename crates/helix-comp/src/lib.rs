@@ -21,6 +21,8 @@ pub mod gestures;
 pub mod tablet_v2;
 pub mod display_config;
 pub mod eraser_button;
+pub mod color_management;
+pub mod colorimetry;
 pub mod cursor_shape;
 pub mod edid;
 pub mod tablet;

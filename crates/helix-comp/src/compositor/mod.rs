@@ -16,6 +16,7 @@ mod grabs;
 mod handlers;
 mod input;
 mod tablet_input;
+mod color_surfaces;
 mod animations;
 mod hdr;
 pub mod libinput_source;
@@ -159,7 +160,7 @@ pub struct Helix {
     /// `_NET_WM_PING` for X11 apps, once Xwayland runs.
     pub x11ping: Option<x11ping::X11Ping>,
     /// `wp_color_manager_v1`.
-    pub color: color::ColorState,
+    pub color_manager: helix_comp::color_management::ColorManager,
     /// Explicit sync, when the GPU supports it.
     pub syncobj_state: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
     /// Remote desktop clipboard sharing and keymaps.
@@ -306,7 +307,7 @@ impl Helix {
             cursors: cursor::Cursors::new("Adwaita", 24),
             remote_share: Default::default(),
             syncobj_state: None,
-            color: color::ColorState::new::<Self>(&dh),
+            color_manager: helix_comp::color_management::ColorManager::new::<Self>(&dh),
             x11ping: None,
             icons: Default::default(),
             cursor_status: CursorImageStatus::default_named(),
