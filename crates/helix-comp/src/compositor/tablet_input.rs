@@ -452,6 +452,14 @@ impl Helix {
     }
 
     /// An app set the cursor for `tool`.
+    /// A named cursor (`wp_cursor_shape_device_v1`) for `tool`, taken while
+    /// it is over an app that takes tablet events.
+    pub(super) fn set_tool_shape(&mut self, tool: u64, icon: smithay::input::pointer::CursorIcon) {
+        if self.tablet.pen.as_ref().is_some_and(|p| p.tool == tool && p.on_client) {
+            self.cursor_status = CursorImageStatus::Named(icon);
+        }
+    }
+
     pub(super) fn set_tool_cursor(&mut self, tool: u64, cursor: Option<(WlSurface, (i32, i32))>) {
         if !self.tablet.pen.as_ref().is_some_and(|p| p.tool == tool && p.on_client) {
             return;

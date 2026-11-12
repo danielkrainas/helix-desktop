@@ -48,7 +48,7 @@ use smithay::wayland::shell::xdg::{
 };
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::{
-    delegate_compositor, delegate_cursor_shape, delegate_data_device, delegate_dmabuf, delegate_fractional_scale,
+    delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_fractional_scale,
     delegate_layer_shell, delegate_output, delegate_primary_selection, delegate_seat,
     delegate_shm, delegate_viewporter, delegate_xdg_activation, delegate_xdg_decoration,
     delegate_xdg_shell,
@@ -626,7 +626,6 @@ delegate_xdg_decoration!(Helix);
 delegate_xdg_activation!(Helix);
 delegate_viewporter!(Helix);
 delegate_fractional_scale!(Helix);
-delegate_cursor_shape!(Helix);
 delegate_dmabuf!(Helix);
 smithay::delegate_xdg_system_bell!(Helix);
 smithay::delegate_xdg_dialog!(Helix);
@@ -685,6 +684,25 @@ impl helix_comp::tablet_v2::TabletV2Handler for Helix {
     }
 }
 
+impl helix_comp::cursor_shape::CursorShapeHandler for Helix {
+    /// Taken while one of the client's surfaces has the pointer (or
+    /// started the pointer grab).
+    fn pointer_shape(&mut self, client: smithay::reexports::wayland_server::backend::ClientId, icon: smithay::input::pointer::CursorIcon) {
+        let Some(pointer) = self.seat.get_pointer() else { return };
+        let of = |s: &WlSurface| s.client().map(|c| c.id());
+        let focused = pointer.current_focus().and_then(|f| of(&f)) == Some(client.clone());
+        let grab = pointer.grab_start_data().and_then(|d| d.focus).and_then(|(f, _)| of(&f)) == Some(client);
+        tracing::debug!(?icon, taken = focused || grab, "cursor shape");
+        if focused || grab {
+            self.cursor_status = smithay::input::pointer::CursorImageStatus::Named(icon);
+        }
+    }
+
+    fn tool_shape(&mut self, _client: smithay::reexports::wayland_server::backend::ClientId, tool: u64, icon: smithay::input::pointer::CursorIcon) {
+        self.set_tool_shape(tool, icon);
+    }
+}
+
 mod tablet_v2_delegates {
     use helix_comp::tablet_v2::TabletV2;
     use smithay::reexports::wayland_protocols::wp::tablet::zv2::server as t;
@@ -698,6 +716,11 @@ mod tablet_v2_delegates {
     delegate_dispatch!(Helix: [t::zwp_tablet_v2::ZwpTabletV2: String] => TabletV2);
     delegate_dispatch!(Helix: [t::zwp_tablet_tool_v2::ZwpTabletToolV2: u64] => TabletV2);
     delegate_dispatch!(Helix: [t::zwp_tablet_pad_v2::ZwpTabletPadV2: String] => TabletV2);
+    use helix_comp::cursor_shape::{CursorShapeManager, Device};
+    use smithay::reexports::wayland_protocols::wp::cursor_shape::v1::server as cs;
+    delegate_global_dispatch!(Helix: [cs::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1: ()] => CursorShapeManager);
+    delegate_dispatch!(Helix: [cs::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1: ()] => CursorShapeManager);
+    delegate_dispatch!(Helix: [cs::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1: Device] => CursorShapeManager);
     delegate_dispatch!(Helix: [t::zwp_tablet_pad_group_v2::ZwpTabletPadGroupV2: (String, usize)] => TabletV2);
     delegate_dispatch!(Helix: [t::zwp_tablet_pad_ring_v2::ZwpTabletPadRingV2: (String, u32)] => TabletV2);
     delegate_dispatch!(Helix: [t::zwp_tablet_pad_strip_v2::ZwpTabletPadStripV2: (String, u32)] => TabletV2);

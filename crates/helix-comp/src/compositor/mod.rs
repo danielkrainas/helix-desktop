@@ -61,7 +61,6 @@ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use smithay::utils::{Logical, Point, Rectangle};
 use smithay::wayland::compositor::{CompositorClientState, CompositorState};
-use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::dmabuf::DmabufState;
 use smithay::wayland::fractional_scale::FractionalScaleManagerState;
 use smithay::wayland::selection::primary_selection::PrimarySelectionState;
@@ -111,7 +110,7 @@ pub struct Helix {
     globals: (
         ViewporterState,
         FractionalScaleManagerState,
-        CursorShapeManagerState,
+        helix_comp::cursor_shape::CursorShapeManager,
         XdgDecorationState,
         smithay::wayland::text_input::TextInputManagerState,
         smithay::wayland::input_method::InputMethodManagerState,
@@ -274,7 +273,7 @@ impl Helix {
             globals: (
                 ViewporterState::new::<Self>(&dh),
                 FractionalScaleManagerState::new::<Self>(&dh),
-                CursorShapeManagerState::new::<Self>(&dh),
+                helix_comp::cursor_shape::CursorShapeManager::new::<Self>(&dh),
                 XdgDecorationState::new::<Self>(&dh),
                 smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
                 // The input method and its virtual keyboard: the shell only.

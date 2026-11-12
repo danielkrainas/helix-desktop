@@ -26,7 +26,10 @@ struct Server {
     tablet: TabletV2,
     surfaces: Vec<WlSurface>,
     cursors: Arc<Mutex<Vec<(u64, bool)>>>,
+    shapes: Arc<Mutex<Vec<String>>>,
 }
+
+static SHAPES: std::sync::LazyLock<Arc<Mutex<Vec<String>>>> = std::sync::LazyLock::new(Default::default);
 
 #[derive(Default)]
 struct ClientInfo {
@@ -69,6 +72,15 @@ impl TabletV2Handler for Server {
     }
 }
 
+impl helix_comp::cursor_shape::CursorShapeHandler for Server {
+    fn pointer_shape(&mut self, _: ClientId, icon: smithay::input::pointer::CursorIcon) {
+        self.shapes.lock().unwrap().push(format!("pointer {icon:?}"));
+    }
+    fn tool_shape(&mut self, _: ClientId, tool: u64, icon: smithay::input::pointer::CursorIcon) {
+        self.shapes.lock().unwrap().push(format!("tool {tool} {icon:?}"));
+    }
+}
+
 delegate_compositor!(Server);
 delegate_seat!(Server);
 smithay::reexports::wayland_server::delegate_global_dispatch!(Server: [s::zwp_tablet_manager_v2::ZwpTabletManagerV2: ()] => TabletV2);
@@ -80,6 +92,10 @@ smithay::reexports::wayland_server::delegate_dispatch!(Server: [s::zwp_tablet_pa
 smithay::reexports::wayland_server::delegate_dispatch!(Server: [s::zwp_tablet_pad_group_v2::ZwpTabletPadGroupV2: (String, usize)] => TabletV2);
 smithay::reexports::wayland_server::delegate_dispatch!(Server: [s::zwp_tablet_pad_ring_v2::ZwpTabletPadRingV2: (String, u32)] => TabletV2);
 smithay::reexports::wayland_server::delegate_dispatch!(Server: [s::zwp_tablet_pad_strip_v2::ZwpTabletPadStripV2: (String, u32)] => TabletV2);
+use smithay::reexports::wayland_protocols::wp::cursor_shape::v1::server as cs;
+smithay::reexports::wayland_server::delegate_global_dispatch!(Server: [cs::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1: ()] => helix_comp::cursor_shape::CursorShapeManager);
+smithay::reexports::wayland_server::delegate_dispatch!(Server: [cs::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1: ()] => helix_comp::cursor_shape::CursorShapeManager);
+smithay::reexports::wayland_server::delegate_dispatch!(Server: [cs::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1: helix_comp::cursor_shape::Device] => helix_comp::cursor_shape::CursorShapeManager);
 
 type Command = Box<dyn FnOnce(&mut Server, &DisplayHandle) + Send>;
 
@@ -93,7 +109,8 @@ fn start_server(streams: Vec<UnixStream>, cursors: Arc<Mutex<Vec<(u64, bool)>>>)
         let mut seat_state = SeatState::new();
         let seat = seat_state.new_wl_seat(&dh, "seat0");
         TabletV2::global::<Server>(&dh);
-        let mut state = Server { compositor, seat_state, _seat: seat, tablet: TabletV2::default(), surfaces: Vec::new(), cursors };
+        let _shapes = helix_comp::cursor_shape::CursorShapeManager::new::<Server>(&dh);
+        let mut state = Server { compositor, seat_state, _seat: seat, tablet: TabletV2::default(), surfaces: Vec::new(), cursors, shapes: SHAPES.clone() };
         for stream in streams {
             display.handle().insert_client(stream, Arc::new(ClientInfo::default())).unwrap();
         }
@@ -130,6 +147,14 @@ mod client {
     use wayland_client::protocol::{wl_compositor, wl_registry, wl_seat, wl_surface};
     use wayland_client::{event_created_child, Connection, Dispatch, QueueHandle};
     use wayland_protocols::wp::tablet::zv2::client::*;
+    use wayland_protocols::wp::cursor_shape::v1::client::{wp_cursor_shape_device_v1, wp_cursor_shape_manager_v1};
+
+    impl Dispatch<wp_cursor_shape_manager_v1::WpCursorShapeManagerV1, ()> for Log {
+        fn event(_: &mut Self, _: &wp_cursor_shape_manager_v1::WpCursorShapeManagerV1, _: wp_cursor_shape_manager_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    }
+    impl Dispatch<wp_cursor_shape_device_v1::WpCursorShapeDeviceV1, ()> for Log {
+        fn event(_: &mut Self, _: &wp_cursor_shape_device_v1::WpCursorShapeDeviceV1, _: wp_cursor_shape_device_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    }
 
     #[derive(Default)]
     pub struct Log(pub Vec<String>, pub Vec<zwp_tablet_tool_v2::ZwpTabletToolV2>);
@@ -286,6 +311,7 @@ use wayland_client::{Connection, EventQueue};
 use wayland_protocols::wp::tablet::zv2::client::zwp_tablet_manager_v2;
 
 struct App {
+    conn: Connection,
     queue: EventQueue<Log>,
     log: Log,
     surface: wayland_client::protocol::wl_surface::WlSurface,
@@ -302,9 +328,13 @@ impl App {
         let seat: wl_seat::WlSeat = globals.bind(&qh, 1..=1, ()).unwrap();
         let manager = globals.bind::<zwp_tablet_manager_v2::ZwpTabletManagerV2, _, _>(&qh, 1..=1, ()).ok();
         let surface = compositor.create_surface(&qh, ());
-        let mut app = Self { queue, log: Log::default(), surface, seat, manager };
+        let mut app = Self { conn: conn.clone(), queue, log: Log::default(), surface, seat, manager };
         app.sync();
         app
+    }
+
+    fn queue_conn(&self) -> Connection {
+        self.conn.clone()
     }
 
     fn sync(&mut self) {
@@ -389,6 +419,20 @@ fn tablets_tools_and_pads() {
     app.log.1[0].set_cursor(5, None, 0, 0);
     app.sync();
     assert_eq!(*cursors.lock().unwrap(), [(42, true), (42, false)]);
+
+    // Or names a shape for it (wp_cursor_shape_device_v1).
+    {
+        use wayland_protocols::wp::cursor_shape::v1::client::{wp_cursor_shape_device_v1::Shape, wp_cursor_shape_manager_v1::WpCursorShapeManagerV1};
+        let qh = app.queue.handle();
+        let (globals, _) = wayland_client::globals::registry_queue_init::<Log>(&app.queue_conn()).unwrap();
+        let manager: WpCursorShapeManagerV1 = globals.bind(&qh, 1..=2, ()).unwrap();
+        let device = manager.get_tablet_tool_v2(&app.log.1[0], &qh, ());
+        device.set_shape(5, Shape::Text);
+        device.set_shape(5, Shape::Crosshair);
+        app.sync();
+        app.sync();
+    }
+    assert_eq!(*SHAPES.lock().unwrap(), ["tool 42 Text", "tool 42 Crosshair"]);
 
     on_server(&server, |state, _| state.tablet.tool_over(42, "event7", None, 8, 110));
     assert_eq!(app.take(), ["proximity_out", "frame 110"]);
