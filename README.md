@@ -257,7 +257,8 @@ own keyboard keymap (`SetKeymap`, optionally locked against input source
 changes until it ends).
 
 Night Light follows GNOME's settings (enabled, temperature, manual
-schedule, or sunset to sunrise at the last known location): the shell
+schedule, or sunset to sunrise at the last known location, kept current
+from GeoClue when location services are on): the shell
 fades every monitor's gamma through DisplayConfig's `SetCrtcGamma`, which
 the compositor applies to the DRM CRTCs (nested, the ramps are accepted
 but have no visible effect). Its state is published as gnome-settings-daemon's

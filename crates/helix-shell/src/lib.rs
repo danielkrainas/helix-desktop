@@ -14,6 +14,7 @@ pub mod ibus;
 pub mod idle;
 pub mod input_sources;
 pub mod launcher;
+pub mod location;
 pub mod logind;
 pub mod night_light;
 pub mod icons;
