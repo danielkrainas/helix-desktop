@@ -100,7 +100,7 @@ fn main() -> ExitCode {
     // Break reminders and screen time.
     runtime.spawn(helix_shell::wellbeing::run(service.connection().clone(), service.notifications(), service.ui_sender()));
     // Automounting and new removable media.
-    helix_shell::media::run(service.notifications());
+    helix_shell::media::run(service.notifications(), service.ui_sender(), runtime.handle().clone());
     // The desktop and lock screen backgrounds.
     runtime.spawn(helix_shell::wallpaper::follow(service.ui_sender()));
     // GeoClue's location agent.
