@@ -185,6 +185,14 @@ struct Ui {
     window_menu: Option<window_menu::WindowMenu>,
     workspace_popup: Option<workspace_popup::WorkspacePopup>,
     overview: Option<Overlay<overview::OverviewState>>,
+    /// The overview on the other monitors.
+    overview_others: Vec<Overlay<overview::OverviewState>>,
+    /// Window pictures the overview shows.
+    overview_shots: overview::Shots,
+    /// Buffers of the overview on the other monitors, kept apart from the
+    /// rest (sharing the pool left the primary monitor's overview stale
+    /// while a virtual monitor nobody watched was up).
+    overview_pool: Option<SlotPool>,
     /// Where windows are, from the compositor (window list v8).
     window_geometry: HashMap<u32, overview::Geometry>,
     /// The primary monitor's area (x, y, w, h).
@@ -1941,6 +1949,9 @@ pub fn run(
         window_menu: None,
         workspace_popup: None,
         overview: None,
+        overview_others: Vec::new(),
+        overview_shots: Default::default(),
+        overview_pool: None,
         window_geometry: HashMap::new(),
         primary_area: (0, 0, 1920, 1080),
         monitor_labels: Vec::new(),

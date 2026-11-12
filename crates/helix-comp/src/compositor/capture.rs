@@ -525,7 +525,11 @@ impl Dispatch<HelixScreenshotManagerV1, ()> for Helix {
             _ => return,
         };
         let frame = data_init.init(id, ());
-        tracing::info!(?target, cursor, "screen capture requested");
+        if matches!(target, Target::WindowId(_)) {
+            tracing::debug!(?target, "window picture requested");
+        } else {
+            tracing::info!(?target, cursor, "screen capture requested");
+        }
         state.queue_capture(Pending { frame, target, cursor, fd });
     }
 }

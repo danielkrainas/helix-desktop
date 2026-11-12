@@ -498,7 +498,8 @@ points at the compositor, draws:
   for two seconds;
 - an overview, opened by Super (or `toggle-overview`): workspace
   thumbnails (click to switch, drop a window there to move it) above
-  pictures of the active workspace's windows (click to activate, × to
+  live pictures of the active workspace's windows (each monitor shows its
+  own) (click to activate, × to
   close, arrows and Enter); typing searches in the launcher; Super+Alt+Up
   / Down step between the desktop, the overview and the launcher;
 - an application launcher, opened by the Apps button, Super+A, or
