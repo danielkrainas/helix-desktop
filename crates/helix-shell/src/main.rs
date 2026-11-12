@@ -108,6 +108,20 @@ fn main() -> ExitCode {
             tracing::warn!(%err, "cannot serve the portal dialogs");
         }
     }
+    // GTK apps' mount questions; the name is taken once the object is there.
+    {
+        use helix_shell::mount_handler::{MountHandler, BUS_NAME, PATH};
+        let conn = service.connection().clone();
+        let handler = MountHandler::new(service.ui_sender());
+        let served = runtime.block_on(async {
+            conn.object_server().at(PATH, handler).await?;
+            conn.request_name_with_flags(BUS_NAME, zbus::fdo::RequestNameFlags::DoNotQueue.into()).await
+        });
+        match served {
+            Ok(zbus::fdo::RequestNameReply::PrimaryOwner | zbus::fdo::RequestNameReply::AlreadyOwner) => {}
+            other => tracing::warn!(?other, "cannot serve GTK mount questions; apps show their own dialogs"),
+        }
+    }
     // Break reminders and screen time.
     runtime.spawn(helix_shell::wellbeing::run(service.connection().clone(), service.notifications(), service.ui_sender()));
     // Automounting and new removable media.

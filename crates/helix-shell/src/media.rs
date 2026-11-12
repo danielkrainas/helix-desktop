@@ -99,7 +99,7 @@ static ASKER: OnceLock<Asker> = OnceLock::new();
 
 /// An answer for a mount operation.
 enum Reply {
-    Password { password: String, save: bool },
+    Password { username: Option<String>, domain: Option<String>, password: Option<String>, save: bool },
     Choice(i32),
     Abort,
 }
@@ -122,22 +122,20 @@ pub fn program_list(names: &[String]) -> String {
     }
 }
 
-/// A dialog button: its label and the choice it answers.
-pub type ChoiceButton = (String, i32);
-
-/// The (continue, cancel) buttons for `choices`.
-pub fn choice_buttons(choices: &[String]) -> Option<(ChoiceButton, Option<ChoiceButton>)> {
-    let first = (choices.first()?.clone(), 0);
-    let last = (choices.len() >= 2).then(|| (choices[choices.len() - 1].clone(), choices.len() as i32 - 1));
-    Some((first, last))
-}
-
 fn answer_op(id: u64, reply: Reply) {
     ASKING.with(|a| a.borrow_mut().remove(&id));
     let Some(op) = OPS.with(|o| o.borrow().get(&id).cloned()) else { return };
     match reply {
-        Reply::Password { password, save } => {
-            op.set_password(Some(&password));
+        Reply::Password { username, domain, password, save } => {
+            if let Some(username) = username {
+                op.set_username(Some(&username));
+            }
+            if let Some(domain) = domain {
+                op.set_domain(Some(&domain));
+            }
+            if let Some(password) = password {
+                op.set_password(Some(&password));
+            }
             op.set_password_save(if save { gio::PasswordSave::Permanently } else { gio::PasswordSave::Never });
             op.reply(gio::MountOperationResult::Handled);
         }
@@ -170,30 +168,18 @@ fn ask(id: u64, prompt: Prompt, answer: impl FnOnce(Answer) -> Reply + Send + 's
     });
 }
 
-fn process_name(pid: i32) -> String {
+pub(crate) fn process_name(pid: i32) -> String {
     std::fs::read_to_string(format!("/proc/{pid}/comm")).map(|s| s.trim().to_owned()).unwrap_or_else(|_| format!("process {pid}"))
 }
 
 /// A choice question: `name` titles it, `description` explains it.
 fn ask_choice(id: u64, name: &str, message: &str, description: String, choices: Vec<String>) {
-    let Some(((first, first_i), last)) = choice_buttons(&choices) else {
+    let prompt = Prompt { title: name.to_owned(), message: message.to_owned(), description, ..Prompt::default() };
+    let Some((prompt, map)) = crate::mount_handler::choice_prompt(prompt, &choices) else {
         answer_op(id, Reply::Abort);
         return;
     };
-    let prompt = Prompt {
-        title: name.to_owned(),
-        message: message.to_owned(),
-        description,
-        continue_label: first,
-        cancel_label: last.as_ref().map_or_else(|| "Cancel".to_owned(), |(l, _)| l.clone()),
-        ..Prompt::default()
-    };
-    let last_i = last.map(|(_, i)| i);
-    ask(id, prompt, move |answer| match (answer, last_i) {
-        (Answer::Continue { .. }, _) => Reply::Choice(first_i),
-        (Answer::Cancel, Some(i)) => Reply::Choice(i),
-        (Answer::Cancel, None) => Reply::Abort,
-    });
+    ask(id, prompt, move |answer| map(answer).map_or(Reply::Abort, Reply::Choice));
 }
 
 /// A mount operation that asks the user, for the medium `name`.
@@ -207,26 +193,30 @@ fn mount_operation(name: &str) -> (gio::MountOperation, u64) {
     OPS.with(|o| o.borrow_mut().insert(id, op.clone()));
     let title = name.to_owned();
     // GIO's own handlers would answer "unhandled" after ours: stop them.
-    op.connect_ask_password(move |op, message, _user, _domain, flags| {
+    op.connect_ask_password(move |op, message, user, domain, flags| {
         op.stop_signal_emission_by_name("ask-password");
         tracing::info!(?flags, "mount asks for a password");
-        if flags.intersects(gio::AskPasswordFlags::NEED_USERNAME | gio::AskPasswordFlags::NEED_DOMAIN) || !flags.contains(gio::AskPasswordFlags::NEED_PASSWORD) {
+        let bits = flags.bits();
+        let Some(mut prompt) = crate::mount_handler::password_prompt(message, user, domain, bits) else {
             answer_op(id, Reply::Abort);
             return;
-        }
-        let saving = flags.contains(gio::AskPasswordFlags::SAVING_SUPPORTED);
-        let prompt = Prompt {
-            title: format!("Unlock {title}"),
-            message: message.to_owned(),
-            password: Some("Password".into()),
-            choice: saving.then(|| ("Remember Password".to_owned(), false)),
-            continue_label: "Unlock".into(),
-            cancel_label: "Cancel".into(),
-            ..Prompt::default()
         };
-        ask(id, prompt, |answer| match answer {
-            Answer::Continue { password: Some(p), choice, .. } => Reply::Password { password: String::from_utf8_lossy(p.bytes()).into_owned(), save: choice },
-            _ => Reply::Abort,
+        prompt.title = format!("Unlock {title}");
+        prompt.message = message.to_owned();
+        prompt.continue_label = "Unlock".into();
+        let (user, domain) = (user.to_owned(), domain.to_owned());
+        ask(id, prompt, move |answer| match answer {
+            Answer::Continue { entry, password, choice, .. } => {
+                let details = crate::mount_handler::password_details(bits, &user, &domain, entry.as_deref(), None, choice);
+                let get = |k: &str| details.get(k).and_then(|v| String::try_from(v.clone()).ok());
+                Reply::Password {
+                    username: get("username"),
+                    domain: get("domain"),
+                    password: password.map(|p| String::from_utf8_lossy(p.bytes()).into_owned()),
+                    save: choice && flags.contains(gio::AskPasswordFlags::SAVING_SUPPORTED),
+                }
+            }
+            Answer::Cancel => Reply::Abort,
         });
     });
     let title = name.to_owned();
@@ -475,11 +465,6 @@ mod tests {
         let names = |n: usize| (1..=n).map(|i| format!("p{i}")).collect::<Vec<_>>();
         assert_eq!(program_list(&names(2)), "p1, p2");
         assert_eq!(program_list(&names(7)), "p1, p2, p3, p4, p5 and 2 more");
-        let c = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(choice_buttons(&c(&["Unmount Anyway", "Cancel"])), Some((("Unmount Anyway".into(), 0), Some(("Cancel".into(), 1)))));
-        assert_eq!(choice_buttons(&c(&["A", "B", "C"])), Some((("A".into(), 0), Some(("C".into(), 2)))));
-        assert_eq!(choice_buttons(&c(&["Ok"])), Some((("Ok".into(), 0), None)));
-        assert_eq!(choice_buttons(&[]), None);
     }
 
     #[test]

@@ -29,6 +29,7 @@ pub mod icons;
 pub mod markup;
 pub mod network_agent;
 pub mod media;
+pub mod mount_handler;
 pub mod notifications;
 pub mod polkit;
 pub mod portal_dialog;
