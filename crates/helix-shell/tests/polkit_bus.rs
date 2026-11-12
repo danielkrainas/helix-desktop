@@ -37,9 +37,17 @@ fn answer(request: Request, password: &str) {
 }
 
 async fn begin(conn: &zbus::Connection, cookie: &str) -> zbus::Result<zbus::Message> {
+    begin_with(conn, cookie, false).await
+}
+
+/// With `root`, root is offered as well as the test's user.
+async fn begin_with(conn: &zbus::Connection, cookie: &str, root: bool) -> zbus::Result<zbus::Message> {
     // SAFETY: getuid cannot fail.
     let uid = unsafe { libc::getuid() };
-    let identities = vec![("unix-user", HashMap::from([("uid", Value::from(uid))]))];
+    let mut identities = vec![("unix-user", HashMap::from([("uid", Value::from(uid))]))];
+    if root && uid != 0 {
+        identities.push(("unix-user", HashMap::from([("uid", Value::from(0u32))])));
+    }
     conn.call_method(
         Some("org.helix.TestAgent"),
         AGENT_PATH,
@@ -117,5 +125,28 @@ async fn authenticates_through_the_helper() {
         .unwrap();
     assert_eq!(error_name(call.await.unwrap()), "org.freedesktop.PolicyKit1.Error.Cancelled");
     drop(shown);
+
+    // Two users: the user picks first (ours listed first), then the
+    // password; canceling the choice cancels.
+    // SAFETY: getuid cannot fail.
+    if unsafe { libc::getuid() } != 0 {
+        let call = tokio::spawn({
+            let polkit = polkit.clone();
+            async move { begin_with(&polkit, "c1", true).await }
+        });
+        let choose = prompt(&mut ui).await;
+        assert_eq!(choose.prompt.list.len(), 2);
+        assert!(choose.prompt.list[1].contains("root"));
+        assert!(choose.prompt.password.is_none());
+        let _ = choose.reply.send(Answer::Continue { entry: None, password: None, confirm: None, choice: false, selected: 0, picked: Vec::new(), place: None });
+        answer(prompt(&mut ui).await, "right");
+        assert!(call.await.unwrap().is_ok());
+        let call = tokio::spawn({
+            let polkit = polkit.clone();
+            async move { begin_with(&polkit, "c4", true).await }
+        });
+        let _ = prompt(&mut ui).await.reply.send(Answer::Cancel);
+        assert_eq!(error_name(call.await.unwrap()), "org.freedesktop.PolicyKit1.Error.Cancelled");
+    }
     std::fs::remove_dir_all(&dir).unwrap();
 }

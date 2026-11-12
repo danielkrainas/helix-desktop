@@ -120,17 +120,30 @@ fn id_of(details: &HashMap<String, OwnedValue>, key: &str) -> Option<u32> {
     }
 }
 
-/// The uid to authenticate as: ours if offered (as a `unix-user`, or as a
-/// member of a `unix-group` offered: one of `own_groups`), else the first
-/// user offered, else the first member (`members`) of the first group
-/// that has one.
-pub fn choose_uid(identities: &[(String, HashMap<String, OwnedValue>)], own: u32, own_groups: &[u32], members: impl Fn(u32) -> Vec<u32>) -> Option<u32> {
+/// Everyone who may authenticate: the session's user first when allowed
+/// (offered, or in an offered group), then the offered users, then the
+/// offered groups' members; each once, at most `MAX_USERS`.
+pub fn candidates(identities: &[(String, HashMap<String, OwnedValue>)], own: u32, own_groups: &[u32], members: impl Fn(u32) -> Vec<u32>) -> Vec<u32> {
     let of = |kind: &str, key: &str| -> Vec<u32> { identities.iter().filter(|(k, _)| k == kind).filter_map(|(_, d)| id_of(d, key)).collect() };
     let (uids, gids) = (of("unix-user", "uid"), of("unix-group", "gid"));
+    let mut out = Vec::new();
     if uids.contains(&own) || gids.iter().any(|g| own_groups.contains(g)) {
-        return Some(own);
+        out.push(own);
     }
-    uids.first().copied().or_else(|| gids.iter().find_map(|g| members(*g).first().copied()))
+    for uid in uids.into_iter().chain(gids.iter().flat_map(|g| members(*g))) {
+        if !out.contains(&uid) && out.len() < MAX_USERS {
+            out.push(uid);
+        }
+    }
+    out
+}
+
+/// Most users offered in the chooser.
+pub const MAX_USERS: usize = 20;
+
+/// How a user is listed: "Real Name (login)", or the login alone.
+pub fn user_label(login: &str, real: &str) -> String {
+    if real.trim().is_empty() { login.to_owned() } else { format!("{} ({login})", real.trim()) }
 }
 
 /// A helper prompt as a field label ("Password: " → "Password").
@@ -269,13 +282,50 @@ impl Agent {
         check_caller(conn, &header).await?;
         // SAFETY: getuid cannot fail.
         let own = unsafe { libc::getuid() };
-        let uid = choose_uid(&identities, own, &own_groups(), group_members).ok_or_else(|| PolkitError::Failed("no user to authenticate as".into()))?;
-        let (name, real) = user(uid).ok_or_else(|| PolkitError::Failed(format!("unknown user {uid}")))?;
-        let (cancel_tx, cancel) = oneshot::channel();
+        let users: Vec<(u32, String, String)> = candidates(&identities, own, &own_groups(), group_members)
+            .into_iter()
+            .filter_map(|uid| user(uid).map(|(name, real)| (uid, name, real)))
+            .collect();
+        if users.is_empty() {
+            return Err(PolkitError::Failed("no user to authenticate as".into()));
+        }
+        let (cancel_tx, mut cancel) = oneshot::channel();
         self.running.lock().unwrap_or_else(|e| e.into_inner()).insert(cookie.to_owned(), cancel_tx);
         let _turn = prompt::turn().await;
-        tracing::info!(action_id, user = name, "authentication requested");
-        let result = authenticate(&self.ui, message, cookie, &name, &real, cancel).await;
+        // Several may: the user picks first.
+        let chosen = if users.len() == 1 {
+            Some(0)
+        } else {
+            let choose = prompt::Prompt {
+                title: "Authentication Required".into(),
+                message: message.to_owned(),
+                description: "Choose the user to authenticate as.".into(),
+                list: users.iter().map(|(_, name, real)| user_label(name, real)).collect(),
+                selected: 0,
+                activate_rows: true,
+                continue_label: "Next".into(),
+                cancel_label: "Cancel".into(),
+                ..Default::default()
+            };
+            tokio::select! {
+                answer = prompt::ask(&self.ui, choose) => match answer {
+                    prompt::Answer::Continue { selected, .. } => Some(selected.min(users.len() - 1)),
+                    prompt::Answer::Cancel => None,
+                },
+                _ = &mut cancel => {
+                    prompt::done(&self.ui);
+                    None
+                }
+            }
+        };
+        let Some(chosen) = chosen else {
+            self.running.lock().unwrap_or_else(|e| e.into_inner()).remove(cookie);
+            tracing::info!(action_id, "authentication canceled while choosing the user");
+            return Err(PolkitError::Cancelled("canceled".into()));
+        };
+        let (_, name, real) = &users[chosen];
+        tracing::info!(action_id, user = name, choices = users.len(), "authentication requested");
+        let result = authenticate(&self.ui, message, cookie, name, real, cancel).await;
         self.running.lock().unwrap_or_else(|e| e.into_inner()).remove(cookie);
         tracing::info!(action_id, ok = result.is_ok(), "authentication finished");
         result
@@ -326,16 +376,26 @@ mod tests {
         (kind.into(), HashMap::from([(key.into(), OwnedValue::from(id))]))
     }
 
+    fn first_candidate(identities: &[(String, HashMap<String, OwnedValue>)], own: u32, own_groups: &[u32], members: impl Fn(u32) -> Vec<u32>) -> Option<u32> {
+        candidates(identities, own, own_groups, members).first().copied()
+    }
+
     #[test]
     fn identities() {
         let none = |_| Vec::new();
         let ids = vec![identity("unix-group", "gid", 27), identity("unix-user", "uid", 0), identity("unix-user", "uid", 1000)];
-        assert_eq!(choose_uid(&ids, 1000, &[1000], none), Some(1000), "ourselves first");
-        assert_eq!(choose_uid(&ids, 1001, &[1001], none), Some(0), "else the first user");
+        assert_eq!(first_candidate(&ids, 1000, &[1000], none), Some(1000), "ourselves first");
+        assert_eq!(first_candidate(&ids, 1001, &[1001], none), Some(0), "else the first user");
         let wheel = [identity("unix-group", "gid", 27)];
-        assert_eq!(choose_uid(&wheel, 1000, &[1000, 27], none), Some(1000), "a member of the group");
-        assert_eq!(choose_uid(&wheel, 1000, &[1000], |g| if g == 27 { vec![1002, 1003] } else { Vec::new() }), Some(1002), "else a member");
-        assert_eq!(choose_uid(&wheel, 1000, &[1000], none), None, "an empty group");
+        assert_eq!(first_candidate(&wheel, 1000, &[1000, 27], none), Some(1000), "a member of the group");
+        assert_eq!(first_candidate(&wheel, 1000, &[1000], |g| if g == 27 { vec![1002, 1003] } else { Vec::new() }), Some(1002), "else a member");
+        assert_eq!(first_candidate(&wheel, 1000, &[1000], none), None, "an empty group");
+        let both = vec![identity("unix-user", "uid", 0), identity("unix-group", "gid", 27), identity("unix-user", "uid", 1000)];
+        assert_eq!(candidates(&both, 1000, &[1000], |_| vec![1002, 1000]), [1000, 0, 1002], "ours first, then users, then members, once each");
+        assert_eq!(candidates(&both, 1001, &[1001], none), [0, 1000]);
+        assert!(candidates(&[identity("unix-group", "gid", 27)], 1000, &[1000], none).is_empty());
+        assert_eq!(user_label("ann", "Ann Lee"), "Ann Lee (ann)");
+        assert_eq!(user_label("root", ""), "root");
         // The real lookup: root's group lists nobody, usually; it must not fail.
         let _ = group_members(0);
         assert!(own_groups().contains(&unsafe { libc::getgid() }));
