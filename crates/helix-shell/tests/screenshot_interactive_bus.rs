@@ -72,7 +72,7 @@ async fn interactive_screenshot_is_saved_in_screenshots() {
     let Some(bus) = TestBus::start() else { return };
     let (shell, ui) = ShellService::start(bus.builder()).await.unwrap();
     let seen = Arc::new(Mutex::new(Seen::default()));
-    fake_ui(ui, Arc::new(Mutex::new(vec![Picked::Cancelled, Picked::Screen])), seen.clone());
+    fake_ui(ui, Arc::new(Mutex::new(vec![Picked::Cancelled, Picked::Shot { target: helix_shell::screenshot::Shot::Screen, record: false, pointer: false }])), seen.clone());
     let files = Arc::new(Mutex::new(Vec::new()));
     let _file_manager = bus
         .builder()

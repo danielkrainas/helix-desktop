@@ -744,7 +744,11 @@ impl UiBridge {
                 tokio::spawn(async move {
                     let osd = match action {
                         shell_keys::KeyAction::Record => {
-                            recorder.key(&conn, &screenshot::Screens::new(ui.clone())).await;
+                            recorder.key(&conn, &screenshot::Screens::with_notifications(ui.clone(), center)).await;
+                            None
+                        }
+                        shell_keys::KeyAction::Screenshot(screenshot::ScreenshotKey::Ui) => {
+                            recorder.screenshot_ui(&conn, &screenshot::Screens::with_notifications(ui.clone(), center), false).await;
                             None
                         }
                         shell_keys::KeyAction::Screenshot(key) => {

@@ -13,7 +13,7 @@ use smithay_client_toolkit::reexports::client::protocol::wl_output::WlOutput;
 use tokio::sync::oneshot;
 
 use super::*;
-use crate::screenshot::{CaptureError, Job, PickMode, Picked, Rect as Area, Target};
+use crate::screenshot::{CaptureError, Job, PickMode, Picked, Rect as Area, Shot, Target};
 
 const BTN_RIGHT: u32 = 0x111;
 /// Drags smaller than this (logical pixels) are taken as clicks.
@@ -42,7 +42,52 @@ pub(super) struct Picker {
     reply: Option<oneshot::Sender<Picked>>,
     views: Vec<PickView>,
     drag: Option<Drag>,
+    /// The screenshot UI's state (`PickMode::Ui`).
+    shot: ShotState,
 }
+
+/// What the screenshot UI captures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShotMode {
+    Area,
+    Screen,
+    Window,
+}
+
+/// A toolbar button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tool {
+    Mode(ShotMode),
+    Record(bool),
+    Pointer,
+    Capture,
+}
+
+struct ShotState {
+    mode: ShotMode,
+    record: bool,
+    allow_record: bool,
+    pointer: bool,
+    /// The selected rectangle: (view, x, y, w, h in that view).
+    selection: Option<(usize, (f64, f64, f64, f64))>,
+    /// The selected window: a point on it (layout).
+    window: Option<(i32, i32)>,
+    /// Where the pointer is (layout), for the window outline.
+    hover: Option<(i32, i32)>,
+    /// The toolbar's buttons (on view 0).
+    tools: Vec<(Rect, Tool)>,
+}
+
+impl ShotState {
+    fn new(record: bool, allow_record: bool) -> Self {
+        Self { mode: ShotMode::Area, record: record && allow_record, allow_record, pointer: false, selection: None, window: None, hover: None, tools: Vec::new() }
+    }
+}
+
+const TOOL_H: i32 = 36;
+const TOOL_GAP: i32 = 6;
+const TOOL_PAD: i32 = 8;
+const TOOL_BG: u32 = 0xF0242429;
 
 /// A fading white rectangle on one monitor.
 pub(super) struct Flash {
@@ -64,8 +109,7 @@ fn hint(mode: PickMode) -> &'static str {
         PickMode::Area => "Drag to select an area · Esc to cancel",
         PickMode::Point => "Click to pick a color · Esc to cancel",
         PickMode::Window => "Click a window to capture it · Esc to cancel",
-        PickMode::Screenshot => "Drag to capture an area · Enter for the whole screen · Esc to cancel",
-        PickMode::Record => "Drag to record an area · Enter to record the whole screen · Esc to cancel",
+        PickMode::Ui { .. } => "S, C, W: area, screen, window · V: record · P: pointer · Enter: capture · Esc: cancel",
     }
 }
 
@@ -157,7 +201,11 @@ impl Ui {
             return;
         }
         tracing::debug!(?mode, monitors = views.len(), "picker open");
-        self.picker = Some(Picker { mode, reply: Some(reply), views, drag: None });
+        let shot = match mode {
+            PickMode::Ui { record, allow_record } => ShotState::new(record, allow_record),
+            _ => ShotState::new(false, false),
+        };
+        self.picker = Some(Picker { mode, reply: Some(reply), views, drag: None, shot });
     }
 
     /// Close the picker with `result`; its surfaces are gone before the
@@ -199,26 +247,42 @@ impl Ui {
             return;
         }
         let scale = self.scales.of(view.overlay.layer.wl_surface());
+        let window_rect = picker.shot.window.or(picker.shot.hover).and_then(|(px, py)| self.window_rect_at(px, py));
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(0x00000000);
-        // Dim everything but the selection.
-        match picker.drag.as_ref().filter(|d| d.view == index) {
-            Some(drag) => {
+        let is_ui = matches!(picker.mode, PickMode::Ui { .. });
+        // The part left undimmed (and outlined), in this view.
+        let clear: Option<(i32, i32, i32, i32)> = match (picker.drag.as_ref().filter(|d| d.view == index), is_ui, picker.shot.mode) {
+            (Some(drag), _, _) => {
                 let (x, y, sw, sh) = span(drag.start, drag.now);
-                let (x, y, sw, sh) = (x as i32, y as i32, sw.round() as i32, sh.round() as i32);
-                canvas.rect(0, 0, w as i32, y, PICK_SCRIM);
-                canvas.rect(0, y + sh, w as i32, h as i32 - y - sh, PICK_SCRIM);
-                canvas.rect(0, y, x, sh, PICK_SCRIM);
-                canvas.rect(x + sw, y, w as i32 - x - sw, sh, PICK_SCRIM);
-                for (rx, ry, rw, rh) in [(x - 1, y - 1, sw + 2, 1), (x - 1, y + sh, sw + 2, 1), (x - 1, y, 1, sh), (x + sw, y, 1, sh)] {
+                Some((x as i32, y as i32, sw.round() as i32, sh.round() as i32))
+            }
+            (None, true, ShotMode::Area) => picker.shot.selection.filter(|(v, _)| *v == index).map(|(_, (x, y, sw, sh))| (x as i32, y as i32, sw.round() as i32, sh.round() as i32)),
+            (None, true, ShotMode::Window) => window_rect.map(|(x, y, ww, wh)| (x - view.origin.0, y - view.origin.1, ww, wh)),
+            _ => None,
+        };
+        let screen_mode = is_ui && picker.shot.mode == ShotMode::Screen;
+        match clear {
+            _ if screen_mode => {
+                for (rx, ry, rw, rh) in [(0, 0, w as i32, 2), (0, h as i32 - 2, w as i32, 2), (0, 0, 2, h as i32), (w as i32 - 2, 0, 2, h as i32)] {
+                    canvas.rect(rx, ry, rw, rh, ACCENT);
+                }
+            }
+            Some((x, y, sw, sh)) => {
+                canvas.rect(0, 0, w as i32, y.max(0), PICK_SCRIM);
+                canvas.rect(0, (y + sh).max(0), w as i32, h as i32 - (y + sh).max(0), PICK_SCRIM);
+                canvas.rect(0, y.max(0), x.max(0), sh.min(h as i32), PICK_SCRIM);
+                canvas.rect((x + sw).max(0), y.max(0), w as i32 - (x + sw).max(0), sh.min(h as i32), PICK_SCRIM);
+                for (rx, ry, rw, rh) in [(x - 1, y - 1, sw + 2, 2), (x - 1, y + sh - 1, sw + 2, 2), (x - 1, y, 2, sh), (x + sw - 1, y, 2, sh)] {
                     canvas.rect(rx, ry, rw, rh, ACCENT);
                 }
             }
             None => canvas.rect(0, 0, w as i32, h as i32, PICK_SCRIM),
         }
+        let mut tools = Vec::new();
         if index == 0 {
             let text = self.text.as_ref();
             let message = hint(picker.mode);
@@ -227,12 +291,103 @@ impl Ui {
             let bx = (w as i32 - bw) / 2;
             canvas.rect(bx, 24, bw, bh, HINT_BG);
             label(text, &mut canvas, message, (bx + 16) as f32, baseline(text, 24, bh, 14.0), 14.0, FG, tw as f32 + 1.0);
+            if is_ui {
+                let st = &picker.shot;
+                let mut buttons: Vec<(String, Tool, bool, bool)> = vec![
+                    ("Area".into(), Tool::Mode(ShotMode::Area), st.mode == ShotMode::Area, true),
+                    ("Screen".into(), Tool::Mode(ShotMode::Screen), st.mode == ShotMode::Screen, true),
+                    ("Window".into(), Tool::Mode(ShotMode::Window), st.mode == ShotMode::Window, !st.record),
+                ];
+                if st.allow_record {
+                    buttons.push(("Screenshot".into(), Tool::Record(false), !st.record, true));
+                    buttons.push(("Record".into(), Tool::Record(true), st.record, true));
+                }
+                buttons.push(("Show Pointer".into(), Tool::Pointer, st.pointer, true));
+                buttons.push((if st.record { "Start Recording" } else { "Capture" }.into(), Tool::Capture, true, true));
+                let widths: Vec<i32> = buttons.iter().map(|(t, ..)| text.map_or(60.0, |f| f.width(t, 14.0)) as i32 + 2 * TOOL_PAD + 8).collect();
+                let groups = if st.allow_record { 3 } else { 2 };
+                let total: i32 = widths.iter().sum::<i32>() + TOOL_GAP * (widths.len() as i32 - 1) + 2 * TOOL_GAP + 8 * groups;
+                let (tx, ty) = ((w as i32 - total) / 2, h as i32 - TOOL_H - 2 * TOOL_GAP - 32);
+                canvas.rect(tx, ty, total, TOOL_H + 2 * TOOL_GAP, TOOL_BG);
+                let mut x = tx + TOOL_GAP;
+                for (i, ((name, tool, on, enabled), bw)) in buttons.iter().zip(&widths).enumerate() {
+                    // A gap before each group: toggles, pointer, Capture.
+                    let groups: &[usize] = if st.allow_record { &[3, 5, 6] } else { &[3, 4] };
+                    if groups.contains(&i) {
+                        x += 8;
+                    }
+                    let r = Rect { x, y: ty + TOOL_GAP, w: *bw, h: TOOL_H };
+                    let bg = match tool {
+                        Tool::Capture => ACCENT,
+                        _ if *on => 0xFF4A4A55,
+                        _ => FIELD_BG,
+                    };
+                    canvas.rect(r.x, r.y, r.w, r.h, bg);
+                    let fg = if *enabled { FG } else { DIM_FG };
+                    label(text, &mut canvas, name, (r.x + TOOL_PAD + 4) as f32, baseline(text, r.y, r.h, 14.0), 14.0, fg, (r.w - 2 * TOOL_PAD) as f32);
+                    if *enabled {
+                        tools.push((r, *tool));
+                    }
+                    x += bw + TOOL_GAP;
+                }
+            }
         }
         let surface = view.overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             view.overlay.layer.commit();
         }
+        if index == 0 {
+            if let Some(picker) = self.picker.as_mut() {
+                picker.shot.tools = tools;
+            }
+        }
+    }
+
+    /// The topmost window of the active workspace at a layout point:
+    /// (x, y, width, height).
+    fn window_rect_at(&self, px: i32, py: i32) -> Option<(i32, i32, i32, i32)> {
+        self.windows
+            .mru()
+            .iter()
+            .filter(|e| e.workspace == self.windows.active || e.workspace == crate::windows::ALL_WORKSPACES)
+            .filter_map(|e| self.window_geometry.get(&e.id))
+            .find(|g| !g.4 && px >= g.0 && py >= g.1 && px < g.0 + g.2 && py < g.1 + g.3)
+            .map(|g| (g.0, g.1, g.2, g.3))
+    }
+
+    /// The screenshot UI's toolbar or a key changed something.
+    fn shot_tool(&mut self, tool: Tool) {
+        let Some(picker) = self.picker.as_mut() else { return };
+        let st = &mut picker.shot;
+        match tool {
+            Tool::Mode(ShotMode::Window) if st.record => {}
+            Tool::Mode(mode) => st.mode = mode,
+            Tool::Record(on) if st.allow_record => {
+                st.record = on;
+                if on && st.mode == ShotMode::Window {
+                    st.mode = ShotMode::Area;
+                }
+            }
+            Tool::Record(_) => {}
+            Tool::Pointer => st.pointer = !st.pointer,
+            Tool::Capture => {
+                let target = match st.mode {
+                    ShotMode::Screen => Some(Shot::Screen),
+                    ShotMode::Area => st.selection.map(|(view, (x, y, w, h))| {
+                        let origin = picker.views[view].origin;
+                        Shot::Area(Area::new(origin.0 + x.round() as i32, origin.1 + y.round() as i32, w.round() as i32, h.round() as i32))
+                    }),
+                    ShotMode::Window => st.window.map(|(x, y)| Shot::WindowAt(x, y)),
+                };
+                if let Some(target) = target {
+                    let (record, pointer) = (st.record, st.pointer);
+                    self.finish_pick(Picked::Shot { target, record, pointer });
+                }
+                return;
+            }
+        }
+        self.redraw_picker();
     }
 
     /// Pointer input on the picker; true if the event was for it.
@@ -243,6 +398,59 @@ impl Ui {
         };
         let origin = picker.views[index].origin;
         let mode = picker.mode;
+        let ui = matches!(mode, PickMode::Ui { .. });
+        let layout = (origin.0 + event.position.0.floor() as i32, origin.1 + event.position.1.floor() as i32);
+        if ui {
+            match event.kind {
+                PointerEventKind::Press { button: BTN_RIGHT, .. } => self.finish_pick(Picked::Cancelled),
+                PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                    let (x, y) = event.position;
+                    let tool = (index == 0).then(|| picker.shot.tools.iter().find(|(r, _)| r.contains(x, y)).map(|(_, t)| *t)).flatten();
+                    match (tool, picker.shot.mode) {
+                        (Some(tool), _) => self.shot_tool(tool),
+                        (None, ShotMode::Area) => {
+                            picker.drag = Some(Drag { view: index, start: event.position, now: event.position });
+                            self.draw_pick_view(index);
+                        }
+                        (None, ShotMode::Window) => {
+                            if self.window_rect_at(layout.0, layout.1).is_some() {
+                                if let Some(p) = self.picker.as_mut() {
+                                    p.shot.window = Some(layout);
+                                }
+                                self.redraw_picker();
+                            }
+                        }
+                        (None, ShotMode::Screen) => {}
+                    }
+                }
+                PointerEventKind::Motion { .. } => {
+                    if let Some(drag) = picker.drag.as_mut() {
+                        drag.now = event.position;
+                        let view = drag.view;
+                        self.draw_pick_view(view);
+                    } else if picker.shot.mode == ShotMode::Window && picker.shot.window.is_none() {
+                        let before = picker.shot.hover.and_then(|(x, y)| self.window_rect_at(x, y));
+                        let after = self.window_rect_at(layout.0, layout.1);
+                        if let Some(p) = self.picker.as_mut() {
+                            p.shot.hover = Some(layout);
+                        }
+                        if before != after {
+                            self.redraw_picker();
+                        }
+                    }
+                }
+                PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                    let Some(drag) = picker.drag.take() else { return true };
+                    let (x, y, w, h) = span(drag.start, event.position);
+                    if w >= MIN_DRAG && h >= MIN_DRAG {
+                        picker.shot.selection = Some((drag.view, (x, y, w, h)));
+                    }
+                    self.redraw_picker();
+                }
+                _ => {}
+            }
+            return true;
+        }
         match event.kind {
             PointerEventKind::Press { button: BTN_RIGHT, .. } => self.finish_pick(Picked::Cancelled),
             PointerEventKind::Press { button: BTN_LEFT, .. } => {
@@ -294,11 +502,16 @@ impl Ui {
     /// Keys while the picker is open.
     pub(super) fn picker_key(&mut self, event: &KeyEvent) {
         let Some(picker) = self.picker.as_ref() else { return };
+        let ui = matches!(picker.mode, PickMode::Ui { .. });
+        let record = picker.shot.record;
         match event.keysym {
             Keysym::Escape => self.finish_pick(Picked::Cancelled),
-            Keysym::Return | Keysym::KP_Enter | Keysym::space if matches!(picker.mode, PickMode::Screenshot | PickMode::Record) => {
-                self.finish_pick(Picked::Screen)
-            }
+            Keysym::Return | Keysym::KP_Enter | Keysym::space if ui => self.shot_tool(Tool::Capture),
+            Keysym::s | Keysym::S if ui => self.shot_tool(Tool::Mode(ShotMode::Area)),
+            Keysym::c | Keysym::C if ui => self.shot_tool(Tool::Mode(ShotMode::Screen)),
+            Keysym::w | Keysym::W if ui => self.shot_tool(Tool::Mode(ShotMode::Window)),
+            Keysym::v | Keysym::V if ui => self.shot_tool(Tool::Record(!record)),
+            Keysym::p | Keysym::P if ui => self.shot_tool(Tool::Pointer),
             _ => {}
         }
     }

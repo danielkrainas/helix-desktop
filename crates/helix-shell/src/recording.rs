@@ -19,7 +19,7 @@ use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 use zbus::{interface, Connection};
 
-use crate::screenshot::{PickMode, Picked, Rect, Screens};
+use crate::screenshot::{PickMode, Picked, Rect, Screens, Shot};
 use crate::UiEvent;
 
 pub const BUS_NAME: &str = "org.gnome.Shell.Screencast";
@@ -413,19 +413,37 @@ impl Recorder {
         true
     }
 
-    /// The `show-screen-recording-ui` key: stop a recording, or let the
-    /// user pick what to record and start.
+    /// The `show-screen-recording-ui` key: stop a recording, or open the
+    /// screenshot UI with Record chosen.
     pub async fn key(&self, conn: &Connection, screens: &Screens) {
         if self.stop().await {
             return;
         }
-        let target = match screens.pick(PickMode::Record).await {
-            Picked::Screen => Target::Screen,
-            Picked::Area(r) => Target::Area(r),
+        self.screenshot_ui(conn, screens, true).await;
+    }
+
+    /// The screenshot UI from a key (recording allowed): take the
+    /// screenshot or start the recording the user chose.
+    pub async fn screenshot_ui(&self, conn: &Connection, screens: &Screens, record: bool) {
+        let (shot, record, pointer) = match screens.pick(PickMode::Ui { record, allow_record: true }).await {
+            Picked::Shot { target, record, pointer } => (target, record, pointer),
             _ => return,
         };
-        if let Err(err) = self.start(conn, target, "Screencast From %d %t.webm", &Options::default()).await {
-            tracing::warn!(err, "cannot record the screen");
+        if record {
+            let target = match shot {
+                Shot::Area(r) => Target::Area(r),
+                Shot::Screen => Target::Screen,
+                Shot::WindowAt(..) => return,
+            };
+            let options = Options { draw_cursor: pointer, ..Options::default() };
+            if let Err(err) = self.start(conn, target, "Screencast From %d %t.webm", &options).await {
+                tracing::warn!(err, "cannot record the screen");
+            }
+            return;
+        }
+        match screens.capture_to(shot.target(), pointer, true, &crate::screenshot::screenshot_path()).await {
+            Ok(path) => screens.taken(&path),
+            Err(err) => tracing::info!(?err, "no screenshot taken"),
         }
     }
 }

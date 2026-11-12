@@ -159,7 +159,8 @@ impl Ui {
 
     /// Show the overview (`notify`: tell the D-Bus side, which did not ask).
     pub(super) fn open_overview(&mut self, notify: bool) {
-        if self.overview.is_some() || self.lock.session.is_some() {
+        // Not over the lock screen or the screenshot UI.
+        if self.overview.is_some() || self.lock.session.is_some() || self.picker.is_some() {
             return;
         }
         let was_shown = self.launcher.is_some();

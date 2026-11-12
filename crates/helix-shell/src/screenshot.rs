@@ -58,10 +58,10 @@ pub enum PickMode {
     Area,
     /// Click a pixel.
     Point,
-    /// The screenshot UI: an area, or Enter for the whole screen.
-    Screenshot,
-    /// The same, to record the screen.
-    Record,
+    /// The screenshot UI (helix-desktop-spec `org.gnome.Shell.Screenshot.md`,
+    /// "Screenshot UI"): starting with Record chosen or not, and whether
+    /// recording may be chosen at all.
+    Ui { record: bool, allow_record: bool },
     /// Click a window.
     Window,
 }
@@ -73,7 +73,27 @@ pub enum Picked {
     Busy,
     Area(Rect),
     Point(i32, i32),
+    /// The screenshot UI's choice.
+    Shot { target: Shot, record: bool, pointer: bool },
+}
+
+/// What the screenshot UI captures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shot {
+    Area(Rect),
     Screen,
+    /// The window at this point (layout coordinates).
+    WindowAt(i32, i32),
+}
+
+impl Shot {
+    pub fn target(self) -> Target {
+        match self {
+            Shot::Area(r) => Target::Area(r),
+            Shot::Screen => Target::Screen,
+            Shot::WindowAt(x, y) => Target::WindowAt(x, y),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,13 +217,12 @@ impl Screens {
     /// The screenshot UI: what the user picks is saved in the Screenshots
     /// folder. `Ok(None)` when cancelled.
     pub async fn interactive(&self) -> Result<Option<PathBuf>, CaptureError> {
-        let target = match self.pick(PickMode::Screenshot).await {
-            Picked::Screen => Target::Screen,
-            Picked::Area(rect) => Target::Area(rect),
+        let (target, pointer) = match self.pick(PickMode::Ui { record: false, allow_record: false }).await {
+            Picked::Shot { target, pointer, .. } => (target.target(), pointer),
             Picked::Busy => return Err(CaptureError::Failed),
             _ => return Ok(None),
         };
-        let path = self.capture_to(target, false, true, &screenshot_path()).await?;
+        let path = self.capture_to(target, pointer, true, &screenshot_path()).await?;
         self.taken(&path);
         Ok(Some(path))
     }
