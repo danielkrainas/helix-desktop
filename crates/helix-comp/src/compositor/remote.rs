@@ -139,7 +139,8 @@ impl Helix {
             }
             RemoteInput::TouchDown { stream, slot: id, x, y } => {
                 if let Some(pos) = self.stream_point(stream, x, y) {
-                    self.touch_down(slot(id), self.clamp_to_outputs(pos), time);
+                    let pos = self.clamp_to_outputs(pos);
+                    self.virtual_touch_down(slot(id), pos, time);
                     self.seat.get_touch().unwrap().frame(self);
                 }
             }
@@ -383,7 +384,7 @@ impl Helix {
                 let pos = self.clamp_to_outputs((f64::from(t.x), f64::from(t.y)).into());
                 let time = self.now_ms();
                 self.note_activity();
-                self.touch_down(slot(t.touch_id), pos, time);
+                self.virtual_touch_down(slot(t.touch_id), pos, time);
             }
             EisRequest::TouchMotion(t) => {
                 let pos = self.clamp_to_outputs((f64::from(t.x), f64::from(t.y)).into());

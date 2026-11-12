@@ -225,7 +225,7 @@ impl Helix {
             InputEvent::TouchDown { event } => {
                 let Some(area) = self.touch_area_for(&event.device(), true) else { return };
                 let pos = event.position_transformed(area.size) + area.loc.to_f64();
-                self.touch_down(event.slot(), pos, event.time_msec());
+                self.touch_down_in(event.slot(), pos, area, event.time_msec());
             }
             InputEvent::TouchMotion { event } => {
                 let Some(area) = self.touch_area_for(&event.device(), false) else { return };
@@ -238,6 +238,7 @@ impl Helix {
                 touch.frame(self);
             }
             InputEvent::TouchCancel { .. } => {
+                self.touch_gestures.cancel();
                 let touch = self.seat.get_touch().unwrap();
                 touch.cancel(self);
             }
@@ -349,6 +350,44 @@ impl Helix {
         pointer.frame(self);
     }
 
+    /// Whether a touch event is part of Helix's gesture (not the apps').
+    fn touch_gesture(&mut self, verdict: helix_comp::gestures::Verdict) -> bool {
+        use helix_comp::gestures::Verdict;
+        match verdict {
+            Verdict::Pass => false,
+            Verdict::Claim => {
+                // The apps' touch points end here.
+                let touch = self.seat.get_touch().unwrap();
+                touch.cancel(self);
+                true
+            }
+            Verdict::Keep => true,
+        }
+    }
+
+    /// A touch point went down at `pos` (layout coordinates) on a monitor
+    /// of `area`.
+    pub(super) fn touch_down_in(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, area: smithay::utils::Rectangle<i32, Logical>, time: u32) {
+        if !self.lock.locked {
+            let rect = (f64::from(area.loc.x), f64::from(area.loc.y), f64::from(area.size.w), f64::from(area.size.h));
+            let verdict = self.touch_gestures.down(i32::from(slot), (pos.x, pos.y), rect);
+            if self.touch_gesture(verdict) {
+                return;
+            }
+        }
+        self.touch_down(slot, pos, time);
+    }
+
+    /// A virtual touchscreen's point (remote desktop) went down at `pos`:
+    /// the monitor there is its area.
+    pub(super) fn virtual_touch_down(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, time: u32) {
+        let area = self.output_at(pos).cloned().and_then(|o| self.space.output_geometry(&o));
+        match area {
+            Some(area) => self.touch_down_in(slot, pos, area, time),
+            None => self.touch_down(slot, pos, time),
+        }
+    }
+
     /// A touch point went down at `pos` (layout coordinates).
     pub(super) fn touch_down(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, time: u32) {
         if !self.lock.locked {
@@ -364,12 +403,23 @@ impl Helix {
     }
 
     pub(super) fn touch_motion(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, time: u32) {
+        let verdict = self.touch_gestures.motion(i32::from(slot), (pos.x, pos.y));
+        if self.touch_gesture(verdict) {
+            return;
+        }
         let under = self.surface_under(pos);
         let touch = self.seat.get_touch().unwrap();
         touch.motion(self, under, &smithay::input::touch::MotionEvent { slot, location: pos, time });
     }
 
     pub(super) fn touch_up(&mut self, slot: smithay::backend::input::TouchSlot, time: u32) {
+        let (verdict, gesture) = self.touch_gestures.up(i32::from(slot));
+        if let Some(gesture) = gesture {
+            self.apply_gesture(gesture);
+        }
+        if verdict != helix_comp::gestures::Verdict::Pass {
+            return;
+        }
         let touch = self.seat.get_touch().unwrap();
         touch.up(self, &smithay::input::touch::UpEvent { slot, serial: SERIAL_COUNTER.next_serial(), time });
     }

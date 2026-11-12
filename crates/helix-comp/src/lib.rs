@@ -14,6 +14,7 @@ pub mod hot_corner;
 pub mod magnifier;
 pub mod backlight;
 pub mod ddc;
+pub mod gestures;
 pub mod tablet_v2;
 pub mod display_config;
 pub mod edid;
@@ -73,6 +74,9 @@ pub enum Event {
     FocusTracking(bool),
     /// Show an on-screen display through the shell (a tablet pad's help).
     Osd { icon: String, label: String },
+    /// A swipe up (open the overview, or from it the app grid) or down
+    /// (close the overview).
+    OverviewGesture { up: bool },
 }
 
 /// The running D-Bus services of the compositor.
@@ -302,6 +306,22 @@ impl CompositorServices {
                 };
                 if let Err(err) = toggled.await {
                     tracing::info!(%err, "no shell to show the overview");
+                }
+                Ok(())
+            }
+            Event::OverviewGesture { up } => {
+                let done = async {
+                    let shell = zbus::Proxy::new(&self.conn, "org.gnome.Shell", "/org/gnome/Shell", "org.gnome.Shell").await?;
+                    let active: bool = shell.get_property("OverviewActive").await?;
+                    match (up, active) {
+                        (true, false) => shell.set_property("OverviewActive", true).await.map_err(zbus::Error::from),
+                        (true, true) => shell.call_method("ShowApplications", &()).await.map(drop),
+                        (false, true) => shell.set_property("OverviewActive", false).await.map_err(zbus::Error::from),
+                        (false, false) => Ok(()),
+                    }
+                };
+                if let Err(err) = done.await {
+                    tracing::info!(%err, "no shell for the overview gesture");
                 }
                 Ok(())
             }

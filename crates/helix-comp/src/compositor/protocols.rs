@@ -85,19 +85,6 @@ pub struct ProtocolState {
 
 /// Fingers a swipe needs to be Helix's.
 const SWIPE_FINGERS: std::ops::RangeInclusive<u32> = 3..=4;
-/// How far (logical pixels) a swipe goes sideways to switch workspace.
-const SWIPE_DISTANCE: f64 = 100.0;
-
-/// The workspace a finished swipe of `moved` leads to from `active` (of
-/// `count`): fingers moving left show the next one.
-pub fn swipe_target(active: usize, count: usize, moved: Point<f64, Logical>) -> Option<usize> {
-    if moved.x.abs() < SWIPE_DISTANCE || moved.x.abs() <= moved.y.abs() {
-        return None;
-    }
-    let target = if moved.x < 0.0 { active.checked_add(1)? } else { active.checked_sub(1)? };
-    (target < count).then_some(target)
-}
-
 fn root_of(surface: &WlSurface) -> WlSurface {
     let mut root = surface.clone();
     while let Some(parent) = get_parent(&root) {
@@ -264,11 +251,9 @@ impl Helix {
 
     pub(super) fn gesture_swipe_end(&mut self, cancelled: bool, time: u32) {
         if let Some(moved) = self.protocols.swipe.take() {
-            let layout = self.workspaces.layout;
-            if !cancelled && !self.lock.locked {
-                if let Some(target) = swipe_target(layout.active, layout.count, moved) {
-                    tracing::debug!(target, "workspace swipe");
-                    self.switch_workspace(target);
+            if !cancelled {
+                if let Some(gesture) = helix_comp::gestures::swipe(moved.x, moved.y) {
+                    self.apply_gesture(gesture);
                 }
             }
             return;
@@ -276,6 +261,29 @@ impl Helix {
         let pointer = self.seat.get_pointer().unwrap();
         let e = smithay::input::pointer::GestureSwipeEndEvent { serial: SERIAL_COUNTER.next_serial(), time, cancelled };
         pointer.gesture_swipe_end(self, &e);
+    }
+
+    /// Do what a finished swipe says (not while locked).
+    pub(super) fn apply_gesture(&mut self, gesture: helix_comp::gestures::Gesture) {
+        use helix_comp::gestures::Gesture;
+        if self.lock.locked {
+            return;
+        }
+        tracing::debug!(?gesture, "gesture");
+        match gesture {
+            Gesture::Workspace(_) => {
+                let layout = self.workspaces.layout;
+                if let Some(target) = helix_comp::gestures::workspace_after(gesture, layout.active, layout.count) {
+                    self.switch_workspace(target);
+                }
+            }
+            Gesture::OverviewUp => {
+                let _ = self.events.send(helix_comp::Event::OverviewGesture { up: true });
+            }
+            Gesture::OverviewDown => {
+                let _ = self.events.send(helix_comp::Event::OverviewGesture { up: false });
+            }
+        }
     }
 
     // ---- Keyboard shortcut inhibition --------------------------------------
@@ -449,22 +457,6 @@ impl XWaylandKeyboardGrabHandler for Helix {
         let window = self.window_for_surface(surface)?;
         window.x11_surface()?;
         super::focus::focus_target(&window)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn swipes() {
-        let p = |x: f64, y: f64| Point::<f64, Logical>::from((x, y));
-        assert_eq!(swipe_target(1, 4, p(-150.0, 20.0)), Some(2), "left: next");
-        assert_eq!(swipe_target(1, 4, p(150.0, 20.0)), Some(0), "right: previous");
-        assert_eq!(swipe_target(0, 4, p(150.0, 0.0)), None, "none before the first");
-        assert_eq!(swipe_target(3, 4, p(-150.0, 0.0)), None, "none past the last");
-        assert_eq!(swipe_target(1, 4, p(-90.0, 0.0)), None, "too short");
-        assert_eq!(swipe_target(1, 4, p(-150.0, 160.0)), None, "mostly vertical");
     }
 }
 

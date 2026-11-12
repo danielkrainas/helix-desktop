@@ -192,6 +192,8 @@ pub struct Helix {
     pub tablet: tablet_input::TabletInput,
     /// The tablet protocol's objects.
     pub tablet_v2: helix_comp::tablet_v2::TabletV2,
+    /// Touchscreen gestures in progress.
+    pub touch_gestures: helix_comp::gestures::Recognizer,
     /// What the shell knows about open windows.
     pub window_list: window_list::WindowList,
     /// Screen captures asked for by the shell.
@@ -317,6 +319,7 @@ impl Helix {
             input_devices: Vec::new(),
             tablet: Default::default(),
             tablet_v2: Default::default(),
+            touch_gestures: Default::default(),
             window_list: Default::default(),
             captures: Default::default(),
             workspaces: Default::default(),
@@ -523,7 +526,7 @@ impl Helix {
     }
 
     /// The output at `pos`, else the first one.
-    fn output_at(&self, pos: Point<f64, Logical>) -> Option<&smithay::output::Output> {
+    pub(super) fn output_at(&self, pos: Point<f64, Logical>) -> Option<&smithay::output::Output> {
         self.space.output_under(pos).next().or_else(|| self.space.outputs().next())
     }
 
