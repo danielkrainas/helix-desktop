@@ -216,6 +216,10 @@ struct Ui {
     recording: bool,
     /// Network, battery, volume, radios.
     status: crate::status::Status,
+    /// The launcher's current search (answers for others are dropped).
+    search_serial: u64,
+    /// The query last sent to the search providers.
+    searched_query: Option<String>,
     /// Where the status area starts (clicking it opens quick settings).
     status_left: i32,
     exit: bool,
@@ -564,6 +568,10 @@ impl Ui {
         layer.commit();
         let apps = launcher::installed();
         tracing::info!(apps = apps.len(), "launcher opened");
+        // The search providers are read again.
+        self.searched_query = None;
+        self.search_serial += 1;
+        let _ = self.requests.send(UiRequest::Search { serial: self.search_serial, query: String::new() });
         self.launcher = Some(LauncherView {
             layer,
             model: Launcher::with_windows(apps, self.windows.mru().to_vec()),
@@ -588,9 +596,29 @@ impl Ui {
         }
     }
 
+    /// Ask the search providers when the launcher's query changed.
+    pub(super) fn search_changed(&mut self) {
+        let Some(view) = &self.launcher else { return };
+        let query = view.model.query.clone();
+        if self.searched_query.as_deref() == Some(query.as_str()) {
+            return;
+        }
+        self.searched_query = Some(query.clone());
+        if query.trim().is_empty() {
+            return;
+        }
+        self.search_serial += 1;
+        let _ = self.requests.send(UiRequest::Search { serial: self.search_serial, query });
+    }
+
     fn launch_selected(&mut self) {
         let Some(view) = &self.launcher else { return };
         match view.model.selected() {
+            Some(launcher::Hit::Search(i)) => {
+                let hit = &view.model.external[i];
+                tracing::info!(app = hit.app, id = hit.id, "opening search result");
+                let _ = self.requests.send(UiRequest::SearchActivate { provider: hit.provider, id: hit.id.clone(), query: view.model.query.clone() });
+            }
             Some(launcher::Hit::App(i)) => {
                 let app = &view.model.apps[i];
                 tracing::info!(app = %app.id, "launching");
@@ -1006,10 +1034,20 @@ impl Ui {
             }
             let (name, is_window) = view.model.row_label(view.model.results[result]);
             let base = baseline(self.text.as_ref(), rect.y, rect.h, 15.0);
-            let tag_w = if is_window { 96.0 } else { 0.0 };
-            label(self.text.as_ref(), &mut canvas, name, (rect.x + 12) as f32, base, 15.0, FG, rect.w as f32 - 24.0 - tag_w);
-            if is_window {
-                let tag = "Open window";
+            let found = view.model.search_hit(view.model.results[result]);
+            let tag_text = if is_window { Some("Open window") } else { found.map(|h| h.app.as_str()) };
+            let tag_w = tag_text.map_or(0.0, |t| self.text.as_ref().map_or(96.0, |f| f.width(t, 13.0)).min(160.0) + 8.0);
+            let name_max = rect.w as f32 - 24.0 - tag_w;
+            label(self.text.as_ref(), &mut canvas, name, (rect.x + 12) as f32, base, 15.0, FG, name_max);
+            // A search result's description after its name, dimmer.
+            if let Some(hit) = found.filter(|h| !h.description.is_empty()) {
+                let nw = self.text.as_ref().map_or(0.0, |t| t.width(name, 15.0)) + 12.0;
+                if nw < name_max - 40.0 {
+                    let color = if result == view.model.selected { FG } else { DIM_FG };
+                    label(self.text.as_ref(), &mut canvas, &hit.description, rect.x as f32 + 12.0 + nw, base, 13.0, color, name_max - nw);
+                }
+            }
+            if let Some(tag) = tag_text {
                 let tw = self.text.as_ref().map_or(0.0, |t| t.width(tag, 13.0));
                 let color = if result == view.model.selected { FG } else { DIM_FG };
                 label(self.text.as_ref(), &mut canvas, tag, rect.x as f32 + rect.w as f32 - 12.0 - tw, base, 13.0, color, tag_w);
@@ -1047,6 +1085,7 @@ impl Ui {
                 }
             }
         }
+        self.search_changed();
         self.draw_launcher();
     }
 
@@ -1720,6 +1759,14 @@ impl Ui {
                 self.sharing = on;
                 self.draw_panel();
             }
+            UiEvent::SearchResults { serial, provider, hits } => {
+                if serial == self.search_serial {
+                    if let Some(view) = self.launcher.as_mut() {
+                        view.model.set_search(provider, hits);
+                        self.draw_launcher();
+                    }
+                }
+            }
             UiEvent::Status(status) => {
                 self.status = *status;
                 self.draw_panel();
@@ -2070,6 +2117,8 @@ pub fn run(
         recording: false,
         status: Default::default(),
         status_left: i32::MAX,
+        search_serial: 0,
+        searched_query: None,
         lock: LockScreen {
             state: SessionLockState::new(&globals, &qh),
             session: None,

@@ -511,6 +511,7 @@ impl Ui {
                     if let Some(view) = self.launcher.as_mut() {
                         view.model.type_text(&text);
                     }
+                    self.search_changed();
                     self.draw_launcher();
                 }
             }

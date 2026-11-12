@@ -93,6 +93,20 @@ pub enum Hit {
     Window(usize),
     /// Index into the apps.
     App(usize),
+    /// Index into the search providers' results.
+    Search(usize),
+}
+
+/// A search provider's result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    /// The provider's place in the provider order.
+    pub provider: usize,
+    /// The provider's app name.
+    pub app: String,
+    pub id: String,
+    pub name: String,
+    pub description: String,
 }
 
 /// Launcher state while it is open.
@@ -104,6 +118,8 @@ pub struct Launcher {
     pub query: String,
     pub results: Vec<Hit>,
     pub selected: usize,
+    /// Search provider results for `query`, in provider order.
+    pub external: Vec<SearchHit>,
 }
 
 impl Launcher {
@@ -121,8 +137,26 @@ impl Launcher {
         l
     }
 
-    /// Windows whose title or app id match come first, then apps.
+    /// Windows whose title or app id match come first, then apps, then
+    /// search provider results (the query changed: those go).
     fn refilter(&mut self) {
+        self.external.clear();
+        self.rebuild();
+        self.selected = 0;
+    }
+
+    /// A provider answered for the current query.
+    pub fn set_search(&mut self, provider: usize, hits: Vec<SearchHit>) {
+        self.external.retain(|h| h.provider != provider);
+        self.external.extend(hits);
+        self.external.sort_by_key(|h| h.provider);
+        let selected = self.selected();
+        self.rebuild();
+        // Keep the selection on what it was, if it is still there.
+        self.selected = selected.and_then(|s| self.results.iter().position(|r| *r == s)).unwrap_or(0);
+    }
+
+    fn rebuild(&mut self) {
         let q = self.query.trim().to_lowercase();
         self.results = self
             .windows
@@ -131,8 +165,16 @@ impl Launcher {
             .filter(|(_, w)| q.is_empty() || w.title.to_lowercase().contains(&q) || w.app_id.to_lowercase().contains(&q))
             .map(|(i, _)| Hit::Window(i))
             .chain(search(&self.apps, &self.query).into_iter().map(Hit::App))
+            .chain((0..if q.is_empty() { 0 } else { self.external.len() }).map(Hit::Search))
             .collect();
-        self.selected = 0;
+    }
+
+    /// The search result a row shows.
+    pub fn search_hit(&self, hit: Hit) -> Option<&SearchHit> {
+        match hit {
+            Hit::Search(i) => self.external.get(i),
+            _ => None,
+        }
     }
 
     pub fn selected(&self) -> Option<Hit> {
@@ -144,6 +186,7 @@ impl Launcher {
         match hit {
             Hit::Window(i) => (self.windows[i].label(), true),
             Hit::App(i) => (&self.apps[i].name, false),
+            Hit::Search(i) => (&self.external[i].name, false),
         }
     }
 
@@ -173,7 +216,7 @@ impl Launcher {
     pub fn selected_app(&self) -> Option<&App> {
         match self.selected()? {
             Hit::App(i) => Some(&self.apps[i]),
-            Hit::Window(_) => None,
+            Hit::Window(_) | Hit::Search(_) => None,
         }
     }
 }

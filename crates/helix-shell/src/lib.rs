@@ -28,6 +28,7 @@ pub mod prompt;
 pub mod notify_store;
 pub mod recording;
 pub mod screensaver;
+pub mod search;
 pub mod secret_exchange;
 /// Event sounds live in `helix-settings`, shared with the compositor.
 pub use helix_settings::sound;
@@ -141,6 +142,8 @@ pub enum UiEvent {
     Prompt(prompt::PromptSlot),
     /// Close the prompt dialog.
     PromptDone,
+    /// A search provider answered: its results for search `serial`.
+    SearchResults { serial: u64, provider: usize, hits: Vec<launcher::SearchHit> },
     /// System status (panel icons, quick settings switches).
     Status(Box<status::Status>),
     /// The desktop and lock screen backgrounds to show.
@@ -224,6 +227,10 @@ pub enum UiRequest {
     StoreShortcutsAnswer { app_id: String, allowed: bool },
     /// The panel's "Recording" indicator was clicked.
     StopRecording,
+    /// Ask the search providers (`query` empty: the launcher opened).
+    Search { serial: u64, query: String },
+    /// A search provider's result was chosen.
+    SearchActivate { provider: usize, id: String, query: String },
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -625,6 +632,7 @@ impl ShellService {
             ui: self.ui.clone(),
             ibus: self.ibus.clone(),
             recorder: self.recorder.clone(),
+            search: search::Searcher::default(),
         }
     }
 
@@ -649,6 +657,7 @@ pub struct UiBridge {
     ui: mpsc::UnboundedSender<UiEvent>,
     ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
     recorder: recording::Recorder,
+    search: search::Searcher,
 }
 
 impl UiBridge {
@@ -739,6 +748,15 @@ impl UiBridge {
                 if let Err(err) = &result {
                     tracing::warn!(%err, ?action, "power action failed");
                 }
+                Ok(())
+            }
+            UiRequest::Search { serial, query } => {
+                self.search.search(&self.conn, &self.ui, serial, &query).await;
+                Ok(())
+            }
+            UiRequest::SearchActivate { provider, id, query } => {
+                let (search, conn) = (self.search.clone(), self.conn.clone());
+                tokio::spawn(async move { search.activate(&conn, provider, &id, &query).await });
                 Ok(())
             }
             UiRequest::StopRecording => {
