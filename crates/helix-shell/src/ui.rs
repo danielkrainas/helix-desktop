@@ -2108,6 +2108,7 @@ impl Ui {
             }
             UiEvent::PromptDone => self.prompt_done(),
             UiEvent::PromptRows(rows) => self.prompt_rows(rows),
+            UiEvent::PromptPreview(path, image) => self.prompt_preview(path, image),
             UiEvent::Background { desktop, lock } => {
                 self.desktop_background = *desktop;
                 self.lock_background = *lock;

@@ -189,6 +189,8 @@ pub enum UiEvent {
     /// Replace the rows of the prompt shown (its selection follows the
     /// selected row's text); no rows cancel it.
     PromptRows(Vec<String>),
+    /// A file's preview for the prompt (`None`: it cannot be shown).
+    PromptPreview(String, Option<std::sync::Arc<helix_draw::Image>>),
     /// A search provider answered: its results for search `serial`.
     SearchResults { serial: u64, provider: usize, hits: Vec<launcher::SearchHit> },
     /// `org.gnome.desktop.a11y.interface` `high-contrast`.
@@ -235,6 +237,8 @@ pub enum PowerAction {
 /// Reports from the shell UI back to the D-Bus side.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiRequest {
+    /// Decode a picture for the prompt's preview.
+    Preview(String),
     /// The UI opened/closed the launcher itself.
     Overview(bool),
     /// The dock's "Empty Trash": ask, then empty it.
@@ -729,6 +733,19 @@ pub struct UiBridge {
     search: search::Searcher,
 }
 
+/// Largest file previewed.
+const PREVIEW_MAX_BYTES: u64 = 32 << 20;
+
+/// A picture file as a preview (at most 392 × 160), if it can be shown.
+fn preview_image(path: &str) -> Option<std::sync::Arc<helix_draw::Image>> {
+    let path = std::path::Path::new(path);
+    if std::fs::metadata(path).ok()?.len() > PREVIEW_MAX_BYTES {
+        return None;
+    }
+    let image = wallpaper::decode(path).ok()?;
+    Some(std::sync::Arc::new(wallpaper::thumbnail(&image, 392, 160)))
+}
+
 impl UiBridge {
     pub async fn handle(&self, request: UiRequest) -> zbus::Result<()> {
         let iface = self
@@ -740,6 +757,14 @@ impl UiBridge {
         let emitter = iface.signal_emitter();
         match request {
             UiRequest::Overview(active) => shell.set_overview_from_ui(active, emitter).await,
+            UiRequest::Preview(path) => {
+                let ui = self.ui.clone();
+                tokio::task::spawn_blocking(move || {
+                    let image = preview_image(&path);
+                    let _ = ui.send(UiEvent::PromptPreview(path, image));
+                });
+                Ok(())
+            }
             UiRequest::Accelerator { action, pressed, time } => {
                 shell.accelerator_event(action, pressed, time, emitter).await
             }

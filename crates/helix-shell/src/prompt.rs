@@ -40,6 +40,9 @@ pub struct Prompt {
     pub place_current: Option<usize>,
     /// A picture below the text (e.g. a background to preview).
     pub picture: Option<std::sync::Arc<helix_draw::Image>>,
+    /// Files to preview, by row (empty: none); with any, a preview area
+    /// shows the selected row's picture.
+    pub previews: Vec<String>,
     /// An icon above the title (48 pixels).
     pub icon: Option<std::sync::Arc<helix_draw::Image>>,
     /// Shown in a warning color, e.g. after a wrong password.

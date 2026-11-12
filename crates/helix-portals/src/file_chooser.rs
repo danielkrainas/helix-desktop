@@ -348,6 +348,20 @@ pub struct Outcome {
     pub check: bool,
 }
 
+/// The file of row `row` (in folder `dir`) to preview, when its name
+/// says it is a picture.
+pub fn preview_path(dir: &Path, row: &Row) -> Option<PathBuf> {
+    let path = match row {
+        Row::File(name) => dir.join(name),
+        Row::Recent(path) => path.clone(),
+        _ => return None,
+    };
+    let name = path.file_name()?.to_string_lossy().into_owned();
+    let (guess, _) = gio::content_type_guess(Some(name.as_str()), None);
+    let mime = gio::content_type_get_mime_type(&guess).map(|m| m.to_string()).unwrap_or_default();
+    ["image/png", "image/jpeg", "image/webp", "image/jxl", "image/svg+xml"].contains(&mime.as_str()).then_some(path)
+}
+
 /// What the dialog asks.
 pub struct Ask {
     pub title: String,
@@ -456,6 +470,11 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             ("accept".to_owned(), value(Value::from(ask.accept.clone()))),
             ("cancel".to_owned(), value(Value::from("Cancel"))),
         ]);
+        // Image files can be previewed: their paths, by row.
+        let previews: Vec<String> = list.iter().map(|r| preview_path(&ask.folder, r).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()).collect();
+        if previews.iter().any(|p| !p.is_empty()) {
+            options.insert("previews".into(), value(Value::from(previews)));
+        }
         if let Some((label, state)) = &ask.check {
             options.insert("check-label".into(), value(Value::from(label.clone())));
             options.insert("check".into(), value(Value::from(*state)));
@@ -687,6 +706,17 @@ impl FileChooserBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn previews() {
+        let dir = Path::new("/home/u");
+        assert_eq!(preview_path(dir, &Row::File("cat.PNG".into())), Some(dir.join("cat.PNG")));
+        assert_eq!(preview_path(dir, &Row::File("a.jpeg".into())), Some(dir.join("a.jpeg")));
+        assert_eq!(preview_path(dir, &Row::Recent("/tmp/x.svg".into())), Some(PathBuf::from("/tmp/x.svg")));
+        assert_eq!(preview_path(dir, &Row::File("notes.txt".into())), None);
+        assert_eq!(preview_path(dir, &Row::Folder("Pictures".into())), None);
+        assert_eq!(preview_path(dir, &Row::Parent), None);
+    }
 
     #[test]
     fn places_list() {

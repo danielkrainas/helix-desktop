@@ -46,6 +46,7 @@ pub fn dialog_prompt(options: &HashMap<String, OwnedValue>) -> Prompt {
         entry: (!entry_label.is_empty()).then(|| (entry_label, text("entry"))),
         warning: text("warning"),
         places: get(options, "places").unwrap_or_default(),
+        previews: get(options, "previews").unwrap_or_default(),
         place_current: get::<i32>(options, "place-current").and_then(|i| usize::try_from(i).ok()),
         ..Prompt::default()
     }

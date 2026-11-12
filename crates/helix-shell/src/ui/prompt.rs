@@ -35,7 +35,13 @@ pub(super) struct PromptView {
     busy: bool,
     /// The place clicked.
     place: Option<usize>,
+    /// Previews by file: asked for (`None` until decoded, or when it
+    /// cannot be shown).
+    previews: std::collections::HashMap<String, Option<std::sync::Arc<helix_draw::Image>>>,
 }
+
+/// The preview area's height.
+const PREVIEW_H: i32 = 160;
 
 impl PromptView {
     fn new(request: Request) -> Self {
@@ -49,7 +55,7 @@ impl PromptView {
         };
         let selected = request.prompt.selected.min(request.prompt.list.len().saturating_sub(1));
         let picked = vec![false; request.prompt.list.len()];
-        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, place: None }
+        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, place: None, previews: Default::default() }
     }
 
     /// Answer "cancel" if nobody answered yet.
@@ -110,6 +116,16 @@ impl Ui {
         if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::Prompt(_))) {
             self.dialog = None;
         }
+    }
+
+    /// A preview was decoded (or cannot be shown).
+    pub(super) fn prompt_preview(&mut self, path: String, image: Option<std::sync::Arc<helix_draw::Image>>) {
+        let Some(view) = self.prompt_view() else { return };
+        if !view.previews.contains_key(&path) {
+            return;
+        }
+        view.previews.insert(path, image);
+        self.draw_dialog();
     }
 
     /// New rows for the prompt shown (the app chooser's choices changed).
@@ -256,7 +272,15 @@ impl Ui {
     }
 
     pub(super) fn paint_prompt(&mut self, overlay: &mut Overlay<DialogState>) {
-        let DialogKind::Prompt(view) = &overlay.state.kind else { return };
+        let DialogKind::Prompt(view) = &mut overlay.state.kind else { return };
+        // The selected file's preview, decoded once (off this thread).
+        if let Some(path) = view.prompt.previews.get(view.selected).filter(|p| !p.is_empty()) {
+            if !view.previews.contains_key(path) {
+                view.previews.insert(path.clone(), None);
+                let _ = self.requests.send(crate::UiRequest::Preview(path.clone()));
+            }
+        }
+        let view = &**view;
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
@@ -294,7 +318,8 @@ impl Ui {
         // An icon above the title.
         let icon = p.icon.as_deref().filter(|i| i.width > 0 && i.height > 0);
         let top = if icon.is_some() { 60 } else { 0 };
-        let bh = top + 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + picture_h + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + 26 + 64;
+        let preview_h = if p.previews.iter().any(|f| !f.is_empty()) { PREVIEW_H + 12 } else { 0 };
+        let bh = preview_h + top + 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + picture_h + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + 26 + 64;
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
@@ -353,6 +378,21 @@ impl Ui {
             }
         }
         y += list_h;
+        if preview_h > 0 {
+            let area = Rect { x: bx + 24, y: y + 4, w: bw - 48, h: PREVIEW_H };
+            canvas.rect(area.x, area.y, area.w, area.h, FIELD_BG);
+            let image = p.previews.get(view.selected).and_then(|f| view.previews.get(f)).and_then(|i| i.as_deref());
+            if let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) {
+                let k = (f64::from(area.w) / image.width as f64).min(f64::from(area.h) / image.height as f64).min(1.0);
+                let (iw, ih) = (image.width as f64 * k, image.height as f64 * k);
+                canvas.image(f64::from(area.x) + (f64::from(area.w) - iw) / 2.0, f64::from(area.y) + (f64::from(area.h) - ih) / 2.0, iw, ih, image);
+            } else {
+                let none = "No preview";
+                let tw = text.map_or(0.0, |t| t.width(none, 13.0));
+                label(text, &mut canvas, none, area.x as f32 + (area.w as f32 - tw) / 2.0, baseline(text, area.y, area.h, 13.0), 13.0, DIM_FG, inner);
+            }
+            y += preview_h;
+        }
         if let Some((name, _)) = &p.entry {
             label(text, &mut canvas, name, (bx + 24) as f32, (y + 14) as f32, 13.0, DIM_FG, inner);
             let r = Rect { x: bx + 24, y: y + 22, w: bw - 48, h: 34 };
