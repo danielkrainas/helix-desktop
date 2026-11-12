@@ -12,6 +12,7 @@ pub mod dialogs;
 pub mod dynamic_launcher;
 pub mod email;
 pub mod file_chooser;
+pub mod global_shortcuts;
 pub mod inhibit;
 pub mod input_capture;
 pub mod lockdown;
@@ -91,6 +92,8 @@ impl PortalService {
         server.at(OBJECT_PATH, lockdown::LockdownBackend::default()).await?;
         server.at(OBJECT_PATH, file_chooser::FileChooserBackend { conn: conn.clone(), folders: Default::default() }).await?;
         server.at(OBJECT_PATH, print::PrintBackend { conn: conn.clone(), prepared: Default::default() }).await?;
+        let shortcut_sessions = global_shortcuts::Sessions::default();
+        server.at(OBJECT_PATH, global_shortcuts::GlobalShortcutsBackend { conn: conn.clone(), sessions: shortcut_sessions.clone() }).await?;
         let added = notification::Added::default();
         server.at(OBJECT_PATH, notification::NotificationBackend { conn: conn.clone(), added: added.clone() }).await?;
         lockdown::refresh(&conn, OBJECT_PATH).await?;
@@ -114,6 +117,7 @@ impl PortalService {
             spawn_session_client(&conn, sm, registry.clone()),
             tokio::spawn(dialogs::follow_running(conn.clone(), OBJECT_PATH)),
             tokio::spawn(notification::follow_actions(conn.clone(), OBJECT_PATH, added)),
+            tokio::spawn(global_shortcuts::follow(conn.clone(), shortcut_sessions)),
         ];
         Ok(Self {
             conn,
