@@ -41,6 +41,8 @@ fn main() -> ExitCode {
         )
         .with_writer(std::io::stderr)
         .init();
+    // Before any other thread touches GIO.
+    helix_settings::prepare_gio();
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {

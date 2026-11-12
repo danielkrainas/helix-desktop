@@ -38,6 +38,18 @@ fn schema_source() -> Option<gio::SettingsSchemaSource> {
     gio::SettingsSchemaSource::default()
 }
 
+/// Do GIO's one-time setup (loading its modules: the settings backend,
+/// gvfs, volume monitors) on the calling thread. Call it from `main`
+/// before starting any thread that uses GIO: GIO's first-use setup from
+/// several threads at once can deadlock (a settings thread and the
+/// volume monitor taking GLib's module and type locks in opposite
+/// orders), which left the shell hanging at startup.
+pub fn prepare_gio() {
+    let _ = gio::SettingsBackend::default();
+    let _ = gio::Vfs::default();
+    let _ = gio::SettingsSchemaSource::default();
+}
+
 /// Whether `schema_id` is installed.
 pub fn has_schema(schema_id: &str) -> bool {
     schema_source()

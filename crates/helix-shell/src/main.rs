@@ -17,6 +17,8 @@ fn main() -> ExitCode {
         )
         .with_writer(std::io::stderr)
         .init();
+    // Before any other thread touches GIO.
+    helix_settings::prepare_gio();
 
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
