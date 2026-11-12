@@ -177,6 +177,19 @@ fn main() -> ExitCode {
             }
         });
     }
+    // Bluetooth file transfers through obexd: receiving (unless turned
+    // off), and sending. obexd is only started in a session on real
+    // hardware, so nested sessions never touch the host's Bluetooth.
+    {
+        let (session, ui, center) = (service.connection().clone(), service.ui_sender(), service.notifications());
+        let receive = std::env::var_os("HELIX_NO_OBEX").is_none();
+        let start_obexd = std::env::var("HELIX_BACKEND").is_ok_and(|b| b == "drm");
+        runtime.spawn(async move {
+            if let Err(err) = helix_shell::obex::run(session, ui, center, receive, start_obexd).await {
+                tracing::info!(%err, "no Bluetooth file transfers");
+            }
+        });
+    }
     // NetworkManager's secret agent (Wi-Fi passwords).
     if std::env::var_os("HELIX_NO_NETWORK_AGENT").is_none() {
         let ui = service.ui_sender();

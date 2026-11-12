@@ -195,6 +195,10 @@ impl Ui {
                 }
                 true
             }
+            OverlayHit::BtSendFiles => {
+                let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Toggle(Toggle::BluetoothSendFiles)));
+                false
+            }
             OverlayHit::PairNew => {
                 self.bt_discovery = true;
                 let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Toggle(Toggle::BluetoothDiscovery(true))));
@@ -254,6 +258,9 @@ impl Ui {
             }
             Some(Switch::Bluetooth) => {
                 let mut rows: Vec<ListRow> = self.status.devices.iter().enumerate().map(|(i, d)| ListRow { connected: d.connected, ..row(d.name.clone(), Some(OverlayHit::BtDevice(i))) }).collect();
+                if !self.status.devices.is_empty() {
+                    rows.push(row("Send Files…".into(), Some(OverlayHit::BtSendFiles)));
+                }
                 if self.bt_discovery || self.status.discovering {
                     rows.push(row("Nearby Devices".into(), None));
                     if self.status.nearby.is_empty() {

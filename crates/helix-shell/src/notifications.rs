@@ -205,9 +205,18 @@ impl Center {
 
     /// One of the shell's own notices, as `app` with an icon by name.
     pub fn notice(&self, app: &str, summary: &str, body: &str, icon: &str, critical: bool) -> u32 {
+        self.notice_with(0, app, summary, body, icon, critical)
+    }
+
+    /// [`Center::notice`] in place of notice `replaces` (0: a new one).
+    pub fn notice_replacing(&self, replaces: u32, app: &str, summary: &str, body: &str, icon: &str) -> u32 {
+        self.notice_with(replaces, app, summary, body, icon, false)
+    }
+
+    fn notice_with(&self, id: u32, app: &str, summary: &str, body: &str, icon: &str, critical: bool) -> u32 {
         let urgency = if critical { Urgency::Critical } else { Urgency::Normal };
         self.post(Notification {
-            id: 0,
+            id,
             app_name: app.into(),
             summary: summary.into(),
             body: body.into(),

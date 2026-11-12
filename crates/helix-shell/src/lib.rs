@@ -23,6 +23,7 @@ pub mod location;
 pub mod logind;
 pub mod night_light;
 pub mod bluetooth_agent;
+pub mod obex;
 pub mod calendar;
 pub mod ical;
 pub mod icons;

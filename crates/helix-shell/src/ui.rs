@@ -304,6 +304,8 @@ enum OverlayHit {
     /// "Pair New Device…", and a device found nearby.
     PairNew,
     BtNearby(usize),
+    /// "Send Files…" below the paired devices.
+    BtSendFiles,
     Outside,
 }
 

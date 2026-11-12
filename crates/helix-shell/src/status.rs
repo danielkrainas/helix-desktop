@@ -119,6 +119,8 @@ pub enum Toggle {
     BluetoothDiscovery(bool),
     /// Pair with a device, trust it and connect it.
     BluetoothPair { path: String, name: String },
+    /// Send files to a paired device (both asked for).
+    BluetoothSendFiles,
 }
 
 /// The Wi-Fi icon for an access point's strength (0–100).
@@ -431,6 +433,10 @@ pub async fn apply(system: &Connection, toggle: Toggle) -> zbus::Result<()> {
                     let _ = system.call_method(Some(BLUEZ), path.as_str(), Some("org.bluez.Adapter1"), method, &()).await;
                 }
             }
+            Ok(())
+        }
+        Toggle::BluetoothSendFiles => {
+            crate::obex::start_sending(String::new(), Vec::new());
             Ok(())
         }
         Toggle::BluetoothPair { path, .. } => {

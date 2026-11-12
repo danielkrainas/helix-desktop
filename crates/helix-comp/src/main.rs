@@ -196,6 +196,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(socket, "listening for Wayland clients");
     // SAFETY: still single-threaded here; children inherit the variable.
     std::env::set_var("WAYLAND_DISPLAY", &socket);
+    // Tell clients (the shell) whether this session drives real hardware.
+    std::env::set_var("HELIX_BACKEND", if matches!(backend, Backend::Drm) { "drm" } else { "winit" });
 
     // Xwayland comes up first; then DISPLAY and WAYLAND_DISPLAY are
     // announced (in that order) and the shell and --command start.
