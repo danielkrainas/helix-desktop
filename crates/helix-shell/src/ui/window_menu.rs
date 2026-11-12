@@ -10,6 +10,13 @@ use crate::windows::{WindowAction, ALL_WORKSPACES};
 const MENU_W: i32 = 240;
 const ITEM_H: i32 = 32;
 const SEPARATOR_H: i32 = 9;
+/// Window previews: a tile's width, its picture's height, the title below.
+pub(super) const TILE_W: i32 = 220;
+pub(super) const PICTURE_H: i32 = 130;
+pub(super) const TILE_TITLE_H: i32 = 28;
+const TILE_GAP: i32 = 8;
+/// At most this many tiles in a row.
+const TILES_PER_ROW: usize = 4;
 
 /// What a menu entry does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +142,16 @@ pub(super) struct WindowMenu {
     bounds: Rect,
     /// The input sources an input source menu is for.
     sources: Vec<crate::input_sources::Source>,
+    /// Window previews instead of rows: the windows; the items are, for
+    /// each, "activate" then "close".
+    pub(super) previews: Vec<u32>,
+}
+
+/// The size of a previews box for `count` windows.
+pub(super) fn previews_size(count: usize) -> (i32, i32) {
+    let per_row = count.clamp(1, TILES_PER_ROW);
+    let rows = count.div_ceil(TILES_PER_ROW).max(1);
+    (per_row as i32 * (TILE_W + TILE_GAP) + TILE_GAP, rows as i32 * (PICTURE_H + TILE_TITLE_H + TILE_GAP) + TILE_GAP)
 }
 
 impl Ui {
@@ -226,6 +243,7 @@ impl Ui {
             hits: Vec::new(),
             bounds: Rect { x: 0, y: 0, w: 0, h: 0 },
             sources,
+            previews: Vec::new(),
         });
     }
 
@@ -264,6 +282,15 @@ impl Ui {
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(0x00000000);
+        if !menu.previews.is_empty() {
+            paint_previews(menu, &mut canvas, w as i32, h as i32, self.text.as_ref(), &self.overview_shots);
+            let surface = menu.layer.wl_surface();
+            self.scales.prepare(&self.qh, surface, w as i32, h as i32);
+            if buffer.attach_to(surface).is_ok() {
+                menu.layer.commit();
+            }
+            return;
+        }
         let mh: i32 = 8 + menu.items.iter().map(|i| if i.is_some() { ITEM_H } else { SEPARATOR_H }).sum::<i32>();
         // Keep it on the output.
         let mx = menu.at.0.clamp(0, (w as i32 - MENU_W).max(0));
@@ -402,6 +429,47 @@ impl Ui {
         }
     }
 }
+
+/// Window previews: tiles with each window's picture (its outline
+/// until the picture comes), title and a close button.
+fn paint_previews(menu: &mut WindowMenu, canvas: &mut Canvas, w: i32, h: i32, text: Option<&Text>, shots: &super::overview::Shots) {
+    let (mw, mh) = previews_size(menu.previews.len());
+    let mx = menu.at.0.clamp(0, (w - mw).max(0));
+    let my = menu.at.1.clamp(0, (h - mh).max(0));
+    canvas.rect(mx - 1, my - 1, mw + 2, mh + 2, BANNER_BORDER);
+    canvas.rect(mx, my, mw, mh, BANNER_BG);
+    menu.bounds = Rect { x: mx, y: my, w: mw, h: mh };
+    menu.hits.clear();
+    for (i, window) in menu.previews.iter().enumerate() {
+        let (col, row) = ((i % TILES_PER_ROW) as i32, (i / TILES_PER_ROW) as i32);
+        let tile = Rect { x: mx + TILE_GAP + col * (TILE_W + TILE_GAP), y: my + TILE_GAP + row * (PICTURE_H + TILE_TITLE_H + TILE_GAP), w: TILE_W, h: PICTURE_H + TILE_TITLE_H };
+        if menu.selected == Some(2 * i) {
+            canvas.rect(tile.x - 2, tile.y - 2, tile.w + 4, tile.h + 4, HOVER_BG);
+        }
+        // The picture, fitted into the tile keeping its proportions.
+        let pic = Rect { x: tile.x + 4, y: tile.y + 4, w: tile.w - 8, h: PICTURE_H - 8 };
+        match shots.picture(*window) {
+            Some(image) if image.width > 0 && image.height > 0 => {
+                let s = (f64::from(pic.w) / (image.width as f64)).min(f64::from(pic.h) / (image.height as f64)).min(1.0);
+                let (iw, ih) = ((image.width as f64) * s, (image.height as f64) * s);
+                canvas.image(f64::from(pic.x) + (f64::from(pic.w) - iw) / 2.0, f64::from(pic.y) + (f64::from(pic.h) - ih) / 2.0, iw, ih, image);
+            }
+            _ => canvas.rect(pic.x, pic.y, pic.w, pic.h, 0xFF55555F),
+        }
+        let title = menu.items.get(2 * i).and_then(|i| i.as_ref()).map(|i| i.label.clone()).unwrap_or_default();
+        label(text, canvas, &title, (tile.x + 6) as f32, baseline(text, tile.y + PICTURE_H, TILE_TITLE_H, 13.0), 13.0, FG, (tile.w - 12) as f32);
+        // The close button, at the picture's top right corner.
+        let close = Rect { x: tile.x + tile.w - 26, y: tile.y + 2, w: 24, h: 24 };
+        let hot = menu.selected == Some(2 * i + 1);
+        canvas.circle(f64::from(close.x) + 12.0, f64::from(close.y) + 12.0, 10.0, if hot { 0xFFE01B24 } else { 0xE0303036 });
+        canvas.line((f64::from(close.x) + 8.0, f64::from(close.y) + 8.0), (f64::from(close.x) + 16.0, f64::from(close.y) + 16.0), 1.8, FG);
+        canvas.line((f64::from(close.x) + 16.0, f64::from(close.y) + 8.0), (f64::from(close.x) + 8.0, f64::from(close.y) + 16.0), 1.8, FG);
+        // The close button first: it lies on the tile.
+        menu.hits.push((close, 2 * i + 1));
+        menu.hits.push((tile, 2 * i));
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

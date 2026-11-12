@@ -151,6 +151,9 @@ struct Ui {
 
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
+    /// Unclamped pointer motion (pressure at the dock's edge).
+    relative_state: smithay_client_toolkit::seat::relative_pointer::RelativePointerState,
+    relative_pointer: Option<smithay_client_toolkit::reexports::protocols::wp::relative_pointer::zv1::client::zwp_relative_pointer_v1::ZwpRelativePointerV1>,
     touch: Option<wl_touch::WlTouch>,
     /// The touch point taken as a click: id, surface, last position.
     touch_point: Option<(i32, wl_surface::WlSurface, (f64, f64))>,
@@ -2284,6 +2287,8 @@ pub fn run(
         shown_minute: None,
         keyboard: None,
         pointer: None,
+        relative_state: smithay_client_toolkit::seat::relative_pointer::RelativePointerState::bind(&globals, &qh),
+        relative_pointer: None,
         touch: None,
         touch_point: None,
         requests,
@@ -2553,7 +2558,10 @@ impl SeatHandler for Ui {
         }
         if capability == Capability::Pointer && self.pointer.is_none() {
             match self.seat_state.get_pointer(qh, &seat) {
-                Ok(p) => self.pointer = Some(p),
+                Ok(p) => {
+                    self.relative_pointer = self.relative_state.get_relative_pointer(&p, qh).ok();
+                    self.pointer = Some(p);
+                }
                 Err(err) => tracing::warn!(%err, "no pointer"),
             }
         }
@@ -2772,6 +2780,19 @@ impl Ui {
                 }
             }
         }
+    }
+}
+
+impl smithay_client_toolkit::seat::relative_pointer::RelativePointerHandler for Ui {
+    fn relative_pointer_motion(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &smithay_client_toolkit::reexports::protocols::wp::relative_pointer::zv1::client::zwp_relative_pointer_v1::ZwpRelativePointerV1,
+        _: &wl_pointer::WlPointer,
+        event: smithay_client_toolkit::seat::relative_pointer::RelativeMotionEvent,
+    ) {
+        self.dock_relative_motion(event.delta_unaccel, event.utime);
     }
 }
 

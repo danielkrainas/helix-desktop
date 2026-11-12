@@ -61,6 +61,13 @@ pub(super) struct Shots {
     requested: HashSet<u32>,
 }
 
+impl Shots {
+    /// The latest picture of window `id`, if any.
+    pub(super) fn picture(&self, id: u32) -> Option<&Image> {
+        self.pictures.get(&id)
+    }
+}
+
 /// How often pictures are renewed while the overview is open.
 const LIVE: std::time::Duration = std::time::Duration::from_millis(500);
 
@@ -221,7 +228,7 @@ impl Ui {
     }
 
     /// Ask for pictures of `ids` (those not already on their way).
-    fn capture_shots(&mut self, ids: &[u32]) {
+    pub(super) fn capture_shots(&mut self, ids: &[u32]) {
         let Some(manager) = self.screenshots.clone().filter(|m| m.version() >= 5) else { return };
         for &id in ids {
             if !self.overview_shots.requested.insert(id) {
@@ -569,12 +576,15 @@ impl Dispatch<HelixScreenshotFrameV1, ShotData> for Ui {
             _ => return,
         };
         frame.destroy();
+        ui.overview_shots.requested.remove(&data.window);
+        if let Some(image) = image {
+            ui.overview_shots.pictures.insert(data.window, image);
+        }
         if ui.overview.is_some() {
-            ui.overview_shots.requested.remove(&data.window);
-            if let Some(image) = image {
-                ui.overview_shots.pictures.insert(data.window, image);
-            }
             ui.draw_overview();
+        }
+        if ui.window_menu.as_ref().is_some_and(|m| m.previews.contains(&data.window)) {
+            ui.draw_window_menu();
         }
     }
 }

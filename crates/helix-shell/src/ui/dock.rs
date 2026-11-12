@@ -44,6 +44,10 @@ pub(super) enum DockTarget {
     EmptyTrash,
     /// An entry of the app's quicklist.
     Quick(crate::launcher_entry::Quicklist, i32),
+    /// Close a window (its preview's close button).
+    CloseWindow(u32),
+    /// Show the app's window previews.
+    Previews(String),
 }
 
 /// One monitor's dock.
@@ -88,6 +92,9 @@ pub(super) struct DockState {
     pub menu_targets: Vec<DockTarget>,
     /// Apps' launcher entries, by lower-case app id.
     pub entries: std::collections::HashMap<String, crate::launcher_entry::Entry>,
+    /// The view whose edge strip the pointer is on, and how hard it pushes.
+    pub at_edge: Option<usize>,
+    pub pressure: logic::Pressure,
 }
 
 thread_local! {
@@ -676,14 +683,42 @@ impl Ui {
         }
     }
 
+    /// Pointer motion, unclamped (`zwp_relative_pointer_v1`): pushing
+    /// against the edge strip of a hidden dock shows it.
+    pub(super) fn dock_relative_motion(&mut self, delta: (f64, f64), utime: u64) {
+        let Some(i) = self.dock.at_edge.filter(|_| self.dock.settings.require_pressure) else { return };
+        if i >= self.dock.views.len() || self.dock.views[i].revealed {
+            return;
+        }
+        let (edge, threshold) = (self.dock.settings.edge, self.dock.settings.pressure_threshold);
+        if self.dock.pressure.push(edge, delta, utime / 1000, threshold) {
+            self.dock.pressure.reset();
+            self.dock.cur = i;
+            tracing::debug!("dock shown by pressure");
+            self.dock_set_timer(0.0, true);
+        }
+    }
+
     /// Pointer input on the dock or its edge strip; true if it was for them.
     pub(super) fn dock_pointer(&mut self, event: &PointerEvent) -> bool {
         let Some(i) = self.dock.views.iter().position(|v| v.layer.as_ref().is_some_and(|l| l.wl_surface() == &event.surface) || v.trigger.as_ref().is_some_and(|t| t.wl_surface() == &event.surface)) else { return false };
         self.dock.cur = i;
         if self.dock.views[self.dock.cur].trigger.as_ref().is_some_and(|t| t.wl_surface() == &event.surface) {
             match event.kind {
-                PointerEventKind::Enter { .. } => self.dock_set_timer(self.dock.settings.show_delay, true),
-                PointerEventKind::Leave { .. } if !self.dock.views[self.dock.cur].revealed => self.dock_cancel_timer(),
+                PointerEventKind::Enter { .. } => {
+                    self.dock.at_edge = Some(i);
+                    self.dock.pressure.reset();
+                    // With pressure, only pushing against the edge shows it.
+                    if !self.dock.settings.require_pressure {
+                        self.dock_set_timer(self.dock.settings.show_delay, true);
+                    }
+                }
+                PointerEventKind::Leave { .. } => {
+                    self.dock.at_edge = None;
+                    if !self.dock.views[self.dock.cur].revealed {
+                        self.dock_cancel_timer();
+                    }
+                }
                 _ => {}
             }
             return true;
@@ -821,7 +856,11 @@ impl Ui {
             Outcome::Overview => self.open_overview(true),
             Outcome::ChooseWindow => {
                 let (x, y) = self.dock_item_point(id);
-                self.dock_window_menu(id, x, y);
+                if self.dock.settings.previews {
+                    self.dock_previews(id, x, y);
+                } else {
+                    self.dock_window_menu(id, x, y);
+                }
             }
         }
     }
@@ -870,6 +909,35 @@ impl Ui {
         self.open_dock_menu(x, y, items);
     }
 
+    /// The app's windows as previews, beside its dock icon at (x, y).
+    fn dock_previews(&mut self, id: &str, x: i32, y: i32) {
+        let windows = self.app_windows(id);
+        if windows.is_empty() {
+            return;
+        }
+        self.dock.menu_targets.clear();
+        let mut items = Vec::new();
+        for w in &windows {
+            let title = self.windows.mru().iter().find(|e| e.id == *w).map_or_else(String::new, |e| e.label().to_owned());
+            items.push(self.dock_menu_item(title, DockTarget::Window(*w)));
+            items.push(self.dock_menu_item("Close".into(), DockTarget::CloseWindow(*w)));
+        }
+        let (pw, ph) = window_menu::previews_size(windows.len());
+        let (bx, by, bw, bh) = self.dock_layout_rect();
+        let (mx, my) = match self.dock.settings.edge {
+            Edge::Bottom => (x - pw / 2, by - ph - 8),
+            Edge::Top => (x - pw / 2, by + bh + 8),
+            Edge::Left => (bx + bw + 8, y - 16),
+            Edge::Right => (bx - pw - 8, y - 16),
+        };
+        self.open_menu(0, mx, my, items, Vec::new());
+        if let Some(menu) = self.window_menu.as_mut() {
+            menu.previews = windows.clone();
+        }
+        // Fresh pictures (the old ones show until they come).
+        self.capture_shots(&windows);
+    }
+
     fn dock_menu_item(&mut self, label: String, target: DockTarget) -> Option<window_menu::Item> {
         self.dock.menu_targets.push(target);
         Some(window_menu::Item { label, choice: window_menu::Choice::Dock(self.dock.menu_targets.len() - 1), checked: None, active: false })
@@ -901,9 +969,13 @@ impl Ui {
         match item {
             Item::App { id, favorite } => {
                 let windows = self.app_windows(&id);
-                for w in &windows {
-                    let title = self.windows.mru().iter().find(|e| e.id == *w).map_or_else(String::new, |e| e.label().to_owned());
-                    items.push(self.dock_menu_item(title, DockTarget::Window(*w)));
+                if self.dock.settings.previews && !windows.is_empty() {
+                    items.push(self.dock_menu_item("All Windows".into(), DockTarget::Previews(id.clone())));
+                } else {
+                    for w in &windows {
+                        let title = self.windows.mru().iter().find(|e| e.id == *w).map_or_else(String::new, |e| e.label().to_owned());
+                        items.push(self.dock_menu_item(title, DockTarget::Window(*w)));
+                    }
                 }
                 if !windows.is_empty() {
                     items.push(None);
@@ -992,6 +1064,11 @@ impl Ui {
             }
             DockTarget::Quick(list, id) => {
                 let _ = self.requests.send(UiRequest::QuickItem(list, id));
+            }
+            DockTarget::CloseWindow(w) => self.app_windows_action(&[w], WindowAction::Close),
+            DockTarget::Previews(id) => {
+                let (x, y) = self.dock_item_point(&id);
+                self.dock_previews(&id, x, y);
             }
         }
     }

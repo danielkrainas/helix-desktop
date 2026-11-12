@@ -131,6 +131,11 @@ pub struct DockSettings {
     pub hide_delay: f64,
     pub always_center: bool,
     pub counters: bool,
+    /// `show-windows-preview`: window previews instead of window lists.
+    pub previews: bool,
+    /// `require-pressure-to-show` and `pressure-threshold` (pixels).
+    pub require_pressure: bool,
+    pub pressure_threshold: f64,
 }
 
 impl Default for DockSettings {
@@ -167,6 +172,9 @@ impl Default for DockSettings {
             hide_delay: 0.2,
             always_center: false,
             counters: true,
+            previews: true,
+            require_pressure: true,
+            pressure_threshold: 100.0,
         }
     }
 }
@@ -245,6 +253,9 @@ pub fn read() -> DockSettings {
         hide_delay: num("hide-delay", d.hide_delay).clamp(0.0, 5.0),
         always_center: b("always-center-icons", d.always_center),
         counters: b("show-icons-notifications-counter", d.counters),
+        previews: b("show-windows-preview", d.previews),
+        require_pressure: b("require-pressure-to-show", d.require_pressure),
+        pressure_threshold: num("pressure-threshold", d.pressure_threshold).clamp(0.0, 10000.0),
     }
 }
 
@@ -495,8 +506,58 @@ pub fn launch_action(desktop_id: &str, action: &str) -> Result<(), String> {
     info.launch(&[], None::<&gio::AppLaunchContext>).map_err(|e| e.to_string())
 }
 
+/// Pushes against the screen edge longer apart than this start over.
+pub const PRESSURE_TIMEOUT_MS: u64 = 1000;
+
+/// Pushing against the screen edge to show a hidden dock
+/// (`require-pressure-to-show`).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Pressure {
+    sum: f64,
+    last_ms: u64,
+}
+
+impl Pressure {
+    /// Pointer motion `delta` at `time_ms` while at `edge`: whether the
+    /// pushes towards the edge now add up to `threshold` pixels.
+    pub fn push(&mut self, edge: Edge, delta: (f64, f64), time_ms: u64, threshold: f64) -> bool {
+        let outwards = match edge {
+            Edge::Bottom => delta.1,
+            Edge::Top => -delta.1,
+            Edge::Left => -delta.0,
+            Edge::Right => delta.0,
+        };
+        if time_ms.saturating_sub(self.last_ms) > PRESSURE_TIMEOUT_MS {
+            self.sum = 0.0;
+        }
+        if outwards > 0.0 {
+            self.sum += outwards;
+            self.last_ms = time_ms;
+        }
+        self.sum >= threshold
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pressure() {
+        use super::{Edge, Pressure};
+        let mut p = Pressure::default();
+        assert!(!p.push(Edge::Bottom, (0.0, 60.0), 1000, 100.0));
+        assert!(!p.push(Edge::Bottom, (50.0, -30.0), 1100, 100.0), "moving away or along adds nothing");
+        assert!(p.push(Edge::Bottom, (0.0, 40.0), 1200, 100.0), "60 + 40");
+        p.reset();
+        assert!(!p.push(Edge::Left, (-70.0, 0.0), 5000, 100.0));
+        assert!(!p.push(Edge::Left, (-70.0, 0.0), 6500, 100.0), "too long apart: starts over");
+        assert!(p.push(Edge::Left, (-40.0, 0.0), 6700, 100.0));
+        assert!(Pressure::default().push(Edge::Top, (0.0, -1.0), 0, 0.0), "no threshold");
+    }
+
     use super::*;
 
     fn s(v: &[&str]) -> Vec<String> {
