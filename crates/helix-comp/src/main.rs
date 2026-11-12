@@ -200,7 +200,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Xwayland comes up first; then DISPLAY and WAYLAND_DISPLAY are
     // announced (in that order) and the shell and --command start.
     let (xdisplay_tx, xdisplay_rx) = tokio::sync::oneshot::channel();
-    start_dbus_thread(socket, monitors, events_rx, xdisplay_rx, apply_tx, gamma_tx, cast_tx);
+    // Where the magnifier's focus and caret are, from the D-Bus thread.
+    let (track_tx, track_rx) = smithay::reexports::calloop::channel::channel::<helix_comp::focus_tracking::TrackPoint>();
+    event_loop
+        .handle()
+        .insert_source(track_rx, |event, _, state| {
+            if let smithay::reexports::calloop::channel::Event::Msg(point) = event {
+                state.track_point(point);
+            }
+        })
+        .map_err(|e| format!("cannot follow focus for the magnifier: {e}"))?;
+    start_dbus_thread(socket, monitors, events_rx, xdisplay_rx, apply_tx, gamma_tx, cast_tx, track_tx);
 
     stop_on_signals(state.loop_signal.clone());
 
@@ -281,6 +291,7 @@ fn parse_args() -> Result<Args, String> {
 
 /// D-Bus services live on their own thread with a tokio runtime. Failure to
 /// reach the bus is not fatal: the compositor still works without them.
+#[allow(clippy::too_many_arguments)]
 fn start_dbus_thread(
     socket: String,
     monitors: Vec<Monitor>,
@@ -289,6 +300,7 @@ fn start_dbus_thread(
     to_compositor: smithay::reexports::calloop::channel::Sender<ApplyRequest>,
     gamma_to_compositor: smithay::reexports::calloop::channel::Sender<ColorRequest>,
     cast_to_compositor: smithay::reexports::calloop::channel::Sender<CastRequest>,
+    track_to_compositor: smithay::reexports::calloop::channel::Sender<helix_comp::focus_tracking::TrackPoint>,
 ) {
     std::thread::Builder::new()
         .name("helix-comp-dbus".into())
@@ -356,7 +368,26 @@ fn start_dbus_thread(
                     .and_then(Result::ok)
                     .flatten();
                 announce_socket(services.connection(), &socket, xdisplay).await;
-                services.run(events).await;
+                // Focus tracking is switched here; other events go on.
+                let (want_tx, want_rx) = tokio::sync::watch::channel(false);
+                let (forward, forwarded) = mpsc::unbounded_channel();
+                let mut events = events;
+                tokio::spawn(async move {
+                    while let Some(event) = events.recv().await {
+                        match event {
+                            Event::FocusTracking(on) => {
+                                let _ = want_tx.send(on);
+                            }
+                            other => {
+                                if forward.send(other).is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                });
+                tokio::spawn(helix_comp::focus_tracking::run(services.connection().clone(), want_rx, track_to_compositor));
+                services.run(forwarded).await;
             });
         })
         .expect("spawn D-Bus thread");

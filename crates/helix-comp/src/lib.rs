@@ -16,6 +16,7 @@ pub mod backlight;
 pub mod display_config;
 pub mod edid;
 pub mod tablet;
+pub mod focus_tracking;
 pub mod frames;
 pub mod idle;
 pub mod idle_monitor;
@@ -62,6 +63,9 @@ pub enum Event {
     RemoteSelectionTransfer { session: u32, mime_type: String, serial: u32 },
     /// The keymap or its active layout changed (`CurrentKeymap`).
     KeymapChanged,
+    /// Whether the magnifier follows keyboard focus or the text caret
+    /// (handled where the D-Bus thread starts, see `focus_tracking`).
+    FocusTracking(bool),
 }
 
 /// The running D-Bus services of the compositor.
@@ -225,6 +229,7 @@ impl CompositorServices {
                 }
                 Ok(())
             }
+            Event::FocusTracking(_) => Ok(()),
             Event::IdleInhibited(inhibited) => {
                 self.idle.set_inhibited(inhibited);
                 Ok(())
