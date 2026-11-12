@@ -250,15 +250,11 @@ async fn connect_wifi(conn: &Connection, ssid: &str) -> zbus::Result<()> {
         tracing::info!(ssid, "activating the saved Wi-Fi connection");
         return conn.call_method(Some(NM), NM_PATH, Some(NM), "ActivateConnection", &(saved, device, ap)).await.map(drop);
     }
-    if !network.secured {
-        tracing::info!(ssid, "joining an open Wi-Fi network");
-        let empty: HashMap<&str, HashMap<&str, Value<'_>>> = HashMap::new();
-        return conn.call_method(Some(NM), NM_PATH, Some(NM), "AddAndActivateConnection", &(empty, device, ap)).await.map(drop);
-    }
-    tracing::info!(ssid, "a new secured network: opening the Wi-Fi settings");
-    if let Err(err) = std::process::Command::new("gnome-control-center").arg("wifi").spawn() {
-        tracing::warn!(%err, "cannot open the Wi-Fi settings");
-    }
+    // Open networks join directly; for secured ones NetworkManager asks
+    // the shell's secret agent for the password.
+    tracing::info!(ssid, secured = network.secured, "joining a Wi-Fi network");
+    let empty: HashMap<&str, HashMap<&str, Value<'_>>> = HashMap::new();
+    conn.call_method(Some(NM), NM_PATH, Some(NM), "AddAndActivateConnection", &(empty, device, ap)).await.map(drop)?;
     Ok(())
 }
 

@@ -26,6 +26,7 @@ pub mod calendar;
 pub mod ical;
 pub mod icons;
 pub mod markup;
+pub mod network_agent;
 pub mod media;
 pub mod notifications;
 pub mod polkit;

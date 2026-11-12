@@ -105,6 +105,20 @@ fn main() -> ExitCode {
     helix_shell::media::run(service.notifications(), service.ui_sender(), runtime.handle().clone());
     // The desktop and lock screen backgrounds.
     runtime.spawn(helix_shell::wallpaper::follow(service.ui_sender()));
+    // NetworkManager's secret agent (Wi-Fi passwords).
+    if std::env::var_os("HELIX_NO_NETWORK_AGENT").is_none() {
+        let ui = service.ui_sender();
+        runtime.spawn(async move {
+            match zbus::Connection::system().await {
+                Ok(system) => {
+                    if let Err(err) = helix_shell::network_agent::run(system, ui).await {
+                        tracing::info!(%err, "no NetworkManager secret agent");
+                    }
+                }
+                Err(err) => tracing::info!(%err, "no system bus; no NetworkManager secret agent"),
+            }
+        });
+    }
     // GeoClue's location agent.
     if std::env::var_os("HELIX_NO_GEOCLUE_AGENT").is_none() {
         let (ui, session) = (service.ui_sender(), service.connection().clone());
