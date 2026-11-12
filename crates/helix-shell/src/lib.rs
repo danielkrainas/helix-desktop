@@ -292,6 +292,8 @@ pub enum UiRequest {
     Search { serial: u64, query: String },
     /// A search provider's result was chosen.
     SearchActivate { provider: usize, id: String, query: String },
+    /// Open the provider's app with the search.
+    SearchLaunch { provider: usize, query: String },
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -814,6 +816,11 @@ impl UiBridge {
             }
             UiRequest::Search { serial, query } => {
                 self.search.search(&self.conn, &self.ui, serial, &query).await;
+                Ok(())
+            }
+            UiRequest::SearchLaunch { provider, query } => {
+                let (search, conn) = (self.search.clone(), self.conn.clone());
+                tokio::spawn(async move { search.launch(&conn, provider, &query).await });
                 Ok(())
             }
             UiRequest::SearchActivate { provider, id, query } => {

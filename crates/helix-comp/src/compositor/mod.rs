@@ -247,7 +247,7 @@ impl Helix {
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
         dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(8, ());
         helix_comp::tablet_v2::TabletV2::global::<Self>(&dh);
-        dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(5, ());
+        dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(6, ());
         let socket_name = Self::listen(display, event_loop)?;
         let mut helix = Self {
             start_time: Instant::now(),
@@ -596,6 +596,8 @@ pub enum ServerSelection {
     X11,
     /// An image the compositor serves itself (screenshots), as PNG.
     Image(Arc<Vec<u8>>),
+    /// Text the compositor serves itself (the shell's copies).
+    Text(Arc<Vec<u8>>),
     /// A remote desktop session's clipboard content.
     Remote { session: u32 },
 }

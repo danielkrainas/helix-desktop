@@ -100,10 +100,13 @@ pub enum Hit {
     Search(usize),
     /// Index into the app folders.
     Folder(usize),
+    /// "Search in <app>" after a provider's results: index of one of its
+    /// results.
+    More(usize),
 }
 
 /// A search provider's result.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SearchHit {
     /// The provider's place in the provider order.
     pub provider: usize,
@@ -112,6 +115,23 @@ pub struct SearchHit {
     pub id: String,
     pub name: String,
     pub description: String,
+    /// Its icon (`icon` or `icon-data`).
+    pub icon: Option<crate::icons::IconSource>,
+    /// Text to put on the clipboard when it is chosen (`clipboardText`).
+    pub clipboard: Option<String>,
+}
+
+/// The search results' rows: each provider's results, then a "Search in"
+/// row for it (pointing at the provider's last result).
+pub fn search_rows(external: &[SearchHit]) -> Vec<Hit> {
+    let mut rows = Vec::new();
+    for (i, hit) in external.iter().enumerate() {
+        rows.push(Hit::Search(i));
+        if external.get(i + 1).is_none_or(|next| next.provider != hit.provider) {
+            rows.push(Hit::More(i));
+        }
+    }
+    rows
 }
 
 /// Launcher state while it is open.
@@ -235,14 +255,14 @@ impl Launcher {
             .filter(|(_, w)| q.is_empty() || w.title.to_lowercase().contains(&q) || w.app_id.to_lowercase().contains(&q))
             .map(|(i, _)| Hit::Window(i))
             .chain(search(&self.apps, &self.query).into_iter().map(Hit::App))
-            .chain((0..if q.is_empty() { 0 } else { self.external.len() }).map(Hit::Search))
+            .chain(if q.is_empty() { Vec::new() } else { search_rows(&self.external) })
             .collect();
     }
 
     /// The search result a row shows.
     pub fn search_hit(&self, hit: Hit) -> Option<&SearchHit> {
         match hit {
-            Hit::Search(i) => self.external.get(i),
+            Hit::Search(i) | Hit::More(i) => self.external.get(i),
             _ => None,
         }
     }
@@ -257,6 +277,7 @@ impl Launcher {
             Hit::Window(i) => (self.windows[i].label(), true),
             Hit::App(i) => (&self.apps[i].name, false),
             Hit::Search(i) => (&self.external[i].name, false),
+            Hit::More(i) => (&self.external[i].app, false),
             Hit::Folder(i) => (&self.folders[i].name, false),
         }
     }
@@ -287,7 +308,7 @@ impl Launcher {
     pub fn selected_app(&self) -> Option<&App> {
         match self.selected()? {
             Hit::App(i) => Some(&self.apps[i]),
-            Hit::Window(_) | Hit::Search(_) | Hit::Folder(_) => None,
+            Hit::Window(_) | Hit::Search(_) | Hit::Folder(_) | Hit::More(_) => None,
         }
     }
 }

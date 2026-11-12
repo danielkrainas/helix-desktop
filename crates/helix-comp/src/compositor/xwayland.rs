@@ -353,6 +353,10 @@ impl XwmHandler for Helix {
                     super::capture::serve_image(png.clone(), &mime_type, fd);
                     return;
                 }
+                Some(super::ServerSelection::Text(text)) => {
+                    super::capture::serve_text(text.clone(), &mime_type, fd);
+                    return;
+                }
                 Some(super::ServerSelection::Remote { session }) => {
                     let session = *session;
                     self.start_transfer(session, mime_type, fd);

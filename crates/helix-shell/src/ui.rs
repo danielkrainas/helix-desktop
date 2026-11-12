@@ -122,6 +122,8 @@ struct LauncherView {
     content: Rect,
     /// Visible rows and the result index each shows.
     rows: Vec<(Rect, usize)>,
+    /// Search results' icons, decoded once (by provider and id).
+    icons: HashMap<(usize, String), Option<helix_draw::Image>>,
 }
 
 struct Ui {
@@ -680,6 +682,7 @@ impl Ui {
             configured: false,
             content: Rect { x: 0, y: 0, w: 0, h: 0 },
             rows: Vec::new(),
+            icons: HashMap::new(),
         });
         if notify {
             let _ = self.requests.send(UiRequest::Overview(true));
@@ -713,6 +716,19 @@ impl Ui {
         let _ = self.requests.send(UiRequest::Search { serial: self.search_serial, query });
     }
 
+    /// Put `text` on the clipboard (through the compositor).
+    fn copy_text(&mut self, text: &str) {
+        let Some(manager) = self.screenshots.as_ref().filter(|m| m.version() >= 6) else {
+            tracing::info!("compositor cannot take the clipboard; text not copied");
+            return;
+        };
+        let Some(mut file) = crate::screenshot::memfd() else { return };
+        use std::io::{Seek, Write};
+        if file.write_all(text.as_bytes()).is_ok() && file.seek(std::io::SeekFrom::Start(0)).is_ok() {
+            manager.copy_text(std::os::fd::AsFd::as_fd(&file));
+        }
+    }
+
     fn launch_selected(&mut self) {
         let Some(view) = &self.launcher else { return };
         match view.model.selected() {
@@ -726,7 +742,17 @@ impl Ui {
             Some(launcher::Hit::Search(i)) => {
                 let hit = &view.model.external[i];
                 tracing::info!(app = hit.app, id = hit.id, "opening search result");
+                if let Some(text) = hit.clipboard.clone() {
+                    self.copy_text(&text);
+                }
+                let view = self.launcher.as_ref().expect("checked above");
+                let hit = &view.model.external[i];
                 let _ = self.requests.send(UiRequest::SearchActivate { provider: hit.provider, id: hit.id.clone(), query: view.model.query.clone() });
+            }
+            Some(launcher::Hit::More(i)) => {
+                let hit = &view.model.external[i];
+                tracing::info!(app = hit.app, "opening the search in its app");
+                let _ = self.requests.send(UiRequest::SearchLaunch { provider: hit.provider, query: view.model.query.clone() });
             }
             Some(launcher::Hit::App(i)) => {
                 let app = &view.model.apps[i];
@@ -1142,8 +1168,26 @@ impl Ui {
                 canvas.rect(rect.x, rect.y, rect.w, rect.h, ACCENT);
             }
             let (name, _) = view.model.row_label(view.model.results[result]);
+            let more = matches!(view.model.results[result], launcher::Hit::More(_));
+            let more_label;
+            let name = if more {
+                more_label = format!("Search for “{}” in {name}", view.model.query.trim());
+                more_label.as_str()
+            } else {
+                name
+            };
             let base = baseline(self.text.as_ref(), rect.y, rect.h, 15.0);
-            let found = view.model.search_hit(view.model.results[result]);
+            let found = view.model.search_hit(view.model.results[result]).filter(|_| !more);
+            // A search result's icon at the row's start.
+            let mut text_x = rect.x + 12;
+            if let Some(hit) = found {
+                let key = (hit.provider, hit.id.clone());
+                let icon = view.icons.entry(key).or_insert_with(|| hit.icon.as_ref().and_then(|s| crate::icons::load(s, 40))).clone();
+                if let Some(icon) = icon {
+                    canvas.image(f64::from(text_x), f64::from(rect.y + (rect.h - 20) / 2), 20.0, 20.0, &icon);
+                    text_x += 28;
+                }
+            }
             let tag_text = match view.model.results[result] {
                 launcher::Hit::Window(_) => Some("Open window"),
                 launcher::Hit::Folder(_) => Some("Folder"),
@@ -1151,14 +1195,15 @@ impl Ui {
                 _ => found.map(|h| h.app.as_str()),
             };
             let tag_w = tag_text.map_or(0.0, |t| self.text.as_ref().map_or(96.0, |f| f.width(t, 13.0)).min(160.0) + 8.0);
-            let name_max = rect.w as f32 - 24.0 - tag_w;
-            label(self.text.as_ref(), &mut canvas, name, (rect.x + 12) as f32, base, 15.0, FG, name_max);
+            let name_max = rect.w as f32 - 24.0 - tag_w - (text_x - rect.x - 12) as f32;
+            let name_color = if more && result != view.model.selected { DIM_FG } else { FG };
+            label(self.text.as_ref(), &mut canvas, name, text_x as f32, base, 15.0, name_color, name_max);
             // A search result's description after its name, dimmer.
             if let Some(hit) = found.filter(|h| !h.description.is_empty()) {
                 let nw = self.text.as_ref().map_or(0.0, |t| t.width(name, 15.0)) + 12.0;
                 if nw < name_max - 40.0 {
                     let color = if result == view.model.selected { FG } else { DIM_FG };
-                    label(self.text.as_ref(), &mut canvas, &hit.description, rect.x as f32 + 12.0 + nw, base, 13.0, color, name_max - nw);
+                    label(self.text.as_ref(), &mut canvas, &hit.description, text_x as f32 + nw, base, 13.0, color, name_max - nw);
                 }
             }
             if let Some(tag) = tag_text {
@@ -2315,7 +2360,7 @@ pub fn run(
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
     let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=8, ()).ok();
-    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=5, ()).ok();
+    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=6, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
         .ok();

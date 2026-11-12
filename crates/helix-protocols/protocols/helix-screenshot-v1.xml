@@ -11,7 +11,7 @@
     The global is only advertised to privileged clients (the shell the
     compositor launched itself).
   </description>
-  <interface name="helix_screenshot_manager_v1" version="5">
+  <interface name="helix_screenshot_manager_v1" version="6">
     <description summary="takes captures">
       Each request captures the scene as it is when the compositor handles
       the request, so surfaces the shell destroyed before sending it are
@@ -91,6 +91,16 @@
         The compositor reads a PNG image from the file descriptor (from its
         current offset to the end), takes the clipboard selection and
         offers the image as image/png to Wayland and X11 clients until
+        something else takes the selection.
+      </description>
+      <arg name="fd" type="fd"/>
+    </request>
+    <request name="copy_text" since="6">
+      <description summary="put text on the clipboard">
+        The compositor reads UTF-8 text from the file descriptor (from its
+        current offset to the end), takes the clipboard selection and
+        offers the text as text/plain;charset=utf-8, text/plain,
+        UTF8_STRING, STRING and TEXT to Wayland and X11 clients until
         something else takes the selection.
       </description>
       <arg name="fd" type="fd"/>

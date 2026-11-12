@@ -170,6 +170,10 @@ impl SelectionHandler for Helix {
             super::capture::serve_image(png.clone(), &mime_type, fd);
             return;
         }
+        if let super::ServerSelection::Text(text) = user_data {
+            super::capture::serve_text(text.clone(), &mime_type, fd);
+            return;
+        }
         if let super::ServerSelection::Remote { session } = user_data {
             self.start_transfer(*session, mime_type, fd);
             return;

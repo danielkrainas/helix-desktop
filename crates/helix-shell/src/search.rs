@@ -122,6 +122,13 @@ fn meta_str(meta: &HashMap<String, OwnedValue>, key: &str) -> String {
     meta.get(key).and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default()
 }
 
+/// A result's icon: `icon` (a serialized `GIcon`), else `icon-data`.
+pub fn result_icon(meta: &HashMap<String, OwnedValue>) -> Option<crate::icons::IconSource> {
+    meta.get("icon")
+        .and_then(|v| crate::icons::IconSource::from_gicon(v))
+        .or_else(|| meta.get("icon-data").and_then(|v| crate::icons::IconSource::from_image_data(v)))
+}
+
 /// Ask one provider: its result ids (all) and the hits to show.
 async fn ask(conn: &Connection, provider: &Provider, terms: &[String], previous: Option<&[String]>) -> zbus::Result<(Vec<String>, Vec<SearchHit>)> {
     let (dest, path) = (provider.bus_name.as_str(), provider.path.as_str());
@@ -138,7 +145,15 @@ async fn ask(conn: &Connection, provider: &Provider, terms: &[String], previous:
     let metas: Vec<HashMap<String, OwnedValue>> = reply.body().deserialize()?;
     let hits = metas
         .iter()
-        .map(|m| SearchHit { provider: 0, app: provider.app.clone(), id: meta_str(m, "id"), name: meta_str(m, "name"), description: meta_str(m, "description") })
+        .map(|m| SearchHit {
+            provider: 0,
+            app: provider.app.clone(),
+            id: meta_str(m, "id"),
+            name: meta_str(m, "name"),
+            description: meta_str(m, "description"),
+            icon: result_icon(m),
+            clipboard: Some(meta_str(m, "clipboardText")).filter(|t| !t.is_empty()),
+        })
         .filter(|h| !h.id.is_empty())
         .collect();
     Ok((ids, hits))
@@ -188,6 +203,14 @@ impl Searcher {
         }
     }
 
+    /// Open the provider's app with the search (`LaunchSearch`).
+    pub async fn launch(&self, conn: &Connection, provider: usize, query: &str) {
+        let Some(p) = self.providers.lock().unwrap_or_else(|e| e.into_inner()).get(provider).cloned() else { return };
+        if let Err(err) = conn.call_method(Some(p.bus_name.as_str()), p.path.as_str(), Some(IFACE), "LaunchSearch", &(terms(query), 0u32)).await {
+            tracing::warn!(%err, provider = p.desktop_id, "cannot open the search in its app");
+        }
+    }
+
     /// The user chose a result.
     pub async fn activate(&self, conn: &Connection, provider: usize, id: &str, query: &str) {
         let Some(p) = self.providers.lock().unwrap_or_else(|e| e.into_inner()).get(provider).cloned() else { return };
@@ -201,6 +224,21 @@ impl Searcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metas() {
+        use zbus::zvariant::Value;
+        let o = |v: Value<'_>| OwnedValue::try_from(v).unwrap();
+        let themed = o(Value::from(("themed", Value::from(vec!["accessories-calculator"]))));
+        let m = HashMap::from([("id".to_owned(), o(Value::from("r1"))), ("icon".to_owned(), themed), ("clipboardText".to_owned(), o(Value::from("42")))]);
+        assert_eq!(result_icon(&m), Some(crate::icons::IconSource::Names(vec!["accessories-calculator".into()])));
+        assert_eq!(meta_str(&m, "clipboardText"), "42");
+        assert_eq!(result_icon(&HashMap::new()), None);
+        let hit = |p: usize| crate::launcher::SearchHit { provider: p, app: String::new(), id: String::new(), name: String::new(), description: String::new(), icon: None, clipboard: None };
+        use crate::launcher::Hit;
+        assert_eq!(crate::launcher::search_rows(&[hit(0), hit(0), hit(2)]), [Hit::Search(0), Hit::Search(1), Hit::More(1), Hit::Search(2), Hit::More(2)]);
+        assert!(crate::launcher::search_rows(&[]).is_empty());
+    }
 
     fn provider(id: &str, app: &str, default_disabled: bool) -> Provider {
         Provider { desktop_id: id.into(), app: app.into(), bus_name: "b".into(), path: "/p".into(), default_disabled }

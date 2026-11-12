@@ -131,6 +131,22 @@ pub fn serve_image(png: std::sync::Arc<Vec<u8>>, mime_type: &str, fd: OwnedFd) {
     });
 }
 
+/// The types text copied by the compositor is offered as.
+pub const TEXT_MIMES: [&str; 5] = ["text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING", "TEXT"];
+
+/// Write `text` into `fd` when asked for one of [`TEXT_MIMES`].
+pub fn serve_text(text: std::sync::Arc<Vec<u8>>, mime_type: &str, fd: OwnedFd) {
+    if !TEXT_MIMES.contains(&mime_type) {
+        return;
+    }
+    std::thread::spawn(move || {
+        use std::io::Write;
+        if let Err(err) = std::fs::File::from(fd).write_all(&text) {
+            tracing::debug!(%err, "clipboard text not delivered");
+        }
+    });
+}
+
 /// Encode as PNG.
 pub fn encode_png(image: &Image, out: impl std::io::Write) -> Result<(), png::EncodingError> {
     let mut encoder = png::Encoder::new(out, image.width, image.height);
@@ -235,6 +251,29 @@ impl Helix {
         }
         self.clipboard_changed(mime, None);
         tracing::info!("image copied to the clipboard");
+    }
+
+    /// Take the clipboard with the UTF-8 text read from `fd`.
+    fn copy_text(&mut self, fd: OwnedFd) {
+        use std::io::Read;
+        let mut text = Vec::new();
+        if let Err(err) = std::fs::File::from(fd).read_to_end(&mut text) {
+            tracing::warn!(%err, "cannot read the text to copy");
+            return;
+        }
+        if std::str::from_utf8(&text).is_err() {
+            tracing::warn!("not copying: not UTF-8 text");
+            return;
+        }
+        let mime: Vec<String> = TEXT_MIMES.iter().map(|m| (*m).to_owned()).collect();
+        smithay::wayland::selection::data_device::set_data_device_selection(&self.display_handle, &self.seat, mime.clone(), super::ServerSelection::Text(std::sync::Arc::new(text)));
+        if let Some(xwm) = self.xwm.as_mut() {
+            if let Err(err) = xwm.new_selection(smithay::wayland::selection::SelectionTarget::Clipboard, Some(mime.clone())) {
+                tracing::warn!(?err, "cannot offer the text to X11");
+            }
+        }
+        self.clipboard_changed(mime, None);
+        tracing::info!("text copied to the clipboard");
     }
 
     fn queue_capture(&mut self, pending: Pending) {
@@ -519,6 +558,10 @@ impl Dispatch<HelixScreenshotManagerV1, ()> for Helix {
             Request::CaptureWindowId { id, window, fd } => (id, Target::WindowId(window), false, fd),
             Request::CopyImage { fd } => {
                 state.copy_image(fd);
+                return;
+            }
+            Request::CopyText { fd } => {
+                state.copy_text(fd);
                 return;
             }
             Request::Destroy => return,

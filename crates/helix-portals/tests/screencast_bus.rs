@@ -337,7 +337,7 @@ async fn share_several() {
     let streams = <Vec<(u32, HashMap<String, OwnedValue>)>>::try_from(results["streams"].clone()).unwrap();
     let types: Vec<u32> = streams.iter().map(|(_, p)| u32::try_from(p["source_type"].clone()).unwrap()).collect();
     assert_eq!(types, [1, 4], "the monitor, then the virtual one");
-    assert!(results.get("restore_data").is_none(), "several sources are not remembered");
+    assert!(!results.contains_key("restore_data"), "several sources are not remembered");
     let log = log.lock().unwrap().clone();
     assert!(log.iter().any(|l| l.starts_with("virtual")), "{log:?}");
     assert_eq!(log.iter().filter(|l| l.starts_with("start")).count(), 2, "{log:?}");

@@ -158,6 +158,10 @@ impl Helix {
                 super::capture::serve_image(png.clone(), &mime_type, fd);
                 Ok(())
             }
+            Some(ServerSelection::Text(text)) => {
+                super::capture::serve_text(text.clone(), &mime_type, fd);
+                Ok(())
+            }
             Some(ServerSelection::Remote { session }) => {
                 self.start_transfer(*session, mime_type, fd);
                 Ok(())
