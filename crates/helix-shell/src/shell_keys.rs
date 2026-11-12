@@ -12,6 +12,7 @@ use gio::prelude::*;
 use zbus::zvariant::OwnedValue;
 use zbus::Connection;
 
+use crate::extra_keys::{KbdKey, LaunchKey, SessionKey, TextKey, Toggle};
 use crate::screenshot::ScreenshotKey;
 use crate::Osd;
 
@@ -21,6 +22,8 @@ const SOUND: &str = "org.gnome.desktop.sound";
 
 /// Schemas read here (key tables in helix-desktop-spec).
 pub const SCHEMAS: &[&str] = &[SHELL_KEYS, MEDIA_KEYS, SOUND];
+/// Schemas whose changes rebind the shell's keys.
+pub const KEY_SCHEMAS: &[&str] = &[SHELL_KEYS, MEDIA_KEYS, "org.gnome.desktop.wm.keybindings", "org.gnome.mutter.keybindings", "org.gnome.desktop.input-sources"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Brightness {
@@ -101,7 +104,14 @@ pub enum Playback {
     Stop,
     Next,
     Previous,
+    Rewind,
+    Forward,
+    Repeat,
+    Shuffle,
 }
+
+/// How far `playback-rewind` / `-forward` seek, in microseconds.
+const SEEK_US: i64 = 10_000_000;
 
 impl Playback {
     pub fn method(self) -> &'static str {
@@ -111,7 +121,19 @@ impl Playback {
             Playback::Stop => "Stop",
             Playback::Next => "Next",
             Playback::Previous => "Previous",
+            Playback::Rewind | Playback::Forward => "Seek",
+            Playback::Repeat => "LoopStatus",
+            Playback::Shuffle => "Shuffle",
         }
+    }
+}
+
+/// The `LoopStatus` after `current`.
+pub fn next_loop_status(current: &str) -> &'static str {
+    match current {
+        "None" => "Playlist",
+        "Playlist" => "Track",
+        _ => "None",
     }
 }
 
@@ -125,12 +147,24 @@ pub enum KeyAction {
     Volume(Volume),
     Playback(Playback),
     A11y(A11yKey),
+    Launch(LaunchKey),
+    Session(SessionKey),
+    Text(TextKey),
+    Touchpad(Toggle),
+    KbdBacklight(KbdKey),
+    Battery,
+    /// A custom shortcut, by its place in `custom-keybindings`.
+    Custom(usize),
 }
 
 impl KeyAction {
-    /// Volume and brightness keys work while locked.
+    /// Which keys work while locked (helix-desktop-spec `shell-keys.md`).
     pub fn works_when_locked(self) -> bool {
-        !matches!(self, KeyAction::Screenshot(_) | KeyAction::Record)
+        match self {
+            KeyAction::Brightness(_) | KeyAction::Volume(_) | KeyAction::Playback(_) | KeyAction::A11y(_) | KeyAction::KbdBacklight(_) | KeyAction::Battery => true,
+            KeyAction::Session(key) => matches!(key, SessionKey::Suspend | SessionKey::Hibernate),
+            _ => false,
+        }
     }
 }
 
@@ -174,6 +208,57 @@ const KEYS: &[(&str, &str, &[&str], KeyAction)] = &[
     (MEDIA_KEYS, "next-static", &["XF86AudioNext", "<Ctrl>XF86AudioNext"], KeyAction::Playback(Playback::Next)),
     (MEDIA_KEYS, "previous", &[], KeyAction::Playback(Playback::Previous)),
     (MEDIA_KEYS, "previous-static", &["XF86AudioPrev", "<Ctrl>XF86AudioPrev"], KeyAction::Playback(Playback::Previous)),
+    (MEDIA_KEYS, "playback-rewind", &[], KeyAction::Playback(Playback::Rewind)),
+    (MEDIA_KEYS, "playback-rewind-static", &["XF86AudioRewind"], KeyAction::Playback(Playback::Rewind)),
+    (MEDIA_KEYS, "playback-forward", &[], KeyAction::Playback(Playback::Forward)),
+    (MEDIA_KEYS, "playback-forward-static", &["XF86AudioForward"], KeyAction::Playback(Playback::Forward)),
+    (MEDIA_KEYS, "playback-repeat", &[], KeyAction::Playback(Playback::Repeat)),
+    (MEDIA_KEYS, "playback-repeat-static", &["XF86AudioRepeat"], KeyAction::Playback(Playback::Repeat)),
+    (MEDIA_KEYS, "playback-random", &[], KeyAction::Playback(Playback::Shuffle)),
+    (MEDIA_KEYS, "playback-random-static", &["XF86AudioRandomPlay"], KeyAction::Playback(Playback::Shuffle)),
+    (MEDIA_KEYS, "www", &[], KeyAction::Launch(LaunchKey::Www)),
+    (MEDIA_KEYS, "www-static", &["XF86WWW"], KeyAction::Launch(LaunchKey::Www)),
+    (MEDIA_KEYS, "email", &[], KeyAction::Launch(LaunchKey::Email)),
+    (MEDIA_KEYS, "email-static", &["XF86Mail"], KeyAction::Launch(LaunchKey::Email)),
+    (MEDIA_KEYS, "calculator", &[], KeyAction::Launch(LaunchKey::Calculator)),
+    (MEDIA_KEYS, "calculator-static", &["XF86Calculator"], KeyAction::Launch(LaunchKey::Calculator)),
+    (MEDIA_KEYS, "control-center", &[], KeyAction::Launch(LaunchKey::Settings)),
+    (MEDIA_KEYS, "control-center-static", &["XF86Tools"], KeyAction::Launch(LaunchKey::Settings)),
+    (MEDIA_KEYS, "home", &[], KeyAction::Launch(LaunchKey::Home)),
+    (MEDIA_KEYS, "home-static", &["XF86Explorer"], KeyAction::Launch(LaunchKey::Home)),
+    (MEDIA_KEYS, "media", &[], KeyAction::Launch(LaunchKey::Media)),
+    (MEDIA_KEYS, "media-static", &["XF86AudioMedia"], KeyAction::Launch(LaunchKey::Media)),
+    (MEDIA_KEYS, "help", &["", "<Super>F1"], KeyAction::Launch(LaunchKey::Help)),
+    (MEDIA_KEYS, "search", &[], KeyAction::Launch(LaunchKey::Search)),
+    (MEDIA_KEYS, "search-static", &["XF86Search"], KeyAction::Launch(LaunchKey::Search)),
+    (MEDIA_KEYS, "screensaver", &["<Super>l"], KeyAction::Session(SessionKey::Lock)),
+    (MEDIA_KEYS, "screensaver-static", &["XF86ScreenSaver"], KeyAction::Session(SessionKey::Lock)),
+    (MEDIA_KEYS, "logout", &["<Control><Alt>Delete"], KeyAction::Session(SessionKey::Logout)),
+    (MEDIA_KEYS, "shutdown", &[], KeyAction::Session(SessionKey::Shutdown)),
+    (MEDIA_KEYS, "power", &[], KeyAction::Session(SessionKey::Shutdown)),
+    (MEDIA_KEYS, "power-static", &["XF86PowerOff"], KeyAction::Session(SessionKey::Shutdown)),
+    (MEDIA_KEYS, "reboot", &[], KeyAction::Session(SessionKey::Reboot)),
+    (MEDIA_KEYS, "suspend", &[], KeyAction::Session(SessionKey::Suspend)),
+    (MEDIA_KEYS, "suspend-static", &["XF86Sleep"], KeyAction::Session(SessionKey::Suspend)),
+    (MEDIA_KEYS, "hibernate", &[], KeyAction::Session(SessionKey::Hibernate)),
+    (MEDIA_KEYS, "hibernate-static", &["XF86Suspend", "XF86Hibernate"], KeyAction::Session(SessionKey::Hibernate)),
+    (MEDIA_KEYS, "increase-text-size", &[], KeyAction::Text(TextKey::Bigger)),
+    (MEDIA_KEYS, "decrease-text-size", &[], KeyAction::Text(TextKey::Smaller)),
+    (MEDIA_KEYS, "toggle-contrast", &[], KeyAction::Text(TextKey::Contrast)),
+    (MEDIA_KEYS, "touchpad-on", &[], KeyAction::Touchpad(Toggle::On)),
+    (MEDIA_KEYS, "touchpad-on-static", &["XF86TouchpadOn"], KeyAction::Touchpad(Toggle::On)),
+    (MEDIA_KEYS, "touchpad-off", &[], KeyAction::Touchpad(Toggle::Off)),
+    (MEDIA_KEYS, "touchpad-off-static", &["XF86TouchpadOff"], KeyAction::Touchpad(Toggle::Off)),
+    (MEDIA_KEYS, "touchpad-toggle", &[], KeyAction::Touchpad(Toggle::Flip)),
+    (MEDIA_KEYS, "touchpad-toggle-static", &["XF86TouchpadToggle", "<Ctrl><Super>XF86TouchpadToggle"], KeyAction::Touchpad(Toggle::Flip)),
+    (MEDIA_KEYS, "keyboard-brightness-up", &[], KeyAction::KbdBacklight(KbdKey::Up)),
+    (MEDIA_KEYS, "keyboard-brightness-up-static", &["XF86KbdBrightnessUp"], KeyAction::KbdBacklight(KbdKey::Up)),
+    (MEDIA_KEYS, "keyboard-brightness-down", &[], KeyAction::KbdBacklight(KbdKey::Down)),
+    (MEDIA_KEYS, "keyboard-brightness-down-static", &["XF86KbdBrightnessDown"], KeyAction::KbdBacklight(KbdKey::Down)),
+    (MEDIA_KEYS, "keyboard-brightness-toggle", &[], KeyAction::KbdBacklight(KbdKey::Toggle)),
+    (MEDIA_KEYS, "keyboard-brightness-toggle-static", &["XF86KbdLightOnOff"], KeyAction::KbdBacklight(KbdKey::Toggle)),
+    (MEDIA_KEYS, "battery-status", &[], KeyAction::Battery),
+    (MEDIA_KEYS, "battery-status-static", &["XF86Battery"], KeyAction::Battery),
     (MEDIA_KEYS, "magnifier", &["<Alt><Super>8"], KeyAction::A11y(A11yKey::Magnifier)),
     (MEDIA_KEYS, "magnifier-zoom-in", &["<Alt><Super>equal"], KeyAction::A11y(A11yKey::ZoomIn)),
     (MEDIA_KEYS, "magnifier-zoom-out", &["<Alt><Super>minus"], KeyAction::A11y(A11yKey::ZoomOut)),
@@ -209,6 +294,11 @@ pub fn accelerators() -> Vec<(String, KeyAction)> {
             if !accel.is_empty() && !out.iter().any(|(a, _)| *a == accel) {
                 out.push((accel, *action));
             }
+        }
+    }
+    for (index, (binding, command)) in crate::extra_keys::customs().into_iter().enumerate() {
+        if !binding.is_empty() && !command.is_empty() && !out.iter().any(|(a, _)| *a == binding) {
+            out.push((binding, KeyAction::Custom(index)));
         }
     }
     out
@@ -312,7 +402,27 @@ pub async fn control_player(conn: &Connection, command: Playback) {
         return;
     };
     tracing::debug!(player, method = command.method(), "media key");
-    if let Err(err) = conn.call_method(Some(player), MPRIS_PATH, Some(MPRIS_PLAYER), command.method(), &()).await {
+    let result = match command {
+        Playback::Rewind | Playback::Forward => {
+            let offset = if command == Playback::Rewind { -SEEK_US } else { SEEK_US };
+            conn.call_method(Some(player), MPRIS_PATH, Some(MPRIS_PLAYER), "Seek", &(offset,)).await.map(drop)
+        }
+        Playback::Repeat | Playback::Shuffle => match zbus::Proxy::new(conn, player.to_owned(), MPRIS_PATH, MPRIS_PLAYER).await {
+            Ok(proxy) => {
+                let set = if command == Playback::Repeat {
+                    let current: String = proxy.get_property("LoopStatus").await.unwrap_or_else(|_| "None".into());
+                    proxy.set_property("LoopStatus", next_loop_status(&current)).await
+                } else {
+                    let current: bool = proxy.get_property("Shuffle").await.unwrap_or(false);
+                    proxy.set_property("Shuffle", !current).await
+                };
+                set.map_err(zbus::Error::from)
+            }
+            Err(err) => Err(err),
+        },
+        _ => conn.call_method(Some(player), MPRIS_PATH, Some(MPRIS_PLAYER), command.method(), &()).await.map(drop),
+    };
+    if let Err(err) = result {
         tracing::warn!(%err, player, "media player refused the key");
     }
 }

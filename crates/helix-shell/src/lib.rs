@@ -9,6 +9,7 @@ pub mod accel;
 pub mod auth;
 pub mod display_change;
 pub mod end_dialog;
+pub mod extra_keys;
 pub mod font;
 pub mod ibus;
 pub mod idle;
@@ -127,6 +128,8 @@ pub enum UiEvent {
     Sharing(bool),
     /// Whether the screen is being recorded (panel indicator).
     Recording(bool),
+    /// Key settings changed: bind the shell's keys again.
+    RebindKeys,
     /// From IBus, for the input method.
     Ime(ibus::ImEvent),
     /// Quick settings values: volume (percent, muted, max) and brightness
@@ -756,6 +759,41 @@ impl UiBridge {
                         shell_keys::KeyAction::A11y(key) => {
                             tracing::info!(?key, "accessibility key");
                             shell_keys::run_a11y_key(key);
+                            None
+                        }
+                        shell_keys::KeyAction::Launch(key) => {
+                            tracing::info!(?key, "launch key");
+                            if !extra_keys::launch(key) {
+                                let _ = ui.send(UiEvent::Launcher);
+                            }
+                            None
+                        }
+                        shell_keys::KeyAction::Session(extra_keys::SessionKey::Lock) => {
+                            if let Err(err) = lock_via(&conn).await {
+                                tracing::warn!(%err, "cannot lock");
+                            }
+                            None
+                        }
+                        shell_keys::KeyAction::Session(key) => {
+                            tracing::info!(?key, "session key");
+                            extra_keys::session(&conn, key).await;
+                            None
+                        }
+                        shell_keys::KeyAction::Text(key) => {
+                            extra_keys::text(key);
+                            None
+                        }
+                        shell_keys::KeyAction::Touchpad(key) => extra_keys::touchpad(key),
+                        shell_keys::KeyAction::KbdBacklight(key) => match zbus::Connection::system().await {
+                            Ok(system) => extra_keys::keyboard_backlight(&system, key).await,
+                            Err(_) => None,
+                        },
+                        shell_keys::KeyAction::Battery => match zbus::Connection::system().await {
+                            Ok(system) => extra_keys::battery(&system).await,
+                            Err(_) => None,
+                        },
+                        shell_keys::KeyAction::Custom(index) => {
+                            extra_keys::run_custom(index);
                             None
                         }
                     };

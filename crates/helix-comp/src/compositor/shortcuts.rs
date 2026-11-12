@@ -7,7 +7,6 @@
 //! | Alt+F4 | Close the focused window |
 //! | Super+Up | Toggle maximize |
 //! | Super+Down | Restore a maximized window, else minimize |
-//! | Super+L | Lock the screen (asks the shell) |
 //! | Ctrl+Alt+F1..F12 | Switch VT (bare hardware only) |
 //! | Ctrl+Alt+Backspace | Quit Helix (always available escape hatch) |
 //!
@@ -127,7 +126,6 @@ fn builtin(mods: Mods, sym: Keysym) -> Option<Action> {
     match sym {
         Keysym::BackSpace if ctrl_alt => Some(Action::Quit),
         _ if ctrl_alt && function_key(sym).is_some() => function_key(sym).map(Action::SwitchVt),
-        Keysym::l if mods.logo && !mods.alt && !mods.ctrl => Some(Action::Lock),
         _ => None,
     }
 }

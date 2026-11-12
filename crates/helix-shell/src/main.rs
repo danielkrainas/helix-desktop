@@ -72,6 +72,11 @@ fn main() -> ExitCode {
     });
     runtime.spawn(helix_shell::screencast_chooser::follow_sharing(service.connection().clone(), service.ui_sender()));
     runtime.spawn(helix_shell::notifications::follow_settings(service.notifications()));
+    // Changed shortcuts (Settings, custom shortcuts) apply at once.
+    let rebind = service.ui_sender();
+    helix_shell::extra_keys::follow(helix_shell::shell_keys::KEY_SCHEMAS, move || {
+        let _ = rebind.send(helix_shell::UiEvent::RebindKeys);
+    });
 
     // logind: which power actions to offer, and locking before sleep.
     let shell_conn = service.connection().clone();

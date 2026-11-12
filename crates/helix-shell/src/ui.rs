@@ -1693,12 +1693,26 @@ impl Ui {
                     }
                 }
             }
+            UiEvent::RebindKeys => self.rebind_internal(),
             UiEvent::Unbind { action } => {
                 if let Some(binding) = self.bindings.remove(&action) {
                     binding.destroy();
                 }
             }
         }
+    }
+
+    /// Key settings changed: drop the shell's own bindings and bind again.
+    fn rebind_internal(&mut self) {
+        let ids: Vec<u32> = self.bindings.keys().copied().filter(|a| *a >= INTERNAL_ACTIONS).collect();
+        for id in ids {
+            if let Some(binding) = self.bindings.remove(&id) {
+                binding.destroy();
+            }
+        }
+        self.internal.clear();
+        self.bind_internal();
+        tracing::info!(bound = self.internal.len(), "shell keys bound again");
     }
 
     /// Bind the keys the shell handles itself.
