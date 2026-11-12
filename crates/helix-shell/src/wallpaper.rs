@@ -62,6 +62,35 @@ pub struct Image {
     pub rgba: Vec<u8>,
 }
 
+/// `image` shrunk (box filter) to fit `max_w`×`max_h`, premultiplied, for
+/// drawing small (a preview).
+pub fn thumbnail(image: &Image, max_w: u32, max_h: u32) -> helix_draw::Image {
+    let (w, h) = (image.width.max(1), image.height.max(1));
+    let k = (f64::from(max_w) / f64::from(w)).min(f64::from(max_h) / f64::from(h)).min(1.0);
+    let (tw, th) = (((f64::from(w) * k).round() as u32).max(1), ((f64::from(h) * k).round() as u32).max(1));
+    let mut rgba = Vec::with_capacity((tw * th * 4) as usize);
+    for ty in 0..th {
+        let (y0, y1) = (ty * h / th, ((ty + 1) * h / th).max(ty * h / th + 1).min(h));
+        for tx in 0..tw {
+            let (x0, x1) = (tx * w / tw, ((tx + 1) * w / tw).max(tx * w / tw + 1).min(w));
+            let mut sum = [0u64; 4];
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let i = ((y * w + x) * 4) as usize;
+                    let a = u64::from(image.rgba[i + 3]);
+                    for (c, total) in sum.iter_mut().take(3).enumerate() {
+                        *total += u64::from(image.rgba[i + c]) * a / 255;
+                    }
+                    sum[3] += a;
+                }
+            }
+            let n = u64::from((y1 - y0) * (x1 - x0)).max(1);
+            rgba.extend(sum.iter().map(|v| (v / n) as u8));
+        }
+    }
+    helix_draw::Image { width: tw as usize, height: th as usize, rgba }
+}
+
 /// What to draw: the settings and the picture.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Background {
@@ -462,6 +491,16 @@ pub async fn follow(ui: mpsc::UnboundedSender<UiEvent>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn thumbnails() {
+        let image = Image { width: 4, height: 2, rgba: [[255, 0, 0, 255], [255, 0, 0, 255], [0, 0, 255, 0], [0, 0, 255, 0]].repeat(2).concat() };
+        let t = thumbnail(&image, 2, 2);
+        assert_eq!((t.width, t.height), (2, 1));
+        assert_eq!(t.rgba, [255, 0, 0, 255, 0, 0, 0, 0]);
+        // Never enlarged.
+        assert_eq!(thumbnail(&image, 100, 100).width, 4);
+    }
 
     #[test]
     fn placement() {

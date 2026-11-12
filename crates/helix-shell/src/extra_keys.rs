@@ -127,6 +127,7 @@ pub async fn session(conn: &Connection, key: SessionKey) {
     };
     let result = match key {
         SessionKey::Lock => Ok(()),
+        SessionKey::Logout if crate::locked_down("disable-log-out") => Ok(()),
         SessionKey::Logout => sm("Logout", Some(0)).await,
         SessionKey::Shutdown => sm("Shutdown", None).await,
         SessionKey::Reboot => sm("Reboot", None).await,

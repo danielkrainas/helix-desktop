@@ -10,10 +10,12 @@
 pub mod clipboard;
 pub mod dialogs;
 pub mod inhibit;
+pub mod lockdown;
 pub mod remote_desktop;
 pub mod screencast;
 pub mod screenshot;
 pub mod settings;
+pub mod wallpaper;
 
 use std::sync::{Arc, Mutex};
 
@@ -72,6 +74,9 @@ impl PortalService {
         server.at(OBJECT_PATH, dialogs::AccountBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, dialogs::AppChooserBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, dialogs::BackgroundBackend { conn: conn.clone() }).await?;
+        server.at(OBJECT_PATH, wallpaper::WallpaperBackend { conn: conn.clone() }).await?;
+        server.at(OBJECT_PATH, lockdown::LockdownBackend::default()).await?;
+        lockdown::refresh(&conn, OBJECT_PATH).await?;
 
         // Tests may run a second backend beside the real one.
         let name = std::env::var("HELIX_PORTALS_BUS_NAME").unwrap_or_else(|_| BUS_NAME.to_owned());
@@ -97,6 +102,11 @@ impl PortalService {
             registry,
             tasks,
         })
+    }
+
+    /// Call when a lockdown setting changed (see [`lockdown::SCHEMAS`]).
+    pub async fn lockdown_changed(&self) -> zbus::Result<()> {
+        lockdown::refresh(&self.conn, OBJECT_PATH).await
     }
 
     pub fn connection(&self) -> &Connection {
@@ -143,6 +153,8 @@ impl PortalService {
         server.remove::<dialogs::AccountBackend, _>(OBJECT_PATH).await?;
         server.remove::<dialogs::AppChooserBackend, _>(OBJECT_PATH).await?;
         server.remove::<dialogs::BackgroundBackend, _>(OBJECT_PATH).await?;
+        server.remove::<wallpaper::WallpaperBackend, _>(OBJECT_PATH).await?;
+        server.remove::<lockdown::LockdownBackend, _>(OBJECT_PATH).await?;
         self.conn.graceful_shutdown().await;
         Ok(())
     }

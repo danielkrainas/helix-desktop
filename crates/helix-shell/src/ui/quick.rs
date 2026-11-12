@@ -277,7 +277,7 @@ impl Ui {
         let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(0x00000000);
         let text = self.text.as_ref();
-        let items = power_menu_items(self.power);
+        let items = power_menu_items(self.power, !crate::locked_down("disable-lock-screen"), !crate::locked_down("disable-log-out"));
         let sliders = usize::from(self.quick.volume.is_some()) + usize::from(self.quick.brightness.is_some());
         let mh = PAD + sliders as i32 * ROW_H + switch_rows * 48 + list_h + profile_h + PAD + 1 + items.len() as i32 * 36 + 8;
         let mx = w as i32 - MENU_W - 6;

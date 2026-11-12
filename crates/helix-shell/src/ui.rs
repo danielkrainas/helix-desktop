@@ -2851,12 +2851,18 @@ fn read_icon(data: std::os::fd::OwnedFd, size: u32) -> Option<helix_draw::Image>
 }
 
 /// Power menu entries, offering only what logind allows.
-fn power_menu_items(power: crate::logind::Availability) -> Vec<(&'static str, PowerAction)> {
-    let mut items = vec![("Lock Screen", PowerAction::Lock)];
+/// `lock` and `log_out`: whether the lockdown settings allow them.
+fn power_menu_items(power: crate::logind::Availability, lock: bool, log_out: bool) -> Vec<(&'static str, PowerAction)> {
+    let mut items = Vec::new();
+    if lock {
+        items.push(("Lock Screen", PowerAction::Lock));
+    }
     if power.suspend {
         items.push(("Suspend", PowerAction::Suspend));
     }
-    items.push(("Log Out…", PowerAction::LogOut));
+    if log_out {
+        items.push(("Log Out…", PowerAction::LogOut));
+    }
     if power.restart {
         items.push(("Restart…", PowerAction::Restart));
     }
@@ -2974,9 +2980,10 @@ mod tests {
 
     #[test]
     fn power_menu_entries_follow_logind() {
-        let names = |power| power_menu_items(power).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
-        assert_eq!(names(Availability::default()), ["Lock Screen", "Log Out…"]);
+        let names = |power, lock, log_out| power_menu_items(power, lock, log_out).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+        assert_eq!(names(Availability::default(), true, true), ["Lock Screen", "Log Out…"]);
         let all = Availability { suspend: true, restart: true, power_off: true };
-        assert_eq!(names(all), ["Lock Screen", "Suspend", "Log Out…", "Restart…", "Power Off…"]);
+        assert_eq!(names(all, true, true), ["Lock Screen", "Suspend", "Log Out…", "Restart…", "Power Off…"]);
+        assert_eq!(names(all, false, false), ["Suspend", "Restart…", "Power Off…"]);
     }
 }

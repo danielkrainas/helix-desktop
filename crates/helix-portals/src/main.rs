@@ -29,8 +29,10 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    helix_settings::prepare_gio();
     let gsettings = GSettings::new(PORTAL_SCHEMAS);
     let (mut changes, _watch) = gsettings.watch();
+    let (mut lockdown, _lockdown_watch) = GSettings::new(helix_portals::lockdown::SCHEMAS).watch();
     let service =
         PortalService::start(zbus::connection::Builder::session()?, Arc::new(gsettings)).await?;
 
@@ -42,6 +44,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 tracing::debug!(%schema, "settings changed");
                 if let Err(err) = service.settings_changed().await {
                     tracing::warn!(%err, "failed to publish settings change");
+                }
+            }
+            Some(_) = lockdown.recv() => {
+                if let Err(err) = service.lockdown_changed().await {
+                    tracing::warn!(%err, "failed to publish lockdown change");
                 }
             }
             _ = sigterm.recv() => break,

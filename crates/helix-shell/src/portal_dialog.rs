@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
 use zbus::object_server::SignalEmitter;
+use zbus::zvariant::{OwnedValue, Value};
 use zbus::{interface, Connection};
 
 use crate::prompt::{self, Answer, Prompt};
@@ -17,6 +18,33 @@ pub const PATH: &str = "/org/helix/PortalDialog";
 /// The index of `selected` among `items` (0 when absent).
 pub fn initial_index(items: &[(String, String)], selected: &str) -> usize {
     items.iter().position(|(id, _)| id == selected).unwrap_or(0)
+}
+
+fn get<T: TryFrom<OwnedValue>>(options: &HashMap<String, OwnedValue>, key: &str) -> Option<T> {
+    options.get(key).and_then(|v| T::try_from(v.clone()).ok())
+}
+
+/// The prompt `Dialog`'s options describe (without the picture).
+pub fn dialog_prompt(options: &HashMap<String, OwnedValue>) -> Prompt {
+    let text = |key: &str| get::<String>(options, key).unwrap_or_default();
+    let check_label = text("check-label");
+    let list: Vec<String> = get(options, "rows").unwrap_or_default();
+    let selected = get::<i32>(options, "selected").and_then(|i| usize::try_from(i).ok()).unwrap_or(0);
+    Prompt {
+        title: text("title"),
+        message: text("message"),
+        description: text("description"),
+        choice: (!check_label.is_empty()).then(|| (check_label, get(options, "check").unwrap_or(false))),
+        selected: selected.min(list.len().saturating_sub(1)),
+        list,
+        continue_label: text("accept"),
+        cancel_label: text("cancel"),
+        ..Prompt::default()
+    }
+}
+
+fn owned(v: Value<'_>) -> OwnedValue {
+    OwnedValue::try_from(v).expect("plain values convert")
 }
 
 /// App id → state, from windows: 1 running, 2 focused.
@@ -86,6 +114,30 @@ impl PortalDialog {
         }
     }
 
+    /// A dialog described by `options` (see the interface notes); response
+    /// 0 accepted, 1 canceled.
+    async fn dialog(&self, options: HashMap<String, OwnedValue>) -> (u32, HashMap<String, OwnedValue>) {
+        let mut prompt = dialog_prompt(&options);
+        if let Some(path) = get::<String>(&options, "picture").filter(|p| !p.is_empty()) {
+            let decoded = tokio::task::spawn_blocking(move || crate::wallpaper::decode(std::path::Path::new(&path))).await;
+            match decoded {
+                Ok(Ok(image)) => prompt.picture = Some(Arc::new(crate::wallpaper::thumbnail(&image, 392, 220))),
+                Ok(Err(err)) => tracing::info!(%err, "cannot show the dialog's picture"),
+                Err(_) => {}
+            }
+        }
+        let _turn = prompt::turn().await;
+        let answer = prompt::ask(&self.ui, prompt).await;
+        prompt::done(&self.ui);
+        match answer {
+            Answer::Continue { choice, selected, .. } => {
+                let results = HashMap::from([("check".to_owned(), owned(Value::from(choice))), ("selected".to_owned(), owned(Value::from(selected as i32)))]);
+                (0, results)
+            }
+            Answer::Cancel => (1, HashMap::new()),
+        }
+    }
+
     async fn running_apps(&self) -> HashMap<String, u32> {
         self.apps.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -122,5 +174,14 @@ mod tests {
         let items = vec![("a".to_owned(), "A".to_owned()), ("b".to_owned(), "B".to_owned())];
         assert_eq!(initial_index(&items, "b"), 1);
         assert_eq!(initial_index(&items, "zzz"), 0);
+        let options = HashMap::from([
+            ("title".to_owned(), owned(Value::from("Set Background"))),
+            ("check-label".to_owned(), owned(Value::from("Also lock screen"))),
+            ("check".to_owned(), owned(Value::from(true))),
+            ("rows".to_owned(), owned(Value::from(vec!["a", "b"]))),
+            ("selected".to_owned(), owned(Value::from(5i32))),
+        ]);
+        let p = dialog_prompt(&options);
+        assert_eq!((p.title.as_str(), p.choice, p.selected, p.list.len()), ("Set Background", Some(("Also lock screen".to_owned(), true)), 1, 2));
     }
 }

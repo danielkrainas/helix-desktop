@@ -25,6 +25,8 @@ pub struct Prompt {
     /// Rows to pick one of, and the one picked at first.
     pub list: Vec<String>,
     pub selected: usize,
+    /// A picture below the text (e.g. a background to preview).
+    pub picture: Option<std::sync::Arc<helix_draw::Image>>,
     /// Shown in a warning color, e.g. after a wrong password.
     pub warning: String,
     pub continue_label: String,

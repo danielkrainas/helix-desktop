@@ -771,6 +771,7 @@ impl UiBridge {
                 let result = match action {
                     PowerAction::Lock => lock_via(&self.conn).await,
                     PowerAction::Suspend => call("Suspend", None).await,
+                    PowerAction::LogOut if locked_down("disable-log-out") => Err(zbus::Error::Failure("logging out is disabled".into())),
                     PowerAction::LogOut => call("Logout", Some(0)).await,
                     PowerAction::Restart => call("Reboot", None).await,
                     PowerAction::PowerOff => call("Shutdown", None).await,
@@ -1007,6 +1008,14 @@ pub async fn lock_and_wait(conn: &Connection, timeout: std::time::Duration) -> b
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+}
+
+/// Whether the administrator turned `key` of `org.gnome.desktop.lockdown`
+/// on (helix-desktop-spec `contracts/gsettings/org.gnome.desktop.lockdown.md`).
+pub fn locked_down(key: &str) -> bool {
+    const LOCKDOWN: &str = "org.gnome.desktop.lockdown";
+    use gio::prelude::SettingsExt;
+    helix_settings::has_schema(LOCKDOWN) && gio::Settings::new(LOCKDOWN).boolean(key)
 }
 
 pub async fn lock_via(conn: &Connection) -> zbus::Result<()> {

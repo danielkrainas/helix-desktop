@@ -18,7 +18,7 @@ const SHELL: &str = "org.gnome.Shell";
 const DIALOG_PATH: &str = "/org/helix/PortalDialog";
 const DIALOG: &str = "org.helix.PortalDialog";
 
-fn value(v: Value<'_>) -> OwnedValue {
+pub(crate) fn value(v: Value<'_>) -> OwnedValue {
     OwnedValue::try_from(v).expect("plain values convert")
 }
 
@@ -40,6 +40,20 @@ async fn ask(conn: &Connection, title: &str, message: &str, description: &str, g
         Err(err) => {
             tracing::warn!(%err, "the shell cannot ask");
             (false, check)
+        }
+    }
+}
+
+/// Show the shell's general dialog (`org.helix.PortalDialog.Dialog`);
+/// its results when accepted.
+pub(crate) async fn dialog(conn: &Connection, options: HashMap<String, OwnedValue>) -> Option<HashMap<String, OwnedValue>> {
+    let reply = conn.call_method(Some(SHELL), DIALOG_PATH, Some(DIALOG), "Dialog", &(options,)).await;
+    match reply.and_then(|r| r.body().deserialize::<(u32, HashMap<String, OwnedValue>)>()) {
+        Ok((0, results)) => Some(results),
+        Ok(_) => None,
+        Err(err) => {
+            tracing::warn!(%err, "the shell cannot show a dialog");
+            None
         }
     }
 }

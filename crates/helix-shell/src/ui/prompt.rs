@@ -201,11 +201,17 @@ impl Ui {
         let message = wrap(&p.message, 14.0);
         let description = wrap(&p.description, 13.0);
         let fields = usize::from(p.password.is_some()) + usize::from(p.confirm.is_some());
+        // The picture: at most the inner width and 220 high.
+        let picture = p.picture.as_deref().filter(|i| i.width > 0 && i.height > 0).map(|i| {
+            let k = (f64::from(inner) / i.width as f64).min(220.0 / i.height as f64);
+            (i, (i.width as f64 * k).round(), (i.height as f64 * k).round())
+        });
+        let picture_h = picture.map_or(0, |(_, _, ph)| ph as i32 + 12);
         // At most LIST_SHOWN rows, scrolled to keep the selection in view.
         let shown = p.list.len().min(LIST_SHOWN);
         let first = view.selected.saturating_sub(LIST_SHOWN - 1).min(p.list.len().saturating_sub(shown));
         let list_h = if shown > 0 { shown as i32 * LIST_ROW + 8 } else { 0 };
-        let bh = 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + 26 + 64;
+        let bh = 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + picture_h + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + 26 + 64;
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
@@ -222,6 +228,10 @@ impl Ui {
             y += 17;
         }
         y += 8;
+        if let Some((image, pw, ph)) = picture {
+            canvas.image(f64::from(bx) + (f64::from(bw) - pw) / 2.0, f64::from(y), pw, ph, image);
+            y += picture_h;
+        }
         let mut hits = Vec::new();
         if shown > 0 {
             canvas.rect(bx + 24, y, bw - 48, shown as i32 * LIST_ROW, FIELD_BG);

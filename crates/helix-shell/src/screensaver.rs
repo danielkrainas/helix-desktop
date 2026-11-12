@@ -51,6 +51,9 @@ impl ScreenSaver {
         if status.locked() || status.requested {
             return Ok(());
         }
+        if crate::locked_down("disable-lock-screen") {
+            return Err("locking is disabled".into());
+        }
         self.auth.available()?;
         status.requested = true;
         let _ = self.ui.send(UiEvent::Lock);
