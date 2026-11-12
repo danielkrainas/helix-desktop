@@ -395,7 +395,8 @@ impl Helix {
                     PadAction::Help if pressed => {
                         let count = device.tablet_pad_number_of_buttons().max(0) as u32;
                         let actions: Vec<(u32, PadAction)> = (0..count).map(|b| (b, tablet::read_pad_button(usb, b))).collect();
-                        self.pad_help(tablet::pad_help(&actions));
+                        let said = self.tablet_v2.feedback(&pad);
+                        self.pad_help(tablet::pad_help(&actions, &said));
                     }
                     PadAction::SwitchMonitor if pressed => {
                         let tablet = self.tablet_v2.pads().iter().find(|p| p.id == pad).map(|p| p.tablet.clone()).unwrap_or_default();

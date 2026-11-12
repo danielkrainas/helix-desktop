@@ -157,7 +157,7 @@ mod client {
     }
 
     #[derive(Default)]
-    pub struct Log(pub Vec<String>, pub Vec<zwp_tablet_tool_v2::ZwpTabletToolV2>);
+    pub struct Log(pub Vec<String>, pub Vec<zwp_tablet_tool_v2::ZwpTabletToolV2>, pub Vec<zwp_tablet_pad_v2::ZwpTabletPadV2>);
 
     impl Log {
         fn push(&mut self, s: String) {
@@ -188,7 +188,10 @@ mod client {
                     log.1.push(id);
                     "tool_added"
                 }
-                zwp_tablet_seat_v2::Event::PadAdded { .. } => "pad_added",
+                zwp_tablet_seat_v2::Event::PadAdded { id } => {
+                    log.2.push(id);
+                    "pad_added"
+                }
                 _ => "seat?",
             };
             log.push(what.into());
@@ -470,7 +473,17 @@ fn tablets_tools_and_pads() {
         ],
         "the same mode twice is sent once"
     );
+    // The focused app says what a button does; the compositor keeps it
+    // until the focus leaves the app.
+    let pad = app.log.2[0].clone();
+    pad.set_feedback(1, "Undo".into(), 10);
+    pad.set_feedback(2, "Redo".into(), 10);
+    pad.set_feedback(2, "".into(), 10);
+    app.sync();
+    let said = on_server(&server, |state, _| state.tablet.feedback("event8"));
+    assert_eq!(said, [(helix_comp::tablet_v2::Control::Button(1), "Undo".to_owned())], "an empty description withdraws one");
     on_server(&server, |state, _| state.tablet.pad_focus("event8", None, 13));
+    assert!(on_server(&server, |state, _| state.tablet.feedback("event8")).is_empty());
     assert_eq!(app.take(), ["pad leave 13"]);
 
     // Devices going away.

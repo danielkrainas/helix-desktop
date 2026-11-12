@@ -280,21 +280,38 @@ pub fn read_pad_button(usb: Option<(u32, u32)>, button: u32) -> PadAction {
     pad_action(&settings.string("action"), &settings.string("keybinding"))
 }
 
-/// The text "help" shows: each button with what it does.
-pub fn pad_help(actions: &[(u32, PadAction)]) -> String {
-    actions
+/// The text "help" shows: each button with what it does (for buttons
+/// left to the app, what it says, `feedback`), then the rings and strips
+/// the app described.
+pub fn pad_help(actions: &[(u32, PadAction)], feedback: &[(crate::tablet_v2::Control, String)]) -> String {
+    use crate::tablet_v2::Control;
+    let said = |c: Control| feedback.iter().find(|(f, _)| *f == c).map(|(_, t)| t.clone());
+    let mut lines: Vec<String> = actions
         .iter()
         .map(|(button, action)| {
             let what = match action {
-                PadAction::App => "Application defined".to_owned(),
+                PadAction::App => said(Control::Button(*button)).unwrap_or_else(|| "Application defined".to_owned()),
                 PadAction::Help => "Show this help".to_owned(),
                 PadAction::SwitchMonitor => "Switch monitor".to_owned(),
                 PadAction::Keybinding(keys) => format!("Send keys {keys}"),
             };
             format!("Button {}: {what}", pad_button_name(*button))
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect();
+    let mut others: Vec<(Control, String)> = feedback.iter().filter(|(c, _)| !matches!(c, Control::Button(_))).cloned().collect();
+    others.sort_by_key(|(c, _)| match c {
+        Control::Ring(n) => (0, *n),
+        Control::Strip(n) => (1, *n),
+        Control::Button(n) => (2, *n),
+    });
+    for (control, text) in others {
+        match control {
+            Control::Ring(n) => lines.push(format!("Ring {}: {text}", n + 1)),
+            Control::Strip(n) => lines.push(format!("Strip {}: {text}", n + 1)),
+            Control::Button(_) => {}
+        }
+    }
+    lines.join("\n")
 }
 
 /// A strip's position (0–1) as `zwp_tablet_pad_strip_v2` gives it (0–65535).
@@ -407,8 +424,12 @@ mod tests {
         assert_eq!((pad_action("help", ""), pad_action("switch-monitor", "")), (PadAction::Help, PadAction::SwitchMonitor));
         assert_eq!((pad_button_name(0), pad_button_name(25), pad_button_name(26)), ("A".into(), "Z".into(), "27".into()));
         assert_eq!(pad_button_path((0x56a, 0x357), 2), "/org/gnome/desktop/peripherals/tablets/056a:0357/buttonC/");
-        let help = pad_help(&[(0, PadAction::Keybinding("<Control>z".into())), (1, PadAction::App)]);
+        let help = pad_help(&[(0, PadAction::Keybinding("<Control>z".into())), (1, PadAction::App)], &[]);
         assert_eq!(help, "Button A: Send keys <Control>z\nButton B: Application defined");
+        use crate::tablet_v2::Control;
+        let said = [(Control::Button(1), "Undo".to_owned()), (Control::Button(0), "ignored: not the app's".to_owned()), (Control::Strip(0), "Zoom".to_owned()), (Control::Ring(1), "Brush size".to_owned())];
+        let help = pad_help(&[(0, PadAction::Keybinding("<Control>z".into())), (1, PadAction::App)], &said);
+        assert_eq!(help, "Button A: Send keys <Control>z\nButton B: Undo\nRing 2: Brush size\nStrip 1: Zoom");
         assert_eq!((strip_value(0.0), strip_value(0.5), strip_value(2.0)), (0, 32768, 65535));
     }
 }

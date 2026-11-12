@@ -120,6 +120,17 @@ pub struct TabletV2 {
     /// Each tool's surface and the tablet it is on.
     tool_focus: HashMap<u64, (WlSurface, String)>,
     pad_focus: HashMap<String, WlSurface>,
+    /// What the focused app says pads' controls do (`set_feedback`), by
+    /// pad: what and the control's number.
+    feedback: HashMap<String, Vec<(Control, String)>>,
+}
+
+/// A pad control an app describes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Control {
+    Button(u32),
+    Ring(u32),
+    Strip(u32),
 }
 
 impl std::fmt::Debug for TabletV2 {
@@ -430,6 +441,11 @@ impl TabletV2 {
         if self.pad_focus.get(pad) == surface {
             return;
         }
+        // Another app: what the last one said no longer holds.
+        let same = surface.and_then(|s| s.client()).map(|c| c.id()) == self.pad_focus.get(pad).and_then(|s| s.client()).map(|c| c.id());
+        if !same {
+            self.feedback.remove(pad);
+        }
         if let Some(old) = self.pad_focus.remove(pad) {
             if let Some(p) = self.pad_res.iter().find(|p| p.pad == pad && same_client(&p.res, &old)) {
                 p.res.leave(serial, &old);
@@ -450,6 +466,24 @@ impl TabletV2 {
     fn focused_pad(&self, pad: &str) -> Option<&PadRes> {
         let surface = self.pad_focus.get(pad)?;
         self.pad_res.iter().find(|p| p.pad == pad && same_client(&p.res, surface))
+    }
+
+    /// The app the pad's focus is on described `control`.
+    fn set_feedback(&mut self, pad: &str, client: &Client, control: Control, text: String) {
+        let focused = self.pad_focus.get(pad).and_then(|s| s.client()).is_some_and(|c| c.id() == client.id());
+        if !focused {
+            return;
+        }
+        let list = self.feedback.entry(pad.to_owned()).or_default();
+        list.retain(|(c, _)| *c != control);
+        if !text.trim().is_empty() {
+            list.push((control, text.trim().to_owned()));
+        }
+    }
+
+    /// What the focused app said `pad`'s controls do.
+    pub fn feedback(&self, pad: &str) -> Vec<(Control, String)> {
+        self.feedback.get(pad).cloned().unwrap_or_default()
     }
 
     pub fn pad_button(&self, pad: &str, time: u32, button: u32, pressed: bool) {
@@ -584,10 +618,36 @@ macro_rules! forgetting {
 
 forgetting!(ZwpTabletSeatV2, ());
 forgetting!(ZwpTabletV2, String);
-forgetting!(ZwpTabletPadV2, String);
 forgetting!(ZwpTabletPadGroupV2, (String, usize));
-forgetting!(ZwpTabletPadRingV2, (String, u32));
-forgetting!(ZwpTabletPadStripV2, (String, u32));
+
+/// Pads, rings and strips: forgotten when destroyed, and their
+/// `set_feedback` kept (from the app the pad's focus is on).
+macro_rules! described {
+    ($iface:ty, $data:ty, $request:path, |$d:ident, $req:ident| $control:expr) => {
+        impl<D: TabletV2Dispatch> Dispatch<$iface, $data, D> for TabletV2 {
+            fn request(state: &mut D, client: &Client, _: &$iface, request: <$iface as Resource>::Request, $d: &$data, _: &DisplayHandle, _: &mut DataInit<'_, D>) {
+                #[allow(unused_variables)]
+                if let $request { description, .. } = &request {
+                    let $req = &request;
+                    if let Some((pad, control)) = $control {
+                        state.tablet_v2().set_feedback(&pad, client, control, description.clone());
+                    }
+                }
+            }
+
+            fn destroyed(state: &mut D, _: ClientId, resource: &$iface, _: &$data) {
+                state.tablet_v2().forget(&Resource::id(resource));
+            }
+        }
+    };
+}
+
+described!(ZwpTabletPadV2, String, zwp_tablet_pad_v2::Request::SetFeedback, |pad, req| match req {
+    zwp_tablet_pad_v2::Request::SetFeedback { button, .. } => Some((pad.clone(), Control::Button(*button))),
+    _ => None,
+});
+described!(ZwpTabletPadRingV2, (String, u32), zwp_tablet_pad_ring_v2::Request::SetFeedback, |ring, req| Some((ring.0.clone(), Control::Ring(ring.1))));
+described!(ZwpTabletPadStripV2, (String, u32), zwp_tablet_pad_strip_v2::Request::SetFeedback, |strip, req| Some((strip.0.clone(), Control::Strip(strip.1))));
 
 impl<D: TabletV2Dispatch> Dispatch<ZwpTabletToolV2, u64, D> for TabletV2 {
     fn request(state: &mut D, _: &Client, _: &ZwpTabletToolV2, request: zwp_tablet_tool_v2::Request, tool: &u64, _: &DisplayHandle, _: &mut DataInit<'_, D>) {
