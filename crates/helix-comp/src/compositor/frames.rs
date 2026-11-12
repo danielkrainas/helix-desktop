@@ -373,8 +373,30 @@ pub fn scene(
         if !output_geo.overlaps(reach) {
             continue;
         }
-        let at = (location - window.geometry().loc - output_geo.loc).to_physical_precise_round(scale);
         let shaded = frames.shaded.contains(window);
+        // Maximizing, restoring…: what the window shows now, stretched to
+        // where it is on its way.
+        let resizing = animations.and_then(|(a, _)| a.window_rect(window)).filter(|_| look == helix_comp::animation::Look::STILL && client.size.w > 0 && client.size.h > 0);
+        if let Some(r) = resizing {
+            let origin = (r.loc - output_geo.loc.to_f64()).to_physical_precise_round(scale);
+            let at = origin - window.geometry().loc.to_physical_precise_round(scale);
+            let k = Scale::from((r.size.w / f64::from(client.size.w), r.size.h / f64::from(client.size.h)));
+            if !shaded {
+                let surfaces = window.render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(renderer, at, Scale::from(scale), 1.0);
+                elements.extend(
+                    surfaces
+                        .into_iter()
+                        .map(|e| SceneElement::Scaled(smithay::backend::renderer::element::utils::RescaleRenderElement::from_element(e, origin, k))),
+                );
+            }
+            if top > 0 {
+                if let Some(frame) = frames.element(renderer, window, r.to_i32_round(), output_geo.loc, scale, focused == Some(window)) {
+                    elements.push(SceneElement::Frame(frame));
+                }
+            }
+            continue;
+        }
+        let at = (location - window.geometry().loc - output_geo.loc).to_physical_precise_round(scale);
         let surfaces = if shaded { Vec::new() } else { window.render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(renderer, at, Scale::from(scale), look.alpha as f32) };
         if look.scale == 1.0 {
             elements.extend(surfaces.into_iter().map(SceneElement::Surface));

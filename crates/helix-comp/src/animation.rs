@@ -39,6 +39,8 @@ pub enum Kind {
     LayerOut,
     /// Workspace switch.
     Slide,
+    /// A window is maximized, tiled, made full screen or restored.
+    Resize,
 }
 
 /// Whether a shell surface fades in and out: everything but the shell's
@@ -65,6 +67,7 @@ fn base_duration(kind: Kind) -> Duration {
         Kind::Minimize => 250,
         Kind::LayerIn | Kind::LayerOut => 150,
         Kind::Slide => 250,
+        Kind::Resize => 250,
     })
 }
 
@@ -123,6 +126,8 @@ pub fn look(kind: Kind, t: f64, motion: Motion, direction: i32, leaving: bool) -
                 look.towards_target = e;
             }
         }
+        // Drawn by `between` instead.
+        Kind::Resize => {}
         Kind::LayerIn => look.alpha = e,
         Kind::LayerOut => look.alpha = 1.0 - e,
         Kind::Slide => {
@@ -147,6 +152,14 @@ pub fn place(rect: (f64, f64, f64, f64), look: &Look, target: (f64, f64), monito
     let (tx, ty) = (cx + (target.0 - cx) * look.towards_target, cy + (target.1 - cy) * look.towards_target);
     let (nw, nh) = (w * look.scale, h * look.scale);
     (tx - nw / 2.0 + look.shift * monitor_width, ty - nh / 2.0, nw, nh)
+}
+
+/// The rectangle `(x, y, w, h)` a resizing window is drawn in at
+/// progress `t`: from `from` to `to`, eased out.
+pub fn between(from: (f64, f64, f64, f64), to: (f64, f64, f64, f64), t: f64) -> (f64, f64, f64, f64) {
+    let e = ease_out(t);
+    let mix = |a: f64, b: f64| a + (b - a) * e;
+    (mix(from.0, to.0), mix(from.1, to.1), mix(from.2, to.2), mix(from.3, to.3))
 }
 
 #[cfg(test)]
@@ -191,6 +204,16 @@ mod tests {
         assert_eq!(look(Kind::Slide, 1.0, Motion::Full, 1, false).shift, 0.0);
         let faded = look(Kind::Slide, 0.0, Motion::Reduced, 1, false);
         assert_eq!((faded.shift, faded.alpha), (0.0, 0.0), "reduced: a crossfade");
+    }
+
+    #[test]
+    fn resizing() {
+        let (from, to) = ((100.0, 100.0, 400.0, 300.0), (0.0, 32.0, 1280.0, 768.0));
+        assert_eq!(between(from, to, 0.0), from);
+        assert_eq!(between(from, to, 1.0), to);
+        let mid = between(from, to, 0.5);
+        assert!(mid.2 > 840.0 && mid.2 < 1280.0, "eased out: {mid:?}");
+        assert_eq!(look(Kind::Resize, 0.5, Motion::Full, 0, false), Look::STILL);
     }
 
     #[test]

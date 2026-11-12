@@ -1,7 +1,9 @@
 //! Animations (helix-desktop-spec `contracts/wayland/README.md`,
 //! "Animations"): windows fade and grow in when they open, fade and
 //! shrink when they close, shrink towards the dock when minimized; shell
-//! surfaces (overview, menus, dialogs) fade in and out; workspaces slide.
+//! surfaces (overview, menus, dialogs) fade in and out; workspaces slide;
+//! maximizing, tiling, full screen and restoring grow or shrink windows
+//! to their new place.
 //!
 //! What goes away is drawn from a snapshot of its surfaces' textures,
 //! taken while they still exist.
@@ -49,6 +51,9 @@ pub struct Ghost {
     layer: bool,
 }
 
+/// A window changing place: since when, from and to.
+type Resizing = (Window, Instant, Rectangle<i32, Logical>, Rectangle<i32, Logical>);
+
 #[derive(Debug, Default)]
 pub struct Animations {
     /// The renderer whose textures snapshots take.
@@ -58,6 +63,9 @@ pub struct Animations {
     ghosts: Vec<Ghost>,
     /// A workspace switch: when, which way, and the windows arriving.
     slide: Option<(Instant, i32, Vec<Window>)>,
+    /// Windows changing place: since when, from and to (client rectangles,
+    /// layout coordinates).
+    resizing: Vec<Resizing>,
 }
 
 /// The textures of `surface` and its subsurfaces, placed from the
@@ -104,6 +112,7 @@ impl Animations {
         self.opening.retain(|(w, s)| alive(Kind::Open, *s) && w.alive());
         self.layers.retain(|(l, s)| alive(Kind::LayerIn, *s) && l.is_alive());
         self.ghosts.retain(|g| alive(g.kind, g.start));
+        self.resizing.retain(|(w, s, _, _)| alive(Kind::Resize, *s) && w.alive());
         if self.slide.as_ref().is_some_and(|(s, _, _)| !alive(Kind::Slide, *s)) {
             self.slide = None;
         }
@@ -111,7 +120,7 @@ impl Animations {
 
     /// Whether anything is animating (frames must keep coming).
     pub fn active(&self) -> bool {
-        !self.opening.is_empty() || !self.layers.is_empty() || !self.ghosts.is_empty() || self.slide.is_some()
+        !self.opening.is_empty() || !self.layers.is_empty() || !self.ghosts.is_empty() || self.slide.is_some() || !self.resizing.is_empty()
     }
 
     pub fn window_opened(&mut self, motion: Motion, window: &Window) {
@@ -119,6 +128,28 @@ impl Animations {
             self.opening.retain(|(w, _)| w != window);
             self.opening.push((window.clone(), Instant::now()));
         }
+    }
+
+    /// `window` goes from `from` to `to` (maximized, restored…); only
+    /// with full motion (not with reduced motion: that would move it).
+    pub fn window_resized(&mut self, motion: Motion, window: &Window, from: Rectangle<i32, Logical>, to: Rectangle<i32, Logical>) {
+        tracing::debug!(?motion, ?from, ?to, "window changes place");
+        if motion != Motion::Full || from == to || from.size.w <= 0 || from.size.h <= 0 {
+            return;
+        }
+        // Changing again part way: from where it is drawn now.
+        let from = self.window_rect(window).map_or(from, |r| r.to_i32_round());
+        self.resizing.retain(|(w, _, _, _)| w != window);
+        self.resizing.push((window.clone(), Instant::now(), from, to));
+    }
+
+    /// Where a resizing `window` is drawn now (its client rectangle).
+    pub fn window_rect(&self, window: &Window) -> Option<Rectangle<f64, Logical>> {
+        let (_, start, from, to) = self.resizing.iter().find(|(w, _, _, _)| w == window)?;
+        let t = anim::progress(Kind::Resize, Instant::now() - *start)?;
+        let r = |r: &Rectangle<i32, Logical>| (f64::from(r.loc.x), f64::from(r.loc.y), f64::from(r.size.w), f64::from(r.size.h));
+        let (x, y, w, h) = anim::between(r(from), r(to), t);
+        Some(Rectangle::new(Point::from((x, y)), Size::from((w, h))))
     }
 
     pub fn layer_opened(&mut self, motion: Motion, surface: &WlSurface) {

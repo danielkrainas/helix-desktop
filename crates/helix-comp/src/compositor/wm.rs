@@ -222,8 +222,17 @@ impl Helix {
             let _ = x11.set_fullscreen(kind == Takeover::Fullscreen);
             let _ = x11.configure(area);
         }
+        self.animate_resize(window, area);
         self.space.map_element(window.clone(), area.loc, true);
         self.restack_above();
+    }
+
+    /// Grow or shrink `window` from where it is to `to` (client area).
+    fn animate_resize(&mut self, window: &Window, to: Rectangle<i32, Logical>) {
+        if let Some(location) = self.space.element_location(window) {
+            let from = Rectangle::new(location, window.geometry().size);
+            self.animations.window_resized(self.wm_settings.motion, window, from, to);
+        }
     }
 
     /// Undo maximize/fullscreen, restoring the previous geometry.
@@ -246,6 +255,7 @@ impl Helix {
             let _ = x11.set_fullscreen(false);
             let _ = x11.configure(geometry);
         }
+        self.animate_resize(window, geometry);
         self.space.map_element(window.clone(), geometry.loc, true);
         self.restack_above();
     }
