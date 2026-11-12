@@ -39,6 +39,35 @@ pub fn icon_bytes(icon: &Value<'_>) -> Option<Vec<u8>> {
     Vec::<u8>::try_from(data.try_clone().ok()?).ok()
 }
 
+/// Largest icon file the user may pick.
+pub const MAX_ICON: u64 = 4 << 20;
+
+/// Whether `bytes` look like a PNG, JPEG or SVG image (what the frontend
+/// accepts as a launcher icon).
+pub fn image_kind(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("jpeg")
+    } else if String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).contains("<svg") {
+        Some("svg")
+    } else {
+        None
+    }
+}
+
+/// A picked icon file as a serialized `GBytesIcon`, if it is an image
+/// that is not too large.
+pub fn icon_from_file(path: &std::path::Path) -> Result<OwnedValue, String> {
+    let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if size > MAX_ICON {
+        return Err("the file is too large".into());
+    }
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    image_kind(&bytes).ok_or("not a PNG, JPEG or SVG image")?;
+    OwnedValue::try_from(Value::from(("bytes", Value::from(bytes)))).map_err(|e| e.to_string())
+}
+
 /// The name to return: the user's (trimmed, on one line, at most
 /// [`MAX_NAME`] characters), else the default.
 pub fn chosen_name(entered: Option<&str>, default: &str) -> String {
@@ -96,6 +125,7 @@ impl DynamicLauncherBackend {
     ) -> fdo::Result<(u32, Results)> {
         let get_bool = |k: &str, d: bool| options.get(k).and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(d);
         let editable = get_bool("editable_name", true);
+        let icon_editable = get_bool("editable_icon", false);
         let kind = options.get("launcher_type").and_then(|v| u32::try_from(v.clone()).ok()).unwrap_or(launcher_type::APPLICATION);
         let target = options.get("target").and_then(|v| String::try_from(v.clone()).ok()).filter(|s| !s.is_empty());
         let icon = icon_bytes(&icon_v);
@@ -122,6 +152,10 @@ impl DynamicLauncherBackend {
                 dialog_options.insert("entry-label".to_owned(), value(Value::from("Name")));
                 dialog_options.insert("entry".to_owned(), value(Value::from(default.clone())));
             }
+            if icon_editable {
+                dialog_options.insert("check-label".to_owned(), value(Value::from("Choose a different icon")));
+                dialog_options.insert("check".to_owned(), value(Value::from(false)));
+            }
             let icon_file = icon.as_deref().and_then(IconFile::write);
             if let Some(file) = &icon_file {
                 dialog_options.insert("picture".to_owned(), value(Value::from(file.0.to_string_lossy().into_owned())));
@@ -136,6 +170,22 @@ impl DynamicLauncherBackend {
             tracing::info!(name = chosen, "launcher install accepted");
             let mut out = Results::new();
             out.insert("name".to_owned(), value(Value::from(chosen)));
+            let other_icon = icon_editable && results.get("check").and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(false);
+            let picked = match other_icon {
+                true => crate::file_chooser::pick_image(&conn, "Choose an Icon").await,
+                false => None,
+            };
+            let icon_v = match picked.map(|p| (icon_from_file(&p), p)) {
+                Some((Ok(icon), path)) => {
+                    tracing::info!(path = %path.display(), "launcher icon chosen");
+                    icon
+                }
+                Some((Err(err), path)) => {
+                    tracing::warn!(err, path = %path.display(), "cannot use that icon; keeping the app's");
+                    icon_v
+                }
+                None => icon_v,
+            };
             out.insert("icon".to_owned(), icon_v);
             (response::SUCCESS, out)
         })
@@ -163,6 +213,23 @@ impl DynamicLauncherBackend {
 mod tests {
     use super::*;
     use zbus::zvariant::Structure;
+
+    #[test]
+    fn picked_icons() {
+        assert_eq!(image_kind(b"\x89PNG\r\n\x1a\nrest"), Some("png"));
+        assert_eq!(image_kind(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("jpeg"));
+        assert_eq!(image_kind(b"<?xml version='1.0'?><svg xmlns='http://www.w3.org/2000/svg'/>"), Some("svg"));
+        assert_eq!(image_kind(b"hello"), None);
+        let dir = std::env::temp_dir().join(format!("helix-launcher-icon-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("i.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\nrest").unwrap();
+        let icon = icon_from_file(&png).unwrap();
+        assert_eq!(icon_bytes(&icon), Some(b"\x89PNG\r\n\x1a\nrest".to_vec()));
+        std::fs::write(dir.join("t.txt"), "text").unwrap();
+        assert!(icon_from_file(&dir.join("t.txt")).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn icons_and_names() {

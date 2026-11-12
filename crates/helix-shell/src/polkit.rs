@@ -61,17 +61,76 @@ fn user(uid: u32) -> Option<(String, String)> {
     Some((name, gecos))
 }
 
-/// The uid to authenticate as: ours if offered, else the first user.
-pub fn choose_uid(identities: &[(String, HashMap<String, OwnedValue>)], own: u32) -> Option<u32> {
-    let uids: Vec<u32> = identities
-        .iter()
-        .filter(|(kind, _)| kind == "unix-user")
-        .filter_map(|(_, d)| match d.get("uid").map(|v| &**v) {
-            Some(Value::U32(uid)) => Some(*uid),
-            _ => None,
-        })
-        .collect();
-    uids.iter().copied().find(|u| *u == own).or_else(|| uids.first().copied())
+/// The users of group `gid`: its listed members (by name), looked up.
+pub fn group_members(gid: u32) -> Vec<u32> {
+    let mut buf = vec![0u8; 65536];
+    let mut grp: libc::group = unsafe { std::mem::zeroed() };
+    let mut result: *mut libc::group = std::ptr::null_mut();
+    // SAFETY: getgrgid_r fills `grp` with pointers into `buf`, which
+    // outlives the reads below.
+    let rc = unsafe { libc::getgrgid_r(gid, &mut grp, buf.as_mut_ptr().cast(), buf.len(), &mut result) };
+    if rc != 0 || result.is_null() || grp.gr_mem.is_null() {
+        return Vec::new();
+    }
+    let mut names = Vec::new();
+    // SAFETY: gr_mem is a NULL-terminated array of NUL-terminated strings
+    // in `buf`.
+    unsafe {
+        let mut p = grp.gr_mem;
+        while !(*p).is_null() {
+            names.push(std::ffi::CStr::from_ptr(*p).to_owned());
+            p = p.add(1);
+        }
+    }
+    names.iter().filter_map(|n| uid_of(n)).collect()
+}
+
+/// The uid of login name `name`.
+fn uid_of(name: &std::ffi::CStr) -> Option<u32> {
+    let mut buf = vec![0u8; 16384];
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut result: *mut libc::passwd = std::ptr::null_mut();
+    // SAFETY: as in `user`.
+    let rc = unsafe { libc::getpwnam_r(name.as_ptr(), &mut pwd, buf.as_mut_ptr().cast(), buf.len(), &mut result) };
+    (rc == 0 && !result.is_null()).then_some(pwd.pw_uid)
+}
+
+/// The groups the session's user is in (primary and supplementary).
+pub fn own_groups() -> Vec<u32> {
+    // SAFETY: getgid cannot fail; getgroups with 0 asks for the count, then
+    // fills at most that many.
+    unsafe {
+        let mut groups = vec![libc::getgid()];
+        let n = libc::getgroups(0, std::ptr::null_mut());
+        if n > 0 {
+            let mut more = vec![0 as libc::gid_t; n as usize];
+            let got = libc::getgroups(n, more.as_mut_ptr());
+            if got > 0 {
+                groups.extend(more.into_iter().take(got as usize));
+            }
+        }
+        groups
+    }
+}
+
+fn id_of(details: &HashMap<String, OwnedValue>, key: &str) -> Option<u32> {
+    match details.get(key).map(|v| &**v) {
+        Some(Value::U32(id)) => Some(*id),
+        _ => None,
+    }
+}
+
+/// The uid to authenticate as: ours if offered (as a `unix-user`, or as a
+/// member of a `unix-group` offered: one of `own_groups`), else the first
+/// user offered, else the first member (`members`) of the first group
+/// that has one.
+pub fn choose_uid(identities: &[(String, HashMap<String, OwnedValue>)], own: u32, own_groups: &[u32], members: impl Fn(u32) -> Vec<u32>) -> Option<u32> {
+    let of = |kind: &str, key: &str| -> Vec<u32> { identities.iter().filter(|(k, _)| k == kind).filter_map(|(_, d)| id_of(d, key)).collect() };
+    let (uids, gids) = (of("unix-user", "uid"), of("unix-group", "gid"));
+    if uids.contains(&own) || gids.iter().any(|g| own_groups.contains(g)) {
+        return Some(own);
+    }
+    uids.first().copied().or_else(|| gids.iter().find_map(|g| members(*g).first().copied()))
 }
 
 /// A helper prompt as a field label ("Password: " → "Password").
@@ -210,7 +269,7 @@ impl Agent {
         check_caller(conn, &header).await?;
         // SAFETY: getuid cannot fail.
         let own = unsafe { libc::getuid() };
-        let uid = choose_uid(&identities, own).ok_or_else(|| PolkitError::Failed("no user to authenticate as".into()))?;
+        let uid = choose_uid(&identities, own, &own_groups(), group_members).ok_or_else(|| PolkitError::Failed("no user to authenticate as".into()))?;
         let (name, real) = user(uid).ok_or_else(|| PolkitError::Failed(format!("unknown user {uid}")))?;
         let (cancel_tx, cancel) = oneshot::channel();
         self.running.lock().unwrap_or_else(|e| e.into_inner()).insert(cookie.to_owned(), cancel_tx);
@@ -269,10 +328,17 @@ mod tests {
 
     #[test]
     fn identities() {
+        let none = |_| Vec::new();
         let ids = vec![identity("unix-group", "gid", 27), identity("unix-user", "uid", 0), identity("unix-user", "uid", 1000)];
-        assert_eq!(choose_uid(&ids, 1000), Some(1000), "ourselves first");
-        assert_eq!(choose_uid(&ids, 1001), Some(0), "else the first user");
-        assert_eq!(choose_uid(&[identity("unix-group", "gid", 27)], 1000), None);
+        assert_eq!(choose_uid(&ids, 1000, &[1000], none), Some(1000), "ourselves first");
+        assert_eq!(choose_uid(&ids, 1001, &[1001], none), Some(0), "else the first user");
+        let wheel = [identity("unix-group", "gid", 27)];
+        assert_eq!(choose_uid(&wheel, 1000, &[1000, 27], none), Some(1000), "a member of the group");
+        assert_eq!(choose_uid(&wheel, 1000, &[1000], |g| if g == 27 { vec![1002, 1003] } else { Vec::new() }), Some(1002), "else a member");
+        assert_eq!(choose_uid(&wheel, 1000, &[1000], none), None, "an empty group");
+        // The real lookup: root's group lists nobody, usually; it must not fail.
+        let _ = group_members(0);
+        assert!(own_groups().contains(&unsafe { libc::getgid() }));
     }
 
     #[test]

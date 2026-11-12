@@ -229,6 +229,16 @@ impl MountHandler {
     }
 }
 
+/// The dialog's icon: theme icon `name` (none when empty or not found),
+/// loaded at twice its 48-pixel size for scaled monitors.
+fn icon(name: &str) -> Option<std::sync::Arc<helix_draw::Image>> {
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    crate::icons::load(&crate::icons::IconSource::Names(vec![name.to_owned()]), 96).map(std::sync::Arc::new)
+}
+
 fn sender_of(header: &Header<'_>) -> String {
     header.sender().map(|s| s.to_string()).unwrap_or_default()
 }
@@ -241,15 +251,16 @@ impl MountHandler {
         #[zbus(header)] header: Header<'_>,
         id: String,
         message: String,
-        _icon_name: String,
+        icon_name: String,
         default_user: String,
         default_domain: String,
         flags: u32,
     ) -> (u32, Details) {
         tracing::info!(id, flags, "mount operation asks for a password");
-        let Some(prompt) = password_prompt(&message, &default_user, &default_domain, flags) else {
+        let Some(mut prompt) = password_prompt(&message, &default_user, &default_domain, flags) else {
             return (result::UNHANDLED, Details::new());
         };
+        prompt.icon = icon(&icon_name);
         self.run(sender_of(&header), id, prompt, |answer| match answer {
             Answer::Continue { entry, password, choice, .. } => {
                 let password = password.map(|p| String::from_utf8_lossy(p.bytes()).into_owned());
@@ -260,10 +271,10 @@ impl MountHandler {
         .await
     }
 
-    async fn ask_question(&self, #[zbus(header)] header: Header<'_>, id: String, message: String, _icon_name: String, choices: Vec<String>) -> (u32, Details) {
+    async fn ask_question(&self, #[zbus(header)] header: Header<'_>, id: String, message: String, icon_name: String, choices: Vec<String>) -> (u32, Details) {
         tracing::info!(id, choices = choices.len(), "mount operation asks a question");
         let (title, rest) = split_message(&message);
-        let prompt = Prompt { title, message: rest, ..Prompt::default() };
+        let prompt = Prompt { title, message: rest, icon: icon(&icon_name), ..Prompt::default() };
         self.question(sender_of(&header), id, prompt, &choices).await
     }
 
@@ -272,7 +283,7 @@ impl MountHandler {
         #[zbus(header)] header: Header<'_>,
         id: String,
         message: String,
-        _icon_name: String,
+        icon_name: String,
         application_pids: Vec<i32>,
         choices: Vec<String>,
     ) -> (u32, Details) {
@@ -280,7 +291,7 @@ impl MountHandler {
         let (title, rest) = split_message(&message);
         let names: Vec<String> = application_pids.iter().map(|p| crate::media::process_name(*p)).collect();
         let description = if names.is_empty() { String::new() } else { format!("In use by: {}", crate::media::program_list(&names)) };
-        let prompt = Prompt { title, message: rest, description, ..Prompt::default() };
+        let prompt = Prompt { title, message: rest, description, icon: icon(&icon_name), ..Prompt::default() };
         self.question(sender_of(&header), id, prompt, &choices).await
     }
 

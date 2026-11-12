@@ -365,6 +365,25 @@ fn opt<T: TryFrom<OwnedValue>>(results: &HashMap<String, OwnedValue>, key: &str)
     results.get(key).and_then(|v| T::try_from(v.clone()).ok())
 }
 
+/// Ask for one image file (PNG, JPEG or SVG), starting in the pictures
+/// folder; for other backends (DynamicLauncher's icon).
+pub(crate) async fn pick_image(conn: &Connection, title: &str) -> Option<PathBuf> {
+    let home = home();
+    let folder = gio::glib::user_special_dir(gio::glib::UserDirectory::Pictures).filter(|d| d.is_dir()).unwrap_or(home);
+    let images: Filter = ("Images".into(), ["image/png", "image/jpeg", "image/svg+xml"].iter().map(|m| (1, (*m).to_owned())).collect());
+    let ask = Ask {
+        title: title.into(),
+        accept: "Choose".into(),
+        mode: Mode::Open { multiple: false, directory: false },
+        folder,
+        name: String::new(),
+        filters: vec![images],
+        filter: Some(0),
+        check: None,
+    };
+    choose(conn, ask).await.and_then(|o| o.paths.into_iter().next())
+}
+
 async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
     let home = home();
     let mut warning = String::new();

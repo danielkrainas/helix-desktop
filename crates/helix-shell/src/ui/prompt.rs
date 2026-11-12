@@ -274,12 +274,20 @@ impl Ui {
         let places_shown = p.places.len().min(PLACES_SHOWN);
         let list_rows = shown.max(places_shown);
         let list_h = if list_rows > 0 { list_rows as i32 * LIST_ROW + 8 } else { 0 };
-        let bh = 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + picture_h + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + 26 + 64;
+        // An icon above the title.
+        let icon = p.icon.as_deref().filter(|i| i.width > 0 && i.height > 0);
+        let top = if icon.is_some() { 60 } else { 0 };
+        let bh = top + 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + picture_h + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + 26 + 64;
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
         canvas.rect(bx, by, bw, bh, BANNER_BG);
         let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
+        if let Some(icon) = icon {
+            canvas.image(f64::from(bx + (bw - 48) / 2), f64::from(by + 20), 48.0, 48.0, icon);
+        }
+        // Below the icon, laid out as without it.
+        let (by, bh) = (by + top, bh - top);
         label(text, &mut canvas, &p.title, center(&p.title, 20.0), (by + 44) as f32, 20.0, FG, inner);
         let mut y = by + 76;
         for line in &message {
