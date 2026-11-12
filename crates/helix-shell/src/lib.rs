@@ -933,6 +933,18 @@ impl UiBridge {
                             extra_keys::run_custom(index);
                             None
                         }
+                        shell_keys::KeyAction::Eject => {
+                            media::eject_drive();
+                            Some(Osd { icon: Some("media-eject-symbolic".into()), label: None, level: None, max_level: 1.0, connector: None })
+                        }
+                        shell_keys::KeyAction::Rfkill(bluetooth_only) => match zbus::Connection::system().await {
+                            Ok(system) => {
+                                let osd = extra_keys::rfkill(&system, bluetooth_only).await;
+                                status::changed();
+                                osd
+                            }
+                            Err(_) => None,
+                        },
                     };
                     if let Some(osd) = osd {
                         let _ = ui.send(UiEvent::Osd(osd));

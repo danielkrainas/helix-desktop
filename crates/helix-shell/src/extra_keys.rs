@@ -255,6 +255,39 @@ pub async fn keyboard_backlight(system: &Connection, key: KbdKey) -> Option<Osd>
 }
 
 /// The battery's icon and level, if there is one.
+/// What the rfkill keys change: airplane mode (`rfkill`) or Bluetooth
+/// alone, from the current state; `None` when there is nothing to switch.
+pub fn rfkill_toggle(status: &crate::status::Status, bluetooth_only: bool) -> Option<crate::status::Toggle> {
+    if bluetooth_only {
+        return status.bluetooth.map(|on| crate::status::Toggle::Bluetooth(!on));
+    }
+    (status.wifi.is_some() || status.bluetooth.is_some()).then_some(crate::status::Toggle::Airplane(!status.airplane))
+}
+
+/// The on-screen display after an rfkill toggle.
+pub fn rfkill_osd(toggle: &crate::status::Toggle) -> Option<Osd> {
+    let (icon, label) = match toggle {
+        crate::status::Toggle::Airplane(true) => ("airplane-mode-symbolic", "Airplane Mode On"),
+        crate::status::Toggle::Airplane(false) => ("airplane-mode-disabled-symbolic", "Airplane Mode Off"),
+        crate::status::Toggle::Bluetooth(true) => ("bluetooth-active-symbolic", "Bluetooth On"),
+        crate::status::Toggle::Bluetooth(false) => ("bluetooth-disabled-symbolic", "Bluetooth Off"),
+        _ => return None,
+    };
+    Some(Osd { icon: Some(icon.into()), label: Some(label.into()), level: None, max_level: 1.0, connector: None })
+}
+
+/// The `rfkill` and `rfkill-bluetooth` keys.
+pub async fn rfkill(system: &Connection, bluetooth_only: bool) -> Option<Osd> {
+    let status = crate::status::read(Some(system)).await;
+    let toggle = rfkill_toggle(&status, bluetooth_only)?;
+    tracing::info!(?toggle, "rfkill key");
+    if let Err(err) = crate::status::apply(system, toggle.clone()).await {
+        tracing::warn!(%err, "rfkill key failed");
+        return None;
+    }
+    rfkill_osd(&toggle)
+}
+
 pub async fn battery(system: &Connection) -> Option<Osd> {
     let proxy = zbus::Proxy::new(system, UPOWER, "/org/freedesktop/UPower/devices/DisplayDevice", "org.freedesktop.UPower.Device").await.ok()?;
     if !proxy.get_property::<bool>("IsPresent").await.ok()? {
@@ -370,6 +403,20 @@ pub fn follow(schemas: &'static [&'static str], changed: impl Fn() + Send + 'sta
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rfkill_keys() {
+        use crate::status::{Status, Toggle};
+        let mut st = Status { wifi: Some((true, None)), bluetooth: Some(true), airplane: false, ..Status::default() };
+        assert_eq!(rfkill_toggle(&st, false), Some(Toggle::Airplane(true)));
+        assert_eq!(rfkill_toggle(&st, true), Some(Toggle::Bluetooth(false)));
+        st.airplane = true;
+        assert_eq!(rfkill_toggle(&st, false), Some(Toggle::Airplane(false)));
+        let none = Status::default();
+        assert_eq!((rfkill_toggle(&none, false), rfkill_toggle(&none, true)), (None, None), "no radios");
+        assert_eq!(rfkill_osd(&Toggle::Airplane(true)).and_then(|o| o.label).as_deref(), Some("Airplane Mode On"));
+        assert_eq!(rfkill_osd(&Toggle::Bluetooth(false)).and_then(|o| o.icon).as_deref(), Some("bluetooth-disabled-symbolic"));
+    }
 
     #[test]
     fn steps() {

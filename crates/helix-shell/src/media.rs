@@ -465,6 +465,44 @@ fn eject(state: &State, root: &str) {
     }
 }
 
+/// What the eject key ejects, of drives given as (unix device, can
+/// eject): the first ejectable optical drive (`/dev/sr*`), else the first
+/// ejectable drive.
+pub fn pick_eject(drives: &[(String, bool)]) -> Option<usize> {
+    let ejectable = || drives.iter().enumerate().filter(|(_, d)| d.1);
+    ejectable().find(|(_, d)| d.0.starts_with("/dev/sr")).or_else(|| ejectable().next()).map(|(i, _)| i)
+}
+
+/// The eject key: eject a drive (see [`pick_eject`]).
+pub fn eject_drive() {
+    let Some(context) = CONTEXT.get() else { return };
+    context.invoke(|| {
+        STATE.with(|s| {
+            let state = s.borrow();
+            let Some(monitor) = state.monitor.as_ref() else { return };
+            let drives = monitor.connected_drives();
+            let described: Vec<(String, bool)> = drives
+                .iter()
+                .map(|d| (d.identifier("unix-device").map(|i| i.to_string()).unwrap_or_default(), d.can_eject()))
+                .collect();
+            let Some(drive) = pick_eject(&described).and_then(|i| drives.get(i).cloned()) else {
+                tracing::info!("eject key: no drive to eject");
+                return;
+            };
+            let name = drive.name().to_string();
+            tracing::info!(name, "eject key");
+            let center = state.center.clone();
+            let (op, op_id) = mount_operation(&name);
+            drive.eject_with_operation(gio::MountUnmountFlags::NONE, Some(&op), None::<&gio::Cancellable>, move |result| {
+                finish_op(op_id);
+                if let (Err(err), Some(center)) = (result, center) {
+                    center.media_notice(&format!("Cannot eject {name}"), err.message(), None);
+                }
+            });
+        });
+    });
+}
+
 /// Watch media for the rest of the process; questions go to `ui`,
 /// waited for on `runtime`.
 pub fn run(center: Center, ui: tokio::sync::mpsc::UnboundedSender<UiEvent>, runtime: tokio::runtime::Handle) {
@@ -532,6 +570,14 @@ pub fn run(center: Center, ui: tokio::sync::mpsc::UnboundedSender<UiEvent>, runt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eject_choice() {
+        let d = |dev: &str, can: bool| (dev.to_owned(), can);
+        assert_eq!(pick_eject(&[d("/dev/sda", true), d("/dev/sr0", true)]), Some(1), "the optical drive first");
+        assert_eq!(pick_eject(&[d("/dev/sr0", false), d("/dev/sdb", true)]), Some(1));
+        assert_eq!(pick_eject(&[d("/dev/sda", false)]), None);
+    }
 
     #[test]
     fn questions() {

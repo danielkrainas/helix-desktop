@@ -159,6 +159,10 @@ pub enum KeyAction {
     RotationLock,
     /// The power button (`power-button-action`).
     PowerButton,
+    /// `eject`: eject a removable drive.
+    Eject,
+    /// `rfkill` (airplane mode) or, with true, `rfkill-bluetooth`.
+    Rfkill(bool),
 }
 
 impl KeyAction {
@@ -262,6 +266,12 @@ const KEYS: &[(&str, &str, &[&str], KeyAction)] = &[
     (MEDIA_KEYS, "keyboard-brightness-down-static", &["XF86KbdBrightnessDown"], KeyAction::KbdBacklight(KbdKey::Down)),
     (MEDIA_KEYS, "keyboard-brightness-toggle", &[], KeyAction::KbdBacklight(KbdKey::Toggle)),
     (MEDIA_KEYS, "keyboard-brightness-toggle-static", &["XF86KbdLightOnOff"], KeyAction::KbdBacklight(KbdKey::Toggle)),
+    (MEDIA_KEYS, "eject", &[], KeyAction::Eject),
+    (MEDIA_KEYS, "eject-static", &["XF86Eject"], KeyAction::Eject),
+    (MEDIA_KEYS, "rfkill", &[], KeyAction::Rfkill(false)),
+    (MEDIA_KEYS, "rfkill-static", &["XF86WLAN", "XF86UWB", "XF86RFKill"], KeyAction::Rfkill(false)),
+    (MEDIA_KEYS, "rfkill-bluetooth", &[], KeyAction::Rfkill(true)),
+    (MEDIA_KEYS, "rfkill-bluetooth-static", &["XF86Bluetooth"], KeyAction::Rfkill(true)),
     (MEDIA_KEYS, "rotate-video-lock", &[], KeyAction::RotationLock),
     (MEDIA_KEYS, "rotate-video-lock-static", &["<Super>o", "XF86RotationLockToggle"], KeyAction::RotationLock),
     (MEDIA_KEYS, "battery-status", &[], KeyAction::Battery),
