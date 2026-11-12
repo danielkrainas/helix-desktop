@@ -72,6 +72,8 @@ fn main() -> ExitCode {
     });
     runtime.spawn(helix_shell::screencast_chooser::follow_sharing(service.connection().clone(), service.ui_sender()));
     runtime.spawn(helix_shell::notifications::follow_settings(service.notifications()));
+    // The desktop and lock screen backgrounds.
+    runtime.spawn(helix_shell::wallpaper::follow(service.ui_sender()));
     // The polkit authentication agent for our session.
     if std::env::var_os("HELIX_NO_POLKIT_AGENT").is_none() {
         let ui = service.ui_sender();

@@ -63,3 +63,8 @@ helix-comp = { path = "crates/helix-comp" }
 helix-shell = { path = "crates/helix-shell" }
 helix-protocols = { path = "crates/helix-protocols" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Dependencies optimized in dev builds too: picture decoders (wallpapers,
+# icons) are far too slow otherwise.
+[profile.dev.package."*"]
+opt-level = 2

@@ -52,6 +52,7 @@ use helix_protocols::client::helix_screenshot_manager_v1::HelixScreenshotManager
 use crate::windows::{SwitchEntry, SwitchMode, Switcher, WindowAction};
 use std::collections::HashMap;
 
+mod background;
 mod capture;
 mod ime;
 mod notify;
@@ -194,6 +195,12 @@ struct Ui {
     /// rest (sharing the pool left the primary monitor's overview stale
     /// while a virtual monitor nobody watched was up).
     overview_pool: Option<SlotPool>,
+    /// The desktop background on every monitor, and its own pool (large
+    /// buffers).
+    backgrounds: Vec<background::BackgroundView>,
+    background_pool: Option<SlotPool>,
+    desktop_background: crate::wallpaper::Background,
+    lock_background: crate::wallpaper::Background,
     /// Where windows are, from the compositor (window list v8).
     window_geometry: HashMap<u32, overview::Geometry>,
     /// The primary monitor's area (x, y, w, h).
@@ -1122,8 +1129,10 @@ impl Ui {
             tracing::warn!("cannot allocate lock screen buffer");
             return;
         };
+        // The lock screen's picture, dimmed by half.
+        background::paint(data, physical(w, scale), physical(h, scale), scale, &self.lock_background, (w as f64, h as f64), None);
         let mut canvas = Canvas::scaled(data, w, h, scale);
-        canvas.fill(0xFF101014);
+        canvas.rect(0, 0, w as i32, h as i32, 0x80000000);
         let text = self.text.as_ref();
         let center = |s: &str, px: f32| -> f32 { (w as f32 - text.map_or(0.0, |t| t.width(s, px))) / 2.0 };
 
@@ -1725,6 +1734,14 @@ impl Ui {
                 }
             }
             UiEvent::PromptDone => self.prompt_done(),
+            UiEvent::Background { desktop, lock } => {
+                self.desktop_background = *desktop;
+                self.lock_background = *lock;
+                self.draw_backgrounds();
+                if self.lock.session.is_some() {
+                    self.draw_lock();
+                }
+            }
             UiEvent::Unbind { action } => {
                 if let Some(binding) = self.bindings.remove(&action) {
                     binding.destroy();
@@ -2011,6 +2028,10 @@ pub fn run(
         overview_others: Vec::new(),
         overview_shots: Default::default(),
         overview_pool: None,
+        backgrounds: Vec::new(),
+        background_pool: None,
+        desktop_background: Default::default(),
+        lock_background: Default::default(),
         window_geometry: HashMap::new(),
         primary_area: (0, 0, 1920, 1080),
         monitor_labels: Vec::new(),
@@ -2084,13 +2105,25 @@ impl OutputHandler for Ui {
     fn output_state(&mut self) -> &mut OutputState {
         &mut self.output_state
     }
-    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
-    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
-    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
+    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        self.add_background(output);
+    }
+    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+        // Spanned pictures depend on every monitor.
+        self.draw_backgrounds();
+    }
+    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        self.remove_background(&output);
+        self.draw_backgrounds();
+    }
 }
 
 impl LayerShellHandler for Ui {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
+        if self.backgrounds.iter().any(|b| &b.layer == layer) {
+            self.backgrounds.retain(|b| &b.layer != layer);
+            return;
+        }
         if self.picker_closed(layer)
             || self.overview_closed(layer)
             || self.flash_closed(layer)
@@ -2129,7 +2162,8 @@ impl LayerShellHandler for Ui {
         configure: LayerSurfaceConfigure,
         _: u32,
     ) {
-        if self.picker_configured(layer, configure.new_size)
+        if self.background_configured(layer, configure.new_size)
+            || self.picker_configured(layer, configure.new_size)
             || self.overview_configured(layer, configure.new_size)
             || self.flash_configured(layer, configure.new_size)
             || self.notify_configured(layer, configure.new_size)

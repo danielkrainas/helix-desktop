@@ -38,6 +38,7 @@ pub mod shortcuts_inhibit;
 pub mod state;
 pub mod text;
 pub mod ui;
+pub mod wallpaper;
 pub mod windows;
 
 use std::collections::HashMap;
@@ -139,6 +140,8 @@ pub enum UiEvent {
     Prompt(prompt::PromptSlot),
     /// Close the prompt dialog.
     PromptDone,
+    /// The desktop and lock screen backgrounds to show.
+    Background { desktop: Box<wallpaper::Background>, lock: Box<wallpaper::Background> },
     /// From IBus, for the input method.
     Ime(ibus::ImEvent),
     /// Quick settings values: volume (percent, muted, max) and brightness
