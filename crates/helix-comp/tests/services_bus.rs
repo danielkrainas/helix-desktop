@@ -71,6 +71,7 @@ fn monitor(width: i32, builtin: bool) -> Monitor {
         transforms: vec![0],
         hdr: false,
         color_mode: 0,
+        underscan: None,
     }
 }
 

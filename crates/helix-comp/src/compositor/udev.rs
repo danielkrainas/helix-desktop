@@ -101,6 +101,25 @@ fn set_connector_property(device: &DrmDevice, connector: connector::Handle, name
     Err(format!("the connector has no {name} property"))
 }
 
+/// Whether `connector` can underscan (an `underscan` property with `on`).
+fn can_underscan(device: &DrmDevice, connector: connector::Handle) -> bool {
+    let Ok(props) = device.get_properties(connector) else { return false };
+    let (ids, _) = props.as_props_and_values();
+    ids.iter().filter_map(|id| device.get_property(*id).ok()).any(|info| {
+        info.name().to_str() == Ok("underscan") && matches!(info.value_type(), property::ValueType::Enum(values) if values.values().1.iter().any(|v| v.name().to_str() == Ok("on")))
+    })
+}
+
+/// Turn underscanning on (borders of `borders` pixels, horizontal and
+/// vertical) or off.
+fn set_underscan(device: &DrmDevice, connector: connector::Handle, on: bool, borders: (u64, u64)) -> Result<(), String> {
+    if on {
+        set_connector_property(device, connector, "underscan hborder", ConnectorValue::Raw(borders.0))?;
+        set_connector_property(device, connector, "underscan vborder", ConnectorValue::Raw(borders.1))?;
+    }
+    set_connector_property(device, connector, "underscan", ConnectorValue::Enum(if on { "on" } else { "off" }))
+}
+
 enum ConnectorValue<'a> {
     Enum(&'a str),
     Raw(u64),
@@ -126,6 +145,8 @@ struct Surface {
     hdr: helix_comp::colorspace::HdrCaps,
     /// The color mode it is driven in (0 default, 1 BT.2100).
     color_mode: u32,
+    /// Underscanning: `None` when its connector cannot, else whether on.
+    underscan: Option<bool>,
     /// Converts frames in the BT.2100 color mode.
     hdr_pass: super::hdr::HdrPass,
 }
@@ -470,7 +491,15 @@ impl Helix {
             })
             .collect();
         let drm_modes = connector.modes().to_vec();
-        tracing::info!(name, mode = ?wl_mode, "output connected");
+        // Underscanning, when the connector has it (HDMI on some drivers);
+        // off at first.
+        let underscan = can_underscan(udev.manager.device(), connector.handle()).then(|| {
+            if let Err(err) = set_underscan(udev.manager.device(), connector.handle(), false, (0, 0)) {
+                tracing::info!(err, name, "cannot turn underscanning off");
+            }
+            false
+        });
+        tracing::info!(name, mode = ?wl_mode, underscan = underscan.is_some(), "output connected");
         udev.surfaces.insert(
             crtc,
             Surface {
@@ -485,6 +514,7 @@ impl Helix {
                 identity,
                 hdr,
                 color_mode: 0,
+                underscan,
                 hdr_pass: Default::default(),
             },
         );
@@ -558,6 +588,7 @@ impl Helix {
                     transforms: ALL_TRANSFORMS.to_vec(),
                     hdr: s.hdr.bt2100(),
                     color_mode: s.color_mode,
+                    underscan: s.underscan,
                 }
             })
             .collect();
@@ -838,6 +869,25 @@ impl Helix {
                 changed_color.push(surface.output.clone());
             }
             tracing::info!(name, color_mode = choice.color_mode, "color mode changed");
+        }
+
+        // Underscanning of the monitors that stay on and can.
+        let names: Vec<(crtc::Handle, String)> = udev.surfaces.iter().map(|(c, s)| (*c, s.output.name())).collect();
+        for (crtc, name) in names {
+            let Some((_, choice)) = find(&name) else { continue };
+            let Some(surface) = udev.surfaces.get(&crtc) else { continue };
+            if surface.underscan.is_none_or(|on| on == choice.underscan) {
+                continue;
+            }
+            let borders = helix_comp::display_config::underscan_borders(choice.width, choice.height);
+            let connectors: Vec<connector::Handle> = surface.drm_output.with_compositor(|c| c.surface().current_connectors().into_iter().collect());
+            for connector in connectors {
+                set_underscan(udev.manager.device(), connector, choice.underscan, borders).map_err(|e| format!("{name} cannot change underscanning: {e}"))?;
+            }
+            if let Some(surface) = udev.surfaces.get_mut(&crtc) {
+                surface.underscan = Some(choice.underscan);
+            }
+            tracing::info!(name, on = choice.underscan, ?borders, "underscanning changed");
         }
 
         // Then placement, scale and transform; outputs not mentioned go off.

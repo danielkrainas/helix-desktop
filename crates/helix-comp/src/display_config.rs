@@ -103,6 +103,9 @@ pub struct Monitor {
     pub hdr: bool,
     /// The color mode it is driven in.
     pub color_mode: u32,
+    /// Underscanning ("Adjust for TV"): `None` when the monitor cannot
+    /// underscan, else whether it does.
+    pub underscan: Option<bool>,
 }
 
 impl Monitor {
@@ -210,6 +213,14 @@ impl Layout {
                         _ => return Err(format!("{connector} cannot use that color mode")),
                     },
                 };
+                let underscan = match monitor_properties.get("underscanning") {
+                    None => false,
+                    Some(value) => match bool::try_from(&**value) {
+                        Ok(false) => false,
+                        Ok(true) if monitor.underscan.is_some() => true,
+                        _ => return Err(format!("{connector} cannot underscan")),
+                    },
+                };
                 let mode = monitor
                     .modes
                     .iter()
@@ -221,6 +232,7 @@ impl Layout {
                     height: mode.height,
                     refresh_mhz: mode.refresh_mhz,
                     color_mode,
+                    underscan,
                 });
             }
             config.logical.push(LogicalConfig {
@@ -316,6 +328,9 @@ impl Layout {
                     mode.current = found.is_some_and(|(_, c)| c.is(mode));
                 }
                 m.color_mode = found.map_or(m.color_mode, |(_, c)| c.color_mode);
+                if m.underscan.is_some() {
+                    m.underscan = Some(found.is_some_and(|(_, c)| c.underscan));
+                }
                 match found {
                     Some((l, _)) => {
                         m.x = l.x;
@@ -347,6 +362,7 @@ impl Layout {
                 height: mode.height,
                 refresh_mhz: mode.refresh_mhz,
                 color_mode: m.color_mode,
+                underscan: m.underscan.unwrap_or(false),
             };
             let same = |l: &&mut LogicalConfig| l.x == m.x && l.y == m.y && l.scale == m.scale && l.transform == m.transform;
             match config.logical.iter_mut().find(same) {
@@ -392,7 +408,7 @@ impl Layout {
                         )
                     })
                     .collect();
-                let mprops = props([
+                let mut mprops = props([
                     ("is-builtin", OwnedValue::from(m.builtin)),
                     ("display-name", string(&m.display_name)),
                     ("color-mode", OwnedValue::from(m.color_mode)),
@@ -401,6 +417,10 @@ impl Layout {
                         OwnedValue::try_from(zbus::zvariant::Value::from(if m.hdr { vec![COLOR_MODE_DEFAULT, COLOR_MODE_BT2100] } else { vec![COLOR_MODE_DEFAULT] })).expect("array"),
                     ),
                 ]);
+                // Only for monitors that can underscan.
+                if let Some(on) = m.underscan {
+                    mprops.insert("is-underscanning".to_owned(), OwnedValue::from(on));
+                }
                 (m.spec(), modes, mprops)
             })
             .collect();
@@ -520,6 +540,16 @@ pub struct MonitorChoice {
     /// The color mode (0 default, 1 BT.2100).
     #[serde(default)]
     pub color_mode: u32,
+    /// Underscanning, for monitors that can.
+    #[serde(default)]
+    pub underscan: bool,
+}
+
+/// Underscanning borders (horizontal, vertical) for a mode: 5 % of each
+/// side's length, at most 128 pixels (the drivers' limit).
+pub fn underscan_borders(width: i32, height: i32) -> (u64, u64) {
+    let border = |len: i32| ((f64::from(len.max(0)) * 0.05).round() as u64).min(128);
+    (border(width), border(height))
 }
 
 impl MonitorChoice {
@@ -1291,6 +1321,7 @@ mod tests {
             transforms: ALL_TRANSFORMS.to_vec(),
             hdr: false,
             color_mode: 0,
+            underscan: None,
         }
     }
 
@@ -1340,7 +1371,7 @@ mod tests {
     }
 
     fn choice(connector: &str, width: i32, height: i32) -> MonitorChoice {
-        MonitorChoice { connector: connector.into(), width, height, refresh_mhz: 60_000, color_mode: 0 }
+        MonitorChoice { connector: connector.into(), width, height, refresh_mhz: 60_000, color_mode: 0, underscan: false }
     }
 
     fn logical(x: i32, y: i32, primary: bool, monitors: Vec<MonitorChoice>) -> LogicalConfig {
@@ -1476,6 +1507,31 @@ mod tests {
         assert!(layout.parse(&wire("1920x1080@60.000"), &physical).unwrap_err().contains("layout mode 2"));
         assert_eq!(Method::try_from(2), Ok(Method::Persistent));
         assert!(Method::try_from(3).is_err());
+    }
+
+    #[test]
+    fn underscanning() {
+        let mut layout = two();
+        layout.monitors[1].underscan = Some(false);
+        // Reported only for the monitor that can.
+        let (_, monitors, _, _) = layout.current_state();
+        assert!(!monitors[0].2.contains_key("is-underscanning"));
+        assert!(!bool::try_from(&*monitors[1].2["is-underscanning"]).unwrap());
+        let on = |connector: &str| {
+            vec![(0, 0, 1.0, 0, true, vec![(connector.to_owned(), "1920x1080@60.000".to_owned(), props([("underscanning", OwnedValue::from(true))]))])]
+        };
+        assert!(layout.parse(&on("DP-1"), &Props::new()).unwrap_err().contains("cannot underscan"));
+        let config = layout.parse(&on("HDMI-1"), &Props::new()).unwrap();
+        assert!(config.logical[0].monitors[0].underscan);
+        let applied = layout.applied(&config);
+        assert_eq!(applied[1].underscan, Some(true));
+        assert_eq!(applied[0].underscan, None, "not for monitors that cannot");
+        // Remembered as part of the configuration.
+        let mut now = two();
+        now.monitors[1].underscan = Some(true);
+        assert!(now.current_config().logical.iter().flat_map(|l| &l.monitors).any(|c| c.connector == "HDMI-1" && c.underscan));
+        assert_eq!(underscan_borders(1920, 1080), (96, 54));
+        assert_eq!(underscan_borders(3840, 2160), (128, 108), "at most 128");
     }
 
     #[test]

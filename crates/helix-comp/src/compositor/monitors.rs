@@ -87,7 +87,9 @@ impl Helix {
         let output = self.space.outputs().next().cloned().ok_or("no output")?;
         let logical = config.logical.first().ok_or("no monitor")?;
         output.change_current_state(None, None, Some(to_scale(logical.scale)), None);
-        tracing::info!(scale = logical.scale, "nested output scale changed");
+        let underscan = logical.monitors.first().is_some_and(|c| c.underscan);
+        super::winit::TEST_UNDERSCAN.store(underscan, std::sync::atomic::Ordering::Relaxed);
+        tracing::info!(scale = logical.scale, underscan, "nested output scale changed");
         Ok(super::winit::describe(&output))
     }
 }

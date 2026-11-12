@@ -50,8 +50,14 @@ fn describe_size(size: Size<i32, Physical>, scale: f64) -> Vec<Monitor> {
         transforms: vec![0],
         hdr: false,
         color_mode: 0,
+        // `HELIX_TEST_UNDERSCAN`: the window claims it can underscan (for
+        // testing the settings; nothing changes on screen).
+        underscan: std::env::var_os("HELIX_TEST_UNDERSCAN").map(|_| TEST_UNDERSCAN.load(std::sync::atomic::Ordering::Relaxed)),
     }]
 }
+
+/// The nested window's pretend underscanning (`HELIX_TEST_UNDERSCAN`).
+pub static TEST_UNDERSCAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Open the host window and drive rendering and input from it. Returns the
 /// initial monitor description.

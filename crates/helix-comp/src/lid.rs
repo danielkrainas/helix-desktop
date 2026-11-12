@@ -118,6 +118,7 @@ mod tests {
             transforms: vec![0],
             hdr: false,
             color_mode: 0,
+            underscan: None,
         }
     }
 

@@ -92,6 +92,7 @@ fn monitor(connector: &str, hdr_mode: u32) -> Monitor {
         transforms: ALL_TRANSFORMS.to_vec(),
         hdr: true,
         color_mode: hdr_mode,
+        underscan: None,
     }
 }
 
