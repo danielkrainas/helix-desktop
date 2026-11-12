@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use futures_util::StreamExt;
 use gio::prelude::*;
 use zbus::object_server::SignalEmitter;
-use zbus::zvariant::{ObjectPath, OwnedValue, Value};
+use std::sync::{Arc, Mutex};
+
+use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
 use zbus::{fdo, interface, Connection, ObjectServer};
 
 use crate::screenshot::{response, with_request, Results};
@@ -192,6 +194,15 @@ impl AccountBackend {
 
 pub struct AppChooserBackend {
     pub conn: Connection,
+    /// Requests whose dialog is open.
+    pub open: Arc<Mutex<std::collections::HashSet<OwnedObjectPath>>>,
+}
+
+/// The installed apps among `choices` (desktop ids without `.desktop`):
+/// id and name, in order.
+fn app_items(choices: &[String]) -> Vec<(String, String)> {
+    let all: HashMap<String, String> = gio::AppInfo::all().into_iter().filter_map(|a| Some((a.id()?.trim_end_matches(".desktop").to_owned(), a.display_name().to_string()))).collect();
+    choices.iter().filter_map(|c| Some((c.clone(), all.get(c)?.clone()))).collect()
 }
 
 /// "Choose an app to open <file name>." from `uri` or `filename`.
@@ -214,17 +225,19 @@ impl AppChooserBackend {
         choices: Vec<String>,
         options: HashMap<String, OwnedValue>,
     ) -> fdo::Result<(u32, Results)> {
-        let all: HashMap<String, String> = gio::AppInfo::all().into_iter().filter_map(|a| Some((a.id()?.trim_end_matches(".desktop").to_owned(), a.display_name().to_string()))).collect();
-        let items: Vec<(String, String)> = choices.iter().filter_map(|c| Some((c.clone(), all.get(c)?.clone()))).collect();
+        let items = app_items(&choices);
         let last = opt_str(&options, "last_choice").unwrap_or_default();
         let message = open_message(opt_str(&options, "uri").as_deref(), opt_str(&options, "filename").as_deref());
         let token = opt_str(&options, "activation_token");
         let conn = self.conn.clone();
+        let (open, key) = (self.open.clone(), OwnedObjectPath::from(handle.to_owned()));
         Ok(with_request(server, handle, || async move {
             if items.is_empty() {
                 return (response::CANCELLED, Results::new());
             }
+            open.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone());
             let reply = conn.call_method(Some(SHELL), DIALOG_PATH, Some(DIALOG), "ChooseApp", &("Open With", message.as_str(), &items, last.as_str())).await;
+            open.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
             let choice: String = reply.and_then(|r| r.body().deserialize()).unwrap_or_default();
             if choice.is_empty() {
                 return (response::CANCELLED, Results::new());
@@ -238,7 +251,17 @@ impl AppChooserBackend {
         .await)
     }
 
-    async fn update_choices(&self, _handle: ObjectPath<'_>, _choices: Vec<String>) {}
+    /// New choices for an open dialog: the shell's list is replaced
+    /// (with none left, the dialog is canceled).
+    async fn update_choices(&self, handle: ObjectPath<'_>, choices: Vec<String>) -> fdo::Result<()> {
+        if !self.open.lock().unwrap_or_else(|e| e.into_inner()).contains(&OwnedObjectPath::from(handle.to_owned())) {
+            return Err(fdo::Error::InvalidArgs("no such open dialog".into()));
+        }
+        let items = app_items(&choices);
+        tracing::info!(%handle, choices = items.len(), "app chooser choices updated");
+        self.conn.call_method(Some(SHELL), DIALOG_PATH, Some(DIALOG), "UpdateApps", &(items,)).await.map_err(fdo::Error::from)?;
+        Ok(())
+    }
 }
 
 // ----- Background ------------------------------------------------------

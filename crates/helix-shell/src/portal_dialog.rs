@@ -70,11 +70,16 @@ pub fn app_states<'a>(apps: impl IntoIterator<Item = &'a str>, focused: Option<&
 pub struct PortalDialog {
     ui: mpsc::UnboundedSender<UiEvent>,
     apps: Arc<Mutex<HashMap<String, u32>>>,
+    /// The open "Open With" dialog's items (id, name), while one is open.
+    choosing: Arc<Mutex<Option<AppItems>>>,
 }
+
+/// Apps to choose from: desktop id and name.
+type AppItems = Vec<(String, String)>;
 
 impl PortalDialog {
     pub fn new(ui: mpsc::UnboundedSender<UiEvent>) -> Self {
-        Self { ui, apps: Default::default() }
+        Self { ui, apps: Default::default(), choosing: Default::default() }
     }
 }
 
@@ -114,12 +119,26 @@ impl PortalDialog {
             cancel_label: "Cancel".into(),
             ..Prompt::default()
         };
+        *self.choosing.lock().unwrap_or_else(|e| e.into_inner()) = Some(items);
         let answer = prompt::ask(&self.ui, prompt).await;
         prompt::done(&self.ui);
+        // The items as last updated.
+        let items = self.choosing.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default();
         match answer {
             Answer::Continue { selected, .. } => items.get(selected).map(|(id, _)| id.clone()).unwrap_or_default(),
             Answer::Cancel => String::new(),
         }
+    }
+
+    /// New items for the open "Open With" dialog (none: it is canceled);
+    /// false when none is open.
+    async fn update_apps(&self, items: Vec<(String, String)>) -> bool {
+        let mut choosing = self.choosing.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(current) = choosing.as_mut() else { return false };
+        let rows = items.iter().map(|(_, name)| name.clone()).collect();
+        *current = items;
+        let _ = self.ui.send(UiEvent::PromptRows(rows));
+        true
     }
 
     /// A dialog described by `options` (see the interface notes); response

@@ -85,7 +85,7 @@ impl PortalService {
         let server = conn.object_server();
         server.at(OBJECT_PATH, dialogs::AccessBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, dialogs::AccountBackend { conn: conn.clone() }).await?;
-        server.at(OBJECT_PATH, dialogs::AppChooserBackend { conn: conn.clone() }).await?;
+        server.at(OBJECT_PATH, dialogs::AppChooserBackend { conn: conn.clone(), open: Default::default() }).await?;
         server.at(OBJECT_PATH, dialogs::BackgroundBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, wallpaper::WallpaperBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, email::EmailBackend).await?;

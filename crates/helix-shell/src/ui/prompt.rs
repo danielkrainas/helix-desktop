@@ -112,6 +112,23 @@ impl Ui {
         }
     }
 
+    /// New rows for the prompt shown (the app chooser's choices changed).
+    pub(super) fn prompt_rows(&mut self, rows: Vec<String>) {
+        let Some(view) = self.prompt_view() else { return };
+        if view.busy {
+            return;
+        }
+        if rows.is_empty() {
+            self.prompt_answer(false);
+            return;
+        }
+        let current = view.prompt.list.get(view.selected).cloned();
+        view.selected = current.and_then(|c| rows.iter().position(|r| *r == c)).unwrap_or(0);
+        view.picked = vec![false; rows.len()];
+        view.prompt.list = rows;
+        self.draw_dialog();
+    }
+
     fn prompt_view(&mut self) -> Option<&mut PromptView> {
         match &mut self.dialog.as_mut()?.state.kind {
             DialogKind::Prompt(view) => Some(view),

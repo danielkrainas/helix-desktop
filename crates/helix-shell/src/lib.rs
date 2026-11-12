@@ -186,6 +186,9 @@ pub enum UiEvent {
     Prompt(prompt::PromptSlot),
     /// Close the prompt dialog.
     PromptDone,
+    /// Replace the rows of the prompt shown (its selection follows the
+    /// selected row's text); no rows cancel it.
+    PromptRows(Vec<String>),
     /// A search provider answered: its results for search `serial`.
     SearchResults { serial: u64, provider: usize, hits: Vec<launcher::SearchHit> },
     /// `org.gnome.desktop.a11y.interface` `high-contrast`.
