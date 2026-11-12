@@ -29,6 +29,8 @@ png.workspace = true
 input-sys.workspace = true
 pipewire.workspace = true
 xcursor.workspace = true
+# The XKB extension (X11 bells), on Smithay's x11rb.
+x11rb = { version = "0.13", default-features = false, features = ["xkb"] }
 
 [[bin]]
 name = "helix-comp"

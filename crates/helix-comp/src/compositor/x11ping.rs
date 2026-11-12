@@ -28,6 +28,8 @@ pub enum X11Note {
     Pong(Window),
     /// A window's `_NET_WM_ICON` changed.
     IconChanged(Window),
+    /// An app rang the bell (XKB), for a window (0: none).
+    Bell(Window),
 }
 
 /// An icon: premultiplied ARGB8888 (native byte order) and its size.
@@ -86,6 +88,25 @@ impl X11Ping {
             .map_err(|e| e.to_string())?
             .check()
             .map_err(|e| e.to_string())?;
+        // X11 bells come as XKB bell notifications.
+        let bells = (|| -> Result<(), String> {
+            use smithay::reexports::x11rb::protocol::xkb::{self, ConnectionExt as _};
+            conn.xkb_use_extension(1, 0).map_err(|e| e.to_string())?.reply().map_err(|e| e.to_string())?;
+            conn.xkb_select_events(
+                xkb::ID::USE_CORE_KBD.into(),
+                xkb::EventType::from(0u16),
+                xkb::EventType::BELL_NOTIFY,
+                xkb::MapPart::from(0u16),
+                xkb::MapPart::from(0u16),
+                &xkb::SelectEventsAux::new(),
+            )
+            .map_err(|e| e.to_string())?
+            .check()
+            .map_err(|e| e.to_string())
+        })();
+        if let Err(err) = bells {
+            tracing::info!(err, "no X11 bells");
+        }
         let conn = Arc::new(conn);
         let reader = conn.clone();
         std::thread::Builder::new()
@@ -98,6 +119,7 @@ impl X11Ping {
                             (msg.type_ == wm_protocols && data[0] == net_wm_ping).then_some(X11Note::Pong(data[2]))
                         }
                         Event::PropertyNotify(p) if p.atom == net_wm_icon => Some(X11Note::IconChanged(p.window)),
+                        Event::XkbBellNotify(bell) => Some(X11Note::Bell(bell.window)),
                         _ => None,
                     };
                     if let Some(note) = note {

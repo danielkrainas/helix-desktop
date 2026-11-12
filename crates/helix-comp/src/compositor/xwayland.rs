@@ -89,6 +89,7 @@ impl Helix {
                                         match event {
                                             smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::Pong(id)) => state.x11_pong(id),
                                             smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::IconChanged(id)) => state.x11_icon_changed(id),
+                                            smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::Bell(id)) => state.x11_bell(id),
                                             _ => {}
                                         }
                                     });

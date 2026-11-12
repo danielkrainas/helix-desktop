@@ -244,7 +244,22 @@ impl Helix {
     /// An app rang the bell (`xdg_system_bell_v1`; `surface` if it said
     /// which).
     pub fn ring_bell(&mut self, surface: Option<&WlSurface>) {
-        let window = surface.and_then(|s| self.window_for_surface(s)).or_else(|| self.focused_window());
+        let window = surface.and_then(|s| self.window_for_surface(s));
+        self.ring_bell_for(window);
+    }
+
+    /// An X11 app rang the bell (XKB), for `window` (0: none).
+    pub fn x11_bell(&mut self, window: u32) {
+        let found = (window != 0)
+            .then(|| self.space.elements().find(|w| w.x11_surface().is_some_and(|x| x.window_id() == window)).cloned())
+            .flatten();
+        self.ring_bell_for(found);
+    }
+
+    /// The bell, for `window` (else the focused one).
+    fn ring_bell_for(&mut self, window: Option<Window>) {
+        tracing::debug!(for_window = window.is_some(), "bell");
+        let window = window.or_else(|| self.focused_window());
         if self.wm_settings.audible_bell {
             helix_settings::sound::play(&helix_settings::sound::Sound::Name("bell".into()));
         }
