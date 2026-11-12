@@ -53,6 +53,7 @@ use crate::windows::{SwitchEntry, SwitchMode, Switcher, WindowAction};
 use std::collections::HashMap;
 
 mod background;
+mod calendar;
 mod capture;
 mod dash;
 mod ime;
@@ -137,6 +138,8 @@ struct Ui {
     /// The bold face of the UI font (summaries, bold markup).
     bold: Option<Text>,
     notify: notify::NotifyState,
+    /// The message tray's calendar column.
+    calendar: calendar::CalendarState,
     osd: Option<(Osd, Instant)>,
     shown_minute: Option<String>,
 
@@ -1755,6 +1758,7 @@ impl Ui {
     fn handle(&mut self, event: UiEvent) {
         match event {
             UiEvent::Notifications(list) => self.notifications_changed(list),
+            UiEvent::Calendar(data) => self.calendar_data(*data),
             UiEvent::DoNotDisturb(on) => {
                 self.notify.do_not_disturb = on;
                 self.draw_notification_list();
@@ -2137,6 +2141,7 @@ pub fn run(
         text,
         bold: Text::load_matching("sans-serif:bold"),
         notify: Default::default(),
+        calendar: Default::default(),
         osd: None,
         shown_minute: None,
         keyboard: None,

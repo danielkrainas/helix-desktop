@@ -16,7 +16,7 @@ pub(super) enum StatusItem {
 
 impl Ui {
     /// A symbolic icon in the panel's text color, cached.
-    fn symbolic_icon(&mut self, name: &str, scale: f64) -> Option<Image> {
+    pub(super) fn symbolic_icon(&mut self, name: &str, scale: f64) -> Option<Image> {
         let px = (f64::from(ICON) * scale).round() as u32;
         let key = format!("sym:{name}@{px}");
         let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];

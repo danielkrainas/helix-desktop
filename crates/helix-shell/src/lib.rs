@@ -22,6 +22,8 @@ pub mod launcher;
 pub mod location;
 pub mod logind;
 pub mod night_light;
+pub mod calendar;
+pub mod ical;
 pub mod icons;
 pub mod markup;
 pub mod media;
@@ -120,6 +122,8 @@ pub enum UiEvent {
     Banner(Option<notifications::Banner>),
     /// The notification list changed.
     Notifications(notifications::List),
+    /// The message tray's calendar data.
+    Calendar(Box<calendar::CalendarData>),
     /// `org.gnome.desktop.notifications show-banners` changed.
     DoNotDisturb(bool),
     /// The end-session confirmation dialog to show, or none.
@@ -215,6 +219,10 @@ pub enum UiRequest {
     SetDoNotDisturb(bool),
     /// A link in a notification was clicked.
     OpenUri(String),
+    /// The tray's calendar shows `[from, to)`: read its data.
+    Calendar { from: i64, to: i64 },
+    /// A media button in the tray; then read the calendar data again.
+    Media { command: shell_keys::Playback, from: i64, to: i64 },
     /// The user answered the end-session dialog.
     EndDialogAnswer(end_dialog::Choice),
     /// A power menu entry was chosen.
@@ -903,6 +911,25 @@ impl UiBridge {
             UiRequest::NotificationsCleared => self.center.clear(&self.conn).await,
             UiRequest::SetDoNotDisturb(on) => {
                 notifications::set_do_not_disturb(on);
+                Ok(())
+            }
+            UiRequest::Calendar { from, to } => {
+                let (conn, ui) = (self.conn.clone(), self.ui.clone());
+                tokio::spawn(async move {
+                    let data = calendar::read(&conn, from, to).await;
+                    let _ = ui.send(UiEvent::Calendar(Box::new(data)));
+                });
+                Ok(())
+            }
+            UiRequest::Media { command, from, to } => {
+                let (conn, ui) = (self.conn.clone(), self.ui.clone());
+                tokio::spawn(async move {
+                    shell_keys::control_player(&conn, command).await;
+                    // Players update their state a moment later.
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    let data = calendar::read(&conn, from, to).await;
+                    let _ = ui.send(UiEvent::Calendar(Box::new(data)));
+                });
                 Ok(())
             }
             UiRequest::OpenUri(uri) => {

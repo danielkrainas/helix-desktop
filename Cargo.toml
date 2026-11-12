@@ -29,7 +29,7 @@ libloading = "0.8"
 serde = { version = "1", features = ["derive"] }
 toml = "1"
 zbus_xml = "5.2"
-gio = "0.22"
+gio = { version = "0.22", features = ["v2_68"] }
 smithay-client-toolkit = { version = "0.21", default-features = false, features = ["calloop", "xkbcommon"] }
 ab_glyph = "0.2"
 png = "0.17"

@@ -373,8 +373,8 @@ pub async fn change_brightness(conn: &Connection, step: Brightness) -> Option<Os
 // ----- Playback (MPRIS) -------------------------------------------------
 
 const MPRIS_PREFIX: &str = "org.mpris.MediaPlayer2.";
-const MPRIS_PATH: &str = "/org/mpris/MediaPlayer2";
-const MPRIS_PLAYER: &str = "org.mpris.MediaPlayer2.Player";
+pub const MPRIS_PATH: &str = "/org/mpris/MediaPlayer2";
+pub const MPRIS_PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 
 /// The player to control among (bus name, status), in bus-name order:
 /// the first playing, else the first paused, else the first.
@@ -389,11 +389,11 @@ pub fn choose_player(players: &[(String, String)]) -> Option<&str> {
         .map(|(name, _)| name.as_str())
 }
 
-/// Send a playback key to the chosen MPRIS player.
-pub async fn control_player(conn: &Connection, command: Playback) {
+/// The MPRIS player the playback keys control, by bus name.
+pub async fn chosen_player(conn: &Connection) -> Option<String> {
     let names = match zbus::fdo::DBusProxy::new(conn).await {
         Ok(dbus) => dbus.list_names().await.unwrap_or_default(),
-        Err(_) => return,
+        Err(_) => return None,
     };
     let mut players = Vec::new();
     for name in names.iter().filter(|n| n.starts_with(MPRIS_PREFIX)) {
@@ -404,10 +404,16 @@ pub async fn control_player(conn: &Connection, command: Playback) {
         let status = proxy.get_property::<String>("PlaybackStatus").await.unwrap_or_default();
         players.push((name.to_string(), status));
     }
-    let Some(player) = choose_player(&players) else {
+    choose_player(&players).map(str::to_owned)
+}
+
+/// Send a playback key to the chosen MPRIS player.
+pub async fn control_player(conn: &Connection, command: Playback) {
+    let Some(player) = chosen_player(conn).await else {
         tracing::info!("no media player to control");
         return;
     };
+    let player = player.as_str();
     tracing::debug!(player, method = command.method(), "media key");
     let result = match command {
         Playback::Rewind | Playback::Forward => {

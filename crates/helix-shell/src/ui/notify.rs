@@ -30,8 +30,12 @@ pub(super) enum BannerHit {
 
 /// What a click on the notification list hit.
 #[derive(Debug, Clone, PartialEq)]
-enum ListHit {
+pub(super) enum ListHit {
     Entry(u32),
+    /// The calendar: another month (by), a day, a media button.
+    Month(i32),
+    Day(i32, i32, i32),
+    Media(crate::shell_keys::Playback),
     Dismiss(u32),
     Link(String),
     Clear,
@@ -282,6 +286,7 @@ impl Ui {
         layer.commit();
         self.notify.view = Some(ListView { layer, width: 0, height: 0, configured: false, hits: Vec::new(), scroll: 0 });
         let _ = self.requests.send(UiRequest::NotificationListOpened);
+        self.calendar_open();
         self.draw_panel();
     }
 
@@ -332,6 +337,8 @@ impl Ui {
         let icons: Vec<Option<Image>> = entries.iter().skip(view.scroll).map(|e| self.notification_icon(e.id, &e.icon)).collect();
         let do_not_disturb = self.notify.do_not_disturb;
         let scale = self.scales.of(view.layer.wl_surface());
+        let media_icons = self.calendar_media_icons(scale);
+        let cal_h = self.calendar_height();
         let Ok((buffer, data)) =
             self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
@@ -340,7 +347,8 @@ impl Ui {
         let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(0x00000000);
         view.hits.clear();
-        let bx = (w as i32 - LIST_W) / 2;
+        let total_w = LIST_W + super::calendar::CAL_W;
+        let bx = (w as i32 - total_w) / 2;
         let by = PANEL_HEIGHT as i32 + 4;
         let max_h = h as i32 - by - 8;
         // Entries that fit, from the scroll position.
@@ -355,9 +363,11 @@ impl Ui {
             shown.push((entry, *eh, icon.as_ref()));
         }
         let empty_h = if entries.is_empty() { 60 } else { 0 };
-        let bh = used + empty_h;
-        canvas.rect(bx - 1, by - 1, LIST_W + 2, bh + 2, BANNER_BORDER);
-        canvas.rect(bx, by, LIST_W, bh, BANNER_BG);
+        let bh = (used + empty_h).max(cal_h);
+        canvas.rect(bx - 1, by - 1, total_w + 2, bh + 2, BANNER_BORDER);
+        canvas.rect(bx, by, total_w, bh, BANNER_BG);
+        canvas.rect(bx + LIST_W, by + LIST_PAD, 1, bh - 2 * LIST_PAD, BANNER_BORDER);
+        super::calendar::paint_calendar(&self.calendar, (self.text.as_ref(), self.bold.as_ref()), &mut canvas, (bx + LIST_W, by), &media_icons, &mut view.hits);
         let text = self.text.as_ref();
         // Header: Do Not Disturb switch and Clear.
         let switch = Rect { x: bx + LIST_PAD, y: by + 10, w: 40, h: 22 };
@@ -403,7 +413,7 @@ impl Ui {
             view.hits.push((Rect { x: bx, y, w: LIST_W, h: eh }, ListHit::Entry(entry.id)));
             y += eh;
         }
-        view.hits.push((Rect { x: bx, y: by, w: LIST_W, h: bh }, ListHit::Inside));
+        view.hits.push((Rect { x: bx, y: by, w: total_w, h: bh }, ListHit::Inside));
         view.hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, ListHit::Outside));
         let surface = view.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -446,6 +456,7 @@ impl Ui {
                         let _ = self.requests.send(UiRequest::SetDoNotDisturb(on));
                         self.draw_notification_list();
                     }
+                    Some(hit @ (ListHit::Month(_) | ListHit::Day(..) | ListHit::Media(_))) => self.calendar_click(&hit),
                     Some(ListHit::Inside) => {}
                     Some(ListHit::Outside) | None => self.close_notification_list(),
                 }
