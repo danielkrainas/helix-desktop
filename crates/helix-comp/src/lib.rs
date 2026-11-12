@@ -20,6 +20,7 @@ pub mod ddc;
 pub mod gestures;
 pub mod tablet_v2;
 pub mod display_config;
+pub mod eraser_button;
 pub mod edid;
 pub mod tablet;
 pub mod focus_tracking;

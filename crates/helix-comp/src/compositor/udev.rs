@@ -303,6 +303,7 @@ pub fn init(
         match &event {
             smithay::backend::input::InputEvent::DeviceAdded { device } => state.input_device_added(device),
             smithay::backend::input::InputEvent::DeviceRemoved { device } => state.input_device_removed(device),
+            smithay::backend::input::InputEvent::TabletToolProximity { event } => state.configure_eraser_button(event),
             _ => {}
         }
         state.process_input_event::<LibinputInputBackend>(event);

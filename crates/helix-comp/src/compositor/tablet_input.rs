@@ -88,6 +88,8 @@ pub struct TabletInput {
     touch_outputs: HashMap<String, Option<Vec<String>>>,
     /// Pads' USB ids, by device id.
     pad_usb: HashMap<String, Option<(u32, u32)>>,
+    /// Tools whose eraser button was set up, by serial: in button mode.
+    eraser_configured: HashMap<u64, bool>,
 }
 
 impl Helix {
@@ -263,7 +265,7 @@ impl Helix {
 
     pub(super) fn tablet_button<B: InputBackend>(&mut self, event: &B::TabletToolButtonEvent) {
         let Some(pen) = self.tablet.pen.as_ref() else { return };
-        let action = pen.stylus.buttons.iter().find(|(code, _)| *code == event.button()).map(|(_, a)| *a);
+        let action = pen.stylus.buttons.iter().find(|(code, _)| *code == event.button()).map(|(_, a)| a.clone());
         let (on_client, tool) = (pen.on_client, pen.tool);
         match action {
             Some(ButtonAction::Button(code)) if on_client => {
@@ -276,7 +278,41 @@ impl Helix {
                 let device = pen.device.clone();
                 self.switch_tablet_monitor(&device);
             }
+            Some(ButtonAction::Keybinding(keys)) if event.button_state() == ButtonState::Pressed => self.send_accelerator(&keys),
             _ => {}
+        }
+    }
+
+    /// A tool came near (libinput only): set up its eraser button as its
+    /// settings say (libinput 1.29 and later; see `eraser_button`).
+    pub(super) fn configure_eraser_button(&mut self, event: &smithay::reexports::input::event::tablet_tool::TabletToolProximityEvent) {
+        use smithay::reexports::input::event::tablet_tool::TabletToolEventTrait;
+        use smithay::reexports::input::AsRaw;
+        use smithay::backend::input::Device as _;
+        use smithay::reexports::input::event::EventTrait;
+        let tool = TabletToolEventTrait::tool(event);
+        let usb = EventTrait::device(event).usb_id();
+        let wanted = tablet::read_stylus_settings(tool.serial(), usb).eraser_button.is_some();
+        let key = tool.serial();
+        if self.tablet.eraser_configured.get(&key) == Some(&wanted) {
+            return;
+        }
+        // SAFETY: the tool belongs to this live event.
+        let result = unsafe { helix_comp::eraser_button::configure(tool.as_raw_mut().cast(), wanted.then_some(tablet::ERASER_BUTTON)) };
+        match result {
+            Ok(()) => {
+                tracing::info!(serial = key, button_mode = wanted, "stylus eraser button set up");
+                self.tablet.eraser_configured.insert(key, wanted);
+            }
+            Err(helix_comp::eraser_button::Refused::Unavailable) if wanted => {
+                tracing::info!("eraser-button-mode needs libinput 1.29 or later; ignored");
+                self.tablet.eraser_configured.insert(key, wanted);
+            }
+            Err(helix_comp::eraser_button::Refused::Unavailable) => {}
+            Err(err) => {
+                tracing::info!(?err, serial = key, "the stylus eraser button cannot be set up");
+                self.tablet.eraser_configured.insert(key, wanted);
+            }
         }
     }
 

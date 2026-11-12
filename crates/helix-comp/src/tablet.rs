@@ -87,14 +87,15 @@ pub fn read_tablet(usb: Option<(u32, u32)>) -> Tablet {
 }
 
 /// What a stylus button does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ButtonAction {
     /// A pointer button (evdev code).
     Button(u32),
     /// Map the tablet to the next monitor.
     SwitchMonitor,
-    /// Nothing (Helix does not send key combinations for a stylus
-    /// button's `keybinding`).
+    /// Type this accelerator (`<Control>z`) on press.
+    Keybinding(String),
+    /// Nothing (`keybinding` with an empty key combination).
     Nothing,
 }
 
@@ -107,16 +108,18 @@ pub const BTN_STYLUS: u32 = 0x14b;
 pub const BTN_STYLUS2: u32 = 0x14c;
 pub const BTN_STYLUS3: u32 = 0x149;
 
-/// A `*-button-action` value for stylus button `index` (0–2); `default`
-/// is middle, right and back for the three buttons.
-pub fn button_action(value: &str, index: usize) -> ButtonAction {
+/// A `*-button-action` value for stylus button `index` (0–2), with its
+/// `*-button-keybinding`; `default` is middle, right and back for the
+/// three buttons.
+pub fn button_action(value: &str, index: usize, keybinding: &str) -> ButtonAction {
     match value {
         "middle" => ButtonAction::Button(BTN_MIDDLE),
         "right" => ButtonAction::Button(BTN_RIGHT),
         "back" => ButtonAction::Button(BTN_SIDE),
         "forward" => ButtonAction::Button(BTN_EXTRA),
         "switch-monitor" => ButtonAction::SwitchMonitor,
-        "keybinding" => ButtonAction::Nothing,
+        "keybinding" if keybinding.trim().is_empty() => ButtonAction::Nothing,
+        "keybinding" => ButtonAction::Keybinding(keybinding.trim().to_owned()),
         _ => ButtonAction::Button([BTN_MIDDLE, BTN_RIGHT, BTN_SIDE][index.min(2)]),
     }
 }
@@ -190,20 +193,43 @@ impl PressureCurve {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stylus {
     pub buttons: [(u32, ButtonAction); 3],
+    /// With `eraser-button-mode` `button`: the eraser button sends
+    /// [`ERASER_BUTTON`], which then does this (instead of the third
+    /// button's action).
+    pub eraser_button: Option<ButtonAction>,
     pub pressure: PressureCurve,
     /// For the eraser end.
     pub eraser_pressure: PressureCurve,
+}
+
+/// The button libinput is told to send for an eraser button.
+pub const ERASER_BUTTON: u32 = BTN_STYLUS3;
+
+/// The buttons' actions, with an eraser button in button mode
+/// (`eraser`) taking over [`ERASER_BUTTON`].
+pub fn stylus_buttons(actions: [ButtonAction; 3], eraser: Option<&ButtonAction>) -> [(u32, ButtonAction); 3] {
+    let codes = [BTN_STYLUS, BTN_STYLUS2, BTN_STYLUS3];
+    let mut actions = actions.into_iter();
+    std::array::from_fn(|i| {
+        let action = actions.next().unwrap_or(ButtonAction::Nothing);
+        (codes[i], if codes[i] == ERASER_BUTTON { eraser.cloned().unwrap_or(action) } else { action })
+    })
 }
 
 pub fn read_stylus_settings(serial: u64, usb: Option<(u32, u32)>) -> Stylus {
     let keys = ["button-action", "secondary-button-action", "tertiary-button-action"];
     let defaults = ["right", "middle", "default"];
     let settings = relocatable(STYLUS, &stylus_path(serial, usb));
-    let codes = [BTN_STYLUS, BTN_STYLUS2, BTN_STYLUS3];
-    let buttons = std::array::from_fn(|i| {
-        let value = settings.as_ref().map_or_else(|| defaults[i].to_owned(), |s| s.string(keys[i]).to_string());
-        (codes[i], button_action(&value, i))
+    let string = |key: &str, default: &str| -> String {
+        settings.as_ref().filter(|s| s.settings_schema().is_some_and(|x| x.has_key(key))).map_or_else(|| default.to_owned(), |s| s.string(key).to_string())
+    };
+    let actions: [ButtonAction; 3] = std::array::from_fn(|i| {
+        let binding = string(&keys[i].replace("-action", "-keybinding"), "");
+        button_action(&string(keys[i], defaults[i]), i, &binding)
     });
+    let eraser_button = (string("eraser-button-mode", "default") == "button")
+        .then(|| button_action(&string("eraser-button-action", "default"), 2, &string("eraser-button-keybinding", "")));
+    let buttons = stylus_buttons(actions, eraser_button.as_ref());
     let curve = |curve: &str, range: &str| {
         settings.as_ref().map_or_else(PressureCurve::default, |s| {
             let c: Vec<i32> = s.value(curve).get().unwrap_or_default();
@@ -211,7 +237,7 @@ pub fn read_stylus_settings(serial: u64, usb: Option<(u32, u32)>) -> Stylus {
             PressureCurve::from_settings(&c, &r)
         })
     };
-    Stylus { buttons, pressure: curve("pressure-curve", "pressure-range"), eraser_pressure: curve("eraser-pressure-curve", "eraser-pressure-range") }
+    Stylus { buttons, eraser_button, pressure: curve("pressure-curve", "pressure-range"), eraser_pressure: curve("eraser-pressure-curve", "eraser-pressure-range") }
 }
 
 pub const PAD_BUTTON: &str = "org.gnome.desktop.peripherals.tablet.pad-button";
@@ -323,11 +349,19 @@ mod tests {
 
     #[test]
     fn buttons() {
-        assert_eq!(button_action("default", 0), ButtonAction::Button(BTN_MIDDLE));
-        assert_eq!(button_action("default", 2), ButtonAction::Button(BTN_SIDE));
-        assert_eq!(button_action("right", 1), ButtonAction::Button(BTN_RIGHT));
-        assert_eq!(button_action("switch-monitor", 0), ButtonAction::SwitchMonitor);
-        assert_eq!(button_action("keybinding", 0), ButtonAction::Nothing);
+        assert_eq!(button_action("default", 0, ""), ButtonAction::Button(BTN_MIDDLE));
+        assert_eq!(button_action("default", 2, ""), ButtonAction::Button(BTN_SIDE));
+        assert_eq!(button_action("right", 1, ""), ButtonAction::Button(BTN_RIGHT));
+        assert_eq!(button_action("switch-monitor", 0, ""), ButtonAction::SwitchMonitor);
+        assert_eq!(button_action("keybinding", 0, " "), ButtonAction::Nothing);
+        assert_eq!(button_action("keybinding", 0, "<Control>z"), ButtonAction::Keybinding("<Control>z".into()));
+        // An eraser button in button mode takes over the third button.
+        let actions = [ButtonAction::Button(BTN_RIGHT), ButtonAction::Button(BTN_MIDDLE), ButtonAction::Button(BTN_SIDE)];
+        let undo = ButtonAction::Keybinding("<Control>z".into());
+        let mapped = stylus_buttons(actions.clone(), Some(&undo));
+        assert_eq!(mapped[2], (BTN_STYLUS3, undo));
+        assert_eq!(mapped[0], (BTN_STYLUS, ButtonAction::Button(BTN_RIGHT)));
+        assert_eq!(stylus_buttons(actions, None)[2], (BTN_STYLUS3, ButtonAction::Button(BTN_SIDE)));
     }
 
     #[test]
