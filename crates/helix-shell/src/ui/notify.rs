@@ -263,6 +263,9 @@ impl Ui {
         if had_dot != self.unseen_dot() {
             self.draw_panel();
         }
+        if self.lock.session.is_some() {
+            self.draw_lock();
+        }
     }
 
     /// Whether the panel shows the unseen-notifications dot.

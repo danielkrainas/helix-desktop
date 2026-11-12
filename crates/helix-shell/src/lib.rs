@@ -51,6 +51,7 @@ pub mod status;
 pub mod text;
 pub mod ui;
 pub mod wallpaper;
+pub mod weather;
 pub mod wellbeing;
 pub mod windows;
 
@@ -128,6 +129,8 @@ pub enum UiEvent {
     Notifications(notifications::List),
     /// The message tray's calendar data.
     Calendar(Box<calendar::CalendarData>),
+    /// The media player for the lock screen.
+    LockMedia(Option<calendar::Player>),
     /// Show (or update, or with `None` hide) the break screen.
     Break(Option<wellbeing::BreakView>),
     /// `org.gnome.desktop.notifications show-banners` changed.
@@ -227,6 +230,8 @@ pub enum UiRequest {
     OpenUri(String),
     /// The break screen's buttons.
     BreakAnswer(wellbeing::Answer),
+    /// The lock screen wants the player (after pressing a button).
+    LockMedia(Option<shell_keys::Playback>),
     /// The apps with windows (app id → 1 running, 2 focused).
     RunningApps(HashMap<String, u32>),
     /// The tray's calendar shows `[from, to)`: read its data.
@@ -932,6 +937,17 @@ impl UiBridge {
             }
             UiRequest::RunningApps(apps) => {
                 portal_dialog::set_running(&self.conn, apps).await;
+                Ok(())
+            }
+            UiRequest::LockMedia(command) => {
+                let (conn, ui) = (self.conn.clone(), self.ui.clone());
+                tokio::spawn(async move {
+                    if let Some(command) = command {
+                        shell_keys::control_player(&conn, command).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    }
+                    let _ = ui.send(UiEvent::LockMedia(calendar::player(&conn).await));
+                });
                 Ok(())
             }
             UiRequest::BreakAnswer(answer) => {

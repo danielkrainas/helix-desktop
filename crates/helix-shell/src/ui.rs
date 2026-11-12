@@ -63,6 +63,7 @@ mod osk;
 mod overview;
 mod prompt;
 mod quick;
+mod lock_extras;
 mod scale;
 mod status;
 mod window_menu;
@@ -199,6 +200,8 @@ struct Ui {
     quick_list: Option<quick::Switch>,
     /// "Pair New Device…" started Bluetooth discovery.
     bt_discovery: bool,
+    /// The lock screen's media player and notification counts.
+    lock_extras: lock_extras::LockExtras,
     /// The running apps last reported to the D-Bus side.
     running_apps: HashMap<String, u32>,
     window_menu: Option<window_menu::WindowMenu>,
@@ -363,6 +366,8 @@ struct LockView {
     surface: SessionLockSurface,
     width: u32,
     height: u32,
+    /// The media buttons.
+    hits: Vec<(Rect, crate::shell_keys::Playback)>,
 }
 
 /// Clear a password buffer, overwriting its bytes first.
@@ -1259,6 +1264,8 @@ impl Ui {
             return;
         }
         let scale = self.scales.of(view.surface.wl_surface());
+        let icons = self.lock_icons(scale);
+        let counts = self.lock_note_counts();
         let Ok((buffer, data)) =
             self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
@@ -1294,6 +1301,7 @@ impl Ui {
         if let Some(message) = &self.lock.message {
             label(text, &mut canvas, message, center(message, 15.0), (fy + 76) as f32, 15.0, DIM_FG, w as f32);
         }
+        view.hits = lock_extras::paint_lock_extras(&mut canvas, (text, self.bold.as_ref()), w as i32, fy + 110, self.lock_extras.media.as_ref(), &counts, &icons);
 
         let surface = view.surface.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -1781,6 +1789,7 @@ impl Ui {
             UiEvent::Notifications(list) => self.notifications_changed(list),
             UiEvent::Calendar(data) => self.calendar_data(*data),
             UiEvent::Break(view) => self.show_break(view),
+            UiEvent::LockMedia(player) => self.lock_media(player),
             UiEvent::DoNotDisturb(on) => {
                 self.notify.do_not_disturb = on;
                 self.draw_notification_list();
@@ -2096,6 +2105,7 @@ impl Ui {
         self.ime_sync();
         self.osk_sync();
         self.quick_discovery_check();
+        self.lock_extras_tick();
         self.report_running_apps();
         self.refresh_source_label();
         self.dialog_tick();
@@ -2212,6 +2222,7 @@ pub fn run(
         quick_list: None,
         bt_discovery: false,
         running_apps: HashMap::new(),
+        lock_extras: Default::default(),
         window_menu: None,
         workspace_popup: None,
         overview: None,
@@ -2567,6 +2578,13 @@ impl TouchHandler for Ui {
 impl Ui {
     fn pointer_events(&mut self, events: &[PointerEvent]) {
         for event in events {
+            if self.lock.session.is_some() {
+                if let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind {
+                    let surface = event.surface.clone();
+                    self.lock_click(&surface, event.position.0, event.position.1);
+                }
+                continue;
+            }
             if self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) {
                 continue;
             }
@@ -2720,8 +2738,9 @@ impl SessionLockHandler for Ui {
         for output in self.output_state.outputs() {
             let surface = self.compositor.create_surface(qh);
             let lock_surface = session_lock.create_lock_surface(surface, &output, qh);
-            self.lock.surfaces.push(LockView { surface: lock_surface, width: 0, height: 0 });
+            self.lock.surfaces.push(LockView { surface: lock_surface, width: 0, height: 0, hits: Vec::new() });
         }
+        self.lock_extras_start();
         tracing::info!(surfaces = self.lock.surfaces.len(), "session locked");
         let _ = self.requests.send(UiRequest::Locked);
     }

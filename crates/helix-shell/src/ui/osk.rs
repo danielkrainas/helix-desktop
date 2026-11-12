@@ -24,6 +24,61 @@ pub(super) enum Special {
     Left,
     Right,
     Hide,
+    /// Switch to a page.
+    Page(Page),
+}
+
+/// The keyboard's pages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum Page {
+    #[default]
+    Letters,
+    Symbols,
+    Emoji,
+}
+
+/// Row 5 on `page`.
+fn control_row(page: Page) -> Vec<Key> {
+    let symbols = if page == Page::Symbols { Page::Letters } else { Page::Symbols };
+    let emoji = if page == Page::Emoji { Page::Letters } else { Page::Emoji };
+    vec![
+        special(Special::Hide, 1.5),
+        special(Special::Page(symbols), 1.5),
+        special(Special::Page(emoji), 1.5),
+        special(Special::Space, 6.0),
+        special(Special::Left, 1.0),
+        special(Special::Right, 1.0),
+    ]
+}
+
+fn char_keys(chars: &str) -> Vec<Key> {
+    chars.chars().filter(|c| !c.is_whitespace()).map(|c| Key { kind: KeyKind::Char(c.to_string(), c.to_string()), width: 1.0 }).collect()
+}
+
+const EMOJI: [&str; 3] = ["😀😂😊😍😘😎🤔😢😭😡", "👍👎👏🙏💪👋🤝✌👌🙌", "❤💔⭐🔥🎉✅❌⚠💡☕"];
+
+/// The rows of a page other than the letters.
+pub(super) fn page_rows(page: Page) -> Vec<Vec<Key>> {
+    match page {
+        Page::Letters => Vec::new(),
+        Page::Symbols => {
+            let mut row1 = char_keys("1234567890");
+            row1.push(special(Special::Backspace, 2.0));
+            let mut row2 = vec![special(Special::Tab, 1.5)];
+            row2.extend(char_keys("@#$%&*-+()/"));
+            let mut row3 = char_keys("!\"':;,.?_=");
+            row3.push(special(Special::Enter, 2.0));
+            let row4 = char_keys("~`|\\<>[]{}^€");
+            vec![row1, row2, row3, row4, control_row(Page::Symbols)]
+        }
+        Page::Emoji => {
+            let mut rows: Vec<Vec<Key>> = EMOJI.iter().map(|r| char_keys(r)).collect();
+            rows[0].push(special(Special::Backspace, 2.0));
+            rows.push(vec![special(Special::Enter, 2.0)]);
+            rows.push(control_row(Page::Emoji));
+            rows
+        }
+    }
 }
 
 impl Special {
@@ -94,8 +149,7 @@ pub(super) fn layout_rows(layout: &str, variant: &str) -> Vec<Vec<Key>> {
     }
     row4.extend(keys(&[44, 45, 46, 47, 48, 49, 50, 51, 52, 53]));
     row4.push(special(Special::Shift, 1.5));
-    let row5 = vec![special(Special::Hide, 2.0), special(Special::Space, 8.0), special(Special::Left, 1.0), special(Special::Right, 1.0)];
-    vec![row1, row2, row3, row4, row5]
+    vec![row1, row2, row3, row4, control_row(Page::Letters)]
 }
 
 /// The layout and variant of the active input source (`us` for others).
@@ -121,6 +175,7 @@ pub(super) struct Osk {
     configured: bool,
     layout: (String, String),
     rows: Vec<Vec<Key>>,
+    page: Page,
     shift: bool,
     hits: Vec<(Rect, (usize, usize))>,
 }
@@ -132,6 +187,8 @@ pub(super) struct OskState {
     /// "Hide" was pressed: stay hidden until a text field is focused again.
     pub dismissed: bool,
     pub was_typing: bool,
+    /// The emoji page's font (looked for once).
+    pub emoji_font: Option<Option<Text>>,
 }
 
 fn height() -> u32 {
@@ -159,14 +216,16 @@ impl Ui {
                 let layout = active_layout();
                 let rows = layout_rows(&layout.0, &layout.1);
                 tracing::info!(layout = ?layout, "on-screen keyboard shown");
-                self.osk.view = Some(Osk { layer, width: 0, height: 0, configured: false, layout, rows, shift: false, hits: Vec::new() });
+                self.osk.view = Some(Osk { layer, width: 0, height: 0, configured: false, layout, rows, page: Page::Letters, shift: false, hits: Vec::new() });
             }
             (false, true) => self.osk.view = None,
             (true, true) => {
                 // Follow the input source.
                 let layout = active_layout();
                 if let Some(view) = self.osk.view.as_mut().filter(|v| v.layout != layout) {
-                    view.rows = layout_rows(&layout.0, &layout.1);
+                    if view.page == Page::Letters {
+                        view.rows = layout_rows(&layout.0, &layout.1);
+                    }
                     view.layout = layout;
                     self.draw_osk();
                 }
@@ -217,6 +276,10 @@ impl Ui {
         canvas.rect(0, 0, w as i32, 1, BANNER_BORDER);
         let text = self.text.as_ref();
         let widest = view.rows.iter().map(|r| r.iter().map(|k| k.width).sum::<f32>()).fold(0.0, f32::max);
+        if view.page == Page::Emoji && self.osk.emoji_font.is_none() {
+            self.osk.emoji_font = Some(Text::load_matching("emoji:color=false"));
+        }
+        let emoji = self.osk.emoji_font.as_ref().and_then(|f| f.as_ref());
         let unit = ((w as f32 - 2.0 * PAD as f32) / widest).min(MAX_UNIT);
         view.hits.clear();
         for (ri, row) in view.rows.iter().enumerate() {
@@ -234,6 +297,9 @@ impl Ui {
                     KeyKind::Special(Special::Shift) => Some("Shift".into()),
                     KeyKind::Special(Special::Enter) => Some("Enter".into()),
                     KeyKind::Special(Special::Tab) => Some("Tab".into()),
+                    KeyKind::Special(Special::Page(Page::Letters)) => Some("ABC".into()),
+                    KeyKind::Special(Special::Page(Page::Symbols)) => Some("?123".into()),
+                    KeyKind::Special(Special::Page(Page::Emoji)) => Some("Emoji".into()),
                     KeyKind::Special(Special::Space) => None,
                     KeyKind::Special(s) => {
                         if let Some((_, Some(icon))) = icons.iter().find(|(x, _)| x == s) {
@@ -244,8 +310,9 @@ impl Ui {
                 };
                 if let Some(caption) = caption {
                     let px = if matches!(key.kind, KeyKind::Char(..)) { 20.0 } else { 14.0 };
-                    let tw = text.map_or(0.0, |t| t.width(&caption, px));
-                    label(text, &mut canvas, &caption, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, px), px, FG, r.w as f32);
+                    let font = if view.page == Page::Emoji && matches!(key.kind, KeyKind::Char(..)) { emoji } else { text };
+                    let tw = font.map_or(0.0, |t| t.width(&caption, px));
+                    label(font, &mut canvas, &caption, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(font, r.y, r.h, px), px, FG, r.w as f32);
                 }
                 view.hits.push((r, (ri, ki)));
                 x += kw;
@@ -279,6 +346,12 @@ impl Ui {
                 self.draw_osk();
             }
             KeyKind::Special(Special::Space) => self.ime_commit_text(" "),
+            KeyKind::Special(Special::Page(page)) => {
+                view.page = page;
+                view.shift = false;
+                view.rows = if page == Page::Letters { layout_rows(&view.layout.0, &view.layout.1) } else { page_rows(page) };
+                self.draw_osk();
+            }
             KeyKind::Special(Special::Hide) => {
                 self.osk.dismissed = true;
                 self.osk.view = None;
@@ -312,6 +385,14 @@ mod tests {
         assert_eq!(chars(&de[1]), "qwertzuiopü+#");
         assert!(chars(&de[3]).starts_with("<y"), "the ISO key");
         assert!(!chars(&de[0]).contains('´'), "dead keys are left out");
-        assert_eq!(us[4].len(), 4);
+        assert_eq!(us[4].len(), 6, "Hide, ?123, Emoji, Space, ←, →");
+        assert!(us[4].contains(&special(Special::Page(Page::Symbols), 1.5)));
+        let symbols = page_rows(Page::Symbols);
+        assert_eq!(chars(&symbols[0]), "1234567890");
+        assert_eq!(chars(&symbols[3]), "~`|\\<>[]{}^€");
+        assert!(symbols[4].contains(&special(Special::Page(Page::Letters), 1.5)), "ABC back");
+        let emoji = page_rows(Page::Emoji);
+        assert_eq!(emoji.len(), 5);
+        assert_eq!(emoji[0].iter().filter(|k| matches!(k.kind, KeyKind::Char(..))).count(), 10);
     }
 }

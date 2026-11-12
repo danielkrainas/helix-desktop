@@ -104,8 +104,9 @@ impl CalendarState {
     }
 }
 
-/// The media buttons' icons: previous, play or pause, next.
-pub(super) type MediaIcons = [Option<Image>; 3];
+/// The media buttons' icons (previous, play or pause, next), then the
+/// weather's.
+pub(super) type MediaIcons = [Option<Image>; 4];
 
 impl Ui {
     /// The tray opened: today, this month, fresh data.
@@ -158,10 +159,12 @@ impl Ui {
     pub(super) fn calendar_media_icons(&mut self, scale: f64) -> MediaIcons {
         let playing = self.calendar.data.as_ref().and_then(|d| d.player.as_ref()).is_some_and(|p| p.playing);
         let play = if playing { "media-playback-pause-symbolic" } else { "media-playback-start-symbolic" };
+        let weather = self.calendar.data.as_ref().and_then(|d| d.weather.clone().flatten()).map(|f| crate::weather::condition(&f.symbol).1);
         [
             self.symbolic_icon("media-skip-backward-symbolic", scale),
             self.symbolic_icon(play, scale),
             self.symbolic_icon("media-skip-forward-symbolic", scale),
+            weather.and_then(|icon| self.symbolic_icon(icon, scale)),
         ]
     }
 
@@ -173,6 +176,9 @@ impl Ui {
         if let Some(data) = &cal.data {
             if !data.clocks.is_empty() {
                 h += GAP + SECTION_H + data.clocks.len() as i32 * LINE_H;
+            }
+            if data.weather.is_some() {
+                h += GAP + SECTION_H + 2 * LINE_H + 6;
             }
             if data.player.is_some() {
                 h += GAP + MEDIA_H;
@@ -299,6 +305,36 @@ pub(super) fn paint_calendar(
             label(text, canvas, name, (x + PAD) as f32, (y + 16) as f32, 13.0, FG, (inner - tw - 8) as f32);
             label(text, canvas, &time, (x + CAL_W - PAD - tw) as f32, (y + 16) as f32, 13.0, DIM_FG, tw as f32 + 1.0);
             y += LINE_H;
+        }
+    }
+    // The weather.
+    if let Some(weather) = &data.weather {
+        y += GAP;
+        canvas.rect(x + PAD, y, inner, 1, BANNER_BORDER);
+        label(bold.or(text), canvas, "Weather", (x + PAD) as f32, (y + 19) as f32, 13.0, FG, inner as f32);
+        y += SECTION_H;
+        let unit = data.unit.unwrap_or(crate::weather::Unit::Celsius);
+        match weather {
+            Some(f) => {
+                let (words, _) = crate::weather::condition(&f.symbol);
+                if let Some(icon) = &icons[3] {
+                    canvas.image(f64::from(x + PAD), f64::from(y + 3), 16.0, 16.0, icon);
+                }
+                let now = format!("{}  {}, {words}", f.location, crate::weather::temperature_text(f.temperature, unit));
+                label(text, canvas, &now, (x + PAD + 24) as f32, (y + 16) as f32, 13.0, FG, (inner - 24) as f32);
+                y += LINE_H + 6;
+                let cw = inner / crate::weather::HOURS as i32;
+                for (i, (time, temp, _)) in f.hours.iter().enumerate() {
+                    let hour = DateTime::from_unix_local(*time).map(|d| fmt(&d, "%H:%M")).unwrap_or_default();
+                    let cell = format!("{hour} {}", crate::weather::temperature_text(*temp, unit));
+                    label(text, canvas, &cell, (x + PAD + i as i32 * cw) as f32, (y + 16) as f32, 12.0, DIM_FG, cw as f32);
+                }
+                y += LINE_H;
+            }
+            None => {
+                label(text, canvas, "Weather unavailable", (x + PAD) as f32, (y + 16) as f32, 13.0, DIM_FG, inner as f32);
+                y += 2 * LINE_H + 6;
+            }
         }
     }
     // The media player.

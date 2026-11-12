@@ -38,6 +38,10 @@ pub struct CalendarData {
     /// World clocks: (name, time zone).
     pub clocks: Vec<(String, String)>,
     pub player: Option<Player>,
+    /// With a weather location: its forecast, if it could be had.
+    pub weather: Option<Option<crate::weather::Forecast>>,
+    /// How temperatures are shown.
+    pub unit: Option<crate::weather::Unit>,
 }
 
 /// Everything for `[from, to)`.
@@ -50,7 +54,8 @@ pub async fn read(conn: &Connection, from: i64, to: i64) -> CalendarData {
         }
     };
     let clocks = tokio::task::spawn_blocking(world_clocks).await.unwrap_or_default();
-    CalendarData { from, to, events, clocks, player: player(conn).await }
+    let (weather, unit) = tokio::task::spawn_blocking(|| (crate::weather::current(), crate::weather::unit())).await.unwrap_or((None, crate::weather::Unit::Celsius));
+    CalendarData { from, to, events, clocks, player: player(conn).await, weather, unit: Some(unit) }
 }
 
 // ----- Events ----------------------------------------------------------
@@ -178,7 +183,7 @@ pub fn world_clocks() -> Vec<(String, String)> {
 
 // ----- Media -------------------------------------------------------------
 
-async fn player(conn: &Connection) -> Option<Player> {
+pub async fn player(conn: &Connection) -> Option<Player> {
     let name = crate::shell_keys::chosen_player(conn).await?;
     let player = zbus::Proxy::new(conn, name.clone(), MPRIS_PATH, MPRIS_PLAYER).await.ok()?;
     let root = zbus::Proxy::new(conn, name.clone(), MPRIS_PATH, "org.mpris.MediaPlayer2").await.ok()?;

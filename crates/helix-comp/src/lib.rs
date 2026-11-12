@@ -17,6 +17,7 @@ pub mod display_config;
 pub mod frames;
 pub mod idle;
 pub mod idle_monitor;
+pub mod lid;
 pub mod input_settings;
 pub mod remote_desktop;
 pub mod rotation;
@@ -175,6 +176,8 @@ impl CompositorServices {
         }
         if can_apply {
             tasks.push(tokio::spawn(rotation::follow(conn.clone())));
+            // The laptop lid turns the built-in monitor off and on.
+            tasks.push(tokio::spawn(lid::follow(conn.clone())));
         }
         if let Some(cast) = &cast {
             tasks.push(spawn_cast_owner_watcher(&conn, casts.clone(), remotes.clone(), cast.clone()).await?);
