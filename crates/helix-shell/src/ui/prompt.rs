@@ -209,8 +209,11 @@ impl Ui {
             if view.focus == index && !view.busy {
                 canvas.rect(r.x, r.y + r.h - 2, r.w, 2, ACCENT);
             }
-            let dots = "●".repeat(view.fields[index].chars().count().min(40));
-            label(text, &mut canvas, &dots, (r.x + 10) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 20) as f32);
+            // One dot per character (drawn: not every font has a bullet).
+            let count = view.fields[index].chars().count().min(((r.w - 20) / 12) as usize);
+            for i in 0..count {
+                canvas.circle(f64::from(r.x + 16 + i as i32 * 12), f64::from(r.y + r.h / 2), 4.0, FG);
+            }
             hits.push((r, OverlayHit::Inside));
             y += 62;
         }

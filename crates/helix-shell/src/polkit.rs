@@ -83,15 +83,13 @@ pub fn field_label(prompt: &str) -> String {
 /// The served agent.
 pub struct Agent {
     ui: mpsc::UnboundedSender<UiEvent>,
-    /// One authentication at a time.
-    turn: Arc<tokio::sync::Mutex<()>>,
     /// Running authentications by cookie: how to cancel them.
     running: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
 }
 
 impl Agent {
     pub fn new(ui: mpsc::UnboundedSender<UiEvent>) -> Self {
-        Self { ui, turn: Default::default(), running: Default::default() }
+        Self { ui, running: Default::default() }
     }
 }
 
@@ -216,7 +214,7 @@ impl Agent {
         let (name, real) = user(uid).ok_or_else(|| PolkitError::Failed(format!("unknown user {uid}")))?;
         let (cancel_tx, cancel) = oneshot::channel();
         self.running.lock().unwrap_or_else(|e| e.into_inner()).insert(cookie.to_owned(), cancel_tx);
-        let _turn = self.turn.lock().await;
+        let _turn = prompt::turn().await;
         tracing::info!(action_id, user = name, "authentication requested");
         let result = authenticate(&self.ui, message, cookie, &name, &real, cancel).await;
         self.running.lock().unwrap_or_else(|e| e.into_inner()).remove(cookie);

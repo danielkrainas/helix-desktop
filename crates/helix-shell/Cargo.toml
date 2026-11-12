@@ -26,6 +26,14 @@ serde.workspace = true
 wayland-protocols-misc = { version = "0.3", features = ["client"] }
 xkbcommon = { version = "0.8", default-features = false }
 helix-protocols = { workspace = true, features = ["client"] }
+# gcr's secret exchange (keyring prompts).
+aes = "0.8"
+cbc = "0.1"
+hkdf = "0.12"
+sha2 = "0.10"
+num-bigint = "0.4"
+base64 = "0.22"
+getrandom = "0.3"
 
 [features]
 # DEVELOPMENT ONLY: the lock screen accepts the password "helix-test"

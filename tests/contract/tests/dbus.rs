@@ -363,3 +363,18 @@ async fn polkit_authentication_agent() {
     )
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn keyring_prompter() {
+    let Some(bus) = TestBus::start() else { return };
+    let (service, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
+    assert_matches_contract(
+        service.connection(),
+        helix_shell::keyring_prompt::BUS_NAME,
+        helix_shell::keyring_prompt::OBJECT_PATH,
+        "org.gnome.keyring.internal.Prompter",
+        "org.gnome.keyring.internal.Prompter.xml",
+        &[],
+    )
+    .await;
+}

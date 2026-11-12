@@ -82,6 +82,13 @@ pub async fn ask(ui: &mpsc::UnboundedSender<UiEvent>, prompt: Prompt) -> Answer 
     answer.await.unwrap_or(Answer::Cancel)
 }
 
+/// Whole prompt flows (a polkit authentication, a keyring client's
+/// prompts) take turns: hold this while one runs.
+pub async fn turn() -> tokio::sync::OwnedMutexGuard<()> {
+    static FLOW: std::sync::LazyLock<Arc<tokio::sync::Mutex<()>>> = std::sync::LazyLock::new(Default::default);
+    FLOW.clone().lock_owned().await
+}
+
 /// Close the prompt dialog.
 pub fn done(ui: &mpsc::UnboundedSender<UiEvent>) {
     let _ = ui.send(UiEvent::PromptDone);

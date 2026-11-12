@@ -1136,13 +1136,16 @@ impl Ui {
         let fx = (w as i32 - fw) / 2;
         let fy = top + 100;
         canvas.rect(fx, fy, fw, 44, FIELD_BG);
-        let (shown, color) = if self.lock.password.is_empty() {
-            ("Password".to_owned(), DIM_FG)
+        if self.lock.password.is_empty() {
+            let base = baseline(text, fy, 44, 17.0);
+            label(text, &mut canvas, "Password", (fx + 14) as f32, base, 17.0, DIM_FG, (fw - 28) as f32);
         } else {
-            ("●".repeat(self.lock.password.chars().count()), FG)
-        };
-        let base = baseline(text, fy, 44, 17.0);
-        label(text, &mut canvas, &shown, (fx + 14) as f32, base, 17.0, color, (fw - 28) as f32);
+            // One dot per character (drawn: not every font has a bullet).
+            let count = self.lock.password.chars().count().min(((fw - 28) / 14) as usize);
+            for i in 0..count {
+                canvas.circle(f64::from(fx + 20 + i as i32 * 14), f64::from(fy + 22), 5.0, FG);
+            }
+        }
         if let Some(message) = &self.lock.message {
             label(text, &mut canvas, message, center(message, 15.0), (fy + 76) as f32, 15.0, DIM_FG, w as f32);
         }

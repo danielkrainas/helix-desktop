@@ -15,6 +15,7 @@ pub mod font;
 pub mod ibus;
 pub mod idle;
 pub mod input_sources;
+pub mod keyring_prompt;
 pub mod launcher;
 pub mod location;
 pub mod logind;
@@ -27,6 +28,7 @@ pub mod prompt;
 pub mod notify_store;
 pub mod recording;
 pub mod screensaver;
+pub mod secret_exchange;
 /// Event sounds live in `helix-settings`, shared with the compositor.
 pub use helix_settings::sound;
 pub mod screencast_chooser;
@@ -482,6 +484,7 @@ impl ShellService {
         let center = notifications::Center::new(ui.clone(), lock_status.clone());
         let night_light = night_light::Handle::default();
         let recorder = recording::Recorder::new(ui.clone(), Some(center.clone()));
+        let prompter = keyring_prompt::Prompter::new(ui.clone());
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone(), lock: lock_status.clone() })?
             .serve_at(screensaver::OBJECT_PATH, saver)?
@@ -500,6 +503,7 @@ impl ShellService {
                 screenshot::WindowPicker { screens: screenshot::Screens::new(ui.clone()) },
             )?
             .serve_at(recording::OBJECT_PATH, recording::Screencast { recorder: recorder.clone() })?
+            .serve_at(keyring_prompt::OBJECT_PATH, prompter.clone())?
             .serve_at(night_light::OBJECT_PATH, night_light::ColorService { handle: night_light.clone() })?
             .serve_at(
                 screencast_chooser::OBJECT_PATH,
@@ -535,6 +539,14 @@ impl ShellService {
                 Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => {}
                 other => tracing::warn!(name, ?other, "cannot own service name"),
             }
+        }
+        // gcr's prompter: taken over from a running gcr prompter.
+        match conn
+            .request_name_with_flags(keyring_prompt::BUS_NAME, RequestNameFlags::ReplaceExisting | RequestNameFlags::DoNotQueue)
+            .await
+        {
+            Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => prompter.follow_clients(conn.clone()),
+            other => tracing::warn!(?other, "cannot own the keyring prompter name; keyring prompts use gcr's own dialog"),
         }
         let ticker = notifications::spawn_ticker(center.clone(), conn.clone());
 
