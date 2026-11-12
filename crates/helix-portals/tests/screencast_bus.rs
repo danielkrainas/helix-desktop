@@ -41,6 +41,22 @@ impl Chooser {
         self.asked.lock().unwrap().push((app_id, monitors, flag("windows"), flag("remember")));
         self.answers.lock().unwrap().remove(0)
     }
+
+    async fn choose_sources(
+        &self,
+        app_id: String,
+        monitors: Vec<(String, String)>,
+        options: HashMap<String, OwnedValue>,
+    ) -> (bool, Vec<(u32, String, u32)>) {
+        let multiple = options.get("multiple").and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(false);
+        let (ok, kind, connector, window) = self.choose_source(app_id, monitors, options).await;
+        let mut chosen = vec![(kind, connector, window)];
+        // With several to choose: also a new virtual monitor.
+        if multiple {
+            chosen.push((4, String::new(), 0));
+        }
+        (ok, if ok { chosen } else { Vec::new() })
+    }
 }
 
 fn monitor(connector: &str) -> Monitor {
@@ -282,4 +298,47 @@ async fn share_a_monitor() {
 
 fn none_props() -> HashMap<&'static str, Value<'static>> {
     HashMap::new()
+}
+
+/// Several sources (`multiple`), one of them a new virtual monitor beside a
+/// real one: one stream each, in one session.
+#[tokio::test(flavor = "multi_thread")]
+async fn share_several() {
+    let Some(bus) = TestBus::start() else { return };
+    let session = SessionService::start(bus.builder()).await.unwrap();
+    let _session = tokio::spawn(session.run(std::future::pending()));
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let store = std::env::temp_dir().join(format!("helix-cast-many-{}.toml", std::process::id()));
+    let control = MonitorControl { store: Store::at(store), cast: Some(fake_recorder(log.clone())), ..MonitorControl::default() };
+    let services = CompositorServices::start_with(bus.builder(), vec![monitor("DP-1")], control).await.unwrap();
+    let (_events, rx) = mpsc::unbounded_channel();
+    tokio::spawn(services.run(rx));
+    let answers = Arc::new(Mutex::new(vec![(true, 1, "DP-1".to_owned(), 0)]));
+    let _shell = bus
+        .builder()
+        .serve_at("/org/helix/ScreenCastChooser", Chooser { answers, asked: Arc::default() })
+        .unwrap()
+        .name("org.gnome.Shell")
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let settings: Arc<Mutex<Snapshot>> = Arc::new(Mutex::new(BTreeMap::new()));
+    let _portals = PortalService::start(bus.builder(), settings).await.unwrap();
+    let conn = bus.connect().await;
+    let request = ObjectPath::try_from("/org/freedesktop/portal/desktop/request/1_1/r").unwrap();
+    let s = ObjectPath::try_from("/org/freedesktop/portal/desktop/session/1_1/many").unwrap();
+    let none: HashMap<&str, Value<'_>> = HashMap::new();
+    assert_eq!(call(&conn, "CreateSession", &(&request, &s, "org.example.Studio", none.clone())).await.0, 0);
+    let options = HashMap::from([("types", Value::from(1u32 | 4)), ("multiple", Value::from(true))]);
+    assert_eq!(call(&conn, "SelectSources", &(&request, &s, "org.example.Studio", options)).await.0, 0);
+    let (r, results) = call(&conn, "Start", &(&request, &s, "org.example.Studio", "", none)).await;
+    assert_eq!(r, 0);
+    let streams = <Vec<(u32, HashMap<String, OwnedValue>)>>::try_from(results["streams"].clone()).unwrap();
+    let types: Vec<u32> = streams.iter().map(|(_, p)| u32::try_from(p["source_type"].clone()).unwrap()).collect();
+    assert_eq!(types, [1, 4], "the monitor, then the virtual one");
+    assert!(results.get("restore_data").is_none(), "several sources are not remembered");
+    let log = log.lock().unwrap().clone();
+    assert!(log.iter().any(|l| l.starts_with("virtual")), "{log:?}");
+    assert_eq!(log.iter().filter(|l| l.starts_with("start")).count(), 2, "{log:?}");
 }

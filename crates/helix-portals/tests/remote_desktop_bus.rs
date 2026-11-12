@@ -39,6 +39,11 @@ impl Chooser {
         }
     }
 
+    async fn choose_sources(&self, app_id: String, monitors: Vec<(String, String)>, options: HashMap<String, OwnedValue>) -> (bool, Vec<(u32, String, u32)>) {
+        let (ok, kind, connector, window) = self.choose_source(app_id, monitors, options).await;
+        (ok, vec![(kind, connector, window)])
+    }
+
     async fn describe_window(&self, window: u32) -> zbus::fdo::Result<(String, String)> {
         if window == 7 {
             Ok(("org.example.Doc".into(), "Notes".into()))

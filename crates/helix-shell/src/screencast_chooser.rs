@@ -22,6 +22,19 @@ pub enum Shared {
     Monitor(String),
     /// A window, by its window list id.
     Window(u32),
+    /// A new virtual monitor.
+    Virtual,
+}
+
+impl Shared {
+    /// As `ChooseSources` returns it: (type, connector, window).
+    pub fn wire(&self) -> (u32, String, u32) {
+        match self {
+            Shared::Monitor(c) => (1, c.clone(), 0),
+            Shared::Window(w) => (2, String::new(), *w),
+            Shared::Virtual => (4, String::new(), 0),
+        }
+    }
 }
 
 /// A question for the UI: what to share with `app` — one of `monitors`
@@ -35,7 +48,11 @@ pub struct ShareQuestion {
     pub remember: bool,
     /// Devices the app will also control (a remote desktop session).
     pub control: Vec<String>,
-    pub reply: oneshot::Sender<Option<Shared>>,
+    /// Offer a new virtual monitor too.
+    pub virtual_monitor: bool,
+    /// Several may be chosen.
+    pub multiple: bool,
+    pub reply: oneshot::Sender<Option<Vec<Shared>>>,
 }
 
 /// A question for the UI: may `app` control `devices` (remote desktop,
@@ -164,6 +181,33 @@ impl ScreenCastChooser {
 }
 
 impl ScreenCastChooser {
+    /// Ask what to share (see `ChooseSources`).
+    async fn ask_sources(
+        &self,
+        app_id: &str,
+        monitors: Vec<(String, String)>,
+        options: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
+        header: &Header<'_>,
+        conn: &Connection,
+    ) -> fdo::Result<(bool, Vec<(u32, String, u32)>)> {
+        let flag = |key: &str, default: bool| options.get(key).and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(default);
+        let monitors = if flag("monitors", true) { monitors } else { Vec::new() };
+        let (windows, remember) = (flag("windows", false), flag("remember", false));
+        let (virtual_monitor, multiple) = (flag("virtual", false), flag("multiple", false));
+        let control: Vec<String> = options.get("control").and_then(|v| Vec::<String>::try_from(v.clone()).ok()).unwrap_or_default();
+        self.check(header, conn).await?;
+        let (reply, answer) = oneshot::channel();
+        let question = ShareQuestion { app: app_label(app_id), monitors, windows, remember, control, virtual_monitor, multiple, reply };
+        let sent = self.ui.send(UiEvent::ShareScreen(QuestionSlot::new(question))).is_ok();
+        let chosen = if sent { answer.await.ok().flatten() } else { None };
+        *self.busy.lock().unwrap_or_else(|e| e.into_inner()) = false;
+        tracing::info!(app_id, ?chosen, "screen share answered");
+        Ok(match chosen {
+            Some(list) if !list.is_empty() => (true, list.iter().map(Shared::wire).collect()),
+            _ => (false, Vec::new()),
+        })
+    }
+
     async fn windows(&self) -> WindowInfo {
         let (reply, answer) = oneshot::channel();
         if self.ui.send(UiEvent::Windows(WindowsSlot::new(reply))).is_err() {
@@ -218,22 +262,27 @@ impl ScreenCastChooser {
         #[zbus(header)] header: Header<'_>,
         #[zbus(connection)] conn: &Connection,
     ) -> fdo::Result<(bool, u32, String, u32)> {
-        let flag = |key: &str, default: bool| options.get(key).and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(default);
-        let monitors = if flag("monitors", true) { monitors } else { Vec::new() };
-        let (windows, remember) = (flag("windows", false), flag("remember", false));
-        let control: Vec<String> = options.get("control").and_then(|v| Vec::<String>::try_from(v.clone()).ok()).unwrap_or_default();
-        self.check(&header, conn).await?;
-        let (reply, answer) = oneshot::channel();
-        let question = ShareQuestion { app: app_label(app_id), monitors, windows, remember, control, reply };
-        let sent = self.ui.send(UiEvent::ShareScreen(QuestionSlot::new(question))).is_ok();
-        let chosen = if sent { answer.await.ok().flatten() } else { None };
-        *self.busy.lock().unwrap_or_else(|e| e.into_inner()) = false;
-        tracing::info!(app_id, ?chosen, "screen share answered");
-        Ok(match chosen {
-            Some(Shared::Monitor(connector)) => (true, 1, connector, 0),
-            Some(Shared::Window(id)) => (true, 2, String::new(), id),
-            None => (false, 0, String::new(), 0),
+        let mut options = options;
+        options.remove("multiple");
+        options.remove("virtual");
+        let (ok, chosen) = self.ask_sources(app_id, monitors, options, &header, conn).await?;
+        Ok(match chosen.first() {
+            Some((kind, connector, window)) if ok => (true, *kind, connector.clone(), *window),
+            _ => (false, 0, String::new(), 0),
         })
+    }
+
+    /// `ChooseSource` with `multiple` and `virtual`: the sources chosen,
+    /// each (type, connector, window).
+    async fn choose_sources(
+        &self,
+        app_id: &str,
+        monitors: Vec<(String, String)>,
+        options: std::collections::HashMap<String, zbus::zvariant::OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> fdo::Result<(bool, Vec<(u32, String, u32)>)> {
+        self.ask_sources(app_id, monitors, options, &header, conn).await
     }
 }
 

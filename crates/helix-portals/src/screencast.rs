@@ -44,6 +44,8 @@ pub(crate) struct Cast {
     pub(crate) app_id: String,
     cursor_mode: u32,
     types: u32,
+    /// `multiple`: the app takes several sources.
+    multiple: bool,
     pub(crate) persist_mode: u32,
     /// What to share (and allow) again, from `restore_data`.
     pub(crate) restore: Option<Remembered>,
@@ -268,8 +270,8 @@ fn device_names(devices: u32) -> Vec<&'static str> {
 }
 
 pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObjectPath) -> (u32, Results) {
-    let (app_id, cursor_mode, types, persist_mode, restore, remote, sources_selected) = match lock(shared).sessions.get(session) {
-        Some(c) => (c.app_id.clone(), c.cursor_mode, c.types, c.persist_mode, c.restore.clone(), c.remote.as_ref().map(|r| r.devices), c.sources_selected),
+    let (app_id, cursor_mode, types, persist_mode, restore, remote, sources_selected, multiple) = match lock(shared).sessions.get(session) {
+        Some(c) => (c.app_id.clone(), c.cursor_mode, c.types, c.persist_mode, c.restore.clone(), c.remote.as_ref().map(|r| r.devices), c.sources_selected, c.multiple),
         None => return (response::OTHER, Results::new()),
     };
     let types = if remote.is_some() && !sources_selected { 0 } else { types };
@@ -305,13 +307,13 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
             }
         }
     };
-    let source: Option<Source> = match restored {
+    let sources: Vec<Source> = match restored {
         Some(source) => {
             tracing::info!(app_id, ?source, "restoring what was shared before");
-            source
+            source.into_iter().collect()
         }
         // Only a virtual monitor: nothing that exists is shown, so no asking.
-        None if types == SOURCE_VIRTUAL => Some(Source::Virtual),
+        None if types == SOURCE_VIRTUAL => vec![Source::Virtual],
         None if types == 0 => {
             // A remote desktop session without screen sharing: just ask.
             let devices = remote.unwrap_or(0);
@@ -320,7 +322,7 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
                 .await
                 .and_then(|r| r.body().deserialize::<bool>());
             match allowed {
-                Ok(true) => None,
+                Ok(true) => Vec::new(),
                 Ok(false) => return (response::CANCELLED, Results::new()),
                 Err(err) => {
                     tracing::warn!(%err, "cannot ask about remote control");
@@ -333,18 +335,28 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
             let mut options = HashMap::from([
                 ("monitors", Value::from(types & SOURCE_MONITOR != 0)),
                 ("windows", Value::from(types & SOURCE_WINDOW != 0)),
+                ("virtual", Value::from(types & SOURCE_VIRTUAL != 0)),
+                ("multiple", Value::from(multiple)),
                 ("remember", Value::from(persist_mode != 0)),
             ]);
             if let Some(devices) = remote {
                 options.insert("control", Value::from(device_names(devices)));
             }
             let choice = conn
-                .call_method(Some(SHELL), CHOOSER_PATH, Some(CHOOSER), "ChooseSource", &(app_id.as_str(), &offered, options))
+                .call_method(Some(SHELL), CHOOSER_PATH, Some(CHOOSER), "ChooseSources", &(app_id.as_str(), &offered, options))
                 .await
-                .and_then(|r| r.body().deserialize::<(bool, u32, String, u32)>());
+                .and_then(|r| r.body().deserialize::<(bool, Vec<(u32, String, u32)>)>());
             match choice {
-                Ok((true, SOURCE_MONITOR, connector, _)) => Some(Source::Monitor(connector)),
-                Ok((true, SOURCE_WINDOW, _, window)) => Some(Source::Window(window)),
+                Ok((true, chosen)) if !chosen.is_empty() => chosen
+                    .into_iter()
+                    .filter_map(|(kind, connector, window)| match kind {
+                        SOURCE_MONITOR => Some(Source::Monitor(connector)),
+                        SOURCE_WINDOW => Some(Source::Window(window)),
+                        SOURCE_VIRTUAL => Some(Source::Virtual),
+                        _ => None,
+                    })
+                    .take(if multiple { usize::MAX } else { 1 })
+                    .collect(),
                 Ok(_) => return (response::CANCELLED, Results::new()),
                 Err(err) => {
                     tracing::warn!(%err, "cannot ask what to share");
@@ -358,13 +370,14 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
         None
     } else {
         let mut r = Remembered { devices: remote, ..Remembered::default() };
-        match &source {
-            Some(Source::Monitor(connector)) => r.monitor = on.iter().find(|(m, _)| m.connector == *connector).map(|(m, _)| m.clone()),
-            Some(Source::Window(id)) => r.window = describe_window(conn, *id).await,
+        // One source is remembered; several are asked about again.
+        match sources.as_slice() {
+            [Source::Monitor(connector)] => r.monitor = on.iter().find(|(m, _)| m.connector == *connector).map(|(m, _)| m.clone()),
+            [Source::Window(id)] => r.window = describe_window(conn, *id).await,
             _ => {}
         }
         // Nothing identifiable shared (and not remote control): nothing to remember.
-        (r.monitor.is_some() || r.window.is_some() || (remote.is_some() && source.is_none())).then_some(r)
+        (r.monitor.is_some() || r.window.is_some() || (remote.is_some() && sources.is_empty())).then_some(r)
     };
     let remember = |results: &mut Results| match &remembered {
         Some(r) => {
@@ -376,27 +389,29 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
         }
     };
     if let Some(devices) = remote {
-        return match start_remote(conn, shared, session, devices, source.as_ref(), cursor_mode).await {
+        return match start_remote(conn, shared, session, devices, &sources, cursor_mode).await {
             Ok(mut results) => {
                 remember(&mut results);
                 (response::SUCCESS, results)
             }
             Err(err) => {
-                tracing::warn!(%err, ?source, "cannot start remote control");
+                tracing::warn!(%err, ?sources, "cannot start remote control");
                 end(conn, shared, session, true).await;
                 (response::OTHER, Results::new())
             }
         };
     }
-    let Some(source) = source else { return (response::OTHER, Results::new()) };
-    match record(conn, shared, session, &source, cursor_mode, None).await {
-        Ok(stream) => {
-            let mut results = HashMap::from([("streams".to_owned(), owned(Value::from(vec![stream])))]);
+    if sources.is_empty() {
+        return (response::OTHER, Results::new());
+    }
+    match record(conn, shared, session, &sources, cursor_mode, None).await {
+        Ok(streams) => {
+            let mut results = HashMap::from([("streams".to_owned(), owned(Value::from(streams)))]);
             remember(&mut results);
             (response::SUCCESS, results)
         }
         Err(err) => {
-            tracing::warn!(%err, ?source, "cannot start the screen cast");
+            tracing::warn!(%err, ?sources, "cannot start the screen cast");
             end(conn, shared, session, true).await;
             (response::OTHER, Results::new())
         }
@@ -418,15 +433,16 @@ async fn describe_window(conn: &Connection, id: u32) -> Option<(String, String)>
     reply.body().deserialize().ok()
 }
 
-/// Record `connector` through the compositor; the stream for the app.
+/// Record `sources` through the compositor, in one session; the streams
+/// for the app, in the same order.
 async fn record(
     conn: &Connection,
     shared: &Shared,
     session: &OwnedObjectPath,
-    source: &Source,
+    sources: &[Source],
     cursor_mode: u32,
     remote: Option<(&OwnedObjectPath, &str)>,
-) -> zbus::Result<(u32, HashMap<String, OwnedValue>)> {
+) -> zbus::Result<Vec<(u32, HashMap<String, OwnedValue>)>> {
     let mut create = HashMap::<&str, Value<'_>>::new();
     if let Some((_, id)) = remote {
         create.insert("remote-desktop-session-id", Value::from(id));
@@ -443,32 +459,36 @@ async fn record(
         CURSOR_METADATA => 2,
         _ => 0,
     };
-    let mut props = HashMap::from([("cursor-mode", Value::from(mutter_cursor))]);
     let session_iface = Some("org.gnome.Mutter.ScreenCast.Session");
-    let (reply, source_type) = match source {
-        Source::Monitor(connector) => (
-            conn.call_method(Some(MUTTER), mutter.as_str(), session_iface, "RecordMonitor", &(connector.as_str(), props)).await?,
-            SOURCE_MONITOR,
-        ),
-        Source::Window(window) => {
-            props.insert("window-id", Value::from(u64::from(*window)));
-            (conn.call_method(Some(MUTTER), mutter.as_str(), session_iface, "RecordWindow", &(props,)).await?, SOURCE_WINDOW)
-        }
-        Source::Virtual => (conn.call_method(Some(MUTTER), mutter.as_str(), session_iface, "RecordVirtual", &(props,)).await?, SOURCE_VIRTUAL),
-    };
-    let stream: OwnedObjectPath = reply.body().deserialize()?;
-    let parameters: HashMap<String, OwnedValue> = zbus::Proxy::new(conn, MUTTER, stream.as_str(), "org.gnome.Mutter.ScreenCast.Stream")
-        .await?
-        .get_property("Parameters")
-        .await?;
-    // Watch for the node id and for the compositor ending the session.
-    let added = zbus::MatchRule::builder()
-        .msg_type(zbus::message::Type::Signal)
-        .interface("org.gnome.Mutter.ScreenCast.Stream")?
-        .member("PipeWireStreamAdded")?
-        .path(stream.clone())?
-        .build();
-    let mut added = zbus::MessageStream::for_match_rule(added, conn, None).await?;
+    // Each source's stream, its parameters and the watch for its node id.
+    let mut recorded = Vec::new();
+    for source in sources {
+        let mut props = HashMap::from([("cursor-mode", Value::from(mutter_cursor))]);
+        let (reply, source_type) = match source {
+            Source::Monitor(connector) => (
+                conn.call_method(Some(MUTTER), mutter.as_str(), session_iface, "RecordMonitor", &(connector.as_str(), props)).await?,
+                SOURCE_MONITOR,
+            ),
+            Source::Window(window) => {
+                props.insert("window-id", Value::from(u64::from(*window)));
+                (conn.call_method(Some(MUTTER), mutter.as_str(), session_iface, "RecordWindow", &(props,)).await?, SOURCE_WINDOW)
+            }
+            Source::Virtual => (conn.call_method(Some(MUTTER), mutter.as_str(), session_iface, "RecordVirtual", &(props,)).await?, SOURCE_VIRTUAL),
+        };
+        let stream: OwnedObjectPath = reply.body().deserialize()?;
+        let parameters: HashMap<String, OwnedValue> = zbus::Proxy::new(conn, MUTTER, stream.as_str(), "org.gnome.Mutter.ScreenCast.Stream")
+            .await?
+            .get_property("Parameters")
+            .await?;
+        let added = zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface("org.gnome.Mutter.ScreenCast.Stream")?
+            .member("PipeWireStreamAdded")?
+            .path(stream.clone())?
+            .build();
+        let added = zbus::MessageStream::for_match_rule(added, conn, None).await?;
+        recorded.push((source, source_type, stream, parameters, added));
+    }
     let closed = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .interface("org.gnome.Mutter.ScreenCast.Session")?
@@ -485,10 +505,23 @@ async fn record(
             conn.call_method(Some(MUTTER), mutter.as_str(), Some("org.gnome.Mutter.ScreenCast.Session"), "Start", &()).await?;
         }
     }
-    let node: u32 = match tokio::time::timeout(Duration::from_secs(10), added.next()).await {
-        Ok(Some(Ok(message))) => message.body().deserialize()?,
-        _ => return Err(zbus::Error::Failure("no PipeWire stream".into())),
-    };
+    let mut out = Vec::new();
+    let mut nodes = Vec::new();
+    for (source, source_type, stream, parameters, mut added) in recorded {
+        let node: u32 = match tokio::time::timeout(Duration::from_secs(10), added.next()).await {
+            Ok(Some(Ok(message))) => message.body().deserialize()?,
+            _ => return Err(zbus::Error::Failure("no PipeWire stream".into())),
+        };
+        let mut props = HashMap::from([("source_type".to_owned(), owned(Value::from(source_type)))]);
+        for key in ["position", "size"] {
+            if let Some(value) = parameters.get(key) {
+                props.insert(key.to_owned(), value.try_clone().expect("plain values"));
+            }
+        }
+        tracing::info!(node, ?source, "screen cast stream ready");
+        nodes.push((node, stream));
+        out.push((node, props));
+    }
     {
         let (conn, shared, session) = (conn.clone(), shared.clone(), session.clone());
         tokio::spawn(async move {
@@ -501,17 +534,12 @@ async fn record(
             }
         });
     }
-    let mut props = HashMap::from([("source_type".to_owned(), owned(Value::from(source_type)))]);
-    for key in ["position", "size"] {
-        if let Some(value) = parameters.get(key) {
-            props.insert(key.to_owned(), value.try_clone().expect("plain values"));
+    if let Some(r) = lock(shared).sessions.get_mut(session).and_then(|c| c.remote.as_mut()) {
+        for (node, stream) in nodes {
+            r.streams.insert(node, stream);
         }
     }
-    if let Some(r) = lock(shared).sessions.get_mut(session).and_then(|c| c.remote.as_mut()) {
-        r.streams.insert(node, stream.clone());
-    }
-    tracing::info!(node, ?source, "screen cast stream ready");
-    Ok((node, props))
+    Ok(out)
 }
 
 /// Start a remote desktop session in the compositor (with a screen cast of
@@ -521,7 +549,7 @@ async fn start_remote(
     shared: &Shared,
     session: &OwnedObjectPath,
     devices: u32,
-    source: Option<&Source>,
+    sources: &[Source],
     cursor_mode: u32,
 ) -> zbus::Result<Results> {
     let reply = conn.call_method(Some(REMOTE), REMOTE_PATH, Some("org.gnome.Mutter.RemoteDesktop"), "CreateSession", &()).await?;
@@ -546,14 +574,11 @@ async fn start_remote(
         ("devices".to_owned(), owned(Value::from(devices))),
         ("clipboard_enabled".to_owned(), owned(Value::from(false))),
     ]);
-    match source {
-        Some(source) => {
-            let stream = record(conn, shared, session, source, cursor_mode, Some((&remote, &id))).await?;
-            results.insert("streams".to_owned(), owned(Value::from(vec![stream])));
-        }
-        None => {
-            conn.call_method(Some(REMOTE), remote.as_str(), Some("org.gnome.Mutter.RemoteDesktop.Session"), "Start", &()).await?;
-        }
+    if sources.is_empty() {
+        conn.call_method(Some(REMOTE), remote.as_str(), Some("org.gnome.Mutter.RemoteDesktop.Session"), "Start", &()).await?;
+    } else {
+        let streams = record(conn, shared, session, sources, cursor_mode, Some((&remote, &id))).await?;
+        results.insert("streams".to_owned(), owned(Value::from(streams)));
     }
     let requested = lock(shared).sessions.get(session).and_then(|c| c.remote.as_ref()).is_some_and(|r| r.clipboard_requested);
     if requested && crate::clipboard::enable(conn, shared, session, &remote).await {
@@ -626,6 +651,7 @@ impl ScreenCastBackend {
             _ => 0,
         };
         let restore = options.get("restore_data").and_then(Remembered::from_restore_data);
+        let multiple = matches!(options.get("multiple"), Some(Value::Bool(true)));
         let shared = self.shared.clone();
         Ok(with_request(server, handle, || async move {
             if !lock(&shared).sessions.contains_key(&session) {
@@ -643,6 +669,7 @@ impl ScreenCastBackend {
                 cast.sources_selected = true;
                 cast.cursor_mode = cursor_mode;
                 cast.types = types & known;
+                cast.multiple = multiple;
                 // A remote desktop session remembers through SelectDevices.
                 if cast.remote.is_none() {
                     cast.persist_mode = persist_mode;

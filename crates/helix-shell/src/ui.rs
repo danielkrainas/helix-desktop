@@ -345,7 +345,10 @@ enum DialogKind {
         remember: bool,
         /// Devices the app will also control (remote desktop).
         control: Vec<String>,
-        reply: Option<tokio::sync::oneshot::Sender<Option<crate::screencast_chooser::Shared>>>,
+        /// Several may be chosen: the rows picked.
+        multiple: bool,
+        picked: Vec<usize>,
+        reply: Option<tokio::sync::oneshot::Sender<Option<Vec<crate::screencast_chooser::Shared>>>>,
     },
     /// A password prompt (polkit, keyring).
     Prompt(Box<prompt::PromptView>),
@@ -1551,9 +1554,16 @@ impl Ui {
                 return;
             }
             DialogKind::Prompt(_) => return,
-            DialogKind::ShareScreen { sources, reply, .. } => {
-                // Confirm (Enter) shares the first entry.
-                let chosen = (choice == Choice::Confirmed).then(|| sources.first().map(|s| s.0.clone())).flatten();
+            DialogKind::ShareScreen { sources, reply, multiple, picked, .. } => {
+                // Confirm (Enter, Share) shares the rows picked, else the
+                // first entry.
+                let chosen = (choice == Choice::Confirmed).then(|| {
+                    if multiple && !picked.is_empty() {
+                        picked.iter().filter_map(|i| sources.get(*i).map(|s| s.0.clone())).collect()
+                    } else {
+                        sources.first().map(|s| vec![s.0.clone()]).unwrap_or_default()
+                    }
+                });
                 if let Some(reply) = reply {
                     let _ = reply.send(chosen);
                 }
@@ -1563,11 +1573,22 @@ impl Ui {
         let _ = self.requests.send(request);
     }
 
-    /// A monitor was picked in the share dialog.
+    /// A row of the share dialog was clicked: shared at once, or (several
+    /// may be chosen) picked or unpicked.
     fn share_monitor(&mut self, index: usize) {
+        if let Some(DialogKind::ShareScreen { multiple: true, picked, .. }) = self.dialog.as_mut().map(|d| &mut d.state.kind) {
+            match picked.iter().position(|i| *i == index) {
+                Some(at) => {
+                    picked.remove(at);
+                }
+                None => picked.push(index),
+            }
+            self.draw_dialog();
+            return;
+        }
         let Some(dialog) = self.dialog.take() else { return };
         if let DialogKind::ShareScreen { sources, reply: Some(reply), .. } = dialog.state.kind {
-            let _ = reply.send(sources.get(index).map(|s| s.0.clone()));
+            let _ = reply.send(sources.get(index).map(|s| vec![s.0.clone()]));
         }
     }
 
@@ -1723,7 +1744,7 @@ impl Ui {
 
     /// "Share your screen?": one row per monitor, and Cancel.
     fn paint_share_dialog(&mut self, overlay: &mut Overlay<DialogState>) {
-        let DialogKind::ShareScreen { app, sources, remember, control, .. } = &overlay.state.kind else { return };
+        let DialogKind::ShareScreen { app, sources, remember, control, multiple, picked, .. } = &overlay.state.kind else { return };
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
@@ -1757,18 +1778,43 @@ impl Ui {
         let top = if *remember { by + 112 } else { by + 100 };
         for (i, (_, name, connector)) in sources.iter().take(8).enumerate() {
             let r = Rect { x: bx + 24, y: top + i as i32 * (ROW_H + 8), w: bw - 48, h: ROW_H };
-            canvas.rect(r.x, r.y, r.w, r.h, HOVER_BG);
+            let on = picked.contains(&i);
+            canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT } else { HOVER_BG });
             let base = baseline(text, r.y, r.h, 15.0);
-            label(text, &mut canvas, name, (r.x + 12) as f32, base, 15.0, FG, r.w as f32 - 120.0);
+            let mut nx = r.x + 12;
+            if *multiple {
+                // A check box per row.
+                let (cx, cy) = (r.x + 12, r.y + (r.h - 14) / 2);
+                for (rx, ry, rw, rh) in [(cx, cy, 14, 1), (cx, cy + 13, 14, 1), (cx, cy, 1, 14), (cx + 13, cy, 1, 14)] {
+                    canvas.rect(rx, ry, rw, rh, FG);
+                }
+                if on {
+                    canvas.line((f64::from(cx) + 3.0, f64::from(cy) + 7.5), (f64::from(cx) + 6.0, f64::from(cy) + 10.5), 1.8, FG);
+                    canvas.line((f64::from(cx) + 6.0, f64::from(cy) + 10.5), (f64::from(cx) + 11.0, f64::from(cy) + 3.5), 1.8, FG);
+                }
+                nx += 24;
+            }
+            label(text, &mut canvas, name, nx as f32, base, 15.0, FG, (r.x + r.w - nx) as f32 - 120.0);
             let cw = text.map_or(0.0, |t| t.width(connector, 13.0).min(100.0));
             label(text, &mut canvas, connector, r.x as f32 + r.w as f32 - 12.0 - cw, base, 13.0, DIM_FG, 100.0);
             hits.push((r, OverlayHit::Monitor(i)));
         }
-        let cancel = Rect { x: bx + 24, y: by + bh - 56, w: bw - 48, h: 36 };
+        // Cancel; with several to choose, Share beside it.
+        let cw = if *multiple { (bw - 48 - 12) / 2 } else { bw - 48 };
+        let cancel = Rect { x: bx + 24, y: by + bh - 56, w: cw, h: 36 };
         canvas.rect(cancel.x, cancel.y, cancel.w, cancel.h, BANNER_BORDER);
         let lw = text.map_or(0.0, |t| t.width("Cancel", 15.0));
         label(text, &mut canvas, "Cancel", cancel.x as f32 + (cancel.w as f32 - lw) / 2.0, baseline(text, cancel.y, cancel.h, 15.0), 15.0, FG, cancel.w as f32);
         hits.push((cancel, OverlayHit::Cancel));
+        if *multiple {
+            let share = Rect { x: cancel.x + cw + 12, y: cancel.y, w: cw, h: 36 };
+            canvas.rect(share.x, share.y, share.w, share.h, if picked.is_empty() { BANNER_BORDER } else { ACCENT });
+            let sw = text.map_or(0.0, |t| t.width("Share", 15.0));
+            label(text, &mut canvas, "Share", share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, if picked.is_empty() { DIM_FG } else { FG }, share.w as f32);
+            if !picked.is_empty() {
+                hits.push((share, OverlayHit::Confirm));
+            }
+        }
         overlay.hits = hits;
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -1908,10 +1954,13 @@ impl Ui {
                         if q.windows {
                             sources.extend(self.windows.mru().iter().map(|w| (Shared::Window(w.id), w.label().to_owned(), w.app_id.clone())));
                         }
+                        if q.virtual_monitor {
+                            sources.push((Shared::Virtual, "New virtual monitor".to_owned(), String::new()));
+                        }
                         if sources.is_empty() {
                             let _ = q.reply.send(None);
                         } else {
-                            let kind = DialogKind::ShareScreen { app: q.app, sources, remember: q.remember, control: q.control, reply: Some(q.reply) };
+                            let kind = DialogKind::ShareScreen { app: q.app, sources, remember: q.remember, control: q.control, multiple: q.multiple, picked: Vec::new(), reply: Some(q.reply) };
                             self.show_dialog(DialogState { kind, remaining: 0 });
                         }
                     }
