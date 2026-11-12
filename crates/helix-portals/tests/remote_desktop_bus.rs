@@ -224,7 +224,7 @@ async fn mutter_keymaps_and_clipboard() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     let log = log.lock().unwrap();
     let set = log.iter().find(|l| l.contains("Keymap(Set(Some(")).expect("SetKeymap reached the compositor");
-    assert!(set.contains("text: \"xkb_keymap { };\", layout: 0, lock: true"), "{set}");
+    assert!(set.contains("text: \"xkb_keymap { };\", format: 1, layout: 0, lock: true"), "{set}");
     assert!(log.iter().any(|l| l.contains("Keymap(Set(None))")), "{log:?}");
 }
 
