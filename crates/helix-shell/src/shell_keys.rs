@@ -65,6 +65,8 @@ impl Playback {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyAction {
     Screenshot(ScreenshotKey),
+    /// `show-screen-recording-ui`: start or stop recording.
+    Record,
     Brightness(Brightness),
     Volume(Volume),
     Playback(Playback),
@@ -73,7 +75,7 @@ pub enum KeyAction {
 impl KeyAction {
     /// Volume and brightness keys work while locked.
     pub fn works_when_locked(self) -> bool {
-        !matches!(self, KeyAction::Screenshot(_))
+        !matches!(self, KeyAction::Screenshot(_) | KeyAction::Record)
     }
 }
 
@@ -82,6 +84,7 @@ const KEYS: &[(&str, &str, &[&str], KeyAction)] = &[
     (SHELL_KEYS, "show-screenshot-ui", &["Print"], KeyAction::Screenshot(ScreenshotKey::Ui)),
     (SHELL_KEYS, "screenshot", &["<Shift>Print"], KeyAction::Screenshot(ScreenshotKey::Screen)),
     (SHELL_KEYS, "screenshot-window", &["<Alt>Print"], KeyAction::Screenshot(ScreenshotKey::Window)),
+    (SHELL_KEYS, "show-screen-recording-ui", &["<Ctrl><Shift><Alt>R"], KeyAction::Record),
     (SHELL_KEYS, "screen-brightness-up", &["XF86MonBrightnessUp"], KeyAction::Brightness(Brightness::Up)),
     (SHELL_KEYS, "screen-brightness-up-monitor", &["<Shift>XF86MonBrightnessUp"], KeyAction::Brightness(Brightness::Up)),
     (SHELL_KEYS, "screen-brightness-down", &["XF86MonBrightnessDown"], KeyAction::Brightness(Brightness::Down)),

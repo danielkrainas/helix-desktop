@@ -162,6 +162,25 @@ impl Center {
         }, None)
     }
 
+    /// "Screencast recorded", naming the file.
+    pub fn screencast_recorded(&self, path: std::path::PathBuf) -> u32 {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        self.post(Notification {
+            id: 0,
+            app_name: "Screencast".into(),
+            summary: "Screencast recorded".into(),
+            body: format!("Saved as {name}."),
+            actions: vec![("default".into(), "Open".into()), ("show-in-files".into(), "Show in Files".into())],
+            has_default: true,
+            urgency: Urgency::Normal,
+            timeout: Notification::timeout_from(-1, Urgency::Normal),
+            icon: None,
+            origin: Origin::Screenshot { path },
+            markup: false,
+            transient: false,
+        }, None)
+    }
+
     /// Show (or, with do not disturb, only list) a notification; play its
     /// sound if it gets a banner. Closes the oldest beyond the list's limit.
     fn post(&self, notification: Notification, sound: Option<Sound>) -> u32 {

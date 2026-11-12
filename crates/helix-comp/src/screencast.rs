@@ -18,8 +18,10 @@ use crate::display_config::Layout;
 pub const BUS_NAME: &str = "org.gnome.Mutter.ScreenCast";
 pub const OBJECT_PATH: &str = "/org/gnome/Mutter/ScreenCast";
 pub const VERSION: i32 = 2;
-/// Only Helix's portal backend may record the screen.
+/// Only Helix's portal backend may record the screen (and the shell, for
+/// screen recording).
 pub const ALLOWED_CALLER: &str = "org.freedesktop.impl.portal.desktop.helix";
+pub const SHELL: &str = "org.gnome.Shell";
 
 /// What a stream records.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +87,8 @@ struct SessionState {
     started: bool,
     /// Belongs to a remote desktop session (starts and stops with it).
     remote: bool,
+    /// The shell's own recording (no "Sharing" indicator).
+    shell: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -107,7 +111,7 @@ impl Casts {
     }
 
     fn active(&self) -> bool {
-        self.sessions.values().any(|s| s.started)
+        self.sessions.values().any(|s| s.started && !s.shell)
     }
 
     /// The session a stream belongs to.
@@ -135,20 +139,36 @@ fn stream_path(id: u32) -> String {
     format!("{OBJECT_PATH}/Stream/u{id}")
 }
 
+/// Whether the caller (`sender`) owns `name`.
+async fn owns(conn: &Connection, name: &str, sender: &str) -> bool {
+    match (DBusProxy::new(conn).await, zbus::names::BusName::try_from(name)) {
+        (Ok(dbus), Ok(name)) => dbus.get_name_owner(name).await.is_ok_and(|o| o.as_str() == sender),
+        _ => false,
+    }
+}
+
 /// Whether the caller owns [`ALLOWED_CALLER`].
 pub async fn check_caller(conn: &Connection, header: &Header<'_>) -> fdo::Result<String> {
     let sender = header.sender().map(|s| s.to_string()).unwrap_or_default();
-    let allowed = match DBusProxy::new(conn).await {
-        Ok(dbus) => match zbus::names::BusName::try_from(ALLOWED_CALLER) {
-            Ok(name) => dbus.get_name_owner(name).await.is_ok_and(|o| o.as_str() == sender),
-            Err(_) => false,
-        },
-        Err(_) => false,
-    };
-    if allowed {
+    if owns(conn, ALLOWED_CALLER, &sender).await {
         Ok(sender)
     } else {
         Err(fdo::Error::AccessDenied("screen casting is restricted".into()))
+    }
+}
+
+/// [`check_caller`], also allowing the shell: (caller, is the shell).
+async fn check_cast_caller(conn: &Connection, header: &Header<'_>) -> fdo::Result<(String, bool)> {
+    match check_caller(conn, header).await {
+        Ok(sender) => Ok((sender, false)),
+        Err(err) => {
+            let sender = header.sender().map(|s| s.to_string()).unwrap_or_default();
+            if owns(conn, SHELL, &sender).await {
+                Ok((sender, true))
+            } else {
+                Err(err)
+            }
+        }
     }
 }
 
@@ -169,7 +189,7 @@ impl ScreenCast {
         #[zbus(connection)] conn: &Connection,
         #[zbus(object_server)] server: &zbus::ObjectServer,
     ) -> fdo::Result<OwnedObjectPath> {
-        let owner = check_caller(conn, &header).await?;
+        let (owner, shell) = check_cast_caller(conn, &header).await?;
         let remote = match properties.get("remote-desktop-session-id").map(|v| &**v) {
             Some(Value::Str(id)) => Some(id.to_string()),
             Some(_) => return Err(fdo::Error::InvalidArgs("remote-desktop-session-id (s)".into())),
@@ -179,7 +199,7 @@ impl ScreenCast {
         let id = {
             let mut casts = lock(&self.shared);
             let id = casts.next_id();
-            casts.sessions.insert(id, SessionState { owner: owner.clone(), streams: Vec::new(), started: false, remote: remote.is_some() });
+            casts.sessions.insert(id, SessionState { owner: owner.clone(), streams: Vec::new(), started: false, remote: remote.is_some(), shell });
             id
         };
         if let Some(remote) = remote {

@@ -65,6 +65,7 @@ fn hint(mode: PickMode) -> &'static str {
         PickMode::Point => "Click to pick a color · Esc to cancel",
         PickMode::Window => "Click a window to capture it · Esc to cancel",
         PickMode::Screenshot => "Drag to capture an area · Enter for the whole screen · Esc to cancel",
+        PickMode::Record => "Drag to record an area · Enter to record the whole screen · Esc to cancel",
     }
 }
 
@@ -295,7 +296,7 @@ impl Ui {
         let Some(picker) = self.picker.as_ref() else { return };
         match event.keysym {
             Keysym::Escape => self.finish_pick(Picked::Cancelled),
-            Keysym::Return | Keysym::KP_Enter | Keysym::space if picker.mode == PickMode::Screenshot => {
+            Keysym::Return | Keysym::KP_Enter | Keysym::space if matches!(picker.mode, PickMode::Screenshot | PickMode::Record) => {
                 self.finish_pick(Picked::Screen)
             }
             _ => {}

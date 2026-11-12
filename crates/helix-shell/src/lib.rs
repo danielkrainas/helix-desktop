@@ -21,6 +21,7 @@ pub mod icons;
 pub mod markup;
 pub mod notifications;
 pub mod notify_store;
+pub mod recording;
 pub mod screensaver;
 /// Event sounds live in `helix-settings`, shared with the compositor.
 pub use helix_settings::sound;
@@ -124,6 +125,8 @@ pub enum UiEvent {
     Windows(screencast_chooser::WindowsSlot),
     /// Whether the screen is being shared (panel indicator).
     Sharing(bool),
+    /// Whether the screen is being recorded (panel indicator).
+    Recording(bool),
     /// From IBus, for the input method.
     Ime(ibus::ImEvent),
     /// Quick settings values: volume (percent, muted, max) and brightness
@@ -199,6 +202,8 @@ pub enum UiRequest {
     ShortcutsInhibit { id: u32, app_id: String },
     /// Remember the user's answer for `app_id`.
     StoreShortcutsAnswer { app_id: String, allowed: bool },
+    /// The panel's "Recording" indicator was clicked.
+    StopRecording,
 }
 
 /// The exported `org.gnome.Shell` object.
@@ -446,6 +451,7 @@ pub struct ShellService {
     ui: mpsc::UnboundedSender<UiEvent>,
     night_light: night_light::Handle,
     ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
+    recorder: recording::Recorder,
 }
 
 impl ShellService {
@@ -465,6 +471,7 @@ impl ShellService {
         };
         let center = notifications::Center::new(ui.clone(), lock_status.clone());
         let night_light = night_light::Handle::default();
+        let recorder = recording::Recorder::new(ui.clone(), Some(center.clone()));
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone(), lock: lock_status.clone() })?
             .serve_at(screensaver::OBJECT_PATH, saver)?
@@ -482,6 +489,7 @@ impl ShellService {
                 screenshot::OBJECT_PATH,
                 screenshot::WindowPicker { screens: screenshot::Screens::new(ui.clone()) },
             )?
+            .serve_at(recording::OBJECT_PATH, recording::Screencast { recorder: recorder.clone() })?
             .serve_at(night_light::OBJECT_PATH, night_light::ColorService { handle: night_light.clone() })?
             .serve_at(
                 screencast_chooser::OBJECT_PATH,
@@ -512,7 +520,7 @@ impl ShellService {
             }
             other => tracing::warn!(?other, "cannot own org.gnome.ScreenSaver; screen locking unavailable"),
         }
-        for name in [notifications::FDO_BUS_NAME, notifications::GTK_BUS_NAME, night_light::BUS_NAME] {
+        for name in [notifications::FDO_BUS_NAME, notifications::GTK_BUS_NAME, night_light::BUS_NAME, recording::BUS_NAME] {
             match conn.request_name_with_flags(name, RequestNameFlags::DoNotQueue.into()).await {
                 Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => {}
                 other => tracing::warn!(name, ?other, "cannot own service name"),
@@ -542,7 +550,7 @@ impl ShellService {
             }
         });
         let ibus = Arc::new(tokio::sync::Mutex::new(ibus::Ibus::new(ui.clone())));
-        Ok((Self { conn, state, watcher, auth, center, ticker, ui, night_light, ibus }, ui_rx))
+        Ok((Self { conn, state, watcher, auth, center, ticker, ui, night_light, ibus, recorder }, ui_rx))
     }
 
     pub fn connection(&self) -> &Connection {
@@ -586,6 +594,7 @@ impl ShellService {
             center: self.center.clone(),
             ui: self.ui.clone(),
             ibus: self.ibus.clone(),
+            recorder: self.recorder.clone(),
         }
     }
 
@@ -609,6 +618,7 @@ pub struct UiBridge {
     center: notifications::Center,
     ui: mpsc::UnboundedSender<UiEvent>,
     ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
+    recorder: recording::Recorder,
 }
 
 impl UiBridge {
@@ -701,6 +711,13 @@ impl UiBridge {
                 }
                 Ok(())
             }
+            UiRequest::StopRecording => {
+                let recorder = self.recorder.clone();
+                tokio::spawn(async move {
+                    recorder.stop().await;
+                });
+                Ok(())
+            }
             UiRequest::QuickSettings(change) => {
                 let (conn, ui) = (self.conn.clone(), self.ui.clone());
                 tokio::spawn(async move {
@@ -719,9 +736,13 @@ impl UiBridge {
             }
             UiRequest::ShellKey(action) => {
                 // Runs on its own: the screenshot UI waits for the user.
-                let (conn, ui, center) = (self.conn.clone(), self.ui.clone(), self.center.clone());
+                let (conn, ui, center, recorder) = (self.conn.clone(), self.ui.clone(), self.center.clone(), self.recorder.clone());
                 tokio::spawn(async move {
                     let osd = match action {
+                        shell_keys::KeyAction::Record => {
+                            recorder.key(&conn, &screenshot::Screens::new(ui.clone())).await;
+                            None
+                        }
                         shell_keys::KeyAction::Screenshot(key) => {
                             screenshot::run_key(&screenshot::Screens::with_notifications(ui.clone(), center), key).await;
                             None

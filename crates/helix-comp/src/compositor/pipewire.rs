@@ -133,6 +133,39 @@ fn cursor_meta_pod() -> Result<Vec<u8>, String> {
     }))
 }
 
+/// Buffer headers (`SPA_META_Header`): when each frame was made, which
+/// consumers such as GStreamer timestamp frames with.
+fn header_meta_pod() -> Result<Vec<u8>, String> {
+    serialize(Value::Object(Object {
+        type_: spa::sys::SPA_TYPE_OBJECT_ParamMeta,
+        id: spa::sys::SPA_PARAM_Meta,
+        properties: vec![
+            property(spa::sys::SPA_PARAM_META_type, Value::Id(spa::utils::Id(spa::sys::SPA_META_Header))),
+            property(spa::sys::SPA_PARAM_META_size, Value::Int(std::mem::size_of::<spa::sys::spa_meta_header>() as i32)),
+        ],
+    }))
+}
+
+/// Stamp a buffer's header (if it has one) with the monotonic time now.
+///
+/// # Safety
+/// `buffer` is a buffer PipeWire dequeued for us.
+unsafe fn write_header(buffer: *mut spa::sys::spa_buffer, seq: u64) {
+    let metas = std::slice::from_raw_parts((*buffer).metas, (*buffer).n_metas as usize);
+    let Some(meta) = metas.iter().find(|m| m.type_ == spa::sys::SPA_META_Header) else { return };
+    if meta.data.is_null() || (meta.size as usize) < std::mem::size_of::<spa::sys::spa_meta_header>() {
+        return;
+    }
+    let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now);
+    let header = meta.data as *mut spa::sys::spa_meta_header;
+    (*header).flags = 0;
+    (*header).offset = 0;
+    (*header).pts = now.tv_sec * 1_000_000_000 + now.tv_nsec;
+    (*header).dts_offset = 0;
+    (*header).seq = seq;
+}
+
 /// Write `cursor` into a buffer's cursor metadata, if it has room for it.
 ///
 /// # Safety
@@ -411,9 +444,10 @@ fn create(
             // they carry cursor metadata).
             let buffers = buffers_pod(width, height);
             let meta = if cursor_meta { cursor_meta_pod().map(Some) } else { Ok(None) };
-            match (buffers, meta) {
-                (Ok(buffers), Ok(meta)) => {
+            match (buffers, meta, header_meta_pod()) {
+                (Ok(buffers), Ok(meta), Ok(header)) => {
                     let mut pods: Vec<&Pod> = Pod::from_bytes(&buffers).into_iter().collect();
+                    pods.extend(Pod::from_bytes(&header));
                     if let Some(meta) = meta.as_ref() {
                         pods.extend(Pod::from_bytes(meta));
                     }
@@ -442,6 +476,7 @@ fn create(
             let frame = frame.clone();
             let last = last.clone();
             let size = size.clone();
+            let mut seq = 0u64;
             move |stream, _| {
                 let (width, _) = size.get();
                 let Some((pixels, cursor)) = frame.borrow_mut().take() else {
@@ -474,6 +509,10 @@ fn create(
                     }
                     if let Some(cursor) = &cursor {
                         write_cursor(spa_buffer, cursor);
+                    }
+                    if !spa_buffer.is_null() {
+                        seq += 1;
+                        write_header(spa_buffer, seq);
                     }
                     pw::sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw);
                     copied

@@ -60,6 +60,8 @@ pub enum PickMode {
     Point,
     /// The screenshot UI: an area, or Enter for the whole screen.
     Screenshot,
+    /// The same, to record the screen.
+    Record,
     /// Click a window.
     Window,
 }
@@ -294,7 +296,7 @@ pub fn screenshot_name(stamp: &str) -> String {
 }
 
 /// Whether the caller owns one of [`ALLOWED_CALLERS`].
-async fn allowed(conn: &Connection, header: &Header<'_>) -> bool {
+pub(crate) async fn allowed(conn: &Connection, header: &Header<'_>) -> bool {
     let Some(sender) = header.sender() else { return false };
     let Ok(dbus) = DBusProxy::new(conn).await else { return false };
     for name in ALLOWED_CALLERS {

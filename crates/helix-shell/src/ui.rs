@@ -203,6 +203,8 @@ struct Ui {
     power: crate::logind::Availability,
     /// The screen is being shared (panel indicator).
     sharing: bool,
+    /// The screen is being recorded (panel indicator).
+    recording: bool,
     exit: bool,
 }
 
@@ -268,6 +270,8 @@ enum DialogKind {
 
 const POWER_LABEL: &str = "Power";
 const POWER_BUTTON_W: i32 = 80;
+/// The "Recording" indicator's width (clicking it stops the recording).
+const RECORDING_W: i32 = 104;
 
 struct BannerView {
     data: crate::notifications::Banner,
@@ -438,9 +442,15 @@ impl Ui {
             }
         }
 
+        // Left of the Power button: a red dot and "Recording", then "Sharing".
+        let mut x = w as i32 - POWER_BUTTON_W;
+        if self.recording {
+            x -= RECORDING_W;
+            canvas.rect(x, h as i32 / 2 - 4, 8, 8, SHARING);
+            label(self.text.as_ref(), &mut canvas, "Recording", (x + 14) as f32, base, px, SHARING, (RECORDING_W - 16) as f32);
+        }
         if self.sharing {
-            // Left of the Power button: a red dot and "Sharing".
-            let x = w as i32 - POWER_BUTTON_W - 96;
+            x -= 96;
             canvas.rect(x, h as i32 / 2 - 4, 8, 8, SHARING);
             label(self.text.as_ref(), &mut canvas, "Sharing", (x + 14) as f32, base, px, SHARING, 80.0);
         }
@@ -1651,6 +1661,10 @@ impl Ui {
                 self.sharing = on;
                 self.draw_panel();
             }
+            UiEvent::Recording(on) => {
+                self.recording = on;
+                self.draw_panel();
+            }
             UiEvent::Screenshot(slot) => {
                 if let Some(job) = slot.take() {
                     self.screenshot_job(job);
@@ -1957,6 +1971,7 @@ pub fn run(
         monitor_labels: Vec::new(),
         power: Default::default(),
         sharing: false,
+        recording: false,
         lock: LockScreen {
             state: SessionLockState::new(&globals, &qh),
             session: None,
@@ -2301,9 +2316,12 @@ impl Ui {
             } else if self.banner.as_ref().is_some_and(|b| b.layer.wl_surface() == &event.surface) {
                 self.banner_click(x, y);
             } else if &event.surface == self.panel.wl_surface() {
-                if x >= f64::from(self.panel_width as i32 - POWER_BUTTON_W) {
+                let power_x = f64::from(self.panel_width as i32 - POWER_BUTTON_W);
+                if x >= power_x {
                     self.toggle_power_menu();
                     self.draw_panel();
+                } else if self.recording && x >= power_x - f64::from(RECORDING_W) {
+                    let _ = self.requests.send(UiRequest::StopRecording);
                 } else if (x - f64::from(self.panel_width) / 2.0).abs() < f64::from(notify::CLOCK_HALF_W) {
                     self.toggle_notification_list();
                 } else if x < f64::from(APPS_BUTTON_W) {
