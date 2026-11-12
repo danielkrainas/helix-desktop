@@ -59,6 +59,7 @@ mod capture;
 mod dash;
 mod ime;
 mod notify;
+mod osk;
 mod overview;
 mod prompt;
 mod quick;
@@ -141,6 +142,8 @@ struct Ui {
     notify: notify::NotifyState,
     /// The message tray's calendar column.
     calendar: calendar::CalendarState,
+    /// The on-screen keyboard.
+    osk: osk::OskState,
     osd: Option<(Osd, Instant)>,
     shown_minute: Option<String>,
 
@@ -2072,6 +2075,7 @@ impl Ui {
     fn tick(&mut self) {
         // Input sources may change from outside (Settings).
         self.ime_sync();
+        self.osk_sync();
         self.refresh_source_label();
         self.dialog_tick();
         let osd_expired = self.osd.as_ref().is_some_and(|(_, until)| Instant::now() >= *until);
@@ -2152,6 +2156,7 @@ pub fn run(
         bold: Text::load_matching("sans-serif:bold"),
         notify: Default::default(),
         calendar: Default::default(),
+        osk: Default::default(),
         osd: None,
         shown_minute: None,
         keyboard: None,
@@ -2298,6 +2303,7 @@ impl LayerShellHandler for Ui {
             || self.flash_closed(layer)
             || self.notify_closed(layer)
             || self.window_menu_closed(layer)
+            || self.osk_closed(layer)
             || self.workspace_popup_closed(layer)
         {
             return;
@@ -2339,6 +2345,7 @@ impl LayerShellHandler for Ui {
             || self.flash_configured(layer, configure.new_size)
             || self.notify_configured(layer, configure.new_size)
             || self.window_menu_configured(layer, configure.new_size)
+            || self.osk_configured(layer, configure.new_size)
             || self.workspace_popup_configured(layer, configure.new_size)
         {
             return;
@@ -2537,7 +2544,7 @@ impl TouchHandler for Ui {
 impl Ui {
     fn pointer_events(&mut self, events: &[PointerEvent]) {
         for event in events {
-            if self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) {
+            if self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {

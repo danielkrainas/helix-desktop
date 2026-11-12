@@ -45,6 +45,8 @@ pub(super) struct Ime {
     seq: u64,
     popup: Option<(wl_surface::WlSurface, ZwpInputPopupSurfaceV2)>,
     candidates: Option<(Vec<String>, usize)>,
+    /// The virtual keyboard has a keymap.
+    vk_keymap: bool,
 }
 
 /// The IBus engine of the active source, if it is an `ibus` one.
@@ -100,6 +102,7 @@ impl Ui {
             seq: 0,
             popup: None,
             candidates: None,
+            vk_keymap: false,
         });
     }
 
@@ -130,6 +133,39 @@ impl Ui {
             }
             _ => {}
         }
+    }
+
+    /// A text field has focus (the input method is active).
+    pub(super) fn ime_typing(&self) -> bool {
+        self.ime.as_ref().is_some_and(|i| i.active)
+    }
+
+    /// Type `text` into the focused text field.
+    pub(super) fn ime_commit_text(&mut self, text: &str) {
+        let Some(ime) = self.ime.as_mut().filter(|i| i.active) else { return };
+        ime.im.commit_string(text.to_owned());
+        ime.im.commit(ime.serial);
+    }
+
+    /// Press and release evdev key `code` on the virtual keyboard (giving
+    /// it the `us` keymap first if it has none).
+    pub(super) fn ime_tap_key(&mut self, code: u32) {
+        let Some(ime) = self.ime.as_mut() else { return };
+        if !ime.vk_keymap {
+            let keymap = xkb::Keymap::new_from_names(&ime.context, "evdev", "pc105", "us", "", None, xkb::KEYMAP_COMPILE_NO_FLAGS);
+            let Some(text) = keymap.map(|k| k.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1)) else { return };
+            let Some(mut file) = crate::screenshot::memfd() else { return };
+            let mut bytes = text.into_bytes();
+            bytes.push(0);
+            if std::io::Write::write_all(&mut file, &bytes).is_err() {
+                return;
+            }
+            ime.vk.keymap(1, file.as_fd(), bytes.len() as u32);
+            ime.vk_keymap = true;
+        }
+        let time = now_ms();
+        ime.vk.key(time, code, 1);
+        ime.vk.key(time, code, 0);
     }
 
     pub(super) fn ime_event(&mut self, event: ImEvent) {
@@ -254,6 +290,7 @@ impl Dispatch<ZwpInputMethodV2, ()> for Ui {
                 }
                 ui.ime_sync();
                 ui.draw_candidates();
+                ui.osk_sync();
             }
             zwp_input_method_v2::Event::Unavailable => {
                 tracing::warn!("another input method is running; IBus input is off");
@@ -278,6 +315,7 @@ impl Dispatch<ZwpInputMethodKeyboardGrabV2, ()> for Ui {
             zwp_input_method_keyboard_grab_v2::Event::Keymap { format, fd, size } => {
                 // The app gets the same keymap from the virtual keyboard.
                 ime.vk.keymap(u32::from(format), fd.as_fd(), size);
+                ime.vk_keymap = true;
                 let fd: OwnedFd = fd;
                 // SAFETY: the compositor sent a keymap of `size` bytes.
                 let keymap = unsafe {
