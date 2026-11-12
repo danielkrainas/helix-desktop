@@ -49,6 +49,16 @@ fn unescape(text: &str) -> String {
 /// Layout descriptions from an `evdev.xml`: id (`layout` or
 /// `layout+variant`) → description.
 pub fn parse_descriptions(xml: &str) -> HashMap<String, String> {
+    parse_field(xml, "description")
+}
+
+/// Short descriptions (`en`, `de`) from an `evdev.xml`, by id.
+pub fn parse_short_descriptions(xml: &str) -> HashMap<String, String> {
+    parse_field(xml, "shortDescription")
+}
+
+/// One `configItem` field of every layout and variant, by id.
+fn parse_field(xml: &str, wanted: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
     let mut stack: Vec<String> = Vec::new();
     let (mut layout, mut variant) = (String::new(), String::new());
@@ -63,10 +73,10 @@ pub fn parse_descriptions(xml: &str) -> HashMap<String, String> {
                 match (owner.as_str(), field.as_str()) {
                     ("layout", "name") => layout = value,
                     ("variant", "name") => variant = value,
-                    ("layout", "description") if !layout.is_empty() => {
+                    ("layout", f) if f == wanted && !layout.is_empty() => {
                         out.insert(layout.clone(), value);
                     }
-                    ("variant", "description") if !layout.is_empty() && !variant.is_empty() => {
+                    ("variant", f) if f == wanted && !layout.is_empty() && !variant.is_empty() => {
                         out.insert(format!("{layout}+{variant}"), value);
                     }
                     _ => {}
@@ -108,6 +118,24 @@ pub fn description(id: &str) -> Option<String> {
         .get_or_init(|| std::fs::read_to_string(rules_path()).map(|xml| parse_descriptions(&xml)).unwrap_or_default())
         .get(id)
         .cloned()
+}
+
+/// The short name the panel shows for a source.
+pub fn short_label(source: &Source) -> String {
+    static SHORTS: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
+    let shorts = SHORTS.get_or_init(|| std::fs::read_to_string(rules_path()).map(|xml| parse_short_descriptions(&xml)).unwrap_or_default());
+    short_label_from(source, shorts)
+}
+
+/// [`short_label`] with the rules' short descriptions given.
+pub fn short_label_from(source: &Source, shorts: &HashMap<String, String>) -> String {
+    let (kind, id) = (source.0.as_str(), source.1.as_str());
+    if kind == "ibus" {
+        let head = id.split([':', '-']).next().unwrap_or(id);
+        return head.chars().take(3).collect();
+    }
+    let layout = id.split('+').next().unwrap_or(id);
+    shorts.get(id).or_else(|| shorts.get(layout)).cloned().unwrap_or_else(|| layout.to_owned())
 }
 
 /// `per-window`: each window keeps its own source.
@@ -167,6 +195,25 @@ pub fn accelerators() -> Vec<(String, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_labels() {
+        let xml = r#"<xkbConfigRegistry><layoutList>
+          <layout><configItem><name>us</name><shortDescription>en</shortDescription><description>English (US)</description></configItem>
+            <variantList><variant><configItem><name>dvorak</name><description>English (Dvorak)</description></configItem></variant></variantList></layout>
+          <layout><configItem><name>de</name><shortDescription>de</shortDescription><description>German</description></configItem>
+            <variantList><variant><configItem><name>neo</name><shortDescription>neo</shortDescription><description>German (Neo 2)</description></configItem></variant></variantList></layout>
+        </layoutList></xkbConfigRegistry>"#;
+        let shorts = parse_short_descriptions(xml);
+        let s = |k: &str, id: &str| short_label_from(&(k.to_owned(), id.to_owned()), &shorts);
+        assert_eq!(s("xkb", "us"), "en");
+        assert_eq!(s("xkb", "us+dvorak"), "en", "the layout's when the variant has none");
+        assert_eq!(s("xkb", "de+neo"), "neo");
+        assert_eq!(s("xkb", "fr"), "fr");
+        assert_eq!(s("ibus", "anthy"), "ant");
+        assert_eq!(s("ibus", "xkb:us::eng"), "xkb");
+        assert_eq!(parse_descriptions(xml).get("us+dvorak").map(String::as_str), Some("English (Dvorak)"));
+    }
 
     fn s(id: &str) -> Source {
         ("xkb".into(), id.into())

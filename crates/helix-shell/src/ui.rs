@@ -225,6 +225,10 @@ struct Ui {
     ctrl_held: bool,
     /// Where the status area starts (clicking it opens quick settings).
     status_left: i32,
+    /// The input source indicator's text (two or more sources).
+    source_label: Option<String>,
+    /// Where the indicator starts (it ends at `status_left`).
+    source_left: i32,
     exit: bool,
 }
 
@@ -488,6 +492,13 @@ impl Ui {
             }
         }
         self.status_left = x;
+        if let Some(s) = &self.source_label {
+            let tw = self.text.as_ref().map_or(0.0, |t| t.width(s, px)) as i32;
+            x -= tw + 8;
+            label(self.text.as_ref(), &mut canvas, s, x as f32, base, px, FG, tw as f32 + 1.0);
+            x -= 8;
+        }
+        self.source_left = x;
         if self.recording {
             x -= RECORDING_W;
             canvas.rect(x, h as i32 / 2 - 4, 8, 8, SHARING);
@@ -2033,10 +2044,21 @@ impl Ui {
         self.bindings.insert(action, binding);
     }
 
+    /// Follow the active input source in the panel indicator.
+    pub(super) fn refresh_source_label(&mut self) {
+        let sources = crate::input_sources::current();
+        let label = (sources.len() >= 2).then(|| crate::input_sources::short_label(&sources[0]));
+        if label != self.source_label {
+            self.source_label = label;
+            self.draw_panel();
+        }
+    }
+
     /// Redraw when the minute changes or an OSD expires.
     fn tick(&mut self) {
         // Input sources may change from outside (Settings).
         self.ime_sync();
+        self.refresh_source_label();
         self.dialog_tick();
         let osd_expired = self.osd.as_ref().is_some_and(|(_, until)| Instant::now() >= *until);
         let minute_changed =
@@ -2163,6 +2185,8 @@ pub fn run(
         recording: false,
         status: Default::default(),
         status_left: i32::MAX,
+        source_label: None,
+        source_left: i32::MAX,
         search_serial: 0,
         searched_query: None,
         ctrl_held: false,
@@ -2527,10 +2551,17 @@ impl Ui {
             } else if &event.surface == self.panel.wl_surface() {
                 // The Power button and the status icons open quick settings.
                 let status_x = f64::from(self.status_left.min(self.panel_width as i32 - POWER_BUTTON_W));
+                let source_x = f64::from(self.source_left.min(self.status_left));
                 if x >= status_x {
                     self.toggle_power_menu();
                     self.draw_panel();
-                } else if self.recording && x >= status_x - f64::from(RECORDING_W) {
+                } else if x >= source_x {
+                    if self.window_menu.is_some() {
+                        self.window_menu = None;
+                    } else {
+                        self.show_sources_menu(self.source_left);
+                    }
+                } else if self.recording && x >= source_x - f64::from(RECORDING_W) {
                     let _ = self.requests.send(UiRequest::StopRecording);
                 } else if (x - f64::from(self.panel_width) / 2.0).abs() < f64::from(notify::CLOCK_HALF_W) {
                     self.toggle_notification_list();

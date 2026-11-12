@@ -17,20 +17,24 @@ pub(super) enum Choice {
     Action(WindowAction),
     OnAllWorkspaces(bool),
     Workspace(u32),
+    /// Switch to an input source (the panel's source menu), by index.
+    InputSource(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Item {
-    pub label: &'static str,
+    pub label: String,
     pub choice: Choice,
     /// A check box, and whether it is checked.
     pub checked: Option<bool>,
+    /// The current one of a set (drawn with a dot).
+    pub active: bool,
 }
 
 /// The entries for a window in `state` on `workspace` of `count`; `None`
 /// is a separator.
 pub(super) fn items(state: MenuState, workspace: Option<u32>, count: u32) -> Vec<Option<Item>> {
-    let item = |label, choice| Some(Item { label, choice, checked: None });
+    let item = |label: &str, choice| Some(Item { label: label.to_owned(), choice, checked: None, active: false });
     let maximized = state.contains(MenuState::Maximized);
     let fixed = maximized || state.contains(MenuState::Fullscreen);
     let mut out = vec![item("Minimize", Choice::Action(WindowAction::Minimize))];
@@ -45,9 +49,9 @@ pub(super) fn items(state: MenuState, workspace: Option<u32>, count: u32) -> Vec
     }
     out.push(None);
     let above = state.contains(MenuState::Above);
-    out.push(Some(Item { label: "Always on Top", choice: Choice::Action(WindowAction::ToggleAbove), checked: Some(above) }));
+    out.push(Some(Item { label: "Always on Top".into(), choice: Choice::Action(WindowAction::ToggleAbove), checked: Some(above), active: false }));
     let all = state.contains(MenuState::OnAllWorkspaces);
-    out.push(Some(Item { label: "Always on Visible Workspace", choice: Choice::OnAllWorkspaces(!all), checked: Some(all) }));
+    out.push(Some(Item { label: "Always on Visible Workspace".into(), choice: Choice::OnAllWorkspaces(!all), checked: Some(all), active: false }));
     if let Some(ws) = workspace.filter(|w| !all && *w != ALL_WORKSPACES) {
         if ws > 0 {
             out.push(item("Move to Workspace Left", Choice::Workspace(ws - 1)));
@@ -91,15 +95,37 @@ pub(super) struct WindowMenu {
     hits: Vec<(Rect, usize)>,
     /// Where the box is, for clicks outside it.
     bounds: Rect,
+    /// The input sources an input source menu is for.
+    sources: Vec<crate::input_sources::Source>,
 }
 
 impl Ui {
     /// The compositor asks for the menu of window `id` at (x, y).
     pub(super) fn show_window_menu(&mut self, id: u32, x: i32, y: i32, state: MenuState) {
-        self.close_launcher(true);
-        self.power_menu = None;
         let workspace = self.windows.workspace_of(id);
         let items = items(state, workspace, self.windows.count);
+        self.open_menu(id, x, y, items, Vec::new());
+    }
+
+    /// The panel's input source menu, below its indicator at `x`
+    /// (helix-desktop-spec `contracts/gsettings/input-settings.md`,
+    /// "Input source indicator").
+    pub(super) fn show_sources_menu(&mut self, x: i32) {
+        let sources = crate::input_sources::current();
+        let items = sources
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let label = if s.0 == "xkb" { crate::input_sources::description(&s.1).unwrap_or_else(|| s.1.clone()) } else { s.1.clone() };
+                Some(Item { label, choice: Choice::InputSource(i), checked: None, active: i == 0 })
+            })
+            .collect();
+        self.open_menu(0, x, PANEL_HEIGHT as i32, items, sources);
+    }
+
+    fn open_menu(&mut self, id: u32, x: i32, y: i32, items: Vec<Option<Item>>, sources: Vec<crate::input_sources::Source>) {
+        self.close_launcher(true);
+        self.power_menu = None;
         // The monitor the point is on.
         let output = self.output_state.outputs().find(|o| {
             self.output_state.info(o).is_some_and(|info| {
@@ -130,6 +156,7 @@ impl Ui {
             selected: None,
             hits: Vec::new(),
             bounds: Rect { x: 0, y: 0, w: 0, h: 0 },
+            sources,
         });
     }
 
@@ -203,7 +230,13 @@ impl Ui {
                 }
                 x += 22;
             }
-            label(text, &mut canvas, item.label, x as f32, base, 14.0, FG, (r.x + r.w - x - 8) as f32);
+            if !menu.sources.is_empty() {
+                if item.active {
+                    canvas.circle(f64::from(x) + 4.0, f64::from(r.y + r.h / 2), 3.5, ACCENT);
+                }
+                x += 16;
+            }
+            label(text, &mut canvas, &item.label, x as f32, base, 14.0, FG, (r.x + r.w - x - 8) as f32);
             menu.hits.push((r, i));
             y += ITEM_H;
         }
@@ -218,6 +251,14 @@ impl Ui {
     fn choose_window_menu(&mut self, index: usize) {
         let Some(menu) = self.window_menu.take() else { return };
         let Some(Some(item)) = menu.items.get(index) else { return };
+        if let Choice::InputSource(i) = item.choice {
+            if let Some(source) = menu.sources.get(i) {
+                crate::input_sources::activate(source);
+                self.ime_sync();
+                self.refresh_source_label();
+            }
+            return;
+        }
         let Some(list) = self.window_list.as_ref() else { return };
         match item.choice {
             Choice::Action(action) if list.version() >= 4 => list.window_action(menu.id, action),
@@ -278,8 +319,8 @@ impl Ui {
 mod tests {
     use super::*;
 
-    fn labels(items: &[Option<Item>]) -> Vec<&'static str> {
-        items.iter().map(|i| i.as_ref().map_or("-", |i| i.label)).collect()
+    fn labels(items: &[Option<Item>]) -> Vec<&str> {
+        items.iter().map(|i| i.as_ref().map_or("-", |i| i.label.as_str())).collect()
     }
 
     #[test]
