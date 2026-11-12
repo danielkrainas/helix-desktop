@@ -665,8 +665,11 @@ impl GtkNotifications {
             }
         }
         let existing = self.center.store().find_gtk(&app_id, &id).unwrap_or(0);
-        // The portal's notifications may have a body with markup.
+        // The portal's notifications may have a body with markup, and
+        // Helix's own keys for what GTK's notifications lack.
         let markup_body = dict_str(&notification, "markup-body");
+        let transient = matches!(notification.get("x-helix-transient").map(|v| &**v), Some(Value::Bool(true)));
+        let sound = dict_str(&notification, "x-helix-sound").map(|s| if s.starts_with('/') { Sound::File(s.into()) } else { Sound::Name(s) });
         let nid = self.center.post(Notification {
             id: existing,
             app_name: app_display_name(&app_id),
@@ -679,9 +682,9 @@ impl GtkNotifications {
             icon: notification.get("icon").and_then(|v| IconSource::from_gicon(v)).or_else(|| IconSource::for_app(&app_id)),
             origin: Origin::Gtk { app_id, id, default_action, buttons: button_actions },
             markup: markup_body.is_some(),
-            transient: false,
+            transient,
             app_id: String::new(),
-        }, None);
+        }, sound);
         let mut map = self.center.targets.lock().unwrap_or_else(|e| e.into_inner());
         map.retain(|(n, _), _| *n != nid);
         for (key, target) in targets {
