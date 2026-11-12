@@ -19,6 +19,8 @@ pub(super) enum Choice {
     Workspace(u32),
     /// Switch to an input source (the panel's source menu), by index.
     InputSource(usize),
+    /// A dock menu entry, by index into its targets.
+    Dock(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,7 +125,7 @@ impl Ui {
         self.open_menu(0, x, PANEL_HEIGHT as i32, items, sources);
     }
 
-    fn open_menu(&mut self, id: u32, x: i32, y: i32, items: Vec<Option<Item>>, sources: Vec<crate::input_sources::Source>) {
+    pub(super) fn open_menu(&mut self, id: u32, x: i32, y: i32, items: Vec<Option<Item>>, sources: Vec<crate::input_sources::Source>) {
         self.close_launcher(true);
         self.power_menu = None;
         // The monitor the point is on.
@@ -251,6 +253,10 @@ impl Ui {
     fn choose_window_menu(&mut self, index: usize) {
         let Some(menu) = self.window_menu.take() else { return };
         let Some(Some(item)) = menu.items.get(index) else { return };
+        if let Choice::Dock(i) = item.choice {
+            self.dock_menu_choice(i);
+            return;
+        }
         if let Choice::InputSource(i) = item.choice {
             if let Some(source) = menu.sources.get(i) {
                 crate::input_sources::activate(source);

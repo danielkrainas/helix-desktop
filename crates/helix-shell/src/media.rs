@@ -66,6 +66,64 @@ pub fn on_mounted(s: &Settings, types: &[String], ours: bool) -> Arrival {
     }
 }
 
+/// A mounted drive the dock shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MountInfo {
+    pub name: String,
+    /// Its root, a URI.
+    pub root: String,
+    /// Icon names, best first.
+    pub icons: Vec<String>,
+    /// It can be ejected (else only unmounted).
+    pub ejectable: bool,
+}
+
+/// The mounts to show: those of volumes (removable drives, discs, phones,
+/// network shares) that can be unmounted, not shadowed.
+fn mount_infos(monitor: &gio::VolumeMonitor) -> Vec<MountInfo> {
+    monitor
+        .mounts()
+        .into_iter()
+        .filter(|m| !m.is_shadowed() && m.volume().is_some() && (m.can_unmount() || m.can_eject()))
+        .map(|m| MountInfo {
+            name: m.name().to_string(),
+            root: m.root().uri().to_string(),
+            icons: m.icon().downcast::<gio::ThemedIcon>().map(|t| t.names().iter().map(|n| n.to_string()).collect()).unwrap_or_default(),
+            ejectable: m.can_eject(),
+        })
+        .collect()
+}
+
+/// Tell the UI the mounts and whether the trash holds anything.
+fn publish(state: &State) {
+    let Some(asker) = ASKER.get() else { return };
+    if let Some(monitor) = state.monitor.as_ref() {
+        let _ = asker.ui.send(UiEvent::Mounts(mount_infos(monitor)));
+    }
+}
+
+fn publish_trash() {
+    let Some(asker) = ASKER.get() else { return };
+    let trash = gio::File::for_uri("trash:///");
+    let full = trash
+        .query_info("trash::item-count", gio::FileQueryInfoFlags::NONE, None::<&gio::Cancellable>)
+        .map(|i| i.attribute_uint32("trash::item-count") > 0)
+        .unwrap_or(false);
+    let _ = asker.ui.send(UiEvent::Trash(full));
+}
+
+/// Open the trash, or empty it (after the user agreed).
+pub fn trash_request(empty: bool) {
+    if empty {
+        // gio empties the trash of every mount, as the file manager does.
+        if let Err(err) = std::process::Command::new("gio").args(["trash", "--empty"]).spawn() {
+            tracing::warn!(%err, "cannot empty the trash");
+        }
+    } else {
+        open_uri("trash:///");
+    }
+}
+
 /// What a notification button asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Request {
@@ -337,6 +395,7 @@ fn volume_added(volume: &gio::Volume) {
 
 fn mount_added(mount: &gio::Mount) {
     tracing::debug!(name = %mount.name(), "mount added");
+    STATE.with(|s| publish(&s.borrow()));
     let Some(volume) = mount.volume() else { return };
     if mount.is_shadowed() {
         return;
@@ -378,6 +437,7 @@ fn mount_removed(mount: &gio::Mount) {
             center.withdraw(id);
         }
     });
+    STATE.with(|s| publish(&s.borrow()));
 }
 
 fn eject(state: &State, root: &str) {
@@ -436,6 +496,19 @@ pub fn run(center: Center, ui: tokio::sync::mpsc::UnboundedSender<UiEvent>, runt
             monitor.connect_volume_removed(|_, v| STATE.with(|s| s.borrow_mut().waiting.retain(|w| w != v)));
             monitor.connect_mount_added(|_, m| mount_added(m));
             monitor.connect_mount_removed(|_, m| mount_removed(m));
+            monitor.connect_mount_changed(|_, _| STATE.with(|s| publish(&s.borrow())));
+            STATE.with(|s| publish(&s.borrow()));
+            // The trash's fill state, for the dock.
+            let trash = gio::File::for_uri("trash:///");
+            match trash.monitor_directory(gio::FileMonitorFlags::NONE, None::<&gio::Cancellable>) {
+                Ok(watch) => {
+                    watch.connect_changed(|_, _, _, _| publish_trash());
+                    // Kept for the life of the loop.
+                    std::mem::forget(watch);
+                }
+                Err(err) => tracing::info!(%err, "cannot watch the trash"),
+            }
+            publish_trash();
             // Volumes that arrived while locked.
             gio::glib::timeout_add_local(Duration::from_secs(1), || {
                 let ready = STATE.with(|s| {

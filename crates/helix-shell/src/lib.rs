@@ -30,6 +30,7 @@ pub mod markup;
 pub mod network_agent;
 pub mod vpn_secrets;
 pub mod media;
+pub mod dock;
 pub mod mount_handler;
 pub mod notifications;
 pub mod polkit;
@@ -114,6 +115,12 @@ impl Osd {
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
     Overview(bool),
+    /// The dock's settings changed (or were read at start).
+    Dock(dock::DockSettings),
+    /// Mounted drives (for the dock).
+    Mounts(Vec<media::MountInfo>),
+    /// Whether the trash holds anything.
+    Trash(bool),
     Osd(Osd),
     MonitorLabels(HashMap<String, i32>),
     HideMonitorLabels,
@@ -208,6 +215,8 @@ pub enum PowerAction {
 pub enum UiRequest {
     /// The UI opened/closed the launcher itself.
     Overview(bool),
+    /// The dock's "Empty Trash": ask, then empty it.
+    EmptyTrash,
     /// A bound accelerator was pressed or released.
     Accelerator { action: u32, pressed: bool, time: u32 },
     /// The compositor refused (or cannot offer) the binding.
@@ -978,6 +987,25 @@ impl UiBridge {
             }
             UiRequest::OpenUri(uri) => {
                 notifications::open_uri(&uri);
+                Ok(())
+            }
+            UiRequest::EmptyTrash => {
+                let ui = self.ui.clone();
+                tokio::spawn(async move {
+                    let prompt = prompt::Prompt {
+                        title: "Empty Trash?".into(),
+                        message: "All items in the Trash will be permanently deleted.".into(),
+                        continue_label: "Empty Trash".into(),
+                        cancel_label: "Cancel".into(),
+                        ..prompt::Prompt::default()
+                    };
+                    let _turn = prompt::turn().await;
+                    let answer = prompt::ask(&ui, prompt).await;
+                    prompt::done(&ui);
+                    if matches!(answer, prompt::Answer::Continue { .. }) {
+                        media::trash_request(true);
+                    }
+                });
                 Ok(())
             }
         }

@@ -196,6 +196,7 @@ impl Ui {
             let _ = self.requests.send(UiRequest::Overview(true));
         }
         self.draw_panel();
+        self.dock_update();
     }
 
     pub(super) fn close_overview(&mut self, notify: bool) {
@@ -206,6 +207,7 @@ impl Ui {
                 let _ = self.requests.send(UiRequest::Overview(false));
             }
             self.draw_panel();
+            self.dock_update();
         }
     }
 

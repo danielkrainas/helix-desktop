@@ -57,6 +57,7 @@ mod break_screen;
 mod calendar;
 mod capture;
 mod dash;
+mod dock;
 mod ime;
 mod notify;
 mod osk;
@@ -205,6 +206,8 @@ struct Ui {
     /// The running apps last reported to the D-Bus side.
     running_apps: HashMap<String, u32>,
     window_menu: Option<window_menu::WindowMenu>,
+    /// The dock on the desktop.
+    dock: dock::DockState,
     workspace_popup: Option<workspace_popup::WorkspacePopup>,
     overview: Option<Overlay<overview::OverviewState>>,
     /// The overview on the other monitors.
@@ -636,6 +639,7 @@ impl Ui {
             let _ = self.requests.send(UiRequest::Overview(true));
         }
         self.draw_panel();
+        self.dock_update();
     }
 
     fn close_launcher(&mut self, notify: bool) {
@@ -644,6 +648,7 @@ impl Ui {
                 let _ = self.requests.send(UiRequest::Overview(false));
             }
             self.draw_panel();
+            self.dock_update();
         }
     }
 
@@ -1181,7 +1186,10 @@ impl Ui {
         }
         self.close_launcher(true);
         match self.lock.state.lock(&self.qh) {
-            Ok(session) => self.lock.session = Some(session),
+            Ok(session) => {
+                self.lock.session = Some(session);
+                self.dock_update();
+            }
             Err(err) => {
                 tracing::error!(%err, "compositor does not let this process lock the session");
                 let _ = self.requests.send(UiRequest::LockGone);
@@ -1239,6 +1247,7 @@ impl Ui {
                 self.lock.surfaces.clear();
                 self.lock.message = None;
                 let _ = self.requests.send(UiRequest::Unlocked);
+                self.dock_update();
             }
             Err(AuthError::Denied) => {
                 self.lock.message = Some("Incorrect password. Try again.".into());
@@ -1788,7 +1797,27 @@ impl Ui {
 
     fn handle(&mut self, event: UiEvent) {
         match event {
-            UiEvent::Notifications(list) => self.notifications_changed(list),
+            UiEvent::Dock(settings) => {
+                dock::forget_desktop_ids();
+                // It may move away from under the pointer.
+                self.dock_reset_pointer();
+                self.dock.settings = settings;
+                self.dock_update();
+            }
+            UiEvent::Mounts(mounts) => {
+                self.dock.mounts = mounts;
+                self.dock_update();
+            }
+            UiEvent::Trash(full) => {
+                if self.dock.trash_full != full {
+                    self.dock.trash_full = full;
+                    self.dock_draw();
+                }
+            }
+            UiEvent::Notifications(list) => {
+                self.notifications_changed(list);
+                self.dock_draw();
+            }
             UiEvent::Calendar(data) => self.calendar_data(*data),
             UiEvent::Break(view) => self.show_break(view),
             UiEvent::LockMedia(player) => self.lock_media(player),
@@ -1982,6 +2011,16 @@ impl Ui {
         if self.window_list.is_none() {
             return;
         }
+        for n in 1..=9usize {
+            let key = format!("switch-to-application-{n}");
+            let default = format!("<Super>{n}");
+            for text in crate::shell_keys::shell_strv(&key, &[default.as_str()]) {
+                let Some(accelerator) = parse(&text, "switch to application") else { continue };
+                self.internal.insert(next, Internal::DockApp(n));
+                self.bind(next, &accelerator);
+                next += 1;
+            }
+        }
         for (text, backward, mode) in crate::windows::accelerators() {
             let Some(accelerator) = parse(&text, "window switching") else { continue };
             self.internal.insert(next, Internal::SwitchWindows { backward, hold: hold(&accelerator), mode });
@@ -2028,6 +2067,7 @@ impl Ui {
             },
             Some(Internal::MessageTray) => self.toggle_notification_list(),
             Some(Internal::FocusNotification) => self.focus_banner(true),
+            Some(Internal::DockApp(n)) => self.switch_to_app(n),
             Some(Internal::QuickSettings) => {
                 self.toggle_power_menu();
                 self.draw_panel();
@@ -2227,6 +2267,7 @@ pub fn run(
         lock_extras: Default::default(),
         window_menu: None,
         workspace_popup: None,
+        dock: dock::DockState::default(),
         overview: None,
         overview_others: Vec::new(),
         overview_shots: Default::default(),
@@ -2317,14 +2358,20 @@ impl OutputHandler for Ui {
     }
     fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
         self.add_background(output);
+        self.dock_update();
     }
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
         // Spanned pictures depend on every monitor.
         self.draw_backgrounds();
+        self.dock_update();
     }
     fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
         self.remove_background(&output);
         self.draw_backgrounds();
+        if self.dock.output_is(&output) {
+            self.dock_forget_output();
+        }
+        self.dock_update();
     }
 }
 
@@ -2334,7 +2381,8 @@ impl LayerShellHandler for Ui {
             self.backgrounds.retain(|b| &b.layer != layer);
             return;
         }
-        if self.picker_closed(layer)
+        if self.dock_closed(layer)
+            || self.picker_closed(layer)
             || self.overview_closed(layer)
             || self.flash_closed(layer)
             || self.notify_closed(layer)
@@ -2376,6 +2424,7 @@ impl LayerShellHandler for Ui {
         _: u32,
     ) {
         if self.background_configured(layer, configure.new_size)
+            || self.dock_configured(layer, configure.new_size)
             || self.picker_configured(layer, configure.new_size)
             || self.overview_configured(layer, configure.new_size)
             || self.flash_configured(layer, configure.new_size)
@@ -2587,7 +2636,7 @@ impl Ui {
                 }
                 continue;
             }
-            if self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) {
+            if self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
@@ -2754,6 +2803,7 @@ impl SessionLockHandler for Ui {
         self.lock.session = None;
         self.lock.surfaces.clear();
         wipe(&mut self.lock.password);
+        self.dock_update();
         let _ = self.requests.send(UiRequest::LockGone);
     }
 
@@ -2802,6 +2852,8 @@ enum Internal {
     FocusNotification,
     /// `toggle-quick-settings`
     QuickSettings,
+    /// `switch-to-application-N`
+    DockApp(usize),
 }
 
 /// Presses this close continue a window cycle.
@@ -2890,6 +2942,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                 ui.windows.update(id, app_id, title);
                 ui.request_shots();
                 ui.draw_overview();
+                ui.dock_update();
             }
             helix_window_list_v1::Event::Icon { id, name, size, data } => {
                 let image = (size > 0).then(|| read_icon(data, size)).flatten();
@@ -2912,6 +2965,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                 ui.close_not_responding(id);
                 ui.windows.close(id);
                 ui.window_sources.remove(&id);
+                ui.dock_update();
                 // A window that went away can't be switched to.
                 if let Some(open) = ui.switcher.as_mut().filter(|o| matches!(o.state.kind, SwitchKind::Windows { .. })) {
                     let entries = &mut open.state.switcher.entries;
@@ -2926,6 +2980,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
             }
             helix_window_list_v1::Event::Focused { id } => {
                 ui.windows.focus(id);
+                ui.dock_update();
                 if id != 0 && crate::input_sources::per_window() {
                     let active = crate::input_sources::active();
                     let (switch, remember) = crate::input_sources::on_focus(ui.window_sources.get(&id), active.as_ref());
@@ -2952,6 +3007,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                 let switched = active != ui.windows.active;
                 ui.windows.set_workspaces(count, active);
                 ui.draw_panel();
+                ui.dock_update();
                 ui.workspaces_changed();
                 if switched {
                     ui.refresh_shots();
@@ -2962,14 +3018,17 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
             helix_window_list_v1::Event::Workspace { id, workspace } => {
                 ui.windows.set_workspace(id, workspace);
                 ui.draw_overview();
+                ui.dock_update();
             }
             helix_window_list_v1::Event::Geometry { id, x, y, width, height, minimized } => {
                 ui.window_geometry.insert(id, (x, y, width, height, minimized != 0));
                 ui.draw_overview();
+                ui.dock_update();
             }
             helix_window_list_v1::Event::Primary { x, y, width, height } => {
                 ui.primary_area = (x, y, width, height);
                 ui.draw_overview();
+                ui.dock_update();
             }
             _ => {}
         }

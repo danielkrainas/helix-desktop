@@ -92,6 +92,19 @@ fn main() -> ExitCode {
             }
         }
     });
+    // The dock's settings (Ubuntu's Dash to Dock schema, when installed).
+    let dock_ui = service.ui_sender();
+    runtime.spawn(async move {
+        let schemas: Vec<&str> = [helix_shell::dock::SCHEMA, "org.gnome.shell"].into_iter().filter(|s| helix_settings::has_schema(s)).collect();
+        let watched = helix_settings::GSettings::new(&schemas);
+        let (mut changes, _watch) = watched.watch();
+        loop {
+            let _ = dock_ui.send(helix_shell::UiEvent::Dock(helix_shell::dock::read()));
+            if changes.recv().await.is_none() {
+                break;
+            }
+        }
+    });
     // Network, battery, volume and radios for the panel.
     runtime.spawn(helix_shell::status::follow(service.ui_sender()));
     // Microphone and camera use, from PipeWire.

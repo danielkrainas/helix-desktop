@@ -153,6 +153,18 @@ impl<'a> Canvas<'a> {
     }
 
     /// Fill a rectangle given in logical units.
+    /// Fill an anti-aliased rectangle with corners of radius `r` (logical).
+    pub fn round_rect(&mut self, x: f64, y: f64, w: f64, h: f64, r: f64, color: u32) {
+        let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
+        let (cx, cy, hw, hh) = (x + w / 2.0, y + h / 2.0, w / 2.0 - r, h / 2.0 - r);
+        self.shape(x, y, x + w, y + h, |px, py| {
+            // Signed distance to the rounded box, as "how far inside".
+            let (dx, dy) = ((px - cx).abs() - hw, (py - cy).abs() - hh);
+            let outside = (dx.max(0.0).powi(2) + dy.max(0.0).powi(2)).sqrt() + dx.max(dy).min(0.0);
+            r - outside
+        }, color);
+    }
+
     pub fn rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: u32) {
         let color = shape_color(color);
         let edge = |v: i32| (f64::from(v) * self.scale).round() as i32;

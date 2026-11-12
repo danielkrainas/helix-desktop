@@ -70,6 +70,14 @@ pub fn favorites() -> Vec<String> {
     settings(SHELL).filter(|s| s.settings_schema().is_some_and(|x| x.has_key("favorite-apps"))).map(|s| strv(&s, "favorite-apps")).unwrap_or_default()
 }
 
+/// Replace the favorites (desktop file ids, in order).
+pub fn set_favorites(list: &[String]) {
+    let Some(s) = settings(SHELL).filter(|s| s.settings_schema().is_some_and(|x| x.has_key("favorite-apps"))) else { return };
+    let refs: Vec<&str> = list.iter().map(String::as_str).collect();
+    let _ = s.set_strv("favorite-apps", refs.as_slice());
+    gio::Settings::sync();
+}
+
 /// Add `id` to the favorites, or remove it; true when it is one now.
 pub fn toggle_favorite(id: &str) -> bool {
     let Some(s) = settings(SHELL).filter(|s| s.settings_schema().is_some_and(|x| x.has_key("favorite-apps"))) else { return false };
