@@ -12,6 +12,7 @@ pub mod dialogs;
 pub mod inhibit;
 pub mod lockdown;
 pub mod notification;
+pub mod print;
 pub mod remote_desktop;
 pub mod screencast;
 pub mod screenshot;
@@ -77,6 +78,7 @@ impl PortalService {
         server.at(OBJECT_PATH, dialogs::BackgroundBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, wallpaper::WallpaperBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, lockdown::LockdownBackend::default()).await?;
+        server.at(OBJECT_PATH, print::PrintBackend { conn: conn.clone(), prepared: Default::default() }).await?;
         let added = notification::Added::default();
         server.at(OBJECT_PATH, notification::NotificationBackend { conn: conn.clone(), added: added.clone() }).await?;
         lockdown::refresh(&conn, OBJECT_PATH).await?;
@@ -160,6 +162,7 @@ impl PortalService {
         server.remove::<wallpaper::WallpaperBackend, _>(OBJECT_PATH).await?;
         server.remove::<lockdown::LockdownBackend, _>(OBJECT_PATH).await?;
         server.remove::<notification::NotificationBackend, _>(OBJECT_PATH).await?;
+        server.remove::<print::PrintBackend, _>(OBJECT_PATH).await?;
         self.conn.graceful_shutdown().await;
         Ok(())
     }

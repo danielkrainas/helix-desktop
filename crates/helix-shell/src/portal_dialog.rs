@@ -28,6 +28,7 @@ fn get<T: TryFrom<OwnedValue>>(options: &HashMap<String, OwnedValue>, key: &str)
 pub fn dialog_prompt(options: &HashMap<String, OwnedValue>) -> Prompt {
     let text = |key: &str| get::<String>(options, key).unwrap_or_default();
     let check_label = text("check-label");
+    let entry_label = text("entry-label");
     let list: Vec<String> = get(options, "rows").unwrap_or_default();
     let selected = get::<i32>(options, "selected").and_then(|i| usize::try_from(i).ok()).unwrap_or(0);
     Prompt {
@@ -39,6 +40,8 @@ pub fn dialog_prompt(options: &HashMap<String, OwnedValue>) -> Prompt {
         list,
         continue_label: text("accept"),
         cancel_label: text("cancel"),
+        entry: (!entry_label.is_empty()).then(|| (entry_label, text("entry"))),
+        warning: text("warning"),
         ..Prompt::default()
     }
 }
@@ -130,8 +133,11 @@ impl PortalDialog {
         let answer = prompt::ask(&self.ui, prompt).await;
         prompt::done(&self.ui);
         match answer {
-            Answer::Continue { choice, selected, .. } => {
-                let results = HashMap::from([("check".to_owned(), owned(Value::from(choice))), ("selected".to_owned(), owned(Value::from(selected as i32)))]);
+            Answer::Continue { choice, selected, entry, .. } => {
+                let mut results = HashMap::from([("check".to_owned(), owned(Value::from(choice))), ("selected".to_owned(), owned(Value::from(selected as i32)))]);
+                if let Some(entry) = entry {
+                    results.insert("entry".to_owned(), owned(Value::from(entry)));
+                }
                 (0, results)
             }
             Answer::Cancel => (1, HashMap::new()),
