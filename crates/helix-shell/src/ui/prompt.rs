@@ -12,6 +12,9 @@ use crate::prompt::{Answer, Prompt, Request};
 
 const LIST_ROW: i32 = 32;
 const LIST_SHOWN: usize = 10;
+/// The places column's width, and the most places shown.
+const SIDEBAR_W: i32 = 180;
+const PLACES_SHOWN: usize = 14;
 
 /// A prompt on screen.
 pub(super) struct PromptView {
@@ -30,6 +33,8 @@ pub(super) struct PromptView {
     picked: Vec<bool>,
     /// Answered; waiting for the next prompt or the end.
     busy: bool,
+    /// The place clicked.
+    place: Option<usize>,
 }
 
 impl PromptView {
@@ -44,7 +49,7 @@ impl PromptView {
         };
         let selected = request.prompt.selected.min(request.prompt.list.len().saturating_sub(1));
         let picked = vec![false; request.prompt.list.len()];
-        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false }
+        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, place: None }
     }
 
     /// Answer "cancel" if nobody answered yet.
@@ -130,12 +135,22 @@ impl Ui {
         let confirm = view.prompt.confirm.is_some().then(|| take(&mut view.fields[1]));
         let entry = view.prompt.entry.is_some().then(|| view.entry.clone());
         let picked = view.picked.iter().enumerate().filter(|(_, p)| **p).map(|(i, _)| i).collect();
-        let answer = Answer::Continue { entry, password, confirm, choice: view.choice, selected: view.selected, picked };
+        let answer = Answer::Continue { entry, password, confirm, choice: view.choice, selected: view.selected, picked, place: view.place };
         if let Some(reply) = view.reply.take() {
             let _ = reply.send(answer);
         }
         view.busy = true;
         self.draw_dialog();
+    }
+
+    /// A place was clicked: answer with it.
+    pub(super) fn prompt_place(&mut self, place: usize) {
+        let Some(view) = self.prompt_view() else { return };
+        if view.busy || place >= view.prompt.places.len() {
+            return;
+        }
+        view.place = Some(place);
+        self.prompt_answer(true);
     }
 
     /// A list row was clicked.
@@ -234,7 +249,8 @@ impl Ui {
         canvas.fill(SCRIM);
         let text = self.text.as_ref();
         let p = &view.prompt;
-        let bw = 440.min(w as i32 - 40);
+        let side = if p.places.is_empty() { 0 } else { SIDEBAR_W };
+        let bw = (440 + side).min(w as i32 - 40);
         let inner = (bw - 48) as f32;
         let wrap = |s: &str, px: f32| -> Vec<String> {
             if s.is_empty() {
@@ -255,7 +271,9 @@ impl Ui {
         // At most LIST_SHOWN rows, scrolled to keep the selection in view.
         let shown = p.list.len().min(LIST_SHOWN);
         let first = view.selected.saturating_sub(LIST_SHOWN - 1).min(p.list.len().saturating_sub(shown));
-        let list_h = if shown > 0 { shown as i32 * LIST_ROW + 8 } else { 0 };
+        let places_shown = p.places.len().min(PLACES_SHOWN);
+        let list_rows = shown.max(places_shown);
+        let list_h = if list_rows > 0 { list_rows as i32 * LIST_ROW + 8 } else { 0 };
         let bh = 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + picture_h + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + 26 + 64;
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
@@ -278,10 +296,20 @@ impl Ui {
             y += picture_h;
         }
         let mut hits = Vec::new();
+        // The places, left of the list.
+        for (i, name) in p.places.iter().enumerate().take(places_shown) {
+            let r = Rect { x: bx + 24, y: y + i as i32 * LIST_ROW, w: side - 12, h: LIST_ROW };
+            if p.place_current == Some(i) {
+                canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
+                canvas.rect(r.x, r.y + 6, 3, r.h - 12, ACCENT);
+            }
+            label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 16) as f32);
+            hits.push((r, OverlayHit::Place(i)));
+        }
         if shown > 0 {
-            canvas.rect(bx + 24, y, bw - 48, shown as i32 * LIST_ROW, FIELD_BG);
+            canvas.rect(bx + 24 + side, y, bw - 48 - side, shown as i32 * LIST_ROW, FIELD_BG);
             for (i, name) in p.list.iter().enumerate().skip(first).take(shown) {
-                let r = Rect { x: bx + 24, y: y + (i - first) as i32 * LIST_ROW, w: bw - 48, h: LIST_ROW };
+                let r = Rect { x: bx + 24 + side, y: y + (i - first) as i32 * LIST_ROW, w: bw - 48 - side, h: LIST_ROW };
                 if p.multiple {
                     if view.picked[i] {
                         canvas.rect(r.x, r.y, r.w, r.h, ACCENT);
@@ -298,8 +326,8 @@ impl Ui {
                 label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 24) as f32);
                 hits.push((r, OverlayHit::Row(i)));
             }
-            y += list_h;
         }
+        y += list_h;
         if let Some((name, _)) = &p.entry {
             label(text, &mut canvas, name, (bx + 24) as f32, (y + 14) as f32, 13.0, DIM_FG, inner);
             let r = Rect { x: bx + 24, y: y + 22, w: bw - 48, h: 34 };

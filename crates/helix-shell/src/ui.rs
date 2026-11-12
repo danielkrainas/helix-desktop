@@ -289,6 +289,8 @@ enum OverlayHit {
     BtDevice(usize),
     /// A row of the prompt dialog's list.
     Row(usize),
+    /// A place in the prompt dialog's column of places.
+    Place(usize),
     /// A field of the prompt dialog (its focus number).
     Field(usize),
     /// "Pair New Device…", and a device found nearby.
@@ -2651,6 +2653,7 @@ impl Ui {
                     OverlayHit::Monitor(index) => self.share_monitor(index),
                     OverlayHit::Toggle => self.prompt_toggle(),
                     OverlayHit::Row(i) => self.prompt_pick(i),
+                    OverlayHit::Place(i) => self.prompt_place(i),
                     OverlayHit::Field(f) => self.prompt_focus(f),
                     _ => {}
                 }

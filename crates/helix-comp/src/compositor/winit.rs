@@ -199,14 +199,10 @@ pub fn init(
                     // Monitors off: the window shows black.
                     let elements = if state.screens_off { Vec::new() } else { elements };
                     let clear = if locked || state.screens_off { [0.0, 0.0, 0.0, 1.0] } else { [0.12, 0.12, 0.14, 1.0] };
-                    // Only what changed since this buffer was last drawn.
-                    let age = {
-                        if let Err(err) = backend.bind() {
-                            tracing::warn!(%err, "cannot bind renderer");
-                            return;
-                        }
-                        backend.buffer_age().unwrap_or(0)
-                    };
+                    // Only what changed since this buffer was last drawn
+                    // (asked before binding, as the context is still current
+                    // from the last frame; unknown means all of it).
+                    let age = backend.buffer_age().unwrap_or(0);
                     let (renderer, mut framebuffer) = match backend.bind() {
                         Ok(bound) => bound,
                         Err(err) => {

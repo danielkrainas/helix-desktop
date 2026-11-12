@@ -53,6 +53,128 @@ pub enum Row {
     SaveHere,
     Folder(String),
     File(String),
+    /// A recently used file (the Recent view).
+    Recent(PathBuf),
+}
+
+/// A place in the dialog's column of places.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Place {
+    Recent,
+    Folder(String, PathBuf),
+}
+
+impl Place {
+    pub fn label(&self) -> &str {
+        match self {
+            Place::Recent => "Recent",
+            Place::Folder(label, _) => label,
+        }
+    }
+}
+
+/// GTK bookmarks (`~/.config/gtk-3.0/bookmarks`: `file:` URI, then an
+/// optional label) that are local folders.
+pub fn bookmarks(text: &str) -> Vec<(String, PathBuf)> {
+    text.lines()
+        .filter_map(|line| {
+            let (uri, label) = line.trim().split_once(' ').map_or((line.trim(), None), |(u, l)| (u, Some(l.trim())));
+            let path = gio::File::for_uri(uri).path().filter(|_| uri.starts_with("file://"))?;
+            let label = label.filter(|l| !l.is_empty()).map(str::to_owned).or_else(|| path.file_name().map(|n| n.to_string_lossy().into_owned()))?;
+            Some((label, path))
+        })
+        .collect()
+}
+
+/// The places: Recent (when files are being opened), Home, the user's
+/// standard folders, bookmarks, drives and the whole computer; folders
+/// that do not exist are left out, and none twice.
+pub fn places(home: &Path, standard: &[PathBuf], bookmarks: &[(String, PathBuf)], drives: &[(String, PathBuf)], recent: bool) -> Vec<Place> {
+    let mut out = Vec::new();
+    if recent {
+        out.push(Place::Recent);
+    }
+    out.push(Place::Folder("Home".into(), home.to_path_buf()));
+    let named = |p: &PathBuf| (p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned()), p.clone());
+    let candidates = standard.iter().map(named).chain(bookmarks.iter().cloned()).chain(drives.iter().cloned()).chain([("Computer".to_owned(), PathBuf::from("/"))]);
+    for (label, path) in candidates {
+        let seen = out.iter().any(|p| matches!(p, Place::Folder(_, q) if *q == path));
+        if !seen && path.is_dir() {
+            out.push(Place::Folder(label, path));
+        }
+    }
+    out
+}
+
+/// The standard folders (Desktop, Documents, Downloads, Music, Pictures,
+/// Videos) that are not the home folder itself.
+fn standard_folders(home: &Path) -> Vec<PathBuf> {
+    use gio::glib::UserDirectory as D;
+    [D::Desktop, D::Documents, D::Downloads, D::Music, D::Pictures, D::Videos]
+        .into_iter()
+        .filter_map(gio::glib::user_special_dir)
+        .filter(|p| p != home)
+        .collect()
+}
+
+/// Drives mounted where udisks mounts them for the user.
+fn drives() -> Vec<(String, PathBuf)> {
+    let user = std::env::var("USER").unwrap_or_default();
+    let mut out: Vec<(String, PathBuf)> = [format!("/media/{user}"), format!("/run/media/{user}")]
+        .iter()
+        .filter(|_| !user.is_empty())
+        .flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten())
+        .filter(|e| e.path().is_dir())
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+        .collect();
+    out.sort();
+    out
+}
+
+fn user_places(home: &Path, recent: bool) -> Vec<Place> {
+    let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
+    let marks = std::fs::read_to_string(config.join("gtk-3.0/bookmarks")).map(|t| bookmarks(&t)).unwrap_or_default();
+    places(home, &standard_folders(home), &marks, &drives(), recent)
+}
+
+/// The most recently used files shown.
+pub const RECENT_SHOWN: usize = 100;
+
+/// The `<bookmark>` entries of an XBEL file: (URI, when last modified or
+/// added, Unix seconds).
+pub fn xbel_entries(text: &str) -> Vec<(String, i64)> {
+    let attr = |tag: &str, name: &str| -> Option<String> {
+        let at = tag.find(&format!(" {name}=\""))? + name.len() + 3;
+        let end = tag[at..].find('"')? + at;
+        Some(tag[at..end].replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'"))
+    };
+    let when = |stamp: Option<String>| stamp.and_then(|s| gio::glib::DateTime::from_iso8601(&s, None).ok()).map_or(0, |d| d.to_unix());
+    text.split("<bookmark")
+        .skip(1)
+        .filter_map(|chunk| {
+            let tag = &chunk[..chunk.find('>')?];
+            let href = attr(tag, "href")?;
+            let time = when(attr(tag, "modified")).max(when(attr(tag, "added")));
+            Some((href, time))
+        })
+        .collect()
+}
+
+/// Recently used local files that still exist and pass `filter`, newest
+/// first (`recently-used.xbel` under the data folder).
+fn recent_files(home: &Path, filter: Option<&Filter>) -> Vec<PathBuf> {
+    let data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"));
+    let Ok(text) = std::fs::read_to_string(data.join("recently-used.xbel")) else { return Vec::new() };
+    let mut found: Vec<(i64, PathBuf)> = xbel_entries(&text)
+        .into_iter()
+        .filter_map(|(uri, when)| {
+            let path = gio::File::for_uri(&uri).path().filter(|_| uri.starts_with("file://"))?;
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            (path.is_file() && filter.is_none_or(|f| passes(f, &name))).then_some((when, path))
+        })
+        .collect();
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.into_iter().map(|(_, p)| p).take(RECENT_SHOWN).collect()
 }
 
 /// What is being chosen.
@@ -97,6 +219,11 @@ pub fn label(row: &Row, filter_name: &str) -> String {
         Row::SaveHere => "Save Here".into(),
         Row::Folder(n) => format!("{n}/"),
         Row::File(n) => n.clone(),
+        Row::Recent(p) => {
+            let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            let folder = p.parent().and_then(Path::file_name).map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            format!("{name} — {folder}")
+        }
     }
 }
 
@@ -169,19 +296,36 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
     let mut warning = String::new();
     // The row to start on (after going up: the folder left).
     let mut prefer: Option<Row> = None;
+    // Recent files are offered when choosing files to open.
+    let offer_recent = matches!(ask.mode, Mode::Open { directory: false, .. });
+    let mut recent = false;
     loop {
         if !ask.folder.is_dir() {
             ask.folder = home.clone();
         }
         let filter = ask.filter.and_then(|i| ask.filters.get(i));
-        let list = rows(&ask.folder, &entries(&ask.folder), ask.mode, filter, ask.filters.len() > 1);
+        let places = user_places(&home, offer_recent);
+        let list = if recent {
+            let mut list = Vec::new();
+            if ask.filters.len() > 1 {
+                list.push(Row::FilterRow);
+            }
+            list.extend(recent_files(&home, filter).into_iter().map(Row::Recent));
+            list
+        } else {
+            rows(&ask.folder, &entries(&ask.folder), ask.mode, filter, ask.filters.len() > 1)
+        };
+        let place_current = places.iter().position(|p| match p {
+            Place::Recent => recent,
+            Place::Folder(_, path) => !recent && *path == ask.folder,
+        });
         let filter_name = filter.map_or("All Files", |f| f.0.as_str());
         let labels: Vec<String> = list.iter().map(|r| label(r, filter_name)).collect();
         let selected = prefer
             .take()
             .and_then(|p| list.iter().position(|r| *r == p))
             .or_else(|| match ask.mode {
-                Mode::Open { .. } => list.iter().position(|r| matches!(r, Row::File(_) | Row::Folder(_) | Row::SelectHere)),
+                Mode::Open { .. } => list.iter().position(|r| matches!(r, Row::File(_) | Row::Folder(_) | Row::SelectHere | Row::Recent(_))),
                 _ => Some(0),
             })
             .unwrap_or(0);
@@ -192,11 +336,13 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
         let multiple = matches!(ask.mode, Mode::Open { multiple: true, directory: false });
         let mut options = HashMap::from([
             ("title".to_owned(), value(Value::from(ask.title.clone()))),
-            ("message".to_owned(), value(Value::from(shown_path(&ask.folder, &home)))),
+            ("message".to_owned(), value(Value::from(if recent { "Recent".to_owned() } else { shown_path(&ask.folder, &home) }))),
+            ("places".to_owned(), value(Value::from(places.iter().map(|p| p.label().to_owned()).collect::<Vec<String>>()))),
+            ("place-current".to_owned(), value(Value::from(place_current.map_or(-1, |i| i as i32)))),
             ("rows".to_owned(), value(Value::from(labels))),
             ("selected".to_owned(), value(Value::from(selected as i32))),
             ("multiple".to_owned(), value(Value::from(multiple))),
-            ("unpickable".to_owned(), value(Value::from(list.iter().enumerate().filter(|(_, r)| !matches!(r, Row::File(_))).map(|(i, _)| i as i32).collect::<Vec<i32>>()))),
+            ("unpickable".to_owned(), value(Value::from(list.iter().enumerate().filter(|(_, r)| !matches!(r, Row::File(_) | Row::Recent(_))).map(|(i, _)| i as i32).collect::<Vec<i32>>()))),
             ("activate-rows".to_owned(), value(Value::from(true))),
             ("entry-label".to_owned(), value(Value::from(entry_label))),
             ("entry".to_owned(), value(Value::from(entry))),
@@ -212,6 +358,20 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
         if let (Some(check), Some((_, state))) = (opt::<bool>(&results, "check"), ask.check.as_mut()) {
             *state = check;
         }
+        // A place was clicked: show it.
+        if let Some(place) = opt::<i32>(&results, "place").and_then(|i| usize::try_from(i).ok()).and_then(|i| places.get(i)) {
+            match place {
+                Place::Recent => recent = true,
+                Place::Folder(_, path) => {
+                    recent = false;
+                    ask.folder = path.clone();
+                }
+            }
+            if ask.mode == Mode::Save {
+                ask.name = opt::<String>(&results, "entry").unwrap_or_default().trim().to_owned();
+            }
+            continue;
+        }
         let row = opt::<i32>(&results, "selected").and_then(|i| usize::try_from(i).ok()).and_then(|i| list.get(i).cloned());
         let typed = opt::<String>(&results, "entry").unwrap_or_default();
         let picked: Vec<Row> = opt::<Vec<i32>>(&results, "picked").unwrap_or_default().into_iter().filter_map(|i| list.get(usize::try_from(i).ok()?).cloned()).collect();
@@ -222,6 +382,7 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             // A typed location: go there, or choose it.
             let path = resolve(&ask.folder, &typed, &home);
             if path.is_dir() {
+                recent = false;
                 ask.folder = path;
             } else if path.is_file() && matches!(ask.mode, Mode::Open { directory: false, .. }) {
                 return done(vec![path], &ask);
@@ -230,7 +391,14 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             }
             continue;
         }
-        let files: Vec<PathBuf> = picked.iter().filter_map(|r| if let Row::File(n) = r { Some(ask.folder.join(n)) } else { None }).collect();
+        let files: Vec<PathBuf> = picked
+            .iter()
+            .filter_map(|r| match r {
+                Row::File(n) => Some(ask.folder.join(n)),
+                Row::Recent(p) => Some(p.clone()),
+                _ => None,
+            })
+            .collect();
         if !files.is_empty() {
             return done(files, &ask);
         }
@@ -247,6 +415,7 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
                 prefer = Some(Row::FilterRow);
             }
             Some(Row::Folder(n)) => ask.folder = ask.folder.join(n),
+            Some(Row::Recent(p)) => return done(vec![p], &ask),
             Some(Row::SelectHere) => return done(vec![ask.folder.clone()], &ask),
             Some(Row::File(n)) if ask.mode == Mode::Save => {
                 ask.name = n;
@@ -401,6 +570,30 @@ impl FileChooserBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn places_list() {
+        let tmp = std::env::temp_dir().join(format!("helix-places-{}", std::process::id()));
+        let (docs, mark, drive) = (tmp.join("Documents"), tmp.join("Projects"), tmp.join("usb"));
+        for d in [&docs, &mark, &drive] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let marks = bookmarks(&format!("file://{} Work\nsftp://host/x Remote\nfile://{}\n", mark.display(), docs.display()));
+        assert_eq!(marks, [("Work".to_owned(), mark.clone()), ("Documents".to_owned(), docs.clone())]);
+        let list = places(&tmp, &[docs.clone(), tmp.join("Missing")], &marks, &[("USB".into(), drive.clone())], true);
+        let labels: Vec<&str> = list.iter().map(Place::label).collect();
+        assert_eq!(labels, ["Recent", "Home", "Documents", "Work", "USB", "Computer"]);
+        assert!(!places(&tmp, &[], &[], &[], false).contains(&Place::Recent));
+        assert_eq!(label(&Row::Recent(PathBuf::from("/home/a/Documents/report.pdf")), ""), "report.pdf — Documents");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let xbel = r#"<xbel><bookmark href="file:///a/b%20c.txt" added="2026-01-01T10:00:00Z" modified="2026-03-01T10:00:00.5Z" visited="x"><info/></bookmark>
+<bookmark href="file:///x?a&amp;b" added="2026-02-01T00:00:00Z"></bookmark></xbel>"#;
+        let e = xbel_entries(xbel);
+        assert_eq!(e.len(), 2);
+        assert_eq!(e[0].0, "file:///a/b%20c.txt");
+        assert!(e[0].1 > e[1].1, "modified counts");
+        assert_eq!(e[1].0, "file:///x?a&b");
+    }
 
     #[test]
     fn globs_and_filters() {

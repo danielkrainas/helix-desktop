@@ -45,6 +45,8 @@ pub fn dialog_prompt(options: &HashMap<String, OwnedValue>) -> Prompt {
         cancel_label: text("cancel"),
         entry: (!entry_label.is_empty()).then(|| (entry_label, text("entry"))),
         warning: text("warning"),
+        places: get(options, "places").unwrap_or_default(),
+        place_current: get::<i32>(options, "place-current").and_then(|i| usize::try_from(i).ok()),
         ..Prompt::default()
     }
 }
@@ -137,8 +139,11 @@ impl PortalDialog {
         let answer = prompt::ask(&self.ui, prompt).await;
         prompt::done(&self.ui);
         match answer {
-            Answer::Continue { choice, selected, entry, picked, .. } => {
+            Answer::Continue { choice, selected, entry, picked, place, .. } => {
                 let mut results = HashMap::from([("check".to_owned(), owned(Value::from(choice))), ("selected".to_owned(), owned(Value::from(selected as i32)))]);
+                if let Some(place) = place {
+                    results.insert("place".to_owned(), owned(Value::from(place as i32)));
+                }
                 if let Some(entry) = entry {
                     results.insert("entry".to_owned(), owned(Value::from(entry)));
                 }

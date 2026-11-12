@@ -34,6 +34,10 @@ pub struct Prompt {
     /// With `multiple`: rows that cannot be picked (they act as without
     /// `multiple`).
     pub unpickable: Vec<usize>,
+    /// A column of places beside the list (clicking one answers), and the
+    /// one marked as current.
+    pub places: Vec<String>,
+    pub place_current: Option<usize>,
     /// A picture below the text (e.g. a background to preview).
     pub picture: Option<std::sync::Arc<helix_draw::Image>>,
     /// Shown in a warning color, e.g. after a wrong password.
@@ -44,8 +48,9 @@ pub struct Prompt {
 
 /// The user's answer.
 pub enum Answer {
-    /// `picked`: with `multiple`, the rows picked (else none).
-    Continue { entry: Option<String>, password: Option<Secret>, confirm: Option<Secret>, choice: bool, selected: usize, picked: Vec<usize> },
+    /// `picked`: with `multiple`, the rows picked (else none); `place`: the
+    /// place clicked (it answered the dialog).
+    Continue { entry: Option<String>, password: Option<Secret>, confirm: Option<Secret>, choice: bool, selected: usize, picked: Vec<usize>, place: Option<usize> },
     Cancel,
 }
 
