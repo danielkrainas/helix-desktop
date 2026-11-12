@@ -2,6 +2,8 @@
 //! `contracts/dbus/org.freedesktop.Notifications.md`, "Helix"): icons,
 //! body markup with links, and the list opened from the panel's clock.
 
+use std::collections::HashSet;
+
 use helix_draw::{draw_lines, wrap_spans, Fonts, Image, Span};
 
 use super::*;
@@ -39,6 +41,10 @@ pub(super) enum ListHit {
     Dismiss(u32),
     Link(String),
     Clear,
+    /// A group's header: show or hide its other notifications.
+    GroupToggle(String),
+    /// Dismiss a group's notifications.
+    GroupClear(String),
     DoNotDisturb,
     Inside,
     Outside,
@@ -52,8 +58,58 @@ pub(super) struct ListView {
     height: u32,
     configured: bool,
     hits: Vec<(Rect, ListHit)>,
-    /// Entries scrolled past.
+    /// Rows scrolled past.
     scroll: usize,
+    /// Groups opened to show all their notifications.
+    expanded: HashSet<String>,
+}
+
+/// Height of a group's header row.
+const GROUP_HEADER: i32 = 30;
+
+/// A row of the notification list.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Row {
+    /// A group of two or more: its key, app name, count, whether open.
+    Header { key: String, app: String, count: usize, open: bool },
+    /// A notification, by index into the entries.
+    Entry(usize),
+}
+
+/// What groups notifications: the app id, else the app name.
+pub(super) fn group_key(banner: &Banner) -> String {
+    if banner.app_id.is_empty() {
+        format!("name:{}", banner.app_name)
+    } else {
+        format!("app:{}", banner.app_id)
+    }
+}
+
+/// The list's rows for `entries` (newest first): groups in the order of
+/// their newest notification; a group of one is just its notification; a
+/// larger group a header and its newest notification, or all of them when
+/// open.
+pub(super) fn list_rows(entries: &[Banner], expanded: &HashSet<String>) -> Vec<Row> {
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    for (i, e) in entries.iter().enumerate() {
+        let key = group_key(e);
+        match groups.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, members)) => members.push(i),
+            None => groups.push((key, vec![i])),
+        }
+    }
+    let mut rows = Vec::new();
+    for (key, members) in groups {
+        if members.len() == 1 {
+            rows.push(Row::Entry(members[0]));
+            continue;
+        }
+        let open = expanded.contains(&key);
+        rows.push(Row::Header { key, app: entries[members[0]].app_name.clone(), count: members.len(), open });
+        let shown = if open { members.len() } else { 1 };
+        rows.extend(members.into_iter().take(shown).map(Row::Entry));
+    }
+    rows
 }
 
 /// Notification state the UI keeps.
@@ -287,7 +343,7 @@ impl Ui {
         layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
         layer.set_size(0, 0);
         layer.commit();
-        self.notify.view = Some(ListView { layer, width: 0, height: 0, configured: false, hits: Vec::new(), scroll: 0 });
+        self.notify.view = Some(ListView { layer, width: 0, height: 0, configured: false, hits: Vec::new(), scroll: 0, expanded: HashSet::new() });
         let _ = self.requests.send(UiRequest::NotificationListOpened);
         self.calendar_open();
         self.draw_panel();
@@ -335,9 +391,24 @@ impl Ui {
     fn paint_notification_list(&mut self, view: &mut ListView) {
         let (w, h) = (view.width as usize, view.height as usize);
         let entries = self.notify.list.entries.clone();
-        view.scroll = view.scroll.min(entries.len().saturating_sub(1));
-        let heights: Vec<i32> = entries.iter().map(|e| self.entry_height(e)).collect();
-        let icons: Vec<Option<Image>> = entries.iter().skip(view.scroll).map(|e| self.notification_icon(e.id, &e.icon)).collect();
+        view.expanded.retain(|key| entries.iter().any(|e| group_key(e) == *key));
+        let rows = list_rows(&entries, &view.expanded);
+        view.scroll = view.scroll.min(rows.len().saturating_sub(1));
+        let heights: Vec<i32> = rows
+            .iter()
+            .map(|row| match row {
+                Row::Header { .. } => GROUP_HEADER,
+                Row::Entry(i) => self.entry_height(&entries[*i]),
+            })
+            .collect();
+        let icons: Vec<Option<Image>> = rows
+            .iter()
+            .skip(view.scroll)
+            .map(|row| match row {
+                Row::Entry(i) => self.notification_icon(entries[*i].id, &entries[*i].icon),
+                Row::Header { .. } => None,
+            })
+            .collect();
         let do_not_disturb = self.notify.do_not_disturb;
         let scale = self.scales.of(view.layer.wl_surface());
         let media_icons = self.calendar_media_icons(scale);
@@ -358,12 +429,12 @@ impl Ui {
         let header = 44;
         let mut used = header;
         let mut shown = Vec::new();
-        for ((entry, eh), icon) in entries.iter().zip(&heights).skip(view.scroll).zip(&icons) {
+        for ((row, eh), icon) in rows.iter().zip(&heights).skip(view.scroll).zip(&icons) {
             if used + eh > max_h && !shown.is_empty() {
                 break;
             }
             used += eh;
-            shown.push((entry, *eh, icon.as_ref()));
+            shown.push((row, *eh, icon.as_ref()));
         }
         let empty_h = if entries.is_empty() { 60 } else { 0 };
         let bh = (used + empty_h).max(cal_h);
@@ -396,15 +467,50 @@ impl Ui {
             let mw = text.map_or(0.0, |t| t.width(message, 15.0));
             label(text, &mut canvas, message, bx as f32 + (LIST_W as f32 - mw) / 2.0, (y + 30) as f32, 15.0, DIM_FG, LIST_W as f32);
         }
-        for (entry, eh, icon) in shown {
-            canvas.rect(bx + LIST_PAD, y, LIST_W - 2 * LIST_PAD, 1, BANNER_BORDER);
+        // Entries of an open group are indented under its header.
+        let mut in_group: Option<String> = None;
+        for (row, eh, icon) in shown {
+            let entry = match row {
+                Row::Header { key, app, count, open } => {
+                    canvas.rect(bx + LIST_PAD, y, LIST_W - 2 * LIST_PAD, 1, BANNER_BORDER);
+                    let head = app.clone();
+                    let tail = format!("{count} notifications");
+                    // A chevron: down when open, right when closed.
+                    let (cx, cy) = (f64::from(bx + LIST_PAD + 8), f64::from(y + 15));
+                    let (a, b, c) = if *open { ((cx - 4.0, cy - 2.0), (cx, cy + 2.0), (cx + 4.0, cy - 2.0)) } else { ((cx - 2.0, cy - 4.0), (cx + 2.0, cy), (cx - 2.0, cy + 4.0)) };
+                    canvas.line(a, b, 1.5, DIM_FG);
+                    canvas.line(b, c, 1.5, DIM_FG);
+                    let hb = self.bold.as_ref().or(text);
+                    label(hb, &mut canvas, &head, (bx + LIST_PAD + 20) as f32, (y + 20) as f32, 14.0, FG, 200.0);
+                    let hw = hb.map_or(0.0, |t| t.width(&head, 14.0).min(200.0));
+                    label(text, &mut canvas, &tail, bx as f32 + (LIST_PAD + 32) as f32 + hw, (y + 20) as f32, 13.0, DIM_FG, 140.0);
+                    let close = Rect { x: bx + LIST_W - LIST_PAD - 22, y: y + 4, w: 22, h: 22 };
+                    label(text, &mut canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
+                    view.hits.push((close, ListHit::GroupClear(key.clone())));
+                    view.hits.push((Rect { x: bx, y, w: LIST_W, h: eh }, ListHit::GroupToggle(key.clone())));
+                    in_group = Some(key.clone());
+                    y += eh;
+                    continue;
+                }
+                Row::Entry(i) => &entries[*i],
+            };
+            let grouped = in_group.as_ref().is_some_and(|k| *k == group_key(entry));
+            if !grouped {
+                in_group = None;
+            }
+            let indent = if grouped { 12 } else { 0 };
+            if !grouped {
+                canvas.rect(bx + LIST_PAD, y, LIST_W - 2 * LIST_PAD, 1, BANNER_BORDER);
+            } else {
+                canvas.rect(bx + LIST_PAD + 4, y + 4, 2, eh - 8, BANNER_BORDER);
+            }
             let (links, _) = paint_notification(
                 &mut canvas,
                 (text, self.bold.as_ref()),
                 icon,
                 entry,
-                (bx + LIST_PAD, y + LIST_PAD),
-                LIST_W - 2 * LIST_PAD - 24,
+                (bx + LIST_PAD + indent, y + LIST_PAD),
+                LIST_W - 2 * LIST_PAD - 24 - indent,
                 2,
             );
             let close = Rect { x: bx + LIST_W - LIST_PAD - 22, y: y + LIST_PAD - 2, w: 22, h: 22 };
@@ -431,7 +537,7 @@ impl Ui {
         match event.kind {
             PointerEventKind::Axis { vertical, .. } if vertical.absolute != 0.0 || vertical.discrete != 0 => {
                 let down = vertical.absolute > 0.0 || vertical.discrete > 0;
-                let count = self.notify.list.entries.len();
+                let count = list_rows(&self.notify.list.entries, &view.expanded).len();
                 view.scroll = if down { (view.scroll + 1).min(count.saturating_sub(1)) } else { view.scroll.saturating_sub(1) };
                 self.draw_notification_list();
             }
@@ -453,6 +559,17 @@ impl Ui {
                     Some(ListHit::Clear) => {
                         let _ = self.requests.send(UiRequest::NotificationsCleared);
                     }
+                    Some(ListHit::GroupToggle(key)) => {
+                        if !view.expanded.remove(&key) {
+                            view.expanded.insert(key);
+                        }
+                        self.draw_notification_list();
+                    }
+                    Some(ListHit::GroupClear(key)) => {
+                        for e in self.notify.list.entries.iter().filter(|e| group_key(e) == key) {
+                            let _ = self.requests.send(UiRequest::NotificationDismissed { id: e.id });
+                        }
+                    }
                     Some(ListHit::DoNotDisturb) => {
                         let on = !self.notify.do_not_disturb;
                         self.notify.do_not_disturb = on;
@@ -467,5 +584,26 @@ impl Ui {
             _ => {}
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn note(id: u32, app: &str, app_id: &str) -> Banner {
+        Banner { id, app_name: app.into(), app_id: app_id.into(), summary: String::new(), body: String::new(), buttons: Vec::new(), icon: None, markup: false }
+    }
+
+    #[test]
+    fn groups() {
+        // Newest first.
+        let entries = vec![note(6, "Chat", "org.example.Chat"), note(5, "Mail", ""), note(4, "Chat", "org.example.Chat"), note(3, "Updates", ""), note(2, "Mail", ""), note(1, "Chat", "org.example.Chat")];
+        let header = |key: &str, app: &str, count, open| Row::Header { key: key.into(), app: app.into(), count, open };
+        let closed = list_rows(&entries, &HashSet::new());
+        assert_eq!(closed, [header("app:org.example.Chat", "Chat", 3, false), Row::Entry(0), header("name:Mail", "Mail", 2, false), Row::Entry(1), Row::Entry(3)]);
+        let open = list_rows(&entries, &["app:org.example.Chat".to_owned()].into());
+        assert_eq!(open[..4], [header("app:org.example.Chat", "Chat", 3, true), Row::Entry(0), Row::Entry(2), Row::Entry(5)]);
+        assert_eq!(open.len(), 7);
     }
 }
