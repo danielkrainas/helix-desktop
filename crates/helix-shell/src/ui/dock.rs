@@ -42,6 +42,8 @@ pub(super) enum DockTarget {
     EjectMount(String),
     OpenTrash,
     EmptyTrash,
+    /// An entry of the app's quicklist.
+    Quick(crate::launcher_entry::Quicklist, i32),
 }
 
 /// One monitor's dock.
@@ -912,6 +914,25 @@ impl Ui {
                 for (action, name) in actions {
                     items.push(self.dock_menu_item(name, DockTarget::Action(id.clone(), action)));
                 }
+                // What the app puts in its quicklist (disabled entries are
+                // left out).
+                let quick = self.dock_entry(&id).and_then(|e| Some((e.quicklist.clone()?, e.quick_items.clone())));
+                if let Some((list, quick)) = quick.filter(|(_, q)| !q.is_empty()) {
+                    items.push(None);
+                    for q in quick {
+                        match q {
+                            crate::launcher_entry::QuickItem::Separator => items.push(None),
+                            crate::launcher_entry::QuickItem::Action { id: qid, label, enabled: true, checked } => {
+                                let mut item = self.dock_menu_item(label, DockTarget::Quick(list.clone(), qid));
+                                if let Some(item) = item.as_mut() {
+                                    item.checked = checked;
+                                }
+                                items.push(item);
+                            }
+                            crate::launcher_entry::QuickItem::Action { .. } => {}
+                        }
+                    }
+                }
                 items.push(None);
                 let pin = if favorite { "Unpin" } else { "Pin to Dash" };
                 items.push(self.dock_menu_item(pin.into(), DockTarget::TogglePin(id.clone())));
@@ -968,6 +989,9 @@ impl Ui {
             DockTarget::OpenTrash => crate::media::trash_request(false),
             DockTarget::EmptyTrash => {
                 let _ = self.requests.send(UiRequest::EmptyTrash);
+            }
+            DockTarget::Quick(list, id) => {
+                let _ = self.requests.send(UiRequest::QuickItem(list, id));
             }
         }
     }

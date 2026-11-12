@@ -226,6 +226,8 @@ pub enum UiRequest {
     Overview(bool),
     /// The dock's "Empty Trash": ask, then empty it.
     EmptyTrash,
+    /// An entry of an app's quicklist was chosen.
+    QuickItem(launcher_entry::Quicklist, i32),
     /// A bound accelerator was pressed or released.
     Accelerator { action: u32, pressed: bool, time: u32 },
     /// The compositor refused (or cannot offer) the binding.
@@ -991,6 +993,15 @@ impl UiBridge {
                     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                     let data = calendar::read(&conn, from, to).await;
                     let _ = ui.send(UiEvent::Calendar(Box::new(data)));
+                });
+                Ok(())
+            }
+            UiRequest::QuickItem(list, id) => {
+                let conn = self.conn.clone();
+                tokio::spawn(async move {
+                    if let Err(err) = launcher_entry::activate_quick_item(&conn, &list, id).await {
+                        tracing::info!(%err, "the app did not take the quicklist choice");
+                    }
                 });
                 Ok(())
             }
