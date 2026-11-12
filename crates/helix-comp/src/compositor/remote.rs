@@ -29,6 +29,8 @@ const STEP_PX: f64 = 15.0;
 #[derive(Default)]
 pub struct RemoteState {
     eis: HashMap<u32, Vec<EisEntry>>,
+    /// The keymap EIS keyboards were last given.
+    eis_keymap: Option<String>,
 }
 
 /// An EIS client's event source and state.
@@ -42,6 +44,13 @@ struct EisClient {
     devices: Vec<reis::request::Device>,
     /// Keymaps sent to the client (kept open until it has them).
     keymaps: Vec<OwnedFd>,
+}
+
+/// Tell a keyboard device's client the modifiers and group (layout).
+fn send_modifiers(connection: &Connection, device: &reis::request::Device, (depressed, locked, latched, group): (u32, u32, u32, u32)) {
+    if let Some(keyboard) = device.interface::<eis::Keyboard>() {
+        connection.with_next_serial(|serial| keyboard.modifiers(serial, depressed, locked, latched, group));
+    }
 }
 
 /// Add a keyboard device with `keymap` (a memfd and its size) to `seat`.
@@ -239,7 +248,13 @@ impl Helix {
 
     /// The keymap changed: replace EIS keyboards with ones that have it.
     pub fn refresh_eis_keyboards(&mut self) {
-        let keymap = self.keymap_text().as_deref().and_then(memfd_keymap);
+        let text = self.keymap_text();
+        let mods = self.xkb_mods();
+        // The same keymap (only the layout changed): its keyboards are told
+        // the new group; another keymap replaces them.
+        let same = text.is_some() && text == self.remote.eis_keymap;
+        self.remote.eis_keymap = text.clone();
+        let keymap = if same { None } else { text.as_deref().and_then(memfd_keymap) };
         for (_, client) in self.remote.eis.values().flatten() {
             let Ok(mut client) = client.try_borrow_mut() else { continue };
             let Some(seat) = client.seat.clone() else { continue };
@@ -247,19 +262,43 @@ impl Helix {
             if old.is_empty() {
                 continue;
             }
+            let Some(connection) = client.connection.clone() else { continue };
+            if same {
+                for device in &old {
+                    send_modifiers(&connection, device, mods);
+                }
+                let _ = connection.flush();
+                continue;
+            }
             for device in &old {
                 device.remove();
             }
             client.devices.retain(|d| !d.has_capability(DeviceCapability::Keyboard));
             let device = add_keyboard(&seat, keymap.as_ref());
+            send_modifiers(&connection, &device, mods);
             client.devices.push(device);
             if let Some(fd) = keymap.as_ref().and_then(|(fd, _)| fd.try_clone().ok()) {
                 client.keymaps.push(fd);
             }
-            if let Some(connection) = &client.connection {
-                let _ = connection.flush();
-            }
+            let _ = connection.flush();
         }
+    }
+
+    /// The keyboard's modifiers and group: depressed, locked, latched,
+    /// group (as `ei_keyboard.modifiers` takes them).
+    pub(super) fn xkb_mods(&mut self) -> (u32, u32, u32, u32) {
+        let Some(keyboard) = self.seat.get_keyboard() else { return (0, 0, 0, 0) };
+        keyboard.with_xkb_state(self, |context| {
+            let Ok(xkb) = context.xkb().lock() else { return (0, 0, 0, 0) };
+            // SAFETY: read while the lock is held.
+            let state = unsafe { xkb.state() };
+            (
+                state.serialize_mods(xkb::STATE_MODS_DEPRESSED),
+                state.serialize_mods(xkb::STATE_MODS_LOCKED),
+                state.serialize_mods(xkb::STATE_MODS_LATCHED),
+                state.serialize_layout(xkb::STATE_LAYOUT_EFFECTIVE),
+            )
+        })
     }
 
     fn eis_event(
@@ -315,9 +354,14 @@ impl Helix {
                         Some((g.loc.x, g.loc.y, g.size.w, g.size.h, o.current_scale().fractional_scale()))
                     })
                     .collect();
-                let keymap = self.keymap_text().as_deref().and_then(memfd_keymap);
+                let text = self.keymap_text();
+                let keymap = text.as_deref().and_then(memfd_keymap);
                 if wanted.contains(DeviceCapability::Keyboard) {
-                    client.devices.push(add_keyboard(&bind.seat, keymap.as_ref()));
+                    let device = add_keyboard(&bind.seat, keymap.as_ref());
+                    let mods = self.xkb_mods();
+                    send_modifiers(connection, &device, mods);
+                    client.devices.push(device);
+                    self.remote.eis_keymap = text;
                 }
                 let mut add = |name: &str, caps: enumflags2::BitFlags<DeviceCapability>| {
                     let regions = regions.clone();

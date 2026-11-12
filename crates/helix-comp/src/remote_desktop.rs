@@ -76,8 +76,35 @@ pub enum ClipboardRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionKeymap {
     pub text: String,
+    /// XKB text format: 1, or 2 (when the XKB library reads it).
+    pub format: u32,
     pub layout: u32,
     pub lock: bool,
+}
+
+/// The XKB text format versions this system's XKB library reads: 1, and
+/// 2 when libxkbcommon is new enough (1.11 and later); found out once.
+pub fn keymap_formats() -> Vec<u32> {
+    static FORMATS: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
+    FORMATS
+        .get_or_init(|| {
+            let mut out = vec![1];
+            if compile(PROBE, 2).is_some() {
+                out.push(2);
+            }
+            out
+        })
+        .clone()
+}
+
+/// A small keymap valid in both formats.
+const PROBE: &str = "xkb_keymap { xkb_keycodes { <AE01> = 10; }; xkb_types { }; xkb_compat { }; xkb_symbols { key <AE01> { [ 1 ] }; }; };";
+
+/// Compile `text` in XKB text format `format`.
+pub fn compile(text: &str, format: u32) -> Option<smithay::input::keyboard::xkb::Keymap> {
+    use smithay::input::keyboard::xkb;
+    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+    xkb::Keymap::new_from_string(&context, text.to_owned(), format, xkb::KEYMAP_COMPILE_NO_FLAGS)
 }
 
 #[derive(Debug)]
@@ -432,7 +459,7 @@ impl Session {
     async fn keymap_capabilities(&self) -> HashMap<String, OwnedValue> {
         HashMap::from([
             ("supported-keymap-types".to_owned(), OwnedValue::try_from(Value::from(vec![0u32])).expect("array")),
-            ("supported-xkb-keymap-formats".to_owned(), OwnedValue::try_from(Value::from(vec![1u32])).expect("array")),
+            ("supported-xkb-keymap-formats".to_owned(), OwnedValue::try_from(Value::from(keymap_formats())).expect("array")),
         ])
     }
 
@@ -454,11 +481,11 @@ impl Session {
         let keymap = match options.get("keymap-type").map(|v| &**v) {
             None => None,
             Some(Value::U32(0)) => {
-                if let Some(format) = options.get("xkb-keymap-format") {
-                    if !matches!(&**format, Value::U32(1)) {
-                        return Err(fdo::Error::InvalidArgs("unsupported XKB keymap format".into()));
-                    }
-                }
+                let format = match options.get("xkb-keymap-format").map(|v| &**v) {
+                    None => 1,
+                    Some(Value::U32(f)) if keymap_formats().contains(f) => *f,
+                    Some(_) => return Err(fdo::Error::InvalidArgs("unsupported XKB keymap format".into())),
+                };
                 let fd = match options.get("xkb-keymap").map(|v| &**v) {
                     Some(Value::Fd(fd)) => fd.as_fd().try_clone_to_owned().map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?,
                     _ => return Err(fdo::Error::InvalidArgs("xkb-keymap is required".into())),
@@ -473,7 +500,7 @@ impl Session {
                     Some(_) => return Err(fdo::Error::InvalidArgs("xkb-keymap-layout-index is a u".into())),
                 };
                 let lock = matches!(options.get("lock-keymap").map(|v| &**v), Some(Value::Bool(true)));
-                Some(SessionKeymap { text, layout, lock })
+                Some(SessionKeymap { text, format, layout, lock })
             }
             Some(_) => return Err(fdo::Error::InvalidArgs("unsupported keymap type".into())),
         };
@@ -552,6 +579,16 @@ mod tests {
         w.write_all(b"xkb_keymap {};\0").unwrap();
         drop(w);
         assert_eq!(read_keymap(r.into()).unwrap(), "xkb_keymap {};");
+    }
+
+    #[test]
+    fn keymap_formats_found() {
+        let formats = keymap_formats();
+        assert_eq!(formats[0], 1, "format 1 always");
+        assert!(compile(PROBE, 1).is_some());
+        // Format 2 exactly when the library compiles it.
+        assert_eq!(formats.contains(&2), compile(PROBE, 2).is_some());
+        assert!(compile("not a keymap", 1).is_none());
     }
 
     #[test]

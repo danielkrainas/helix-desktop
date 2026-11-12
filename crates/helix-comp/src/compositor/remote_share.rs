@@ -276,20 +276,21 @@ impl Helix {
     }
 
     fn set_session_keymap(&mut self, session: u32, keymap: SessionKeymap) -> Result<(), RemoteError> {
-        let layouts = {
-            let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
-            let compiled = xkb::Keymap::new_from_string(&context, keymap.text.clone(), xkb::KEYMAP_FORMAT_TEXT_V1, xkb::KEYMAP_COMPILE_NO_FLAGS)
-                .ok_or_else(|| invalid("the keymap does not compile"))?;
-            compiled.num_layouts()
+        // Compiled in its own format; the keyboard takes format 1 text (a
+        // format 2 keymap is written out again as format 1).
+        let (layouts, text) = {
+            let compiled = helix_comp::remote_desktop::compile(&keymap.text, keymap.format).ok_or_else(|| invalid("the keymap does not compile"))?;
+            let text = if keymap.format == 1 { keymap.text.clone() } else { compiled.get_as_string(xkb::KEYMAP_FORMAT_TEXT_V1) };
+            (compiled.num_layouts(), text)
         };
         if keymap.layout >= layouts {
             return Err(invalid("no such layout"));
         }
         let keyboard = self.seat.get_keyboard().expect("seat has a keyboard");
-        keyboard.set_keymap_from_string(self, keymap.text).map_err(|_| invalid("the keymap does not compile"))?;
+        keyboard.set_keymap_from_string(self, text).map_err(|_| invalid("the keymap does not compile"))?;
         keyboard.with_xkb_state(self, |mut ctx| ctx.set_layout(Layout(keymap.layout)));
         self.remote_share.keymap = Some(ActiveKeymap { session, layouts, lock: keymap.lock });
-        tracing::info!(session, layouts, lock = keymap.lock, "remote desktop keymap set");
+        tracing::info!(session, layouts, format = keymap.format, lock = keymap.lock, "remote desktop keymap set");
         self.keymap_changed();
         Ok(())
     }
