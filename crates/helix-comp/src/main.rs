@@ -97,7 +97,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         })
         .map_err(|e| format!("cannot start the window-management timer: {e}"))?;
 
+    // Keyboard accessibility: slow keys, mouse keys, timeouts.
+    event_loop
+        .handle()
+        .insert_source(smithay::reexports::calloop::timer::Timer::immediate(), |_, _, state| {
+            state.a11y_tick();
+            smithay::reexports::calloop::timer::TimeoutAction::ToDuration(std::time::Duration::from_millis(20))
+        })
+        .map_err(|e| format!("cannot start the accessibility timer: {e}"))?;
+
     // Keyboard, mouse and touchpad settings: now, and whenever they change.
+    state.apply_a11y_settings();
     state.apply_input_settings();
     state.apply_workspace_settings();
     state.apply_frame_settings();
@@ -107,6 +117,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .handle()
         .insert_source(settings_rx, |event, _, state| {
             if let smithay::reexports::calloop::channel::Event::Msg(()) = event {
+                state.apply_a11y_settings();
                 state.apply_input_settings();
                 state.apply_workspace_settings();
                 state.apply_frame_settings();
@@ -122,6 +133,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .chain(helix_comp::workspaces::SCHEMAS.iter())
                 .chain(helix_comp::frames::SCHEMAS.iter())
                 .chain(helix_comp::wm_settings::SCHEMAS.iter())
+                .chain(helix_comp::a11y_keys::SCHEMAS.iter())
                 .copied()
                 .collect();
             schemas.sort_unstable();

@@ -2,6 +2,7 @@
 //!
 //! Structure follows Smithay's `smallvil` example (MIT licensed).
 
+mod a11y;
 mod actions;
 mod alive;
 mod capture;
@@ -180,6 +181,8 @@ pub struct Helix {
     /// Title bars of X11 windows.
     pub frames: frames::Frames,
     pub wm_settings: helix_comp::wm_settings::WmSettings,
+    /// Keyboard accessibility (sticky, slow, bounce, mouse keys…).
+    pub access: helix_comp::a11y_keys::AccessX,
     /// Where a dragged window would go if released now (edge tiling).
     pub tile_target: Option<wm::Takeover>,
     pub wm: wm_behavior::WmState,
@@ -285,6 +288,7 @@ impl Helix {
             workspaces: Default::default(),
             frames: Default::default(),
             wm_settings: Default::default(),
+            access: Default::default(),
             tile_target: None,
             wm: Default::default(),
             alive: Default::default(),

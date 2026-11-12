@@ -108,7 +108,7 @@ impl Helix {
 
         match event {
             InputEvent::Keyboard { event, .. } => {
-                self.key_input(event.key_code(), event.state(), Event::time_msec(&event));
+                self.device_key(event.key_code(), event.state(), Event::time_msec(&event));
             }
             InputEvent::PointerMotionAbsolute { event, .. } => {
                 let Some(output) = self.space.outputs().next() else {
