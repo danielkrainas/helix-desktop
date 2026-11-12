@@ -47,6 +47,8 @@ fn monitor(connector: &str, x: i32) -> Monitor {
         transform: 0,
         primary: x == 0,
         transforms: ALL_TRANSFORMS.to_vec(),
+        hdr: false,
+        color_mode: 0,
     }
 }
 
@@ -71,7 +73,7 @@ fn fake_compositor() -> (mpsc::UnboundedSender<ColorRequest>, mpsc::UnboundedRec
                     let _ = ctm_tx.send((connector, ctm));
                     Ok(current)
                 }
-                Some(ColorSet::PowerSave(_) | ColorSet::Grayscale(_)) => Ok(current),
+                Some(ColorSet::PowerSave(_) | ColorSet::Grayscale(_) | ColorSet::Calibration(_)) => Ok(current),
             };
             let _ = reply.send(result);
         }

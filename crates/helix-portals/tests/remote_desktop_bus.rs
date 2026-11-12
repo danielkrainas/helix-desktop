@@ -76,6 +76,8 @@ fn monitor(connector: &str) -> Monitor {
         transform: 0,
         primary: true,
         transforms: ALL_TRANSFORMS.to_vec(),
+        hdr: false,
+        color_mode: 0,
     }
 }
 

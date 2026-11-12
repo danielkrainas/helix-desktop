@@ -33,17 +33,32 @@ fn error<R: Resource>(object: &R, code: impl Into<u32> + std::fmt::Debug + Copy,
     object.post_error(code, message.to_owned());
 }
 
-/// What an image description describes (everything Helix accepts is sRGB).
+/// What an image description describes: sRGB (everything Helix accepts
+/// from apps), or a monitor in the BT.2100 color mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Params {
     tf: TransferFunction,
     max_cll: Option<u32>,
     max_fall: Option<u32>,
+    /// BT.2100 (PQ, BT.2020) with these luminances.
+    hdr: Option<HdrLuminance>,
+}
+
+/// An HDR monitor's luminances: minimum (cd/m² × 10000), maximum and
+/// reference white (cd/m²).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HdrLuminance {
+    pub min: u32,
+    pub max: u32,
+    pub white: u32,
 }
 
 impl Params {
-    const SRGB: Params = Params { tf: TransferFunction::Srgb, max_cll: None, max_fall: None };
+    const SRGB: Params = Params { tf: TransferFunction::Srgb, max_cll: None, max_fall: None, hdr: None };
 }
+
+/// BT.2020 primaries and white point, × 1 000 000.
+const BT2020_PRIMARIES: [i32; 8] = [708_000, 292_000, 170_000, 797_000, 131_000, 46_000, 312_700, 329_000];
 
 /// An image description object's state.
 #[derive(Debug)]
@@ -66,6 +81,8 @@ pub struct ColorState {
     next_identity: u32,
     /// Surfaces with a `wp_color_management_surface_v1`.
     managed: HashSet<ObjectId>,
+    /// Clients' monitor objects, to tell them when a description changes.
+    outputs: Vec<(WpColorManagementOutputV1, Weak<WlOutput>)>,
 }
 
 impl ColorState {
@@ -90,9 +107,32 @@ impl ColorState {
 impl Helix {
     /// A ready sRGB description (monitors, preferred) with information.
     fn srgb_description(&mut self, data_init: &mut DataInit<'_, Self>, id: New<WpImageDescriptionV1>) {
-        let identity = self.color.identity(Params::SRGB);
-        let desc = data_init.init(id, Description::Ready { identity, params: Params::SRGB, info: true });
+        self.ready_description(data_init, id, Params::SRGB);
+    }
+
+    fn ready_description(&mut self, data_init: &mut DataInit<'_, Self>, id: New<WpImageDescriptionV1>, params: Params) {
+        let identity = self.color.identity(params);
+        let desc = data_init.init(id, Description::Ready { identity, params, info: true });
         desc.ready(identity);
+    }
+
+    /// A monitor's description: BT.2100 in that color mode, else sRGB.
+    fn output_params(&self, output: &WlOutput) -> Params {
+        let hdr = smithay::output::Output::from_resource(output).and_then(|o| self.output_hdr(&o));
+        match hdr {
+            Some(hdr) => Params { tf: TransferFunction::St2084Pq, max_cll: None, max_fall: None, hdr: Some(hdr) },
+            None => Params::SRGB,
+        }
+    }
+
+    /// Tell clients that `output`'s description changed (its color mode).
+    pub fn color_output_changed(&mut self, output: &smithay::output::Output) {
+        self.color.outputs.retain(|(object, _)| object.is_alive());
+        for (object, wl) in &self.color.outputs {
+            if wl.upgrade().is_ok_and(|w| output.owns(&w)) {
+                object.image_description_changed();
+            }
+        }
     }
 }
 
@@ -113,7 +153,8 @@ impl Dispatch<WpColorManagerV1, ()> for Helix {
         use wp_color_manager_v1::Request;
         match request {
             Request::GetOutput { id, output } => {
-                data_init.init(id, output.downgrade());
+                let object = data_init.init(id, output.downgrade());
+                state.color.outputs.push((object, output.downgrade()));
             }
             Request::GetSurface { id, surface } => {
                 // A protocol error ends the client: then the new object is
@@ -145,8 +186,9 @@ impl Dispatch<WpColorManagerV1, ()> for Helix {
 impl Dispatch<WpColorManagementOutputV1, Weak<WlOutput>> for Helix {
     fn request(state: &mut Self, _client: &Client, _object: &WpColorManagementOutputV1, request: wp_color_management_output_v1::Request, output: &Weak<WlOutput>, _dh: &DisplayHandle, data_init: &mut DataInit<'_, Self>) {
         if let wp_color_management_output_v1::Request::GetImageDescription { image_description } = request {
-            if output.upgrade().is_ok() {
-                state.srgb_description(data_init, image_description);
+            if let Ok(output) = output.upgrade() {
+                let params = state.output_params(&output);
+                state.ready_description(data_init, image_description, params);
             } else {
                 let desc = data_init.init(image_description, Description::Failed);
                 desc.failed(Cause::NoOutput, "the monitor is gone".into());
@@ -246,7 +288,7 @@ impl Dispatch<WpImageDescriptionCreatorParamsV1, Mutex<Creator>> for Helix {
                     error(object, Error::InvalidLuminance, "invalid max_cll / max_fall");
                     return;
                 }
-                let params = Params { tf, max_cll: c.max_cll, max_fall: c.max_fall };
+                let params = Params { tf, max_cll: c.max_cll, max_fall: c.max_fall, hdr: None };
                 let identity = state.color.identity(params);
                 let desc = data_init.init(image_description, Description::Ready { identity, params, info: false });
                 desc.ready(identity);
@@ -275,18 +317,22 @@ impl Dispatch<WpImageDescriptionV1, Description> for Helix {
     }
 }
 
-/// The information events of an sRGB description with `params`.
+/// The information events of a description with `params`.
 fn send_information(info: &WpImageDescriptionInfoV1, params: Params) {
     if !info.is_alive() {
         return;
     }
-    let [rx, ry, gx, gy, bx, by, wx, wy] = SRGB_PRIMARIES;
+    let (primaries, named, lum) = match params.hdr {
+        Some(h) => (BT2020_PRIMARIES, Primaries::Bt2020, (h.min, h.max, h.white)),
+        None => (SRGB_PRIMARIES, Primaries::Srgb, SRGB_LUMINANCE),
+    };
+    let [rx, ry, gx, gy, bx, by, wx, wy] = primaries;
     info.primaries(rx, ry, gx, gy, bx, by, wx, wy);
-    info.primaries_named(Primaries::Srgb);
+    info.primaries_named(named);
     info.tf_named(params.tf);
-    info.luminances(SRGB_LUMINANCE.0, SRGB_LUMINANCE.1, SRGB_LUMINANCE.2);
+    info.luminances(lum.0, lum.1, lum.2);
     info.target_primaries(rx, ry, gx, gy, bx, by, wx, wy);
-    info.target_luminance(SRGB_LUMINANCE.0, SRGB_LUMINANCE.1);
+    info.target_luminance(lum.0, lum.1);
     if let Some(cll) = params.max_cll {
         info.target_max_cll(cll);
     }
@@ -312,7 +358,7 @@ mod tests {
     fn identities_are_per_parameter_set() {
         let mut c = ColorState::default();
         let a = c.identity(Params::SRGB);
-        let b = c.identity(Params { tf: TransferFunction::Gamma22, max_cll: None, max_fall: None });
+        let b = c.identity(Params { tf: TransferFunction::Gamma22, max_cll: None, max_fall: None, hdr: None });
         assert_ne!(a, 0);
         assert_ne!(a, b);
         assert_eq!(c.identity(Params::SRGB), a);

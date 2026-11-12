@@ -48,6 +48,8 @@ fn describe_size(size: Size<i32, Physical>, scale: f64) -> Vec<Monitor> {
         primary: true,
         // The window can't be rotated.
         transforms: vec![0],
+        hdr: false,
+        color_mode: 0,
     }]
 }
 
@@ -199,6 +201,17 @@ pub fn init(
                     // Monitors off: the window shows black.
                     let elements = if state.screens_off { Vec::new() } else { elements };
                     let clear = if locked || state.screens_off { [0.0, 0.0, 0.0, 1.0] } else { [0.12, 0.12, 0.14, 1.0] };
+                    // Testing the HDR pass: the frame as an HDR monitor would get it.
+                    let elements = match state.hdr_test.as_mut() {
+                        Some(pass) => match pass.convert(renderer, &output, &elements, clear, helix_comp::colorspace::SDR_WHITE) {
+                            Ok(converted) => vec![super::zoom::ScreenElement::Hdr(converted)],
+                            Err(err) => {
+                                tracing::warn!(err, "HDR pass failed");
+                                elements
+                            }
+                        },
+                        None => elements,
+                    };
                     // Raw handles to ask the buffer's age once it is bound.
                     let egl_surface = backend.egl_surface().get_surface_handle();
                     let egl_display = backend.renderer().egl_context().display().get_display_handle();

@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn only_the_panel_turns() {
-        let monitor = |c: &str| MonitorChoice { connector: c.into(), width: 1920, height: 1080, refresh_mhz: 60000 };
+        let monitor = |c: &str| MonitorChoice { connector: c.into(), width: 1920, height: 1080, refresh_mhz: 60000, color_mode: 0 };
         let config = MonitorsConfig {
             logical: vec![
                 LogicalConfig { x: 0, y: 0, scale: 1.0, transform: 0, primary: true, monitors: vec![monitor("eDP-1")] },

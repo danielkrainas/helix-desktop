@@ -351,6 +351,9 @@ fn start_dbus_thread(
                     cast: Some(cast),
                     store: Store::user(),
                     backlight: Some(helix_comp::backlight::Backlight::system(ddc).await),
+                    // Real monitors only: nested sessions leave the host's
+                    // colord alone.
+                    color_profiles: if ddc { zbus::Connection::system().await.ok() } else { None },
                     ..MonitorControl::default()
                 };
                 let services = match zbus::connection::Builder::session() {

@@ -99,6 +99,10 @@ pub struct Monitor {
     pub primary: bool,
     /// Transforms this monitor can show.
     pub transforms: Vec<u32>,
+    /// It can be driven in BT.2100 (HDR).
+    pub hdr: bool,
+    /// The color mode it is driven in.
+    pub color_mode: u32,
 }
 
 impl Monitor {
@@ -125,8 +129,10 @@ type WireCrtc = (u32, i64, i32, i32, i32, i32, i32, u32, Vec<u32>, Props);
 type WireOutput = (u32, i64, i32, Vec<u32>, String, Vec<u32>, Vec<u32>, Props);
 type WireLegacyMode = (u32, i64, u32, u32, f64, u32);
 
-/// The default (SDR) color mode; the only one Helix drives monitors in.
+/// The default (SDR) color mode.
 pub const COLOR_MODE_DEFAULT: u32 = 0;
+/// BT.2100 (HDR: PQ with BT.2020 primaries), for monitors that can show it.
+pub const COLOR_MODE_BT2100: u32 = 1;
 
 fn props<const N: usize>(entries: [(&str, OwnedValue); N]) -> Props {
     entries.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
@@ -193,14 +199,17 @@ impl Layout {
         for (x, y, scale, transform, primary, monitors) in logical {
             let mut choices = Vec::new();
             for (connector, mode_id, monitor_properties) in monitors {
-                if let Some(mode) = monitor_properties.get("color-mode") {
-                    if u32::try_from(&**mode) != Ok(COLOR_MODE_DEFAULT) {
-                        return Err(format!("{connector} cannot use that color mode"));
-                    }
-                }
                 let monitor = self
                     .monitor(connector)
                     .ok_or_else(|| format!("no monitor is connected at {connector}"))?;
+                let color_mode = match monitor_properties.get("color-mode") {
+                    None => COLOR_MODE_DEFAULT,
+                    Some(value) => match u32::try_from(&**value) {
+                        Ok(COLOR_MODE_DEFAULT) => COLOR_MODE_DEFAULT,
+                        Ok(COLOR_MODE_BT2100) if monitor.hdr => COLOR_MODE_BT2100,
+                        _ => return Err(format!("{connector} cannot use that color mode")),
+                    },
+                };
                 let mode = monitor
                     .modes
                     .iter()
@@ -211,6 +220,7 @@ impl Layout {
                     width: mode.width,
                     height: mode.height,
                     refresh_mhz: mode.refresh_mhz,
+                    color_mode,
                 });
             }
             config.logical.push(LogicalConfig {
@@ -305,6 +315,7 @@ impl Layout {
                 for mode in &mut m.modes {
                     mode.current = found.is_some_and(|(_, c)| c.is(mode));
                 }
+                m.color_mode = found.map_or(m.color_mode, |(_, c)| c.color_mode);
                 match found {
                     Some((l, _)) => {
                         m.x = l.x;
@@ -335,6 +346,7 @@ impl Layout {
                 width: mode.width,
                 height: mode.height,
                 refresh_mhz: mode.refresh_mhz,
+                color_mode: m.color_mode,
             };
             let same = |l: &&mut LogicalConfig| l.x == m.x && l.y == m.y && l.scale == m.scale && l.transform == m.transform;
             match config.logical.iter_mut().find(same) {
@@ -383,11 +395,10 @@ impl Layout {
                 let mprops = props([
                     ("is-builtin", OwnedValue::from(m.builtin)),
                     ("display-name", string(&m.display_name)),
-                    // SDR only (no HDR output).
-                    ("color-mode", OwnedValue::from(COLOR_MODE_DEFAULT)),
+                    ("color-mode", OwnedValue::from(m.color_mode)),
                     (
                         "supported-color-modes",
-                        OwnedValue::try_from(zbus::zvariant::Value::from(vec![COLOR_MODE_DEFAULT])).expect("array"),
+                        OwnedValue::try_from(zbus::zvariant::Value::from(if m.hdr { vec![COLOR_MODE_DEFAULT, COLOR_MODE_BT2100] } else { vec![COLOR_MODE_DEFAULT] })).expect("array"),
                     ),
                 ]);
                 (m.spec(), modes, mprops)
@@ -506,6 +517,9 @@ pub struct MonitorChoice {
     pub width: i32,
     pub height: i32,
     pub refresh_mhz: i32,
+    /// The color mode (0 default, 1 BT.2100).
+    #[serde(default)]
+    pub color_mode: u32,
 }
 
 impl MonitorChoice {
@@ -654,6 +668,9 @@ pub enum ColorSet {
     PowerSave(i32),
     /// Draw every monitor without color (the connector is ignored).
     Grayscale(bool),
+    /// The monitor's calibration curves (from its color profile), applied
+    /// after the ramps clients set; `None` removes them.
+    Calibration(Option<Ramps>),
 }
 
 /// Why a color request failed.
@@ -679,6 +696,26 @@ pub struct ColorRequest {
     pub connector: String,
     pub set: Option<ColorSet>,
     pub reply: oneshot::Sender<Result<Ramps, ColorError>>,
+}
+
+/// `ramps` followed by `calibration`: each ramp value looked up in the
+/// calibration curve of the same channel (linearly between entries).
+pub fn calibrate(ramps: &Ramps, calibration: &Ramps) -> Ramps {
+    let through = |ramp: &Vec<u16>, curve: &Vec<u16>| -> Vec<u16> {
+        if curve.len() < 2 {
+            return ramp.clone();
+        }
+        ramp.iter()
+            .map(|v| {
+                let pos = f64::from(*v) / 65535.0 * (curve.len() - 1) as f64;
+                let (i, frac) = (pos.floor() as usize, pos.fract());
+                let a = f64::from(curve[i.min(curve.len() - 1)]);
+                let b = f64::from(curve[(i + 1).min(curve.len() - 1)]);
+                (a + (b - a) * frac).round() as u16
+            })
+            .collect()
+    };
+    (through(&ramps.0, &calibration.0), through(&ramps.1, &calibration.1), through(&ramps.2, &calibration.2))
 }
 
 /// Identity ramps of `size` entries.
@@ -1177,6 +1214,17 @@ impl DisplayConfig {
 mod tests {
     use super::*;
 
+    #[test]
+    fn calibration() {
+        let ramps = identity_ramps(5);
+        let half: Ramps = (vec![0, 32768], vec![0, 65535], vec![65535, 0]);
+        let out = calibrate(&ramps, &half);
+        assert_eq!(out.0, [0, 8192, 16384, 24576, 32768], "red through a halving curve");
+        assert_eq!(out.1, ramps.1, "green through the identity");
+        assert_eq!((out.2[0], out.2[4]), (65535, 0), "blue inverted");
+        assert_eq!(calibrate(&ramps, &(vec![], vec![], vec![])), ramps, "no curve: unchanged");
+    }
+
     pub fn nested(width: i32, height: i32) -> Monitor {
         Monitor {
             connector: "WINIT-1".into(),
@@ -1198,6 +1246,8 @@ mod tests {
             transform: 0,
             primary: true,
             transforms: ALL_TRANSFORMS.to_vec(),
+            hdr: false,
+            color_mode: 0,
         }
     }
 
@@ -1247,7 +1297,7 @@ mod tests {
     }
 
     fn choice(connector: &str, width: i32, height: i32) -> MonitorChoice {
-        MonitorChoice { connector: connector.into(), width, height, refresh_mhz: 60_000 }
+        MonitorChoice { connector: connector.into(), width, height, refresh_mhz: 60_000, color_mode: 0 }
     }
 
     fn logical(x: i32, y: i32, primary: bool, monitors: Vec<MonitorChoice>) -> LogicalConfig {

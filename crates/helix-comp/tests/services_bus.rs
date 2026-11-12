@@ -69,6 +69,8 @@ fn monitor(width: i32, builtin: bool) -> Monitor {
         transform: 0,
         primary: true,
         transforms: vec![0],
+        hdr: false,
+        color_mode: 0,
     }
 }
 

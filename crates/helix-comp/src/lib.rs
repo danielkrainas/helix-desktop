@@ -13,6 +13,8 @@ pub mod a11y_mouse;
 pub mod hot_corner;
 pub mod magnifier;
 pub mod backlight;
+pub mod color_profiles;
+pub mod colorspace;
 pub mod ddc;
 pub mod gestures;
 pub mod tablet_v2;
@@ -89,6 +91,8 @@ pub struct CompositorServices {
     cast: Option<mpsc::UnboundedSender<screencast::CastRequest>>,
     remotes: remote_desktop::Shared,
     captures: input_capture::Shared,
+    /// The monitors, for their colord devices.
+    profiles: Option<mpsc::UnboundedSender<Vec<Monitor>>>,
 }
 
 async fn own(conn: &Connection, name: &'static str) -> zbus::Result<()> {
@@ -117,6 +121,10 @@ pub struct MonitorControl {
     pub gamma: Option<mpsc::UnboundedSender<display_config::ColorRequest>>,
     /// Where screen cast requests go (`None`: no screen casting).
     pub cast: Option<mpsc::UnboundedSender<screencast::CastRequest>>,
+    /// colord's bus (the system bus on real hardware): monitors become
+    /// colord devices and their profiles' curves are applied (`None`: no
+    /// color profiles).
+    pub color_profiles: Option<Connection>,
 }
 
 impl Default for MonitorControl {
@@ -128,6 +136,7 @@ impl Default for MonitorControl {
             backlight: None,
             gamma: None,
             cast: None,
+            color_profiles: None,
         }
     }
 }
@@ -152,6 +161,7 @@ impl CompositorServices {
         let captures = input_capture::Shared::default();
         let cast = control.cast.clone();
         let effects = display_config::ScreenEffects { gamma: control.gamma.clone(), grayscale: false };
+        let (color_profiles, gamma_for_profiles) = (control.color_profiles, control.gamma.clone());
         let display_config = DisplayConfig::new(
             layout.clone(),
             control.applier,
@@ -204,6 +214,19 @@ impl CompositorServices {
         if let Some(cast) = &cast {
             tasks.push(spawn_cast_owner_watcher(&conn, casts.clone(), remotes.clone(), captures.clone(), cast.clone()).await?);
         }
+        let profiles = match (color_profiles, gamma_for_profiles) {
+            (Some(colord), Some(gamma)) => {
+                let (tx, rx) = mpsc::unbounded_channel();
+                let _ = tx.send(layout.lock().unwrap_or_else(|e| e.into_inner()).monitors.clone());
+                tasks.push(tokio::spawn(async move {
+                    if let Err(err) = color_profiles::run(colord, gamma, rx).await {
+                        tracing::info!(%err, "no color profiles");
+                    }
+                }));
+                Some(tx)
+            }
+            _ => None,
+        };
         Ok(Self {
             conn,
             idle,
@@ -213,6 +236,7 @@ impl CompositorServices {
             cast,
             remotes,
             captures,
+            profiles,
         })
     }
 
@@ -256,6 +280,9 @@ impl CompositorServices {
                     let mut layout = self.layout.lock().unwrap_or_else(|e| e.into_inner());
                     let before = layout.key();
                     let changed = layout.update(monitors);
+                    if let Some(profiles) = &self.profiles {
+                        let _ = profiles.send(layout.monitors.clone());
+                    }
                     (changed, layout.key() != before)
                 };
                 if changed {

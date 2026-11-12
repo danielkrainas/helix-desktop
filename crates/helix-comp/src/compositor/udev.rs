@@ -57,8 +57,8 @@ type Output_ = DrmOutput<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDe
 /// The presentation feedback of a queued frame.
 type Feedback = Option<smithay::desktop::utils::OutputPresentationFeedback>;
 
-/// The identity in `connector`'s EDID property, if it has one.
-fn read_edid(device: &DrmDevice, connector: connector::Handle) -> Option<helix_comp::edid::Identity> {
+/// `connector`'s EDID property, if it has one.
+fn read_edid_bytes(device: &DrmDevice, connector: connector::Handle) -> Option<Vec<u8>> {
     let props = device.get_properties(connector).ok()?;
     let (ids, values) = props.as_props_and_values();
     for (id, value) in ids.iter().zip(values) {
@@ -67,11 +67,43 @@ fn read_edid(device: &DrmDevice, connector: connector::Handle) -> Option<helix_c
             if *value == 0 {
                 return None;
             }
-            let blob = device.get_property_blob(*value).ok()?;
-            return helix_comp::edid::parse(&blob);
+            return device.get_property_blob(*value).ok();
         }
     }
     None
+}
+
+/// Set connector property `name` to `value` (an enum value by its name,
+/// or a raw value).
+fn set_connector_property(device: &DrmDevice, connector: connector::Handle, name: &str, value: ConnectorValue<'_>) -> Result<(), String> {
+    let props = device.get_properties(connector).map_err(|e| e.to_string())?;
+    let (ids, _) = props.as_props_and_values();
+    for id in ids {
+        let info = device.get_property(*id).map_err(|e| e.to_string())?;
+        if info.name().to_str() != Ok(name) {
+            continue;
+        }
+        let raw = match value {
+            ConnectorValue::Enum(wanted) => match info.value_type() {
+                property::ValueType::Enum(values) => values
+                    .values()
+                    .1
+                    .iter()
+                    .find(|v| v.name().to_str() == Ok(wanted))
+                    .map(|v| v.value())
+                    .ok_or_else(|| format!("{name} has no value {wanted}"))?,
+                _ => return Err(format!("{name} is not an enum")),
+            },
+            ConnectorValue::Raw(raw) => raw,
+        };
+        return device.set_property(connector, *id, raw).map_err(|e| e.to_string());
+    }
+    Err(format!("the connector has no {name} property"))
+}
+
+enum ConnectorValue<'a> {
+    Enum(&'a str),
+    Raw(u64),
 }
 
 struct Surface {
@@ -90,6 +122,12 @@ struct Surface {
     retry_armed: bool,
     /// Who made the monitor (from its EDID).
     identity: helix_comp::edid::Identity,
+    /// What its EDID says about HDR.
+    hdr: helix_comp::colorspace::HdrCaps,
+    /// The color mode it is driven in (0 default, 1 BT.2100).
+    color_mode: u32,
+    /// Converts frames in the BT.2100 color mode.
+    hdr_pass: super::hdr::HdrPass,
 }
 
 pub struct UdevData {
@@ -139,6 +177,35 @@ impl UdevData {
             let _ = device.destroy_property_blob(id);
         }
         result.map_err(|e| ColorError::Invalid(e.to_string()))
+    }
+
+    /// Drive the monitor of `connector` in BT.2100 (`hdr`) or in its
+    /// default mode: the `Colorspace` and `HDR_OUTPUT_METADATA` connector
+    /// properties.
+    fn set_hdr(&mut self, name: &str, hdr: bool, caps: &helix_comp::colorspace::HdrCaps) -> Result<(), String> {
+        let crtc = self.crtc_of(name).ok_or("monitor is off")?;
+        let surface = self.surfaces.get(&crtc).ok_or("monitor is off")?;
+        let connectors: Vec<connector::Handle> = surface.drm_output.with_compositor(|c| c.surface().current_connectors().into_iter().collect());
+        let device = self.manager.device();
+        for connector in connectors {
+            if hdr {
+                let max = caps.max_luminance.unwrap_or(1000.0);
+                let metadata = helix_comp::colorspace::hdr_output_metadata(max, caps.min_luminance.unwrap_or(0.005), max, caps.max_frame_average.unwrap_or(max / 2.0));
+                let blob = device.create_property_blob(&metadata).map_err(|e| e.to_string())?;
+                let raw = match blob {
+                    property::Value::Blob(id) => id,
+                    _ => return Err("no blob".into()),
+                };
+                let result = set_connector_property(device, connector, "HDR_OUTPUT_METADATA", ConnectorValue::Raw(raw));
+                let _ = device.destroy_property_blob(raw);
+                result?;
+                set_connector_property(device, connector, "Colorspace", ConnectorValue::Enum("BT2020_RGB"))?;
+            } else {
+                set_connector_property(device, connector, "HDR_OUTPUT_METADATA", ConnectorValue::Raw(0))?;
+                set_connector_property(device, connector, "Colorspace", ConnectorValue::Enum("Default"))?;
+            }
+        }
+        Ok(())
     }
 
     /// Outputs that are connected but turned off.
@@ -328,7 +395,12 @@ impl Helix {
         let drm_mode = connector.modes()[mode_index];
         let wl_mode = WlMode::from(drm_mode);
         let (mm_w, mm_h) = connector.size().unwrap_or((0, 0));
-        let identity = self.udev.as_ref().and_then(|u| read_edid(u.manager.device(), connector.handle())).unwrap_or_else(helix_comp::edid::Identity::unknown);
+        let edid = self.udev.as_ref().and_then(|u| read_edid_bytes(u.manager.device(), connector.handle()));
+        let identity = edid.as_deref().and_then(helix_comp::edid::parse).unwrap_or_else(helix_comp::edid::Identity::unknown);
+        let hdr = edid.as_deref().map(helix_comp::colorspace::hdr_caps).unwrap_or_default();
+        if hdr.bt2100() {
+            tracing::info!(name, ?hdr, "monitor can show HDR");
+        }
         tracing::info!(name, vendor = identity.vendor, product = identity.product, serial = identity.serial, "monitor");
         let output = Output::new(
             name.clone(),
@@ -410,6 +482,9 @@ impl Helix {
                 frame_pending: false,
                 retry_armed: false,
                 identity,
+                hdr,
+                color_mode: 0,
+                hdr_pass: Default::default(),
             },
         );
         layer_map_for_output(&udev.surfaces[&crtc].output).arrange();
@@ -432,6 +507,27 @@ impl Helix {
     }
 
     /// DisplayConfig's view of the connected outputs.
+    /// `output`'s HDR luminances, when it is in the BT.2100 color mode.
+    pub fn output_hdr(&self, output: &Output) -> Option<super::color::HdrLuminance> {
+        let udev = self.udev.as_ref()?;
+        let surface = udev.surfaces.values().find(|s| s.output == *output)?;
+        if surface.color_mode != helix_comp::display_config::COLOR_MODE_BT2100 {
+            return None;
+        }
+        let id = &surface.identity;
+        let percent = self
+            .wm_settings
+            .output_luminance
+            .iter()
+            .find(|(c, v, p, s, mode, _)| (c, v, p, s) == (&output.name(), &id.vendor, &id.product, &id.serial) && *mode == helix_comp::display_config::COLOR_MODE_BT2100)
+            .map(|e| e.5);
+        Some(super::color::HdrLuminance {
+            min: (surface.hdr.min_luminance.unwrap_or(0.005) * 10000.0).round() as u32,
+            max: surface.hdr.max_luminance.unwrap_or(1000.0).round() as u32,
+            white: helix_comp::colorspace::sdr_white(percent).round() as u32,
+        })
+    }
+
     pub fn describe_outputs(&self) -> Vec<Monitor> {
         let Some(udev) = self.udev.as_ref() else { return Vec::new() };
         let mut monitors: Vec<Monitor> = udev
@@ -459,6 +555,8 @@ impl Helix {
                     scale: s.output.current_scale().fractional_scale(),
                     transform: super::monitors::from_transform(s.output.current_transform()),
                     transforms: ALL_TRANSFORMS.to_vec(),
+                    hdr: s.hdr.bt2100(),
+                    color_mode: s.color_mode,
                 }
             })
             .collect();
@@ -567,6 +665,7 @@ impl Helix {
             lock,
             zoom,
             screens_off,
+            wm_settings,
             ..
         } = self;
         let Some(udev) = udev.as_mut() else { return };
@@ -610,6 +709,24 @@ impl Helix {
 
         let elements = super::zoom::wrap(zoom, renderer, &output, geo, pointer_location, elements);
         let clear = if lock.locked { [0.0, 0.0, 0.0, 1.0] } else { CLEAR_COLOR };
+        // HDR: the frame converted to BT.2100.
+        let elements = if surface.color_mode == helix_comp::display_config::COLOR_MODE_BT2100 {
+            let id = &surface.identity;
+            let percent = wm_settings
+                .output_luminance
+                .iter()
+                .find(|(c, v, p, s, mode, _)| (c, v, p, s) == (&output.name(), &id.vendor, &id.product, &id.serial) && *mode == helix_comp::display_config::COLOR_MODE_BT2100)
+                .map(|e| e.5);
+            match surface.hdr_pass.convert(renderer, &output, &elements, clear, helix_comp::colorspace::sdr_white(percent)) {
+                Ok(converted) => vec![super::zoom::ScreenElement::Hdr(converted)],
+                Err(err) => {
+                    tracing::warn!(err, "HDR pass failed");
+                    elements
+                }
+            }
+        } else {
+            elements
+        };
         let rendered = match surface.drm_output.render_frame(renderer, &elements, clear, FrameFlags::DEFAULT) {
             Ok(result) => !result.is_empty,
             Err(err) => {
@@ -700,6 +817,25 @@ impl Helix {
             tracing::info!(name, width = choice.width, height = choice.height, "output mode changed");
         }
 
+        // Color modes (HDR) of the monitors that stay on.
+        let mut changed_color = Vec::new();
+        let names: Vec<(crtc::Handle, String)> = udev.surfaces.iter().map(|(c, s)| (*c, s.output.name())).collect();
+        for (crtc, name) in names {
+            let Some((_, choice)) = find(&name) else { continue };
+            let Some(surface) = udev.surfaces.get(&crtc) else { continue };
+            if surface.color_mode == choice.color_mode {
+                continue;
+            }
+            let caps = surface.hdr;
+            let hdr = choice.color_mode == helix_comp::display_config::COLOR_MODE_BT2100;
+            udev.set_hdr(&name, hdr, &caps).map_err(|e| format!("{name} cannot change its color mode: {e}"))?;
+            if let Some(surface) = udev.surfaces.get_mut(&crtc) {
+                surface.color_mode = choice.color_mode;
+                changed_color.push(surface.output.clone());
+            }
+            tracing::info!(name, color_mode = choice.color_mode, "color mode changed");
+        }
+
         // Then placement, scale and transform; outputs not mentioned go off.
         for surface in udev.surfaces.values_mut() {
             let name = surface.output.name();
@@ -724,6 +860,9 @@ impl Helix {
                 }
                 None => {}
             }
+        }
+        for output in changed_color {
+            self.color_output_changed(&output);
         }
         self.render_all();
         Ok(self.describe_outputs())

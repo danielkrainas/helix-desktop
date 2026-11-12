@@ -56,6 +56,8 @@ fn monitor(connector: &str, x: i32, primary: bool) -> Monitor {
         transform: 0,
         primary,
         transforms: ALL_TRANSFORMS.to_vec(),
+        hdr: false,
+        color_mode: 0,
     }
 }
 
@@ -333,4 +335,38 @@ async fn a_second_change_replaces_the_question() {
     answer(&shell, false).await;
     eventually(|| async { shown(&dc).await == both() }).await;
     assert!(!store.exists());
+}
+
+/// The BT.2100 color mode: offered for HDR monitors only, applied (and
+/// remembered) when asked for; no HDR hardware is involved.
+#[tokio::test(flavor = "multi_thread")]
+async fn color_modes() {
+    let Some(bus) = TestBus::start() else { return };
+    let store = scratch("color");
+    let mut hdr = monitor("DP-1", 0, true);
+    hdr.hdr = true;
+    let _running = start(&bus, &store, vec![hdr, monitor("HDMI-1", 1920, false)]).await;
+    let dc = proxy(&bus).await;
+    let (serial, monitors, ..) = dc.get_current_state().await.unwrap();
+    let modes = |m: &WireMonitor| -> (u32, Vec<u32>) {
+        (u32::try_from(m.2["color-mode"].clone()).unwrap(), Vec::<u32>::try_from(m.2["supported-color-modes"].clone()).unwrap())
+    };
+    assert_eq!(modes(&monitors[0]), (0, vec![0, 1]), "an HDR monitor");
+    assert_eq!(modes(&monitors[1]), (0, vec![0]), "an SDR monitor");
+
+    let hdr_props = || HashMap::from([("color-mode", Value::from(1u32))]);
+    let config = |dp: HashMap<&'static str, Value<'static>>, hdmi: HashMap<&'static str, Value<'static>>| -> Vec<ApplyLogical<'static>> {
+        vec![(0, 0, 1.0, 0, true, vec![("DP-1", FHD, dp)]), (1920, 0, 1.0, 0, false, vec![("HDMI-1", FHD, hdmi)])]
+    };
+    // An SDR monitor cannot be put in BT.2100.
+    let refused = dc.apply_monitors_config(serial, 1, &config(HashMap::new(), hdr_props()), HashMap::new()).await;
+    assert!(refused.is_err(), "{refused:?}");
+    // The HDR one can.
+    dc.apply_monitors_config(serial, 2, &config(hdr_props(), HashMap::new()), HashMap::new()).await.unwrap();
+    let (_, monitors, ..) = dc.get_current_state().await.unwrap();
+    assert_eq!(modes(&monitors[0]).0, 1);
+    assert_eq!(modes(&monitors[1]).0, 0);
+    let saved = std::fs::read_to_string(&store).unwrap();
+    assert!(saved.contains("color_mode = 1"), "remembered: {saved}");
+    let _ = std::fs::remove_dir_all(store.parent().unwrap());
 }

@@ -43,6 +43,8 @@ fn monitor(connector: &str, builtin: bool) -> Monitor {
         transform: 0,
         primary: builtin,
         transforms: ALL_TRANSFORMS.to_vec(),
+        hdr: false,
+        color_mode: 0,
     }
 }
 

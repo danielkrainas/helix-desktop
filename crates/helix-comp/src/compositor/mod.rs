@@ -16,6 +16,7 @@ mod grabs;
 mod handlers;
 mod input;
 mod tablet_input;
+mod hdr;
 pub mod libinput_source;
 mod remote;
 mod protocols;
@@ -194,6 +195,8 @@ pub struct Helix {
     pub tablet_v2: helix_comp::tablet_v2::TabletV2,
     /// Touchscreen gestures in progress.
     pub touch_gestures: helix_comp::gestures::Recognizer,
+    /// Nested, with `HELIX_TEST_HDR`: the HDR pass on the window.
+    pub hdr_test: Option<hdr::HdrPass>,
     /// What the shell knows about open windows.
     pub window_list: window_list::WindowList,
     /// Screen captures asked for by the shell.
@@ -320,6 +323,7 @@ impl Helix {
             tablet: Default::default(),
             tablet_v2: Default::default(),
             touch_gestures: Default::default(),
+            hdr_test: std::env::var_os("HELIX_TEST_HDR").map(|_| Default::default()),
             window_list: Default::default(),
             captures: Default::default(),
             workspaces: Default::default(),

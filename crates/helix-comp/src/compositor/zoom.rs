@@ -28,6 +28,8 @@ smithay::backend::renderer::element::render_elements! {
     /// An element shown twice (as it is, and in a lens or half view).
     Twice = Shared,
     Lensed = CropRenderElement<RelocateRenderElement<RescaleRenderElement<Shared>>>,
+    /// The whole frame converted for an HDR monitor.
+    Hdr = smithay::backend::renderer::gles::element::TextureShaderElement,
 }
 
 /// One element drawn twice: the copies share it, each with its own id (so

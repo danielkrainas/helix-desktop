@@ -20,6 +20,8 @@ pub struct GammaState {
     ctm: HashMap<String, Ctm>,
     /// `output-luminance` factors in effect (absent: 1).
     luminance: HashMap<String, f64>,
+    /// Calibration curves from the monitors' color profiles.
+    calibration: HashMap<String, Ramps>,
 }
 
 /// The factor for an `output-luminance` percentage (10–100 %).
@@ -77,6 +79,21 @@ impl Helix {
                         Ok(ramps)
                     }
                     Some(ColorSet::Ctm(ctm)) => self.set_ctm(&connector, ctm).map(|()| current),
+                    Some(ColorSet::Calibration(curves)) => {
+                        tracing::info!(connector, calibrated = curves.is_some(), "color profile calibration");
+                        match curves {
+                            Some(curves) => self.gamma.calibration.insert(connector.clone(), curves),
+                            None => self.gamma.calibration.remove(&connector),
+                        };
+                        if self.gamma.calibration.contains_key(&connector) {
+                            self.apply_gamma(&connector);
+                        } else if let (Some(udev), false) = (self.udev.as_mut(), self.gamma.ramps.contains_key(&connector) || self.gamma.luminance.contains_key(&connector)) {
+                            let _ = udev.set_gamma(&connector, &identity_ramps(size));
+                        } else {
+                            self.apply_gamma(&connector);
+                        }
+                        Ok(current)
+                    }
                     Some(ColorSet::PowerSave(_) | ColorSet::Grayscale(_)) => Ok(current),
                 }
             }
@@ -86,13 +103,18 @@ impl Helix {
 
     fn apply_gamma(&mut self, connector: &str) {
         let factor = self.gamma.luminance.get(connector).copied();
-        let ramps = match (self.gamma.ramps.get(connector), factor) {
+        let calibration = self.gamma.calibration.get(connector).cloned();
+        let ramps = match (self.gamma.ramps.get(connector), factor.is_some() || calibration.is_some()) {
             (Some(ramps), _) => ramps.clone(),
-            (None, Some(_)) => match self.gamma_size(connector) {
+            (None, true) => match self.gamma_size(connector) {
                 Some(size) => identity_ramps(size),
                 None => return,
             },
-            (None, None) => return,
+            (None, false) => return,
+        };
+        let ramps = match &calibration {
+            Some(curves) => helix_comp::display_config::calibrate(&ramps, curves),
+            None => ramps,
         };
         let ramps = scale_ramps(&ramps, factor.unwrap_or(1.0));
         if let Some(udev) = self.udev.as_mut() {
@@ -106,8 +128,11 @@ impl Helix {
     pub fn apply_luminance(&mut self) {
         let entries = self.wm_settings.output_luminance.clone();
         for m in self.describe_outputs() {
+            // In the BT.2100 color mode the level sets SDR white instead
+            // (the HDR pass), not the ramps.
             let percent = entries
                 .iter()
+                .filter(|_| m.color_mode == helix_comp::display_config::COLOR_MODE_DEFAULT)
                 .find(|(c, v, p, s, mode, _)| (c, v, p, s) == (&m.connector, &m.vendor, &m.product, &m.serial) && *mode == 0)
                 .map(|e| e.5);
             let old = self.gamma.luminance.get(&m.connector).copied();
@@ -118,7 +143,7 @@ impl Helix {
                     None => self.gamma.luminance.remove(&m.connector),
                 };
                 tracing::info!(connector = m.connector, factor = new.unwrap_or(1.0), "output luminance");
-                if new.is_none() && !self.gamma.ramps.contains_key(&m.connector) {
+                if new.is_none() && !self.gamma.ramps.contains_key(&m.connector) && !self.gamma.calibration.contains_key(&m.connector) {
                     // Back to full: the identity ramp.
                     if let (Some(size), Some(udev)) = (self.gamma_size(&m.connector), self.udev.as_mut()) {
                         let _ = udev.set_gamma(&m.connector, &identity_ramps(size));
@@ -141,8 +166,15 @@ impl Helix {
     /// Set the kept ramps and matrices again (after mode changes or a VT
     /// switch back); forget monitors that are gone.
     pub fn reapply_gamma(&mut self) {
-        let mut connectors: Vec<String> =
-            self.gamma.ramps.keys().chain(self.gamma.ctm.keys()).chain(self.gamma.luminance.keys()).cloned().collect();
+        let mut connectors: Vec<String> = self
+            .gamma
+            .ramps
+            .keys()
+            .chain(self.gamma.ctm.keys())
+            .chain(self.gamma.luminance.keys())
+            .chain(self.gamma.calibration.keys())
+            .cloned()
+            .collect();
         connectors.sort();
         connectors.dedup();
         for connector in connectors {
@@ -150,6 +182,7 @@ impl Helix {
                 self.gamma.ramps.remove(&connector);
                 self.gamma.ctm.remove(&connector);
                 self.gamma.luminance.remove(&connector);
+                self.gamma.calibration.remove(&connector);
                 continue;
             }
             self.apply_gamma(&connector);

@@ -116,6 +116,8 @@ mod tests {
             transform: 0,
             primary,
             transforms: vec![0],
+            hdr: false,
+            color_mode: 0,
         }
     }
 

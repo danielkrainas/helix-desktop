@@ -147,6 +147,8 @@ async fn mutter_screen_cast() {
         transform: 0,
         primary: true,
         transforms: vec![0],
+        hdr: false,
+        color_mode: 0,
     };
     let services = CompositorServices::start_with(bus.builder(), vec![monitor], control).await.unwrap();
     let conn = services.connection();
