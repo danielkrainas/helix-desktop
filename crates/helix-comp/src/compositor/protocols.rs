@@ -180,6 +180,14 @@ impl Helix {
         self.pointer_moved(current, target, delta, unaccel, utime, time);
     }
 
+    /// The pointer was put at `pos` (a tablet pen).
+    pub(super) fn pointer_moved_to(&mut self, pos: Point<f64, Logical>, utime: u64, time: u32) {
+        let pointer = self.seat.get_pointer().unwrap();
+        let current = pointer.current_location();
+        let target = self.clamp_to_outputs(pos);
+        self.pointer_moved(current, target, target - current, target - current, utime, time);
+    }
+
     /// The host pointer is at `pos` (nested): relative motion is the
     /// host's.
     pub(super) fn pointer_moved_to_host(&mut self, pos: Point<f64, Logical>, utime: u64, time: u32) {

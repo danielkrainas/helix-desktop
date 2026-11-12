@@ -15,6 +15,7 @@ mod gamma;
 mod grabs;
 mod handlers;
 mod input;
+mod tablet_input;
 mod remote;
 mod protocols;
 mod remote_share;
@@ -174,6 +175,8 @@ pub struct Helix {
     pub input_settings: Option<helix_comp::input_settings::InputSettings>,
     /// libinput devices (bare hardware), to apply settings to.
     pub input_devices: Vec<smithay::reexports::input::Device>,
+    /// Touchscreen and tablet mapping state.
+    pub tablet: tablet_input::TabletInput,
     /// What the shell knows about open windows.
     pub window_list: window_list::WindowList,
     /// Screen captures asked for by the shell.
@@ -291,6 +294,7 @@ impl Helix {
             primary_output: None,
             input_settings: None,
             input_devices: Vec::new(),
+            tablet: Default::default(),
             window_list: Default::default(),
             captures: Default::default(),
             workspaces: Default::default(),

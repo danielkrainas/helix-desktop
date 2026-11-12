@@ -76,6 +76,7 @@ pub fn init(
             model: "Nested".into(),
         },
     );
+    output.user_data().insert_if_missing(|| helix_comp::edid::Identity { vendor: "Helix".into(), product: "Nested".into(), serial: "0".into() });
     let _global = output.create_global::<Helix>(&state.display_handle);
     // GL's origin is bottom-left; the winit backend needs a flip.
     output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));

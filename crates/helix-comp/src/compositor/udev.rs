@@ -57,6 +57,23 @@ type Output_ = DrmOutput<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDe
 /// The presentation feedback of a queued frame.
 type Feedback = Option<smithay::desktop::utils::OutputPresentationFeedback>;
 
+/// The identity in `connector`'s EDID property, if it has one.
+fn read_edid(device: &DrmDevice, connector: connector::Handle) -> Option<helix_comp::edid::Identity> {
+    let props = device.get_properties(connector).ok()?;
+    let (ids, values) = props.as_props_and_values();
+    for (id, value) in ids.iter().zip(values) {
+        let info = device.get_property(*id).ok()?;
+        if info.name().to_str() == Ok("EDID") {
+            if *value == 0 {
+                return None;
+            }
+            let blob = device.get_property_blob(*value).ok()?;
+            return helix_comp::edid::parse(&blob);
+        }
+    }
+    None
+}
+
 struct Surface {
     output: Output,
     drm_output: Output_,
@@ -71,6 +88,8 @@ struct Surface {
     frame_pending: bool,
     /// A retry timer is armed (nothing to draw last time).
     retry_armed: bool,
+    /// Who made the monitor (from its EDID).
+    identity: helix_comp::edid::Identity,
 }
 
 pub struct UdevData {
@@ -300,15 +319,18 @@ impl Helix {
         let drm_mode = connector.modes()[mode_index];
         let wl_mode = WlMode::from(drm_mode);
         let (mm_w, mm_h) = connector.size().unwrap_or((0, 0));
+        let identity = self.udev.as_ref().and_then(|u| read_edid(u.manager.device(), connector.handle())).unwrap_or_else(helix_comp::edid::Identity::unknown);
+        tracing::info!(name, vendor = identity.vendor, product = identity.product, serial = identity.serial, "monitor");
         let output = Output::new(
             name.clone(),
             PhysicalProperties {
                 size: (mm_w as i32, mm_h as i32).into(),
                 subpixel: connector.subpixel().into(),
-                make: "Unknown".into(),
-                model: "Unknown".into(),
+                make: identity.vendor.clone(),
+                model: identity.product.clone(),
             },
         );
+        output.user_data().insert_if_missing(|| identity.clone());
         let global = output.create_global::<Helix>(&self.display_handle);
         let x = self
             .space
@@ -378,6 +400,7 @@ impl Helix {
                 current: Some(mode_index),
                 frame_pending: false,
                 retry_armed: false,
+                identity,
             },
         );
         layer_map_for_output(&udev.surfaces[&crtc].output).arrange();
@@ -412,10 +435,11 @@ impl Helix {
                     builtin: super::input::is_builtin_connector(&name),
                     primary: self.primary_output.as_deref() == Some(name.as_str()) && s.current.is_some(),
                     connector: name.clone(),
-                    vendor: "Unknown".into(),
-                    product: "Unknown".into(),
-                    serial: "0".into(),
-                    display_name: name,
+                    vendor: s.identity.vendor.clone(),
+                    product: s.identity.product.clone(),
+                    serial: s.identity.serial.clone(),
+                    // A product name, else the connector.
+                    display_name: if s.identity.product.starts_with("0x") || s.identity.product == "Unknown" { name } else { s.identity.product.clone() },
                     modes,
                     x: geo.loc.x,
                     y: geo.loc.y,

@@ -14,6 +14,8 @@ pub mod hot_corner;
 pub mod magnifier;
 pub mod backlight;
 pub mod display_config;
+pub mod edid;
+pub mod tablet;
 pub mod frames;
 pub mod idle;
 pub mod idle_monitor;

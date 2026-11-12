@@ -71,6 +71,11 @@ impl Helix {
 
     /// A libinput device appeared (bare hardware).
     pub fn input_device_added(&mut self, device: &Device) {
+        if device.has_capability(DeviceCapability::TabletTool) {
+            if let Some(size) = device.size() {
+                self.tablet.sizes.insert(device.sysname().to_owned(), size);
+            }
+        }
         let settings = self.input_settings.clone().unwrap_or_default();
         configure_device(device.clone(), &settings);
         self.input_devices.push(device.clone());

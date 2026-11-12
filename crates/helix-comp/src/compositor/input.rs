@@ -126,6 +126,10 @@ impl Helix {
                 | InputEvent::PointerAxis { .. }
                 | InputEvent::TouchDown { .. }
                 | InputEvent::TouchMotion { .. }
+                | InputEvent::TabletToolAxis { .. }
+                | InputEvent::TabletToolProximity { .. }
+                | InputEvent::TabletToolTip { .. }
+                | InputEvent::TabletToolButton { .. }
         ) {
             self.note_activity();
         }
@@ -211,12 +215,12 @@ impl Helix {
                 pointer.frame(self);
             }
             InputEvent::TouchDown { event } => {
-                let Some(area) = self.touch_area() else { return };
+                let Some(area) = self.touch_area_for(&event.device(), true) else { return };
                 let pos = event.position_transformed(area.size) + area.loc.to_f64();
                 self.touch_down(event.slot(), pos, event.time_msec());
             }
             InputEvent::TouchMotion { event } => {
-                let Some(area) = self.touch_area() else { return };
+                let Some(area) = self.touch_area_for(&event.device(), false) else { return };
                 let pos = event.position_transformed(area.size) + area.loc.to_f64();
                 self.touch_motion(event.slot(), pos, event.time_msec());
             }
@@ -229,6 +233,10 @@ impl Helix {
                 let touch = self.seat.get_touch().unwrap();
                 touch.cancel(self);
             }
+            InputEvent::TabletToolProximity { event } => self.tablet_proximity::<I>(&event),
+            InputEvent::TabletToolAxis { event } => self.tablet_axis::<I>(&event),
+            InputEvent::TabletToolTip { event } => self.tablet_tip::<I>(&event),
+            InputEvent::TabletToolButton { event } => self.tablet_button::<I>(&event),
             _ => {}
         }
     }
@@ -359,7 +367,7 @@ impl Helix {
     }
 
     /// The monitor touchscreens cover: the built-in panel, else the primary.
-    fn touch_area(&self) -> Option<smithay::utils::Rectangle<i32, Logical>> {
+    pub(super) fn touch_area(&self) -> Option<smithay::utils::Rectangle<i32, Logical>> {
         let builtin = self.space.outputs().find(|o| is_builtin_connector(&o.name())).cloned();
         let output = builtin.or_else(|| self.primary())?;
         self.space.output_geometry(&output)
