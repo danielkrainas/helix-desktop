@@ -1843,6 +1843,13 @@ impl Ui {
                 self.dock.settings = settings;
                 self.dock_update();
             }
+            UiEvent::LauncherEntry(app, entry) => {
+                match entry {
+                    Some(entry) => self.dock.entries.insert(app.to_lowercase(), entry),
+                    None => self.dock.entries.remove(&app.to_lowercase()),
+                };
+                self.dock_draw();
+            }
             UiEvent::Mounts(mounts) => {
                 self.dock.mounts = mounts;
                 self.dock_update();

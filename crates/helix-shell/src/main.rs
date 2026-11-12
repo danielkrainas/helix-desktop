@@ -92,6 +92,15 @@ fn main() -> ExitCode {
             }
         }
     });
+    // Counts and progress apps put on their dock icons.
+    {
+        let (conn, ui) = (service.connection().clone(), service.ui_sender());
+        runtime.spawn(async move {
+            if let Err(err) = helix_shell::launcher_entry::follow(conn, ui).await {
+                tracing::info!(%err, "cannot follow launcher entries");
+            }
+        });
+    }
     // The panel's accessibility menu.
     let a11y_ui = service.ui_sender();
     runtime.spawn(async move {

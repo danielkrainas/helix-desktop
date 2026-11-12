@@ -32,6 +32,7 @@ pub mod vpn_secrets;
 pub mod media;
 pub mod a11y_menu;
 pub mod dock;
+pub mod launcher_entry;
 pub mod mount_handler;
 pub mod notifications;
 pub mod polkit;
@@ -120,6 +121,9 @@ pub enum UiEvent {
     A11y(a11y_menu::Status),
     /// The dock's settings changed (or were read at start).
     Dock(dock::DockSettings),
+    /// An app's launcher entry (count, progress, urgency); `None` when it
+    /// went away.
+    LauncherEntry(String, Option<launcher_entry::Entry>),
     /// Mounted drives (for the dock).
     Mounts(Vec<media::MountInfo>),
     /// Whether the trash holds anything.

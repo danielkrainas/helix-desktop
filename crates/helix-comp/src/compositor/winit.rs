@@ -199,10 +199,9 @@ pub fn init(
                     // Monitors off: the window shows black.
                     let elements = if state.screens_off { Vec::new() } else { elements };
                     let clear = if locked || state.screens_off { [0.0, 0.0, 0.0, 1.0] } else { [0.12, 0.12, 0.14, 1.0] };
-                    // Only what changed since this buffer was last drawn
-                    // (asked before binding, as the context is still current
-                    // from the last frame; unknown means all of it).
-                    let age = backend.buffer_age().unwrap_or(0);
+                    // Raw handles to ask the buffer's age once it is bound.
+                    let egl_surface = backend.egl_surface().get_surface_handle();
+                    let egl_display = backend.renderer().egl_context().display().get_display_handle();
                     let (renderer, mut framebuffer) = match backend.bind() {
                         Ok(bound) => bound,
                         Err(err) => {
@@ -210,6 +209,9 @@ pub fn init(
                             return;
                         }
                     };
+                    // Only what changed since this buffer was last drawn
+                    // (unknown means all of it).
+                    let age = buffer_age(&egl_display, egl_surface);
                     rendered = match damage_tracker.render_output(renderer, &mut framebuffer, age, &elements, clear) {
                         Ok(result) => result.damage.cloned(),
                         Err(err) => {
@@ -296,4 +298,15 @@ fn next_frame(
         wake.ping();
         smithay::reexports::calloop::timer::TimeoutAction::Drop
     });
+}
+
+/// The bound window surface's buffer age (0 when unknown). Asked while it
+/// is bound: EGL only answers for the current surface.
+fn buffer_age(display: &smithay::backend::egl::display::EGLDisplayHandle, surface: smithay::backend::egl::ffi::egl::types::EGLSurface) -> usize {
+    use smithay::backend::egl::ffi::egl;
+    let mut age = 0;
+    // SAFETY: both handles belong to the backend, which outlives this call;
+    // QuerySurface only writes `age`.
+    let ok = unsafe { egl::QuerySurface(**display, surface, egl::BUFFER_AGE_EXT as i32, &mut age) };
+    if ok == egl::FALSE { 0 } else { age.max(0) as usize }
 }

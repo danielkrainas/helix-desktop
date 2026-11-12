@@ -195,7 +195,7 @@ async fn version_two_remembers() {
     };
     let (code, results) = start(1, HashMap::from([("capabilities", o(Value::from(3u32))), ("persist_mode", o(Value::from(2u32)))])).await;
     assert_eq!(code, 0);
-    assert_eq!(bool::try_from(results["clipboard_enabled"].clone()).unwrap(), false);
+    assert!(!bool::try_from(results["clipboard_enabled"].clone()).unwrap());
     let restore = results["restore_data"].clone();
     assert_eq!(calls.lock().unwrap().iter().filter(|c| c.starts_with("Dialog")).count(), 1);
 

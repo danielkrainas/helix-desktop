@@ -24,6 +24,8 @@ const DRAG_START: f64 = 8.0;
 const UNPIN_DISTANCE: f64 = 60.0;
 const DOCK_BG: u32 = 0x001E1E24;
 const BADGE: u32 = 0xFFE01B24;
+/// Behind an app asking for attention.
+const URGENT: u32 = 0x80F57900;
 /// How long a dock revealed at the edge waits for the pointer.
 const REVEAL_GRACE: f64 = 1.5;
 
@@ -73,6 +75,8 @@ pub(super) struct DockState {
     drag: Option<(usize, (f64, f64))>,
     /// What the open dock menu's entries do.
     pub menu_targets: Vec<DockTarget>,
+    /// Apps' launcher entries, by lower-case app id.
+    pub entries: std::collections::HashMap<String, crate::launcher_entry::Entry>,
 }
 
 thread_local! {
@@ -390,6 +394,14 @@ impl Ui {
             .clone()
     }
 
+    /// App `id`'s launcher entry (by its id or desktop file).
+    fn dock_entry(&self, id: &str) -> Option<&crate::launcher_entry::Entry> {
+        self.dock.entries.get(&id.to_lowercase()).or_else(|| {
+            let desktop = desktop_id(id)?;
+            self.dock.entries.get(&desktop.trim_end_matches(".desktop").to_lowercase())
+        })
+    }
+
     /// Unread notifications of app `id`.
     fn dock_badge(&self, id: &str) -> usize {
         self.notify.list.entries.iter().filter(|e| e.app_id.eq_ignore_ascii_case(id) || desktop_matches(&e.app_id, id)).count()
@@ -419,8 +431,19 @@ impl Ui {
         let counts: Vec<(usize, usize)> = items
             .iter()
             .map(|i| match i {
-                Item::App { id, .. } => (self.app_windows(id).len().min(4), if s.counters { self.dock_badge(id) } else { 0 }),
+                Item::App { id, .. } => {
+                    // The app's own count, else its notifications.
+                    let own = self.dock_entry(id).and_then(|e| e.shown_count()).map(|c| c.max(0) as usize);
+                    (self.app_windows(id).len().min(4), own.unwrap_or_else(|| if s.counters { self.dock_badge(id) } else { 0 }))
+                }
                 _ => (0, 0),
+            })
+            .collect();
+        let entries: Vec<Option<crate::launcher_entry::Entry>> = items
+            .iter()
+            .map(|i| match i {
+                Item::App { id, .. } => self.dock_entry(id).cloned(),
+                _ => None,
             })
             .collect();
         let focused_app = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).map(|e| e.app_id.clone()).unwrap_or_default();
@@ -458,7 +481,9 @@ impl Ui {
                 }
             }
             let (ix, iy) = (cell.x + (cell.w - icon) / 2, cell.y + (cell.h - icon) / 2);
-            if hover == Some(i) || focused_item == Some(i) {
+            if entries[i].as_ref().is_some_and(|e| e.urgent) {
+                canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, URGENT);
+            } else if hover == Some(i) || focused_item == Some(i) {
                 let tint = if hover == Some(i) { 0x40FFFFFF } else { 0x26FFFFFF };
                 canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, tint);
             }
@@ -467,6 +492,14 @@ impl Ui {
                     (Item::ShowApps, _) => draw_grid(&mut canvas, ix, iy, icon),
                     (_, Some(image)) => canvas.image(f64::from(ix), f64::from(iy), f64::from(icon), f64::from(icon), image),
                     (_, None) => canvas.round_rect(f64::from(ix + 4), f64::from(iy + 4), f64::from(icon - 8), f64::from(icon - 8), 8.0, 0xFF5E5C64),
+                }
+            }
+            if let Some(progress) = entries[i].as_ref().and_then(|e| e.shown_progress()) {
+                // A bar across the icon's bottom.
+                let (px0, py0, pw) = (f64::from(ix + 3), f64::from(iy + icon - 7), f64::from(icon - 6));
+                canvas.round_rect(px0, py0, pw, 5.0, 2.5, 0xC0202024);
+                if progress > 0.0 {
+                    canvas.round_rect(px0, py0, (pw * progress).max(5.0), 5.0, 2.5, ACCENT);
                 }
             }
             let (windows, badge) = counts[i];
