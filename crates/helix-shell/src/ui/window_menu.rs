@@ -145,6 +145,8 @@ pub(super) struct WindowMenu {
     /// Window previews instead of rows: the windows; the items are, for
     /// each, "activate" then "close".
     pub(super) previews: Vec<u32>,
+    /// The keyboard highlight timed out (`keyboard-focus-visible-timeout`).
+    focus_hidden: bool,
 }
 
 /// The size of a previews box for `count` windows.
@@ -244,6 +246,7 @@ impl Ui {
             bounds: Rect { x: 0, y: 0, w: 0, h: 0 },
             sources,
             previews: Vec::new(),
+            focus_hidden: false,
         });
     }
 
@@ -308,7 +311,7 @@ impl Ui {
                 continue;
             };
             let r = Rect { x: mx + 4, y, w: MENU_W - 8, h: ITEM_H };
-            if menu.selected == Some(i) {
+            if menu.selected == Some(i) && !menu.focus_hidden {
                 canvas.rect(r.x, r.y, r.w, r.h, HOVER_BG);
             }
             let base = baseline(text, r.y, r.h, 14.0);
@@ -390,8 +393,9 @@ impl Ui {
         let under = menu.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, i)| *i);
         match event.kind {
             PointerEventKind::Motion { .. } => {
-                if menu.selected != under {
+                if menu.selected != under || (under.is_some() && menu.focus_hidden) {
                     menu.selected = under;
+                    menu.focus_hidden = false;
                     self.draw_window_menu();
                 }
             }
@@ -405,6 +409,28 @@ impl Ui {
         true
     }
 
+    /// With `keyboard-focus-visible-timeout`, take the keyboard highlight
+    /// away after that many seconds without keyboard moves (the
+    /// selection stays: Return still chooses it).
+    fn hide_focus_later(&mut self) {
+        self.focus_serial += 1;
+        let (Some(handle), true) = (self.loop_handle.as_ref(), self.focus_timeout > 0) else { return };
+        let serial = self.focus_serial;
+        let after = std::time::Duration::from_secs(self.focus_timeout as u64);
+        let _ = handle.insert_source(smithay_client_toolkit::reexports::calloop::timer::Timer::from_duration(after), move |_, _, ui: &mut Ui| {
+            if ui.focus_serial == serial {
+                if let Some(menu) = ui.window_menu.as_mut() {
+                    menu.focus_hidden = true;
+                }
+                ui.draw_window_menu();
+            }
+            smithay_client_toolkit::reexports::calloop::timer::TimeoutAction::Drop
+        });
+        if let Some(menu) = self.window_menu.as_mut() {
+            menu.focus_hidden = false;
+        }
+    }
+
     /// Keys while the menu is open: arrows, Return, Escape.
     pub(super) fn window_menu_key(&mut self, event: &KeyEvent) {
         let Some(menu) = self.window_menu.as_mut() else { return };
@@ -412,13 +438,15 @@ impl Ui {
         let pos = menu.selected.and_then(|s| selectable.iter().position(|n| *n == s));
         match event.keysym {
             Keysym::Escape => self.window_menu = None,
-            Keysym::Down => {
+            Keysym::Down | Keysym::Right if !selectable.is_empty() => {
                 menu.selected = Some(selectable[pos.map_or(0, |p| (p + 1) % selectable.len())]);
                 self.draw_window_menu();
+                self.hide_focus_later();
             }
-            Keysym::Up => {
+            Keysym::Up | Keysym::Left if !selectable.is_empty() => {
                 menu.selected = Some(selectable[pos.map_or(selectable.len() - 1, |p| (p + selectable.len() - 1) % selectable.len())]);
                 self.draw_window_menu();
+                self.hide_focus_later();
             }
             Keysym::Return | Keysym::KP_Enter | Keysym::space => {
                 if let Some(index) = menu.selected {
@@ -443,7 +471,7 @@ fn paint_previews(menu: &mut WindowMenu, canvas: &mut Canvas, w: i32, h: i32, te
     for (i, window) in menu.previews.iter().enumerate() {
         let (col, row) = ((i % TILES_PER_ROW) as i32, (i / TILES_PER_ROW) as i32);
         let tile = Rect { x: mx + TILE_GAP + col * (TILE_W + TILE_GAP), y: my + TILE_GAP + row * (PICTURE_H + TILE_TITLE_H + TILE_GAP), w: TILE_W, h: PICTURE_H + TILE_TITLE_H };
-        if menu.selected == Some(2 * i) {
+        if menu.selected == Some(2 * i) && !menu.focus_hidden {
             canvas.rect(tile.x - 2, tile.y - 2, tile.w + 4, tile.h + 4, HOVER_BG);
         }
         // The picture, fitted into the tile keeping its proportions.
@@ -460,7 +488,7 @@ fn paint_previews(menu: &mut WindowMenu, canvas: &mut Canvas, w: i32, h: i32, te
         label(text, canvas, &title, (tile.x + 6) as f32, baseline(text, tile.y + PICTURE_H, TILE_TITLE_H, 13.0), 13.0, FG, (tile.w - 12) as f32);
         // The close button, at the picture's top right corner.
         let close = Rect { x: tile.x + tile.w - 26, y: tile.y + 2, w: 24, h: 24 };
-        let hot = menu.selected == Some(2 * i + 1);
+        let hot = menu.selected == Some(2 * i + 1) && !menu.focus_hidden;
         canvas.circle(f64::from(close.x) + 12.0, f64::from(close.y) + 12.0, 10.0, if hot { 0xFFE01B24 } else { 0xE0303036 });
         canvas.line((f64::from(close.x) + 8.0, f64::from(close.y) + 8.0), (f64::from(close.x) + 16.0, f64::from(close.y) + 16.0), 1.8, FG);
         canvas.line((f64::from(close.x) + 16.0, f64::from(close.y) + 8.0), (f64::from(close.x) + 8.0, f64::from(close.y) + 16.0), 1.8, FG);

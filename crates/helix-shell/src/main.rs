@@ -85,8 +85,22 @@ fn main() -> ExitCode {
         };
         let watched = helix_settings::GSettings::new(&[SCHEMA]);
         let (mut changes, _watch) = watched.watch();
+        let interface = || {
+            use gio::prelude::*;
+            match gio::SettingsSchemaSource::default().and_then(|s| s.lookup(SCHEMA, true)) {
+                Some(schema) => {
+                    let s = gio::Settings::new(SCHEMA);
+                    let get_b = |k: &str| schema.has_key(k) && s.boolean(k);
+                    let get_i = |k: &str| if schema.has_key(k) { s.int(k) } else { -1 };
+                    (get_b("show-status-shapes"), get_i("keyboard-focus-visible-timeout"))
+                }
+                None => (false, -1),
+            }
+        };
         loop {
             let _ = contrast_ui.send(helix_shell::UiEvent::HighContrast(read()));
+            let (shapes, focus_timeout) = interface();
+            let _ = contrast_ui.send(helix_shell::UiEvent::InterfaceA11y { shapes, focus_timeout });
             if changes.recv().await.is_none() {
                 break;
             }

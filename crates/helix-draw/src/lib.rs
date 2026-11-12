@@ -36,6 +36,18 @@ pub fn high_contrast() -> bool {
     HIGH_CONTRAST.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+static STATUS_SHAPES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `show-status-shapes` (helix-desktop-spec `a11y-interface.md`): on/off
+/// states are shown with shapes as well as color.
+pub fn set_status_shapes(on: bool) {
+    STATUS_SHAPES.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn status_shapes() -> bool {
+    STATUS_SHAPES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Saturated colors (the accent, warnings) are kept in high contrast.
 fn saturated(color: u32) -> bool {
     let [r, g, b, _] = rgba(color);
@@ -116,6 +128,22 @@ impl<'a> Canvas<'a> {
     /// Fill an anti-aliased circle (logical center and radius).
     pub fn circle(&mut self, cx: f64, cy: f64, r: f64, color: u32) {
         self.shape(cx - r, cy - r, cx + r, cy + r, |x, y| r - ((x - cx).powi(2) + (y - cy).powi(2)).sqrt(), color);
+    }
+
+    /// A ring of radius `r` and `width` around (cx, cy).
+    pub fn ring(&mut self, cx: f64, cy: f64, r: f64, width: f64, color: u32) {
+        let half = width / 2.0;
+        self.shape(cx - r - half, cy - r - half, cx + r + half, cy + r + half, |x, y| half - (((x - cx).powi(2) + (y - cy).powi(2)).sqrt() - r).abs(), color);
+    }
+
+    /// A status shape centered at (cx, cy), `size` tall: a bar for on, a
+    /// ring for off.
+    pub fn status_shape(&mut self, cx: f64, cy: f64, size: f64, on: bool, color: u32) {
+        if on {
+            self.line((cx, cy - size / 2.0 + 1.0), (cx, cy + size / 2.0 - 1.0), 2.0, color);
+        } else {
+            self.ring(cx, cy, size / 2.0 - 1.0, 1.6, color);
+        }
     }
 
     /// Draw an anti-aliased line `width` logical units thick from (x0, y0)
@@ -395,6 +423,20 @@ mod tests {
 #[cfg(test)]
 mod shape_tests {
     use super::*;
+
+    #[test]
+    fn status_shapes() {
+        let mut data = vec![0u8; 20 * 20 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 20, 20, 1.0);
+        canvas.status_shape(10.0, 10.0, 12.0, false, 0xFFFFFFFF);
+        let px = |d: &[u8], x: usize, y: usize| d[(y * 20 + x) * 4 + 3];
+        assert!(px(&data, 15, 10) > 40, "the ring's edge");
+        assert_eq!(px(&data, 10, 10), 0, "a hollow ring");
+        let mut data = vec![0u8; 20 * 20 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 20, 20, 1.0);
+        canvas.status_shape(10.0, 10.0, 12.0, true, 0xFFFFFFFF);
+        assert!(px(&data, 10, 10) > 200 && px(&data, 15, 10) == 0, "a bar");
+    }
 
     #[test]
     fn circles_and_lines() {

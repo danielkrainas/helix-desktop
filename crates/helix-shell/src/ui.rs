@@ -192,6 +192,10 @@ struct Ui {
     picker: Option<capture::Picker>,
     flashes: Vec<capture::Flash>,
     loop_handle: Option<LoopHandle<'static, Ui>>,
+    /// `keyboard-focus-visible-timeout` (seconds; 0 or less: no timeout).
+    focus_timeout: i32,
+    /// Bumped at each keyboard move in a menu, to tell stale timers.
+    focus_serial: u64,
     bindings: HashMap<u32, HelixKeybindingV1>,
     lock: LockScreen,
     banner: Option<BannerView>,
@@ -1944,6 +1948,15 @@ impl Ui {
                     }
                 }
             }
+            UiEvent::InterfaceA11y { shapes, focus_timeout } => {
+                self.focus_timeout = focus_timeout;
+                if shapes != helix_draw::status_shapes() {
+                    tracing::info!(shapes, "status shapes");
+                    helix_draw::set_status_shapes(shapes);
+                    self.redraw_all();
+                    self.draw_power_menu();
+                }
+            }
             UiEvent::HighContrast(on) => {
                 if on != helix_draw::high_contrast() {
                     tracing::info!(on, "high contrast");
@@ -2324,6 +2337,8 @@ pub fn run(
         picker: None,
         flashes: Vec::new(),
         loop_handle: None,
+        focus_timeout: -1,
+        focus_serial: 0,
         banner: None,
         dialog: None,
         power_menu: None,

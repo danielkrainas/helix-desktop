@@ -327,8 +327,16 @@ impl Ui {
             // Wi-Fi and Bluetooth: a "›" for their list.
             let expandable = matches!(switch, Switch::Wifi | Switch::Bluetooth);
             let arrow_w = if expandable { 20 } else { 0 };
-            let tw = text.map_or(0.0, |t| t.width(name, 12.0)).min((r.w - 8 - arrow_w) as f32);
-            label(text, &mut canvas, name, r.x as f32 + (r.w - arrow_w) as f32 / 2.0 - tw / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, FG, (r.w - 8 - arrow_w) as f32);
+            // `show-status-shapes`: a bar for on, a ring for off.
+            let shape_w = if helix_draw::status_shapes() {
+                canvas.status_shape(f64::from(r.x) + 11.0, f64::from(r.y) + f64::from(r.h) / 2.0, 10.0, on, FG);
+                16
+            } else {
+                0
+            };
+            let room = r.w - 8 - arrow_w - shape_w;
+            let tw = text.map_or(0.0, |t| t.width(name, 12.0)).min(room as f32);
+            label(text, &mut canvas, name, (r.x + shape_w) as f32 + (r.w - arrow_w - shape_w) as f32 / 2.0 - tw / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, FG, room as f32);
             if expandable {
                 let a = Rect { x: r.x + r.w - arrow_w, y: r.y, w: arrow_w, h: r.h };
                 canvas.rect(a.x, a.y + 8, 1, a.h - 16, if on { FG } else { DIM_FG });
