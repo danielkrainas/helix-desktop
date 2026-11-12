@@ -17,6 +17,7 @@ pub mod display_config;
 pub mod edid;
 pub mod tablet;
 pub mod focus_tracking;
+pub mod input_capture;
 pub mod frames;
 pub mod idle;
 pub mod idle_monitor;
@@ -63,6 +64,8 @@ pub enum Event {
     RemoteSelectionTransfer { session: u32, mime_type: String, serial: u32 },
     /// The keymap or its active layout changed (`CurrentKeymap`).
     KeymapChanged,
+    /// An input capture session's signal.
+    Capture(input_capture::CaptureSignal),
     /// Whether the magnifier follows keyboard focus or the text caret
     /// (handled where the D-Bus thread starts, see `focus_tracking`).
     FocusTracking(bool),
@@ -77,6 +80,7 @@ pub struct CompositorServices {
     casts: screencast::Shared,
     cast: Option<mpsc::UnboundedSender<screencast::CastRequest>>,
     remotes: remote_desktop::Shared,
+    captures: input_capture::Shared,
 }
 
 async fn own(conn: &Connection, name: &'static str) -> zbus::Result<()> {
@@ -137,6 +141,7 @@ impl CompositorServices {
         let can_apply = control.applier.is_some();
         let casts = screencast::Shared::default();
         let remotes = remote_desktop::Shared::default();
+        let captures = input_capture::Shared::default();
         let cast = control.cast.clone();
         let effects = display_config::ScreenEffects { gamma: control.gamma.clone(), grayscale: false };
         let display_config = DisplayConfig::new(
@@ -166,12 +171,14 @@ impl CompositorServices {
                 remote_desktop::RemoteDesktop { shared: remotes.clone(), casts: casts.clone(), compositor: control.cast },
             )?
             .serve_at(screencast::OBJECT_PATH, screencast::ScreenCastState { shared: casts.clone() })?
+            .serve_at(input_capture::OBJECT_PATH, input_capture::InputCapture { shared: captures.clone(), compositor: cast.clone() })?
             .build()
             .await?;
         own(&conn, idle_monitor::BUS_NAME).await?;
         own(&conn, display_config::BUS_NAME).await?;
         own(&conn, screencast::BUS_NAME).await?;
         own(&conn, remote_desktop::BUS_NAME).await?;
+        own(&conn, input_capture::BUS_NAME).await?;
         tracing::info!("IdleMonitor and DisplayConfig ready");
 
         let mut tasks = vec![
@@ -187,7 +194,7 @@ impl CompositorServices {
             tasks.push(tokio::spawn(lid::follow(conn.clone())));
         }
         if let Some(cast) = &cast {
-            tasks.push(spawn_cast_owner_watcher(&conn, casts.clone(), remotes.clone(), cast.clone()).await?);
+            tasks.push(spawn_cast_owner_watcher(&conn, casts.clone(), remotes.clone(), captures.clone(), cast.clone()).await?);
         }
         Ok(Self {
             conn,
@@ -197,6 +204,7 @@ impl CompositorServices {
             casts,
             cast,
             remotes,
+            captures,
         })
     }
 
@@ -230,6 +238,7 @@ impl CompositorServices {
                 Ok(())
             }
             Event::FocusTracking(_) => Ok(()),
+            Event::Capture(signal) => input_capture::emit(&self.conn, &self.captures, signal).await,
             Event::IdleInhibited(inhibited) => {
                 self.idle.set_inhibited(inhibited);
                 Ok(())
@@ -354,6 +363,7 @@ async fn spawn_cast_owner_watcher(
     conn: &Connection,
     casts: screencast::Shared,
     remotes: remote_desktop::Shared,
+    captures: input_capture::Shared,
     cast: mpsc::UnboundedSender<screencast::CastRequest>,
 ) -> zbus::Result<JoinHandle<()>> {
     let mut changes = DBusProxy::new(conn).await?.receive_name_owner_changed().await?;
@@ -370,6 +380,9 @@ async fn spawn_cast_owner_watcher(
                 let sessions = casts.lock().unwrap_or_else(|e| e.into_inner()).sessions_of(name);
                 for session in sessions {
                     screencast::close_session(&conn, &casts, &cast, session).await;
+                }
+                for session in input_capture::sessions_of(&captures, name) {
+                    input_capture::close_session(&conn, &captures, &cast, session).await;
                 }
             }
         }

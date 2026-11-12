@@ -45,7 +45,7 @@ struct EisClient {
 }
 
 /// Add a keyboard device with `keymap` (a memfd and its size) to `seat`.
-fn add_keyboard(seat: &reis::request::Seat, keymap: Option<&(OwnedFd, u32)>) -> reis::request::Device {
+pub(super) fn add_keyboard(seat: &reis::request::Seat, keymap: Option<&(OwnedFd, u32)>) -> reis::request::Device {
     let raw = keymap.map(|(fd, size)| (std::os::fd::AsRawFd::as_raw_fd(fd), *size));
     let device = seat.add_device(Some("Helix remote keyboard"), eis::device::DeviceType::Virtual, DeviceCapability::Keyboard.into(), move |device| {
         if let (Some(keyboard), Some((fd, size))) = (device.interface::<eis::Keyboard>(), raw) {
@@ -70,6 +70,9 @@ impl Helix {
     /// Apply input from a remote desktop session.
     pub fn remote_input(&mut self, input: RemoteInput) {
         self.note_activity();
+        if self.capture_remote(&input) {
+            return;
+        }
         let time = self.now_ms();
         match input {
             RemoteInput::Key { keycode, pressed } => {
@@ -150,6 +153,29 @@ impl Helix {
                 self.touch_up(slot(id), time);
                 self.seat.get_touch().unwrap().frame(self);
             }
+        }
+    }
+
+    /// Remote input while input is captured goes to the capture.
+    fn capture_remote(&mut self, input: &RemoteInput) -> bool {
+        if self.input_capture_active().is_none() {
+            return false;
+        }
+        match *input {
+            RemoteInput::Key { keycode, pressed } => self.capture_key(keycode, pressed),
+            RemoteInput::Keysym { keysym, pressed } => match self.key_for_keysym(keysym) {
+                Some((keycode, _)) => self.capture_key(keycode.raw().saturating_sub(8), pressed),
+                None => true,
+            },
+            RemoteInput::Button { button, pressed } => self.capture_button(button, pressed),
+            RemoteInput::Axis { dx, dy, .. } => self.capture_scroll(dx, dy, None),
+            RemoteInput::AxisDiscrete { axis, steps } => {
+                let (x, y) = if axis == 1 { (steps * 120, 0) } else { (0, steps * 120) };
+                self.capture_scroll(0.0, 0.0, Some((x, y)))
+            }
+            // Motion goes through the pointer (and is captured there);
+            // absolute positions and touch are not captured.
+            _ => false,
         }
     }
 
@@ -383,7 +409,7 @@ impl Helix {
     }
 
     /// The active XKB keymap as text.
-    fn keymap_text(&mut self) -> Option<String> {
+    pub(super) fn keymap_text(&mut self) -> Option<String> {
         let keyboard = self.seat.get_keyboard()?;
         keyboard.with_xkb_state(self, |context| {
             let xkb = context.xkb().lock().ok()?;
@@ -402,7 +428,7 @@ impl Helix {
 }
 
 /// A sealed memfd holding `keymap` (NUL-terminated), and its size.
-fn memfd_keymap(keymap: &str) -> Option<(OwnedFd, u32)> {
+pub(super) fn memfd_keymap(keymap: &str) -> Option<(OwnedFd, u32)> {
     use std::io::Write;
     use std::os::fd::FromRawFd;
     let mut bytes = keymap.as_bytes().to_vec();

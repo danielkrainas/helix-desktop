@@ -13,6 +13,7 @@ pub mod dynamic_launcher;
 pub mod email;
 pub mod file_chooser;
 pub mod inhibit;
+pub mod input_capture;
 pub mod lockdown;
 pub mod notification;
 pub mod print;
@@ -85,6 +86,7 @@ impl PortalService {
         server.at(OBJECT_PATH, dialogs::BackgroundBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, wallpaper::WallpaperBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, email::EmailBackend).await?;
+        server.at(OBJECT_PATH, input_capture::InputCaptureBackend { conn: conn.clone(), sessions: Default::default() }).await?;
         server.at(OBJECT_PATH, dynamic_launcher::DynamicLauncherBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, lockdown::LockdownBackend::default()).await?;
         server.at(OBJECT_PATH, file_chooser::FileChooserBackend { conn: conn.clone(), folders: Default::default() }).await?;
@@ -209,6 +211,7 @@ impl PortalService {
         server.remove::<dialogs::BackgroundBackend, _>(OBJECT_PATH).await?;
         server.remove::<wallpaper::WallpaperBackend, _>(OBJECT_PATH).await?;
         server.remove::<email::EmailBackend, _>(OBJECT_PATH).await?;
+        server.remove::<input_capture::InputCaptureBackend, _>(OBJECT_PATH).await?;
         server.remove::<dynamic_launcher::DynamicLauncherBackend, _>(OBJECT_PATH).await?;
         server.remove::<lockdown::LockdownBackend, _>(OBJECT_PATH).await?;
         server.remove::<notification::NotificationBackend, _>(OBJECT_PATH).await?;

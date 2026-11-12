@@ -71,6 +71,8 @@ pub enum CastRequest {
     EndRemote { session: u32 },
     /// Caps Lock and Num Lock.
     LockKeys { reply: oneshot::Sender<(bool, bool)> },
+    /// An input capture session's request.
+    Capture(crate::input_capture::CaptureRequest),
     /// Clipboard sharing or keymap request of remote desktop session
     /// `session`.
     Remote {

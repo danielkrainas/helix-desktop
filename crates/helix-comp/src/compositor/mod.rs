@@ -41,6 +41,7 @@ mod wm;
 mod workspaces;
 mod xwayland;
 mod xsettings;
+mod input_capture;
 
 use std::ffi::OsString;
 use std::sync::Arc;
@@ -175,6 +176,8 @@ pub struct Helix {
     pub x11_settings: helix_comp::xsettings::Settings,
     /// Xwayland's scale as last applied (0: not yet).
     pub xwayland_scale: i32,
+    /// Input capture sessions and the capture going on.
+    pub input_capture: input_capture::InputCaptureState,
     pub xwayland_shell_state: XWaylandShellState,
     pub session_lock_state: SessionLockManagerState,
     pub lock: lock::LockState,
@@ -298,6 +301,7 @@ impl Helix {
             xsettings: None,
             x11_settings: helix_comp::xsettings::read(),
             xwayland_scale: 0,
+            input_capture: Default::default(),
             xwayland_shell_state: XWaylandShellState::new::<Self>(&dh),
             session_lock_state: SessionLockManagerState::new::<Self, _>(&dh, lock::can_lock),
             lock: lock::LockState::default(),

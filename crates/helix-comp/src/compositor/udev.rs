@@ -406,6 +406,7 @@ impl Helix {
         layer_map_for_output(&udev.surfaces[&crtc].output).arrange();
         self.render_crtc(crtc);
         self.apply_x11_settings();
+        self.capture_zones_changed();
     }
 
     fn connector_disconnected(&mut self, crtc: crtc::Handle) {
@@ -417,6 +418,7 @@ impl Helix {
             self.close_layers(&surface.output);
             self.rescue_windows();
             self.apply_x11_settings();
+            self.capture_zones_changed();
         }
     }
 

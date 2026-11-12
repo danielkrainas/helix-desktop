@@ -192,6 +192,14 @@ impl Helix {
                         .amount(axis)
                         .unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.0)
                 };
+                if self.input_capture_active().is_some() {
+                    let discrete = match (event.amount_v120(Axis::Horizontal), event.amount_v120(Axis::Vertical)) {
+                        (None, None) => None,
+                        (h, v) => Some((h.unwrap_or(0.0) as i32, v.unwrap_or(0.0) as i32)),
+                    };
+                    self.capture_scroll(amount(Axis::Horizontal), amount(Axis::Vertical), discrete);
+                    return;
+                }
                 let mut frame = AxisFrame::new(event.time_msec()).source(source);
                 // Touchpad scrolling speed (`scroll-speed`).
                 let factor = match source {

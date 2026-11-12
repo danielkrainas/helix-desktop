@@ -35,6 +35,9 @@ impl Helix {
 
     /// A pointer button from an input device.
     pub(super) fn device_button(&mut self, button: u32, state: ButtonState, time: u32) {
+        if self.capture_button(button, state == ButtonState::Pressed) {
+            return;
+        }
         let pos = self.seat.get_pointer().map(|p| p.current_location()).unwrap_or_default();
         let outs = self.mouse_access.button(button, state == ButtonState::Pressed, self.access_now(), (pos.x, pos.y));
         self.run_mouse_access(outs, time);
@@ -60,6 +63,9 @@ impl Helix {
 
     /// A key from an input device.
     pub(super) fn device_key(&mut self, keycode: Keycode, state: KeyState, time: u32) {
+        if self.capture_key(keycode.raw().saturating_sub(8), state == KeyState::Pressed) {
+            return;
+        }
         let (now, num_lock) = (self.access_now(), self.num_lock());
         let outs = self.access.key(keycode.raw().saturating_sub(8), state == KeyState::Pressed, now, num_lock);
         self.run_access(outs, time);

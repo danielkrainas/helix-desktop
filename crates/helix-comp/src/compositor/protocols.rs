@@ -199,6 +199,11 @@ impl Helix {
     }
 
     fn pointer_moved(&mut self, current: Point<f64, Logical>, target: Point<f64, Logical>, delta: Point<f64, Logical>, unaccel: Point<f64, Logical>, utime: u64, time: u32) {
+        // Input capture: captured motion goes to the client; crossing a
+        // barrier starts a capture (the pointer stays where it is).
+        if self.capture_motion(delta) || self.capture_crossing(current, current + delta, target) {
+            return;
+        }
         let pointer = self.seat.get_pointer().unwrap();
         let constraint = if pointer.is_grabbed() { None } else { self.active_constraint(&pointer) };
         if delta != Point::default() || unaccel != Point::default() {

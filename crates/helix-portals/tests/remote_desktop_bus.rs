@@ -97,6 +97,7 @@ fn fake_compositor(log: Arc<Mutex<Vec<String>>>) -> mpsc::UnboundedSender<CastRe
                     let _ = reply.send(Ok(a.into()));
                 }
                 CastRequest::EndRemote { session } => log.lock().unwrap().push(format!("end remote {session}")),
+                CastRequest::Capture(request) => log.lock().unwrap().push(format!("capture {request:?}")),
                 CastRequest::Stop { stream } => log.lock().unwrap().push(format!("stop {stream}")),
                 CastRequest::LockKeys { reply } => {
                     let _ = reply.send((true, false));

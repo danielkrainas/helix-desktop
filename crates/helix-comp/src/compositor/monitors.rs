@@ -76,6 +76,7 @@ impl Helix {
             self.update_surface_scales();
             // The automatic Xwayland scale follows the monitors.
             self.apply_x11_settings();
+            self.capture_zones_changed();
         }
         result
     }
