@@ -23,18 +23,54 @@ pub(super) struct LockExtras {
     pub asked: Option<Instant>,
 }
 
-/// Per app, the notifications not in `known`: most first, then by name.
-pub(super) fn lock_counts(entries: &[Banner], known: &HashSet<u32>) -> Vec<(String, usize)> {
-    let mut counts: Vec<(String, usize)> = Vec::new();
+/// Detail lines shown per app at most.
+const MAX_DETAILS: usize = 2;
+
+/// An app's notifications on the lock screen.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct LockApp {
+    pub name: String,
+    pub count: usize,
+    /// The newest ones' (summary, body), when the app allows details.
+    pub details: Vec<(String, String)>,
+}
+
+/// Per app, the notifications not in `known` (`entries` newest first),
+/// for the apps `policy` (app id → (show, details)) lets show: most
+/// first, then by name.
+pub(super) fn lock_counts(entries: &[Banner], known: &HashSet<u32>, policy: impl Fn(&str) -> (bool, bool)) -> Vec<LockApp> {
+    let mut apps: Vec<(LockApp, bool)> = Vec::new();
+    let mut policies: Vec<(String, (bool, bool))> = Vec::new();
     for e in entries.iter().filter(|e| !known.contains(&e.id)) {
-        match counts.iter_mut().find(|(app, _)| *app == e.app_name) {
-            Some(c) => c.1 += 1,
-            None => counts.push((e.app_name.clone(), 1)),
+        let (show, details) = match policies.iter().find(|(id, _)| *id == e.app_id) {
+            Some((_, p)) => *p,
+            None => {
+                let p = policy(&e.app_id);
+                policies.push((e.app_id.clone(), p));
+                p
+            }
+        };
+        if !show {
+            continue;
+        }
+        let i = match apps.iter().position(|(a, _)| a.name == e.app_name) {
+            Some(i) => i,
+            None => {
+                apps.push((LockApp { name: e.app_name.clone(), count: 0, details: Vec::new() }, details));
+                apps.len() - 1
+            }
+        };
+        let (app, details) = &mut apps[i];
+        app.count += 1;
+        if *details && app.details.len() < MAX_DETAILS {
+            let body = if e.markup { crate::markup::plain(&e.body) } else { e.body.clone() };
+            app.details.push((e.summary.clone(), body.lines().next().unwrap_or("").to_owned()));
         }
     }
-    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase())));
-    counts.truncate(MAX_APPS);
-    counts
+    let mut apps: Vec<LockApp> = apps.into_iter().map(|(a, _)| a).collect();
+    apps.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    apps.truncate(MAX_APPS);
+    apps
 }
 
 fn show_in_lock_screen() -> bool {
@@ -85,9 +121,9 @@ impl Ui {
     }
 
     /// The counts to show (none unless allowed).
-    pub(super) fn lock_note_counts(&self) -> Vec<(String, usize)> {
+    pub(super) fn lock_note_counts(&self) -> Vec<LockApp> {
         if show_in_lock_screen() {
-            lock_counts(&self.notify.list.entries, &self.lock_extras.known)
+            lock_counts(&self.notify.list.entries, &self.lock_extras.known, crate::app_notify::lock_policy)
         } else {
             Vec::new()
         }
@@ -110,7 +146,7 @@ pub(super) fn paint_lock_extras(
     w: i32,
     mut y: i32,
     media: Option<&Player>,
-    counts: &[(String, usize)],
+    counts: &[LockApp],
     icons: &LockIcons,
 ) -> Vec<(Rect, Playback)> {
     let mut hits = Vec::new();
@@ -135,10 +171,17 @@ pub(super) fn paint_lock_extras(
         }
         y += 120;
     }
-    for (app, n) in counts {
-        let line = format!("{app}: {n} notification{}", if *n == 1 { "" } else { "s" });
+    for app in counts {
+        let line = format!("{}: {} notification{}", app.name, app.count, if app.count == 1 { "" } else { "s" });
         label(text, canvas, &line, center(text, &line, 14.0), (y + 18) as f32, 14.0, FG, w as f32);
         y += 24;
+        let max = 480.min(w - 40) as f32;
+        for (summary, body) in &app.details {
+            let line = if body.is_empty() { summary.clone() } else { format!("{summary} — {body}") };
+            let fits = text.map_or(line.clone(), |t| t.wrap(&line, 13.0, max, 1).into_iter().next().unwrap_or_default());
+            label(text, canvas, &fits, center(text, &fits, 13.0), (y + 16) as f32, 13.0, DIM_FG, max);
+            y += 20;
+        }
     }
     hits
 }
@@ -148,14 +191,21 @@ mod tests {
     use super::*;
 
     fn note(id: u32, app: &str) -> Banner {
-        Banner { id, app_name: app.into(), summary: "secret".into(), body: String::new(), buttons: Vec::new(), icon: None, markup: false }
+        Banner { id, app_name: app.into(), app_id: app.to_lowercase(), summary: format!("secret {id}"), body: "<b>line</b>\nmore".into(), buttons: Vec::new(), icon: None, markup: true }
     }
 
     #[test]
     fn counts() {
-        let entries = vec![note(5, "Chat"), note(4, "Mail"), note(3, "Chat"), note(2, "Calendar"), note(1, "Mail")];
+        let entries = vec![note(5, "Chat"), note(4, "Mail"), note(3, "Chat"), note(2, "Calendar"), note(1, "Mail"), note(0, "Chat")];
         let known: HashSet<u32> = [1].into();
-        assert_eq!(lock_counts(&entries, &known), [("Chat".to_owned(), 2), ("Calendar".to_owned(), 1), ("Mail".to_owned(), 1)]);
-        assert!(lock_counts(&entries, &entries.iter().map(|e| e.id).collect()).is_empty());
+        let counts = |policy: fn(&str) -> (bool, bool)| lock_counts(&entries, &known, policy).into_iter().map(|a| (a.name, a.count, a.details.len())).collect::<Vec<_>>();
+        let plain = |_: &str| (true, false);
+        assert_eq!(counts(plain), [("Chat".into(), 3, 0), ("Calendar".into(), 1, 0), ("Mail".into(), 1, 0)]);
+        // Mail hidden; Chat with its two newest notifications' text.
+        let mixed = |app: &str| (app != "mail", app == "chat");
+        assert_eq!(counts(mixed), [("Chat".into(), 3, 2), ("Calendar".into(), 1, 0)]);
+        let chat = &lock_counts(&entries, &known, mixed)[0];
+        assert_eq!(chat.details[0], ("secret 5".to_owned(), "line".to_owned()));
+        assert!(lock_counts(&entries, &entries.iter().map(|e| e.id).collect(), plain).is_empty());
     }
 }

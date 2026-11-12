@@ -29,6 +29,8 @@ pub const GTK_PATH: &str = "/org/gtk/Notifications";
 pub struct Banner {
     pub id: u32,
     pub app_name: String,
+    /// See [`Notification::app_id`].
+    pub app_id: String,
     pub summary: String,
     pub body: String,
     /// Buttons as (key, label).
@@ -43,6 +45,7 @@ impl From<&Notification> for Banner {
         Self {
             id: n.id,
             app_name: n.app_name.clone(),
+            app_id: n.app_id.clone(),
             summary: n.summary.clone(),
             body: n.body.clone(),
             buttons: n.actions.iter().filter(|(k, _)| k != "default").cloned().collect(),
@@ -159,6 +162,7 @@ impl Center {
             origin: Origin::Screenshot { path },
             markup: false,
             transient: false,
+            app_id: String::new(),
         }, None)
     }
 
@@ -189,6 +193,7 @@ impl Center {
             origin: Origin::Media { root },
             markup: false,
             transient: false,
+            app_id: String::new(),
         }, None)
     }
 
@@ -214,6 +219,7 @@ impl Center {
             origin: Origin::Freedesktop { resident: false },
             markup: false,
             transient: false,
+            app_id: String::new(),
         }, None)
     }
 
@@ -233,6 +239,7 @@ impl Center {
             origin: Origin::Screenshot { path },
             markup: false,
             transient: false,
+            app_id: String::new(),
         }, None)
     }
 
@@ -248,7 +255,8 @@ impl Center {
     }
 
     /// [`Center::post`] for a notification of app `app_id`.
-    fn post_for(&self, notification: Notification, sound: Option<Sound>, app_id: Option<&str>) -> u32 {
+    fn post_for(&self, mut notification: Notification, sound: Option<Sound>, app_id: Option<&str>) -> u32 {
+        notification.app_id = app_id.unwrap_or_default().to_owned();
         let policy = app_id.map(crate::app_notify::policy).unwrap_or_default();
         let critical = notification.urgency == Urgency::Critical;
         if !policy.enable {
@@ -533,6 +541,7 @@ impl FdoNotifications {
             icon,
             markup: true,
             transient,
+            app_id: String::new(),
         }, sound, app_id.as_deref());
         tracing::debug!(id, "notification");
         id
@@ -627,6 +636,7 @@ impl GtkNotifications {
             origin: Origin::Gtk { app_id, id, default_action, buttons: button_actions },
             markup: false,
             transient: false,
+            app_id: String::new(),
         }, None);
         let mut map = self.center.targets.lock().unwrap_or_else(|e| e.into_inner());
         map.retain(|(n, _), _| *n != nid);

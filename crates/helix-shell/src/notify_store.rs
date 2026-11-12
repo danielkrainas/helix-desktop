@@ -68,6 +68,9 @@ pub struct Notification {
     pub markup: bool,
     /// Not kept in the list once its banner goes.
     pub transient: bool,
+    /// The app it is from (see `app_notify`); empty for the shell's own
+    /// and apps that did not say.
+    pub app_id: String,
 }
 
 impl Notification {
@@ -225,6 +228,7 @@ mod tests {
             icon: None,
             markup: false,
             transient: false,
+            app_id: String::new(),
         }
     }
 
