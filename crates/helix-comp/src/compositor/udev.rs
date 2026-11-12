@@ -223,13 +223,22 @@ pub fn init(
     libinput
         .udev_assign_seat(&seat)
         .map_err(|()| "cannot assign libinput to the seat")?;
-    handle.insert_source(LibinputInputBackend::new(libinput.clone()), |event, _, state| {
+    handle.insert_source(super::libinput_source::LibinputSource::new(libinput.clone()), |event, _, state| {
+        use super::libinput_source::LibinputEvent;
+        let event = match event {
+            LibinputEvent::Input(event) => event,
+            LibinputEvent::Pad(pad) => {
+                state.note_activity();
+                state.pad_event(pad);
+                return;
+            }
+        };
         match &event {
             smithay::backend::input::InputEvent::DeviceAdded { device } => state.input_device_added(device),
             smithay::backend::input::InputEvent::DeviceRemoved { device } => state.input_device_removed(device),
             _ => {}
         }
-        state.process_input_event(event);
+        state.process_input_event::<LibinputInputBackend>(event);
     })?;
 
     // VT switches pause and resume the session.

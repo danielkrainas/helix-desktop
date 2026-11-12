@@ -79,10 +79,12 @@ impl Helix {
         let settings = self.input_settings.clone().unwrap_or_default();
         configure_device(device.clone(), &settings);
         self.input_devices.push(device.clone());
+        self.tablet_device_added(device);
     }
 
     pub fn input_device_removed(&mut self, device: &Device) {
         self.input_devices.retain(|d| d != device);
+        self.tablet_device_removed(device);
     }
 }
 

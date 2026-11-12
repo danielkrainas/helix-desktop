@@ -36,3 +36,6 @@ path = "src/main.rs"
 
 [dev-dependencies]
 helix-test-support.workspace = true
+# A Wayland client for protocol tests.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }

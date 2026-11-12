@@ -662,6 +662,33 @@ impl DmabufHandler for Helix {
 /// Required by cursor-shape (tablet tool cursors); defaults suffice.
 impl TabletSeatHandler for Helix {}
 
+impl helix_comp::tablet_v2::TabletV2Handler for Helix {
+    fn tablet_v2(&mut self) -> &mut helix_comp::tablet_v2::TabletV2 {
+        &mut self.tablet_v2
+    }
+    fn tool_cursor(&mut self, tool: u64, cursor: Option<(WlSurface, (i32, i32))>) {
+        self.set_tool_cursor(tool, cursor);
+    }
+}
+
+mod tablet_v2_delegates {
+    use helix_comp::tablet_v2::TabletV2;
+    use smithay::reexports::wayland_protocols::wp::tablet::zv2::server as t;
+    use smithay::reexports::wayland_server::{delegate_dispatch, delegate_global_dispatch};
+
+    use super::Helix;
+
+    delegate_global_dispatch!(Helix: [t::zwp_tablet_manager_v2::ZwpTabletManagerV2: ()] => TabletV2);
+    delegate_dispatch!(Helix: [t::zwp_tablet_manager_v2::ZwpTabletManagerV2: ()] => TabletV2);
+    delegate_dispatch!(Helix: [t::zwp_tablet_seat_v2::ZwpTabletSeatV2: ()] => TabletV2);
+    delegate_dispatch!(Helix: [t::zwp_tablet_v2::ZwpTabletV2: String] => TabletV2);
+    delegate_dispatch!(Helix: [t::zwp_tablet_tool_v2::ZwpTabletToolV2: u64] => TabletV2);
+    delegate_dispatch!(Helix: [t::zwp_tablet_pad_v2::ZwpTabletPadV2: String] => TabletV2);
+    delegate_dispatch!(Helix: [t::zwp_tablet_pad_group_v2::ZwpTabletPadGroupV2: (String, usize)] => TabletV2);
+    delegate_dispatch!(Helix: [t::zwp_tablet_pad_ring_v2::ZwpTabletPadRingV2: (String, u32)] => TabletV2);
+    delegate_dispatch!(Helix: [t::zwp_tablet_pad_strip_v2::ZwpTabletPadStripV2: (String, u32)] => TabletV2);
+}
+
 impl smithay::wayland::input_method::InputMethodHandler for Helix {
     fn new_popup(&mut self, surface: smithay::wayland::input_method::PopupSurface) {
         if let Err(err) = self.popups.track_popup(smithay::desktop::PopupKind::from(surface)) {

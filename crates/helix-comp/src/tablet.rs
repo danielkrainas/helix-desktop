@@ -93,7 +93,8 @@ pub enum ButtonAction {
     Button(u32),
     /// Map the tablet to the next monitor.
     SwitchMonitor,
-    /// Nothing (Helix does not send key combinations for `keybinding`).
+    /// Nothing (Helix does not send key combinations for a stylus
+    /// button's `keybinding`).
     Nothing,
 }
 
@@ -122,14 +123,157 @@ pub fn button_action(value: &str, index: usize) -> ButtonAction {
 
 /// A stylus's button actions, by libinput button code.
 pub fn read_stylus(serial: u64, usb: Option<(u32, u32)>) -> [(u32, ButtonAction); 3] {
+    read_stylus_settings(serial, usb).buttons
+}
+
+/// How physical pressure becomes the pressure apps get: `range` (percent
+/// of the physical range that maps to the whole logical range) and `curve`
+/// (the two inner control points of a Bézier curve from (0, 0) to
+/// (100, 100)).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PressureCurve {
+    pub curve: [f64; 4],
+    pub range: [f64; 2],
+}
+
+impl Default for PressureCurve {
+    fn default() -> Self {
+        Self { curve: [0.0, 0.0, 100.0, 100.0], range: [0.0, 100.0] }
+    }
+}
+
+impl PressureCurve {
+    /// From the settings' integer arrays; anything malformed is the
+    /// default (a straight line over the whole range).
+    pub fn from_settings(curve: &[i32], range: &[i32]) -> Self {
+        let mut out = Self::default();
+        if let [x1, y1, x2, y2] = curve {
+            let c = [*x1, *y1, *x2, *y2].map(|v| f64::from(v.clamp(0, 100)));
+            out.curve = c;
+        }
+        if let [lo, hi] = range {
+            let (lo, hi) = (f64::from((*lo).clamp(0, 100)), f64::from((*hi).clamp(0, 100)));
+            if hi > lo {
+                out.range = [lo, hi];
+            }
+        }
+        out
+    }
+
+    /// The logical pressure (0–1) for a physical one (0–1).
+    pub fn apply(&self, raw: f64) -> f64 {
+        let [lo, hi] = self.range;
+        let p = ((raw.clamp(0.0, 1.0) * 100.0 - lo) / (hi - lo)).clamp(0.0, 1.0);
+        let [x1, y1, x2, y2] = self.curve.map(|v| v / 100.0);
+        if x1 == y1 && x2 == y2 {
+            return p;
+        }
+        // The Bézier curve's x is increasing in t: find t for x = p.
+        let bezier = |t: f64, a: f64, b: f64| 3.0 * (1.0 - t) * (1.0 - t) * t * a + 3.0 * (1.0 - t) * t * t * b + t * t * t;
+        if p <= 0.0 || p >= 1.0 {
+            return p;
+        }
+        let (mut low, mut high) = (0.0f64, 1.0f64);
+        for _ in 0..40 {
+            let mid = (low + high) / 2.0;
+            if bezier(mid, x1, x2) < p {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        bezier((low + high) / 2.0, y1, y2).clamp(0.0, 1.0)
+    }
+}
+
+/// A stylus's settings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Stylus {
+    pub buttons: [(u32, ButtonAction); 3],
+    pub pressure: PressureCurve,
+    /// For the eraser end.
+    pub eraser_pressure: PressureCurve,
+}
+
+pub fn read_stylus_settings(serial: u64, usb: Option<(u32, u32)>) -> Stylus {
     let keys = ["button-action", "secondary-button-action", "tertiary-button-action"];
     let defaults = ["right", "middle", "default"];
     let settings = relocatable(STYLUS, &stylus_path(serial, usb));
     let codes = [BTN_STYLUS, BTN_STYLUS2, BTN_STYLUS3];
-    std::array::from_fn(|i| {
+    let buttons = std::array::from_fn(|i| {
         let value = settings.as_ref().map_or_else(|| defaults[i].to_owned(), |s| s.string(keys[i]).to_string());
         (codes[i], button_action(&value, i))
-    })
+    });
+    let curve = |curve: &str, range: &str| {
+        settings.as_ref().map_or_else(PressureCurve::default, |s| {
+            let c: Vec<i32> = s.value(curve).get().unwrap_or_default();
+            let r: Vec<i32> = s.value(range).get().unwrap_or_default();
+            PressureCurve::from_settings(&c, &r)
+        })
+    };
+    Stylus { buttons, pressure: curve("pressure-curve", "pressure-range"), eraser_pressure: curve("eraser-pressure-curve", "eraser-pressure-range") }
+}
+
+pub const PAD_BUTTON: &str = "org.gnome.desktop.peripherals.tablet.pad-button";
+
+/// What a pad button does (`pad-button` `action`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PadAction {
+    /// `none`: the button goes to the app (`zwp_tablet_pad_v2`).
+    App,
+    /// Show what the pad's buttons do.
+    Help,
+    /// Map the tablet to the next monitor.
+    SwitchMonitor,
+    /// Type this key combination (an accelerator such as `<Control>z`).
+    Keybinding(String),
+}
+
+pub fn pad_action(action: &str, keybinding: &str) -> PadAction {
+    match action {
+        "help" => PadAction::Help,
+        "switch-monitor" => PadAction::SwitchMonitor,
+        "keybinding" if !keybinding.trim().is_empty() => PadAction::Keybinding(keybinding.trim().to_owned()),
+        _ => PadAction::App,
+    }
+}
+
+/// A pad button's name: A, B, C… (then 27, 28… past Z).
+pub fn pad_button_name(button: u32) -> String {
+    char::from_u32(u32::from(b'A') + button).filter(|c| c.is_ascii_uppercase()).map_or_else(|| (button + 1).to_string(), String::from)
+}
+
+/// Where pad button `button`'s settings live: below the tablet's, as
+/// `button<name>/`.
+pub fn pad_button_path(usb: (u32, u32), button: u32) -> String {
+    format!("{}button{}/", device_path("tablets", usb), pad_button_name(button))
+}
+
+pub fn read_pad_button(usb: Option<(u32, u32)>, button: u32) -> PadAction {
+    let Some(settings) = usb.and_then(|usb| relocatable(PAD_BUTTON, &pad_button_path(usb, button))) else { return PadAction::App };
+    pad_action(&settings.string("action"), &settings.string("keybinding"))
+}
+
+/// The text "help" shows: each button with what it does.
+pub fn pad_help(actions: &[(u32, PadAction)]) -> String {
+    actions
+        .iter()
+        .map(|(button, action)| {
+            let what = match action {
+                PadAction::App => "Application defined".to_owned(),
+                PadAction::Help => "Show this help".to_owned(),
+                PadAction::SwitchMonitor => "Switch monitor".to_owned(),
+                PadAction::Keybinding(keys) => format!("Send keys {keys}"),
+            };
+            format!("Button {}: {what}", pad_button_name(*button))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A strip's position (0–1) as `zwp_tablet_pad_strip_v2` gives it (0–65535).
+pub fn strip_value(position: f64) -> u32 {
+    (position.clamp(0.0, 1.0) * 65535.0).round() as u32
 }
 
 /// Where on a monitor of `size` a pen at `pos` (fractions of the tablet's
@@ -202,5 +346,35 @@ mod tests {
         let (_, y) = map_point((1.0, 0.5625), &aspect, Some((100.0, 100.0)), size).unwrap();
         assert!((y - 1080.0).abs() < 1e-6);
         assert_eq!(map_point((0.5, 0.9), &aspect, Some((100.0, 100.0)), size), None);
+    }
+
+    #[test]
+    fn pressure_curves() {
+        let straight = PressureCurve::default();
+        assert_eq!(straight.apply(0.3), 0.3);
+        let ranged = PressureCurve::from_settings(&[0, 0, 100, 100], &[20, 70]);
+        assert_eq!((ranged.apply(0.1), ranged.apply(0.45), ranged.apply(0.9)), (0.0, 0.5, 1.0));
+        let soft = PressureCurve::from_settings(&[0, 50, 50, 100], &[0, 100]);
+        assert!(soft.apply(0.25) > 0.25 && soft.apply(0.25) < 1.0, "a soft curve rises early: {}", soft.apply(0.25));
+        assert!(soft.apply(0.5) > 0.5);
+        let samples: Vec<f64> = (0..=20).map(|i| soft.apply(f64::from(i) / 20.0)).collect();
+        assert!(samples.windows(2).all(|w| w[0] <= w[1]), "never decreases");
+        let firm = PressureCurve::from_settings(&[50, 0, 100, 50], &[0, 100]);
+        assert!(firm.apply(0.5) < 0.5);
+        assert_eq!((soft.apply(0.0), soft.apply(1.0)), (0.0, 1.0));
+        assert_eq!(PressureCurve::from_settings(&[1, 2], &[80, 10]), PressureCurve::default(), "malformed values");
+    }
+
+    #[test]
+    fn pad_buttons() {
+        assert_eq!(pad_action("none", "<Control>z"), PadAction::App);
+        assert_eq!(pad_action("keybinding", " <Control>z "), PadAction::Keybinding("<Control>z".into()));
+        assert_eq!(pad_action("keybinding", ""), PadAction::App);
+        assert_eq!((pad_action("help", ""), pad_action("switch-monitor", "")), (PadAction::Help, PadAction::SwitchMonitor));
+        assert_eq!((pad_button_name(0), pad_button_name(25), pad_button_name(26)), ("A".into(), "Z".into(), "27".into()));
+        assert_eq!(pad_button_path((0x56a, 0x357), 2), "/org/gnome/desktop/peripherals/tablets/056a:0357/buttonC/");
+        let help = pad_help(&[(0, PadAction::Keybinding("<Control>z".into())), (1, PadAction::App)]);
+        assert_eq!(help, "Button A: Send keys <Control>z\nButton B: Application defined");
+        assert_eq!((strip_value(0.0), strip_value(0.5), strip_value(2.0)), (0, 32768, 65535));
     }
 }

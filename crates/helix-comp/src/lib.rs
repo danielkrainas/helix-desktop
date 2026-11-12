@@ -14,6 +14,7 @@ pub mod hot_corner;
 pub mod magnifier;
 pub mod backlight;
 pub mod ddc;
+pub mod tablet_v2;
 pub mod display_config;
 pub mod edid;
 pub mod tablet;
@@ -70,6 +71,8 @@ pub enum Event {
     /// Whether the magnifier follows keyboard focus or the text caret
     /// (handled where the D-Bus thread starts, see `focus_tracking`).
     FocusTracking(bool),
+    /// Show an on-screen display through the shell (a tablet pad's help).
+    Osd { icon: String, label: String },
 }
 
 /// The running D-Bus services of the compositor.
@@ -299,6 +302,15 @@ impl CompositorServices {
                 };
                 if let Err(err) = toggled.await {
                     tracing::info!(%err, "no shell to show the overview");
+                }
+                Ok(())
+            }
+            Event::Osd { icon, label } => {
+                let mut params: std::collections::HashMap<&str, zbus::zvariant::Value<'_>> = std::collections::HashMap::new();
+                params.insert("icon", icon.as_str().into());
+                params.insert("label", label.as_str().into());
+                if let Err(err) = self.conn.call_method(Some("org.gnome.Shell"), "/org/gnome/Shell", Some("org.gnome.Shell"), "ShowOSD", &(params,)).await {
+                    tracing::info!(%err, "no shell to show the on-screen display");
                 }
                 Ok(())
             }

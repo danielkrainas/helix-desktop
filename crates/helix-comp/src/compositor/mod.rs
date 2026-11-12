@@ -16,6 +16,7 @@ mod grabs;
 mod handlers;
 mod input;
 mod tablet_input;
+pub mod libinput_source;
 mod remote;
 mod protocols;
 mod remote_share;
@@ -189,6 +190,8 @@ pub struct Helix {
     pub input_devices: Vec<smithay::reexports::input::Device>,
     /// Touchscreen and tablet mapping state.
     pub tablet: tablet_input::TabletInput,
+    /// The tablet protocol's objects.
+    pub tablet_v2: helix_comp::tablet_v2::TabletV2,
     /// What the shell knows about open windows.
     pub window_list: window_list::WindowList,
     /// Screen captures asked for by the shell.
@@ -235,6 +238,7 @@ impl Helix {
         // Private protocol for the shell (visible to privileged clients only).
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
         dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(8, ());
+        helix_comp::tablet_v2::TabletV2::global::<Self>(&dh);
         dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(5, ());
         let socket_name = Self::listen(display, event_loop)?;
         let mut helix = Self {
@@ -312,6 +316,7 @@ impl Helix {
             input_settings: None,
             input_devices: Vec::new(),
             tablet: Default::default(),
+            tablet_v2: Default::default(),
             window_list: Default::default(),
             captures: Default::default(),
             workspaces: Default::default(),

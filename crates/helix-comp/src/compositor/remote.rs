@@ -63,7 +63,7 @@ fn slot(id: u32) -> TouchSlot {
 }
 
 impl Helix {
-    fn now_ms(&self) -> u32 {
+    pub(super) fn now_ms(&self) -> u32 {
         self.start_time.elapsed().as_millis() as u32
     }
 
@@ -181,7 +181,7 @@ impl Helix {
 
     /// The key (and whether Shift is needed) that gives `keysym` in the
     /// active layout, at its first or second level.
-    fn key_for_keysym(&mut self, keysym: u32) -> Option<(Keycode, bool)> {
+    pub(super) fn key_for_keysym(&mut self, keysym: u32) -> Option<(Keycode, bool)> {
         let keyboard = self.seat.get_keyboard()?;
         keyboard.with_xkb_state(self, |context| {
             let xkb = context.xkb().lock().ok()?;
