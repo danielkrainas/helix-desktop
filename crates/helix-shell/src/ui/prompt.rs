@@ -19,7 +19,9 @@ pub(super) struct PromptView {
     reply: Option<oneshot::Sender<Answer>>,
     /// The password and confirmation fields' text.
     fields: [String; 2],
-    /// 0, 1: a field; 2: the check box.
+    /// The plain text field's text.
+    entry: String,
+    /// 0, 1: a password field; 2: the check box; 3: the text field.
     focus: usize,
     choice: bool,
     /// The list row picked.
@@ -31,9 +33,15 @@ pub(super) struct PromptView {
 impl PromptView {
     fn new(request: Request) -> Self {
         let choice = request.prompt.choice.as_ref().is_some_and(|c| c.1);
-        let focus = if request.prompt.password.is_some() { 0 } else { 2 };
+        let entry = request.prompt.entry.as_ref().map(|(_, t)| t.clone()).unwrap_or_default();
+        let focus = match (&request.prompt.entry, &request.prompt.password) {
+            (Some(_), Some(_)) if !entry.is_empty() => 0,
+            (Some(_), _) => 3,
+            (None, Some(_)) => 0,
+            (None, None) => 2,
+        };
         let selected = request.prompt.selected.min(request.prompt.list.len().saturating_sub(1));
-        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), focus, choice, selected, busy: false }
+        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, busy: false }
     }
 
     /// Answer "cancel" if nobody answered yet.
@@ -45,6 +53,9 @@ impl PromptView {
 
     fn focusable(&self) -> Vec<usize> {
         let mut out = Vec::new();
+        if self.prompt.entry.is_some() {
+            out.push(3);
+        }
         if self.prompt.password.is_some() {
             out.push(0);
         }
@@ -114,7 +125,8 @@ impl Ui {
         let take = |s: &mut String| Secret::new(std::mem::take(s));
         let password = view.prompt.password.is_some().then(|| take(&mut view.fields[0]));
         let confirm = view.prompt.confirm.is_some().then(|| take(&mut view.fields[1]));
-        let answer = Answer::Continue { password, confirm, choice: view.choice, selected: view.selected };
+        let entry = view.prompt.entry.is_some().then(|| view.entry.clone());
+        let answer = Answer::Continue { entry, password, confirm, choice: view.choice, selected: view.selected };
         if let Some(reply) = view.reply.take() {
             let _ = reply.send(answer);
         }
@@ -129,6 +141,16 @@ impl Ui {
             return;
         }
         view.selected = row;
+        self.draw_dialog();
+    }
+
+    /// A field was clicked.
+    pub(super) fn prompt_focus(&mut self, field: usize) {
+        let Some(view) = self.prompt_view() else { return };
+        if view.busy || !view.focusable().contains(&field) {
+            return;
+        }
+        view.focus = field;
         self.draw_dialog();
     }
 
@@ -168,9 +190,13 @@ impl Ui {
             Keysym::BackSpace if view.focus < 2 => {
                 view.fields[view.focus].pop();
             }
-            _ if view.focus < 2 => {
+            Keysym::BackSpace if view.focus == 3 => {
+                view.entry.pop();
+            }
+            _ if view.focus < 2 || view.focus == 3 => {
                 if let Some(text) = &event.utf8 {
-                    view.fields[view.focus].extend(text.chars().filter(|c| !c.is_control()));
+                    let field = if view.focus == 3 { &mut view.entry } else { &mut view.fields[view.focus] };
+                    field.extend(text.chars().filter(|c| !c.is_control()));
                 }
             }
             _ => {}
@@ -200,7 +226,7 @@ impl Ui {
         };
         let message = wrap(&p.message, 14.0);
         let description = wrap(&p.description, 13.0);
-        let fields = usize::from(p.password.is_some()) + usize::from(p.confirm.is_some());
+        let fields = usize::from(p.entry.is_some()) + usize::from(p.password.is_some()) + usize::from(p.confirm.is_some());
         // The picture: at most the inner width and 220 high.
         let picture = p.picture.as_deref().filter(|i| i.width > 0 && i.height > 0).map(|i| {
             let k = (f64::from(inner) / i.width as f64).min(220.0 / i.height as f64);
@@ -245,6 +271,29 @@ impl Ui {
             }
             y += list_h;
         }
+        if let Some((name, _)) = &p.entry {
+            label(text, &mut canvas, name, (bx + 24) as f32, (y + 14) as f32, 13.0, DIM_FG, inner);
+            let r = Rect { x: bx + 24, y: y + 22, w: bw - 48, h: 34 };
+            canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
+            let focused = view.focus == 3 && !view.busy;
+            if focused {
+                canvas.rect(r.x, r.y + r.h - 2, r.w, 2, ACCENT);
+            }
+            // The end of the text when it does not fit, and a caret.
+            let room = (r.w - 24) as f32;
+            let mut shown = view.entry.as_str();
+            while text.is_some_and(|t| t.width(shown, 14.0) > room) && !shown.is_empty() {
+                let next = shown.char_indices().nth(1).map_or(shown.len(), |(i, _)| i);
+                shown = &shown[next..];
+            }
+            label(text, &mut canvas, shown, (r.x + 10) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, room);
+            if focused {
+                let cx = r.x + 10 + text.map_or(0.0, |t| t.width(shown, 14.0)) as i32 + 1;
+                canvas.rect(cx, r.y + 8, 1, r.h - 16, FG);
+            }
+            hits.push((r, OverlayHit::Field(3)));
+            y += 62;
+        }
         for (index, field) in [&p.password, &p.confirm].into_iter().enumerate() {
             let Some(name) = field else { continue };
             label(text, &mut canvas, name, (bx + 24) as f32, (y + 14) as f32, 13.0, DIM_FG, inner);
@@ -258,7 +307,7 @@ impl Ui {
             for i in 0..count {
                 canvas.circle(f64::from(r.x + 16 + i as i32 * 12), f64::from(r.y + r.h / 2), 4.0, FG);
             }
-            hits.push((r, OverlayHit::Inside));
+            hits.push((r, OverlayHit::Field(index)));
             y += 62;
         }
         if let Some((name, _)) = &p.choice {

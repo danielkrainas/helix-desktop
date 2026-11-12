@@ -286,6 +286,8 @@ enum OverlayHit {
     BtDevice(usize),
     /// A row of the prompt dialog's list.
     Row(usize),
+    /// A field of the prompt dialog (its focus number).
+    Field(usize),
     /// "Pair New Device…", and a device found nearby.
     PairNew,
     BtNearby(usize),
@@ -2600,6 +2602,7 @@ impl Ui {
                     OverlayHit::Monitor(index) => self.share_monitor(index),
                     OverlayHit::Toggle => self.prompt_toggle(),
                     OverlayHit::Row(i) => self.prompt_pick(i),
+                    OverlayHit::Field(f) => self.prompt_focus(f),
                     _ => {}
                 }
             } else if self.switcher.as_ref().is_some_and(|o| o.layer.wl_surface() == &event.surface) {

@@ -16,6 +16,8 @@ pub struct Prompt {
     pub message: String,
     /// Smaller text below the message.
     pub description: String,
+    /// A plain text field above the password: its label and first text.
+    pub entry: Option<(String, String)>,
     /// The password field's label; `None`: no field.
     pub password: Option<String>,
     /// A second field (confirming a new password), its label.
@@ -35,7 +37,7 @@ pub struct Prompt {
 
 /// The user's answer.
 pub enum Answer {
-    Continue { password: Option<Secret>, confirm: Option<Secret>, choice: bool, selected: usize },
+    Continue { entry: Option<String>, password: Option<Secret>, confirm: Option<Secret>, choice: bool, selected: usize },
     Cancel,
 }
 
