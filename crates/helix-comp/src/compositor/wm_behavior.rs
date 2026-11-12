@@ -175,6 +175,7 @@ impl Helix {
     pub fn map_new_window(&mut self, window: &Window, location: Point<i32, Logical>) {
         let focused = self.focused_window();
         self.space.map_element(window.clone(), location, true);
+        self.animations.window_opened(self.wm_settings.motion, window);
         match focused.filter(|_| self.wm_settings.strict_new_windows) {
             Some(focused) => {
                 self.space.raise_element(&focused, false);

@@ -10,7 +10,8 @@ pub const WM_PREFERENCES: &str = "org.gnome.desktop.wm.preferences";
 pub const INTERFACE: &str = "org.gnome.desktop.interface";
 pub const MUTTER_WAYLAND: &str = "org.gnome.mutter.wayland";
 pub const MUTTER_WAYLAND_KEYS: &str = "org.gnome.mutter.wayland.keybindings";
-pub const SCHEMAS: [&str; 5] = [MUTTER, WM_PREFERENCES, INTERFACE, MUTTER_WAYLAND, MUTTER_WAYLAND_KEYS];
+const A11Y_INTERFACE: &str = "org.gnome.desktop.a11y.interface";
+pub const SCHEMAS: [&str; 6] = [MUTTER, WM_PREFERENCES, INTERFACE, MUTTER_WAYLAND, MUTTER_WAYLAND_KEYS, A11Y_INTERFACE];
 
 /// `focus-mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -176,6 +177,8 @@ pub struct WmSettings {
     /// `output-luminance`: (connector, vendor, product, serial, color mode,
     /// percent).
     pub output_luminance: Vec<(String, String, String, String, u32, f64)>,
+    /// `enable-animations` and `reduced-motion`.
+    pub motion: crate::animation::Motion,
 }
 
 impl Default for WmSettings {
@@ -208,6 +211,7 @@ impl Default for WmSettings {
             cursor_theme: "Adwaita".into(),
             cursor_size: 24,
             output_luminance: Vec::new(),
+            motion: crate::animation::Motion::Full,
         }
     }
 }
@@ -268,6 +272,10 @@ pub fn read() -> WmSettings {
         cursor_theme: string(INTERFACE, "cursor-theme").filter(|t| !t.is_empty()).unwrap_or(d.cursor_theme),
         cursor_size: settings_with(INTERFACE, "cursor-size").map_or(d.cursor_size, |s| s.int("cursor-size").clamp(1, 512) as u32),
         locate_pointer_key: locate.then(|| string(MUTTER, "locate-pointer-key").unwrap_or_else(|| "Control_L".into())),
+        motion: crate::animation::Motion::from_settings(
+            boolean(INTERFACE, "enable-animations", true),
+            &string(A11Y_INTERFACE, "reduced-motion").unwrap_or_default(),
+        ),
     }
 }
 

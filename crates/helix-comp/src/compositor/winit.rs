@@ -170,6 +170,8 @@ pub fn init(
                     // The elements first (the magnifier's color effects draw
                     // offscreen, which must happen before the window is bound).
                     let renderer = backend.renderer();
+                    state.animations.context = Some(smithay::backend::renderer::Renderer::context_id(renderer));
+                    state.animations.prune();
                     let scale = output.current_scale().fractional_scale();
                     let origin = state.space.output_geometry(&output).map(|g| g.loc.to_f64()).unwrap_or_default();
                     let geo = state.space.output_geometry(&output).unwrap_or_default();
@@ -191,7 +193,7 @@ pub fn init(
                         let mut elements: Vec<super::udev::OutputElements> =
                             state.cursor_surface_elements(renderer, origin, scale).into_iter().map(super::udev::OutputElements::CursorSurface).collect();
                         elements.extend(
-                            super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref())
+                            super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref(), Some((&state.animations, state.wm_settings.motion)))
                                 .into_iter()
                                 .map(super::udev::OutputElements::Scene),
                         );

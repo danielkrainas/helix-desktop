@@ -147,9 +147,11 @@ impl Helix {
             return;
         }
         tracing::debug!(target, "switching workspace");
+        let direction = if target > self.workspaces.layout.active { 1 } else { -1 };
         let visible: Vec<Window> = self.space.elements().filter(|w| !is_override_redirect(w)).cloned().collect();
         for window in visible {
             if self.workspace_of(&window) != target && !self.on_all_workspaces(&window) {
+                self.window_leaves(&window, helix_comp::animation::Kind::Slide, Point::default(), direction);
                 self.park(&window);
             }
         }
@@ -160,6 +162,7 @@ impl Helix {
             .filter(|w| self.workspaces.assigned.iter().any(|(a, n)| a == *w && *n == target))
             .cloned()
             .collect();
+        self.animations.slide(self.wm_settings.motion, direction, arriving.clone());
         for window in arriving {
             self.unpark(&window);
         }

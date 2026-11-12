@@ -30,7 +30,7 @@ use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::reexports::wayland_server::protocol::wl_seat::WlSeat;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, Resource};
-use smithay::utils::Serial;
+use smithay::utils::{Rectangle, Serial};
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
     get_parent, is_sync_subsurface, with_states, CompositorClientState, CompositorHandler,
@@ -469,6 +469,10 @@ impl WlrLayerShellHandler for Helix {
             return;
         };
         tracing::info!(namespace, "new layer surface");
+        // The shell's always-there surfaces appear without fading.
+        if helix_comp::animation::layer_animates(&namespace) {
+            self.animations.layer_opened(self.wm_settings.motion, surface.wl_surface());
+        }
         let mut map = layer_map_for_output(&output);
         if let Err(err) = map.map_layer(&LayerSurface::new(surface, namespace)) {
             tracing::warn!(?err, "failed to map layer surface");
@@ -482,6 +486,12 @@ impl WlrLayerShellHandler for Helix {
             layer.map(|layer| (o.clone(), layer))
         });
         if let Some((output, layer)) = found {
+            let geometry = layer_map_for_output(&output).layer_geometry(&layer);
+            let shell_chrome = !helix_comp::animation::layer_animates(layer.namespace());
+            if let (Some(geometry), Some(area), false) = (geometry, self.space.output_geometry(&output), shell_chrome) {
+                let rect = Rectangle::new(geometry.loc + area.loc, geometry.size).to_f64();
+                self.animations.leave(self.wm_settings.motion, surface.wl_surface(), rect, rect.loc, helix_comp::animation::Kind::LayerOut, rect.loc, 0, true);
+            }
             layer_map_for_output(&output).unmap_layer(&layer);
         }
         // Give focus back to the windows if the layer surface had it.

@@ -5,7 +5,7 @@ use smithay::desktop::{layer_map_for_output, Window};
 use smithay::output::Output;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::utils::{Logical, Rectangle, SERIAL_COUNTER};
+use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER};
 use smithay::wayland::seat::WaylandFocus;
 
 use super::Helix;
@@ -101,6 +101,7 @@ impl Helix {
         if let Some(pos) = self.minimized.iter().position(|w| w == window) {
             let window = self.minimized.remove(pos);
             let location = self.minimized_at.remove(pos);
+            self.animations.window_opened(self.wm_settings.motion, &window);
             self.space.map_element(window, location, false);
         }
         if raise {
@@ -376,6 +377,11 @@ impl Helix {
     /// Hide a window until it is cycled back to.
     pub fn minimize(&mut self, window: &Window) {
         let location = self.space.element_location(window).unwrap_or_default();
+        // Towards the dock: the bottom middle of the window's monitor.
+        let target = self.output_of(window).and_then(|o| self.space.output_geometry(&o)).map_or(Point::default(), |g| {
+            Point::from((f64::from(g.loc.x) + f64::from(g.size.w) / 2.0, f64::from(g.loc.y + g.size.h)))
+        });
+        self.window_leaves(window, helix_comp::animation::Kind::Minimize, target, 0);
         self.space.unmap_elem(window);
         self.minimized.push(window.clone());
         self.minimized_at.push(location);
@@ -383,6 +389,15 @@ impl Helix {
             Some(top) => self.focus_window(&top),
             None => self.unfocus_all(),
         }
+    }
+
+    /// Draw `window` animating away as `kind` (if it is shown).
+    pub fn window_leaves(&mut self, window: &Window, kind: helix_comp::animation::Kind, target: Point<f64, Logical>, direction: i32) {
+        let (Some(location), Some(surface)) = (self.space.element_location(window), surface_of(window)) else { return };
+        let geometry = window.geometry();
+        let rect = Rectangle::new(location, geometry.size).to_f64();
+        let origin = (location - geometry.loc).to_f64();
+        self.animations.leave(self.wm_settings.motion, &surface, rect, origin, kind, target, direction, false);
     }
 
     /// Forget a window that is gone (destroyed or unmapped by its client)
@@ -416,7 +431,10 @@ impl Helix {
     /// An xdg toplevel was destroyed.
     pub fn window_gone(&mut self, surface: &WlSurface) {
         match self.window_for_surface(surface) {
-            Some(window) => self.forget_window(&window),
+            Some(window) => {
+                self.window_leaves(&window, helix_comp::animation::Kind::Close, Point::default(), 0);
+                self.forget_window(&window)
+            }
             None => {
                 if let Some(top) = self.top_window() {
                     self.focus_window(&top);

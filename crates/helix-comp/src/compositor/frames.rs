@@ -28,6 +28,10 @@ smithay::backend::renderer::element::render_elements! {
     Surface = WaylandSurfaceRenderElement<GlesRenderer>,
     Frame = MemoryRenderBufferRenderElement<GlesRenderer>,
     Preview = SolidColorRenderElement,
+    /// A window growing or shrinking as it opens.
+    Scaled = smithay::backend::renderer::element::utils::RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>,
+    /// Something that went away, animating from a snapshot.
+    Ghost = smithay::backend::renderer::element::texture::TextureRenderElement<smithay::backend::renderer::gles::GlesTexture>,
 }
 
 /// Whether Helix draws a title bar for `window`: managed X11 windows that
@@ -312,6 +316,7 @@ pub fn scene(
     frames: &Frames,
     output: &Output,
     focused: Option<&Window>,
+    animations: Option<(&super::animations::Animations, helix_comp::animation::Motion)>,
 ) -> Vec<SceneElement> {
     let Some(output_geo) = space.output_geometry(output) else { return Vec::new() };
     let scale = output.current_scale().fractional_scale();
@@ -328,7 +333,7 @@ pub fn scene(
                     renderer,
                     geo.loc.to_physical_precise_round(scale),
                     Scale::from(scale),
-                    1.0,
+                    animations.map_or(1.0, |(a, m)| a.layer_alpha(m, surface.wl_surface())),
                 )
                 .into_iter()
                 .map(SceneElement::Surface),
@@ -342,13 +347,22 @@ pub fn scene(
         let at = (area.loc - output_geo.loc).to_physical_precise_round(scale);
         elements.push(SceneElement::Preview(SolidColorRenderElement::from_buffer(buffer, at, scale, 1.0, Kind::Unspecified)));
     }
+    if let Some((a, m)) = animations {
+        elements.extend(a.ghost_elements(m, output_geo, scale, true).into_iter().map(SceneElement::Ghost));
+    }
     push_layers(&mut elements, renderer, &upper);
     if let Some((area, buffer)) = frames.preview.as_ref().filter(|(a, _)| a.overlaps(output_geo)) {
         let at = (area.loc - output_geo.loc).to_physical_precise_round(scale);
         elements.push(SceneElement::Preview(SolidColorRenderElement::from_buffer(buffer, at, scale, 1.0, Kind::Unspecified)));
     }
+    if let Some((a, m)) = animations {
+        elements.extend(a.ghost_elements(m, output_geo, scale, false).into_iter().map(SceneElement::Ghost));
+    }
     for window in space.elements().rev() {
         let Some(location) = space.element_location(window) else { continue };
+        let look = animations.map_or(helix_comp::animation::Look::STILL, |(a, m)| a.window_look(m, window));
+        let shift = (look.shift * f64::from(output_geo.size.w)).round() as i32;
+        let location = location + Point::from((shift, 0));
         let client = Rectangle::new(location, window.geometry().size);
         let top = frame_top(window);
         let bbox = space.element_bbox(window).unwrap_or(client);
@@ -357,12 +371,17 @@ pub fn scene(
             continue;
         }
         let at = (location - window.geometry().loc - output_geo.loc).to_physical_precise_round(scale);
-        elements.extend(
-            window
-                .render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(renderer, at, Scale::from(scale), 1.0)
-                .into_iter()
-                .map(SceneElement::Surface),
-        );
+        let surfaces = window.render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(renderer, at, Scale::from(scale), look.alpha as f32);
+        if look.scale == 1.0 {
+            elements.extend(surfaces.into_iter().map(SceneElement::Surface));
+        } else {
+            let center = (client.loc + Point::from((client.size.w / 2 + shift, client.size.h / 2)) - output_geo.loc).to_physical_precise_round(scale);
+            elements.extend(
+                surfaces
+                    .into_iter()
+                    .map(|e| SceneElement::Scaled(smithay::backend::renderer::element::utils::RescaleRenderElement::from_element(e, center, look.scale))),
+            );
+        }
         if top > 0 {
             if let Some(frame) = frames.element(renderer, window, client, output_geo.loc, scale, focused == Some(window)) {
                 elements.push(SceneElement::Frame(frame));

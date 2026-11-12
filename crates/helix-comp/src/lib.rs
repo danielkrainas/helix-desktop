@@ -12,6 +12,7 @@ pub mod a11y_keys;
 pub mod a11y_mouse;
 pub mod hot_corner;
 pub mod magnifier;
+pub mod animation;
 pub mod backlight;
 pub mod color_profiles;
 pub mod colorspace;

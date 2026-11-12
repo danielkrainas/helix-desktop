@@ -666,6 +666,7 @@ impl Helix {
             zoom,
             screens_off,
             wm_settings,
+            animations,
             ..
         } = self;
         let Some(udev) = udev.as_mut() else { return };
@@ -679,6 +680,8 @@ impl Helix {
         let output = surface.output.clone();
         let Some(geo) = space.output_geometry(&output) else { return };
         let renderer = &mut udev.renderer;
+        animations.context = Some(smithay::backend::renderer::Renderer::context_id(renderer));
+        animations.prune();
         let scale = output.current_scale().fractional_scale();
 
         let mut elements: Vec<OutputElements> = Vec::new();
@@ -703,7 +706,7 @@ impl Helix {
                 );
             }
         } else {
-            let scene = super::frames::scene(renderer, space, frames, &output, focused.as_ref());
+            let scene = super::frames::scene(renderer, space, frames, &output, focused.as_ref(), Some((&*animations, wm_settings.motion)));
             elements.extend(scene.into_iter().map(OutputElements::Scene));
         }
 
