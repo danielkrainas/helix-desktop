@@ -30,6 +30,9 @@ pub enum X11Note {
     IconChanged(Window),
     /// An app rang the bell (XKB), for a window (0: none).
     Bell(Window),
+    /// A window asked (or no longer asks) to be allowed keyboard grabs
+    /// (`_XWAYLAND_MAY_GRAB_KEYBOARD`).
+    MayGrab(Window, bool),
 }
 
 /// An icon: premultiplied ARGB8888 (native byte order) and its size.
@@ -83,6 +86,7 @@ impl X11Ping {
             Ok(conn.intern_atom(false, name.as_bytes()).map_err(|e| e.to_string())?.reply().map_err(|e| e.to_string())?.atom)
         };
         let (wm_protocols, net_wm_ping, net_wm_icon) = (atom("WM_PROTOCOLS")?, atom("_NET_WM_PING")?, atom("_NET_WM_ICON")?);
+        let may_grab = atom("_XWAYLAND_MAY_GRAB_KEYBOARD")?;
         // Answers are sent to the root window with the substructure masks.
         conn.change_window_attributes(root, &ChangeWindowAttributesAux::new().event_mask(EventMask::SUBSTRUCTURE_NOTIFY))
             .map_err(|e| e.to_string())?
@@ -114,6 +118,10 @@ impl X11Ping {
             .spawn(move || {
                 while let Ok(event) = reader.wait_for_event() {
                     let note = match event {
+                        Event::ClientMessage(msg) if msg.type_ == may_grab => {
+                            let data = msg.data.as_data32();
+                            Some(X11Note::MayGrab(msg.window, data[0] != 0))
+                        }
                         Event::ClientMessage(msg) => {
                             let data = msg.data.as_data32();
                             (msg.type_ == wm_protocols && data[0] == net_wm_ping).then_some(X11Note::Pong(data[2]))

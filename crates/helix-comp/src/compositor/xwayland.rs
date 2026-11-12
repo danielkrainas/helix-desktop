@@ -90,6 +90,13 @@ impl Helix {
                                             smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::Pong(id)) => state.x11_pong(id),
                                             smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::IconChanged(id)) => state.x11_icon_changed(id),
                                             smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::Bell(id)) => state.x11_bell(id),
+                                            smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::MayGrab(id, on)) => {
+                                                tracing::debug!(id, on, "an X11 window asks to be allowed keyboard grabs");
+                                                state.protocols.x11_may_grab.retain(|w| *w != id);
+                                                if on {
+                                                    state.protocols.x11_may_grab.push(id);
+                                                }
+                                            }
                                             _ => {}
                                         }
                                     });

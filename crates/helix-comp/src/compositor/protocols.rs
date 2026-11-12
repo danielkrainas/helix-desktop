@@ -79,6 +79,8 @@ pub struct ProtocolState {
     suspended: Option<WlSurface>,
     /// The X11 window holding an Xwayland keyboard grab.
     xwayland_grab: Option<WlSurface>,
+    /// X11 windows that asked to be allowed keyboard grabs.
+    pub x11_may_grab: Vec<u32>,
     /// A 3/4-finger swipe Helix keeps: how far it went.
     swipe: Option<Point<f64, Logical>>,
 }
@@ -443,7 +445,8 @@ impl XWaylandKeyboardGrabHandler for Helix {
             return;
         }
         let Some(x11) = self.window_for_surface(&surface).and_then(|w| w.x11_surface().cloned()) else { return };
-        if !helix_comp::wm_settings::grab_allowed(&self.wm_settings.xwayland_grab_rules, &x11.instance(), &x11.class()) {
+        let asked = self.protocols.x11_may_grab.contains(&x11.window_id());
+        if !helix_comp::wm_settings::grab_permitted(&self.wm_settings.xwayland_grab_rules, &x11.instance(), &x11.class(), asked) {
             tracing::info!("an X11 app may not grab the keyboard");
             return;
         }

@@ -98,6 +98,33 @@ pub fn switchable_extensions(help: &str) -> Vec<String> {
         .collect()
 }
 
+/// X11 apps Helix lets grab the keyboard without a rule: nested X servers,
+/// virtual machine and remote desktop viewers (their `WM_CLASS` name or
+/// class; `xwayland-grab-access-rules` `!` entries still deny them).
+pub const DEFAULT_GRAB_RULES: [&str; 10] = [
+    "Xephyr",
+    "Xnest",
+    "VirtualBox Machine",
+    "VirtualBoxVM",
+    "Vncviewer",
+    "vncviewer",
+    "remote-viewer",
+    "xfreerdp",
+    "rdesktop",
+    "qemu*",
+];
+
+/// Whether an X11 app (WM_CLASS `name` and `class`) may grab the
+/// keyboard: it asked with `_XWAYLAND_MAY_GRAB_KEYBOARD` (`asked`) or is
+/// on the built-in list or the user's rules, and no `!` rule denies it.
+pub fn grab_permitted(rules: &[String], name: &str, class: &str, asked: bool) -> bool {
+    let hits = |pattern: &str| glob(pattern, name) || glob(pattern, class);
+    if rules.iter().filter_map(|r| r.strip_prefix('!')).any(hits) {
+        return false;
+    }
+    asked || DEFAULT_GRAB_RULES.iter().any(|r| hits(r)) || grab_allowed(rules, name, class)
+}
+
 /// Whether `xwayland-grab-access-rules` let an X11 app with this WM_CLASS
 /// name and class grab the keyboard: some entry matches (`*`, `?`
 /// wildcards) and no `!` entry does.
@@ -308,6 +335,18 @@ mod tests {
         assert_eq!(switchable, ["SHAPE", "XTEST"]);
         assert_eq!(xwayland_args(3, false, &switchable), ["-extension", "XTEST", "-byteswappedclients"], "SECURITY can't be switched off here");
         assert_eq!(xwayland_args(0, true, &switchable), ["+byteswappedclients"]);
+    }
+
+    #[test]
+    fn grab_defaults() {
+        let rules = vec!["!Xephyr".to_owned(), "mygame".to_owned()];
+        assert!(grab_permitted(&[], "xfreerdp", "xfreerdp", false), "built in");
+        assert!(grab_permitted(&[], "qemu-system-x86_64", "Qemu-system-x86_64", false), "a wildcard built-in");
+        assert!(!grab_permitted(&rules, "Xephyr", "Xephyr", false), "denied by the user");
+        assert!(grab_permitted(&rules, "mygame", "MyGame", false), "the user's rule");
+        assert!(grab_permitted(&[], "anything", "Anything", true), "asked for itself");
+        assert!(!grab_permitted(&rules, "Xephyr", "Xephyr", true), "a ! rule wins even then");
+        assert!(!grab_permitted(&[], "xterm", "XTerm", false));
     }
 
     #[test]
