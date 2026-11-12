@@ -157,3 +157,51 @@ async fn capture_session_flow() {
         ]
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn version_two_remembers() {
+    let Some(bus) = TestBus::start() else { return };
+    let calls: Calls = Arc::default();
+    let _shell = bus.builder().serve_at("/org/helix/PortalDialog", Dialogs { calls: calls.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
+    let _compositor = bus
+        .builder()
+        .serve_at("/org/helix/InputCapture", Capture { calls: calls.clone() })
+        .unwrap()
+        .serve_at(SESSION, Session { calls: calls.clone() })
+        .unwrap()
+        .name("org.helix.InputCapture")
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let session = SessionService::start(bus.builder()).await.unwrap();
+    let _session = tokio::spawn(session.run(std::future::pending()));
+    let settings: Arc<Mutex<Snapshot>> = Arc::new(Mutex::new(BTreeMap::new()));
+    let _portals = PortalService::start(bus.builder(), settings).await.unwrap();
+    let app = bus.connect().await;
+    const IFACE: &str = "org.freedesktop.impl.portal.InputCapture";
+    let version: u32 = app.call_method(Some(BUS_NAME), OBJECT_PATH, Some("org.freedesktop.DBus.Properties"), "Get", &(IFACE, "version")).await.unwrap().body().deserialize::<OwnedValue>().unwrap().try_into().unwrap();
+    assert_eq!(version, 2);
+
+    let start = |n: u32, options: HashMap<&'static str, OwnedValue>| {
+        let app = app.clone();
+        async move {
+            let s = OwnedObjectPath::try_from(format!("/org/freedesktop/portal/desktop/session/1_1/v{n}")).unwrap();
+            app.call_method(Some(BUS_NAME), OBJECT_PATH, Some(IFACE), "CreateSession2", &(s.clone(), "org.example.Leap", HashMap::<String, OwnedValue>::new())).await.unwrap();
+            let r = OwnedObjectPath::try_from(format!("/org/freedesktop/portal/desktop/request/1_1/q{n}")).unwrap();
+            let reply = app.call_method(Some(BUS_NAME), OBJECT_PATH, Some(IFACE), "Start", &(r, s, "org.example.Leap", "", options)).await.unwrap();
+            reply.body().deserialize::<(u32, HashMap<String, OwnedValue>)>().unwrap()
+        }
+    };
+    let (code, results) = start(1, HashMap::from([("capabilities", o(Value::from(3u32))), ("persist_mode", o(Value::from(2u32)))])).await;
+    assert_eq!(code, 0);
+    assert_eq!(bool::try_from(results["clipboard_enabled"].clone()).unwrap(), false);
+    let restore = results["restore_data"].clone();
+    assert_eq!(calls.lock().unwrap().iter().filter(|c| c.starts_with("Dialog")).count(), 1);
+
+    // With the restore data the user is not asked again.
+    let (code, _) = start(2, HashMap::from([("capabilities", o(Value::from(3u32))), ("restore_data", restore)])).await;
+    assert_eq!(code, 0);
+    assert_eq!(calls.lock().unwrap().iter().filter(|c| c.starts_with("Dialog")).count(), 1);
+    assert_eq!(calls.lock().unwrap().iter().filter(|c| c.starts_with("CreateSession")).count(), 2);
+}

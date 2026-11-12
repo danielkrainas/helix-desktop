@@ -47,6 +47,62 @@ pub fn barriers_of(list: &[HashMap<String, OwnedValue>]) -> Vec<(u32, (i32, i32,
 pub struct InputCaptureBackend {
     pub conn: Connection,
     pub sessions: Sessions,
+    /// Sessions made with `CreateSession2`, not started yet.
+    pub pending: Pending,
+}
+
+pub type Pending = Arc<Mutex<std::collections::HashSet<OwnedObjectPath>>>;
+
+fn lock_pending(p: &Pending) -> std::sync::MutexGuard<'_, std::collections::HashSet<OwnedObjectPath>> {
+    p.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Whether the user must be asked: unless `restored` (the capabilities
+/// allowed before) covers what is wanted.
+pub fn must_ask(wanted: u32, restored: Option<u32>) -> bool {
+    restored.is_none_or(|r| wanted & !r != 0)
+}
+
+/// Start the portal session `portal`: ask (unless restored), make the
+/// compositor's session and follow it.
+async fn start(conn: &Connection, sessions: &Sessions, portal: &OwnedObjectPath, app_id: &str, wanted: u32, restored: Option<u32>, persist: u32) -> (u32, Results) {
+    if wanted == 0 {
+        return (response::OTHER, Results::new());
+    }
+    if must_ask(wanted, restored) {
+        let who = if app_id.is_empty() { "An app".to_owned() } else { app_name(app_id) };
+        let asked = HashMap::from([
+            ("title".to_owned(), value(Value::from("Allow Input Capture?"))),
+            ("message".to_owned(), value(Value::from(message(&who)))),
+            ("accept".to_owned(), value(Value::from("Allow"))),
+            ("cancel".to_owned(), value(Value::from("Deny"))),
+        ]);
+        if dialog(conn, asked).await.is_none() {
+            return (response::CANCELLED, Results::new());
+        }
+    }
+    let created = conn.call_method(Some(COMPOSITOR), COMPOSITOR_PATH, Some(COMPOSITOR), "CreateSession", &(wanted,)).await;
+    let compositor: OwnedObjectPath = match created.and_then(|r| r.body().deserialize()) {
+        Ok(path) => path,
+        Err(err) => {
+            tracing::warn!(%err, "the compositor cannot capture input");
+            return (response::OTHER, Results::new());
+        }
+    };
+    lock(sessions).insert(portal.clone(), compositor.clone());
+    tokio::spawn(follow(conn.clone(), sessions.clone(), portal.clone(), compositor));
+    tracing::info!(%portal, "input capture session started");
+    let mut results = HashMap::from([
+        ("capabilities".to_owned(), value(Value::from(wanted))),
+        // Clipboard sharing is not offered for input capture.
+        ("clipboard_enabled".to_owned(), value(Value::from(false))),
+    ]);
+    if persist != 0 {
+        let remembered = crate::screencast::Remembered { monitor: None, window: None, devices: Some(wanted) };
+        let (vendor, version, data) = remembered.restore_data();
+        results.insert("restore_data".to_owned(), value(Value::from((vendor, version, data))));
+    }
+    (response::SUCCESS, results)
 }
 
 impl InputCaptureBackend {
@@ -108,26 +164,30 @@ async fn follow(conn: Connection, sessions: Sessions, portal: OwnedObjectPath, c
 /// End portal session `portal` (and, unless the compositor ended it, the
 /// compositor's).
 async fn end(conn: &Connection, sessions: &Sessions, portal: &OwnedObjectPath, close_compositor: bool) {
-    let Some(compositor) = lock(sessions).remove(portal) else { return };
-    if close_compositor {
+    let compositor = lock(sessions).remove(portal);
+    if let (true, Some(compositor)) = (close_compositor, &compositor) {
         let _ = conn.call_method(Some(COMPOSITOR), compositor.as_str(), Some(SESSION_IFACE), "Close", &()).await;
     }
-    if let Ok(emitter) = SignalEmitter::new(conn, portal.as_str()) {
-        let _ = CaptureSession::closed(&emitter).await;
+    if conn.object_server().remove::<CaptureSession, _>(portal.as_str()).await.unwrap_or(false) {
+        if let Ok(emitter) = SignalEmitter::new(conn, portal.as_str()) {
+            let _ = CaptureSession::closed(&emitter).await;
+        }
+        tracing::info!(%portal, "input capture session ended");
     }
-    let _ = conn.object_server().remove::<CaptureSession, _>(portal.as_str()).await;
-    tracing::info!(%portal, "input capture session ended");
 }
 
 pub struct CaptureSession {
     sessions: Sessions,
+    pending: Pending,
 }
 
 #[interface(name = "org.freedesktop.impl.portal.Session")]
 impl CaptureSession {
     async fn close(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<()> {
         if let Some(path) = header.path() {
-            end(conn, &self.sessions, &OwnedObjectPath::from(path.to_owned()), true).await;
+            let path = OwnedObjectPath::from(path.to_owned());
+            lock_pending(&self.pending).remove(&path);
+            end(conn, &self.sessions, &path, true).await;
         }
         Ok(())
     }
@@ -147,6 +207,7 @@ fn empty() -> (u32, Results) {
 
 #[interface(name = "org.freedesktop.impl.portal.InputCapture")]
 impl InputCaptureBackend {
+    /// Version 1: create and start at once (asking the user).
     async fn create_session(
         &self,
         #[zbus(object_server)] server: &ObjectServer,
@@ -158,38 +219,66 @@ impl InputCaptureBackend {
     ) -> fdo::Result<(u32, Results)> {
         let wanted = options.get("capabilities").and_then(|v| u32::try_from(v.clone()).ok()).unwrap_or(0) & CAPABILITIES;
         let portal = OwnedObjectPath::from(session_handle.into_owned());
+        if !server.at(&portal, CaptureSession { sessions: self.sessions.clone(), pending: self.pending.clone() }).await.unwrap_or(false) {
+            return Ok((response::OTHER, Results::new()));
+        }
         let (conn, sessions) = (self.conn.clone(), self.sessions.clone());
         tracing::info!(app_id, wanted, "input capture asked");
         Ok(with_request(server, handle, || async move {
-            if wanted == 0 {
-                return (response::OTHER, Results::new());
+            let started = start(&conn, &sessions, &portal, &app_id, wanted, None, 0).await;
+            if started.0 != response::SUCCESS {
+                end(&conn, &sessions, &portal, false).await;
             }
-            let who = if app_id.is_empty() { "An app".to_owned() } else { app_name(&app_id) };
-            let asked = HashMap::from([
-                ("title".to_owned(), value(Value::from("Allow Input Capture?"))),
-                ("message".to_owned(), value(Value::from(message(&who)))),
-                ("accept".to_owned(), value(Value::from("Allow"))),
-                ("cancel".to_owned(), value(Value::from("Deny"))),
-            ]);
-            if dialog(&conn, asked).await.is_none() {
-                return (response::CANCELLED, Results::new());
+            started
+        })
+        .await)
+    }
+
+    /// Version 2: a session that is not started yet.
+    async fn create_session2(
+        &self,
+        #[zbus(object_server)] server: &ObjectServer,
+        session_handle: ObjectPath<'_>,
+        app_id: String,
+        _options: HashMap<String, OwnedValue>,
+    ) -> fdo::Result<Results> {
+        let portal = OwnedObjectPath::from(session_handle.into_owned());
+        lock_pending(&self.pending).insert(portal.clone());
+        if !server.at(&portal, CaptureSession { sessions: self.sessions.clone(), pending: self.pending.clone() }).await.unwrap_or(false) {
+            lock_pending(&self.pending).remove(&portal);
+            return Err(fdo::Error::Failed("cannot make the session".into()));
+        }
+        tracing::info!(%portal, app_id, "input capture session made");
+        Ok(Results::new())
+    }
+
+    /// Version 2: start a session made with `CreateSession2` (asking the
+    /// user unless `restore_data` says it was allowed before).
+    #[allow(clippy::too_many_arguments)]
+    async fn start(
+        &self,
+        #[zbus(object_server)] server: &ObjectServer,
+        handle: ObjectPath<'_>,
+        session_handle: ObjectPath<'_>,
+        app_id: String,
+        _parent_window: String,
+        options: HashMap<String, OwnedValue>,
+    ) -> fdo::Result<(u32, Results)> {
+        let portal = OwnedObjectPath::from(session_handle.into_owned());
+        if !lock_pending(&self.pending).remove(&portal) {
+            return Err(fdo::Error::Failed("no session waiting to start".into()));
+        }
+        let wanted = options.get("capabilities").and_then(|v| u32::try_from(v.clone()).ok()).unwrap_or(0) & CAPABILITIES;
+        let restored = options.get("restore_data").and_then(|v| crate::screencast::Remembered::from_restore_data(v)).and_then(|r| r.devices);
+        let persist = options.get("persist_mode").and_then(|v| u32::try_from(v.clone()).ok()).filter(|m| *m <= 2).unwrap_or(0);
+        let (conn, sessions) = (self.conn.clone(), self.sessions.clone());
+        tracing::info!(app_id, wanted, restored = ?restored, persist, "input capture start");
+        Ok(with_request(server, handle, || async move {
+            let started = start(&conn, &sessions, &portal, &app_id, wanted, restored, persist).await;
+            if started.0 != response::SUCCESS {
+                end(&conn, &sessions, &portal, false).await;
             }
-            let created = conn.call_method(Some(COMPOSITOR), COMPOSITOR_PATH, Some(COMPOSITOR), "CreateSession", &(wanted,)).await;
-            let compositor: OwnedObjectPath = match created.and_then(|r| r.body().deserialize()) {
-                Ok(path) => path,
-                Err(err) => {
-                    tracing::warn!(%err, "the compositor cannot capture input");
-                    return (response::OTHER, Results::new());
-                }
-            };
-            lock(&sessions).insert(portal.clone(), compositor.clone());
-            if !server.at(&portal, CaptureSession { sessions: sessions.clone() }).await.unwrap_or(false) {
-                lock(&sessions).remove(&portal);
-                return (response::OTHER, Results::new());
-            }
-            tokio::spawn(follow(conn.clone(), sessions.clone(), portal.clone(), compositor));
-            tracing::info!(%portal, "input capture session");
-            (response::SUCCESS, HashMap::from([("capabilities".to_owned(), value(Value::from(wanted)))]))
+            started
         })
         .await)
     }
@@ -267,7 +356,7 @@ impl InputCaptureBackend {
 
     #[zbus(property, name = "version")]
     async fn version(&self) -> u32 {
-        1
+        2
     }
 }
 
@@ -290,5 +379,9 @@ mod tests {
         let got = barriers_of(&[entry(Some(3), Some((0, 0, 0, 799))), entry(Some(4), None), entry(None, Some((1, 2, 3, 4)))]);
         assert_eq!(got, [(3, (0, 0, 0, 799))]);
         assert!(message("Input Leap").contains("Super+Escape"));
+        assert!(must_ask(3, None));
+        assert!(!must_ask(3, Some(3)));
+        assert!(must_ask(3, Some(2)), "more than allowed before");
+        assert!(!must_ask(2, Some(3)));
     }
 }

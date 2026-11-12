@@ -86,7 +86,7 @@ impl PortalService {
         server.at(OBJECT_PATH, dialogs::BackgroundBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, wallpaper::WallpaperBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, email::EmailBackend).await?;
-        server.at(OBJECT_PATH, input_capture::InputCaptureBackend { conn: conn.clone(), sessions: Default::default() }).await?;
+        server.at(OBJECT_PATH, input_capture::InputCaptureBackend { conn: conn.clone(), sessions: Default::default(), pending: Default::default() }).await?;
         server.at(OBJECT_PATH, dynamic_launcher::DynamicLauncherBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, lockdown::LockdownBackend::default()).await?;
         server.at(OBJECT_PATH, file_chooser::FileChooserBackend { conn: conn.clone(), folders: Default::default() }).await?;
