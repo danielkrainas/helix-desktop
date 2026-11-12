@@ -151,6 +151,8 @@ pub struct WmSettings {
     pub overlay_keys: Vec<String>,
     pub audible_bell: bool,
     pub visual_bell: bool,
+    /// `enable-hot-corners`.
+    pub hot_corners: bool,
     /// `visual-bell-type` `fullscreen-flash` (else `frame-flash`).
     pub fullscreen_flash: bool,
     /// `locate-pointer`'s key, when on.
@@ -194,6 +196,7 @@ impl Default for WmSettings {
             overlay_keys: overlay_keys("Super"),
             audible_bell: true,
             visual_bell: false,
+            hot_corners: true,
             fullscreen_flash: true,
             locate_pointer_key: None,
             check_alive_ms: 5000,
@@ -248,6 +251,7 @@ pub fn read() -> WmSettings {
         overlay_keys: string(MUTTER, "overlay-key").map_or(d.overlay_keys, |k| overlay_keys(&k)),
         audible_bell: boolean(WM_PREFERENCES, "audible-bell", d.audible_bell),
         visual_bell: boolean(WM_PREFERENCES, "visual-bell", d.visual_bell),
+        hot_corners: boolean(INTERFACE, "enable-hot-corners", d.hot_corners),
         fullscreen_flash: string(WM_PREFERENCES, "visual-bell-type").as_deref() != Some("frame-flash"),
         check_alive_ms: settings_with(MUTTER, "check-alive-timeout").map_or(d.check_alive_ms, |s| s.uint("check-alive-timeout")),
         restore_shortcuts: settings_with(MUTTER_WAYLAND_KEYS, "restore-shortcuts").map_or(d.restore_shortcuts, |s| {

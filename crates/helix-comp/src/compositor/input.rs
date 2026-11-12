@@ -26,6 +26,30 @@ impl Helix {
         pointer.motion(self, under, &MotionEvent { location: pos, serial, time });
         pointer.frame(self);
         self.focus_follows_pointer(pos);
+        self.hot_corner(pos);
+    }
+
+    /// Toggle the overview when the pointer reaches the hot corner.
+    fn hot_corner(&mut self, pos: Point<f64, Logical>) {
+        if !self.wm_settings.hot_corners || self.lock.locked || self.seat.get_pointer().is_some_and(|p| p.is_grabbed()) {
+            return;
+        }
+        let Some(primary) = self.primary() else { return };
+        let rect = |g: smithay::utils::Rectangle<i32, Logical>| (g.loc.x, g.loc.y, g.size.w, g.size.h);
+        let Some(geo) = self.space.output_geometry(&primary) else { return };
+        let outputs: Vec<_> = self.space.outputs().filter_map(|o| self.space.output_geometry(o)).map(rect).collect();
+        let Some(corner) = helix_comp::hot_corner::corner(rect(geo), &outputs) else { return };
+        if !self.hot_corner.moved(corner, (pos.x, pos.y)) {
+            return;
+        }
+        let fullscreen = self
+            .space
+            .elements()
+            .any(|w| self.is_taken_over(w, super::wm::Takeover::Fullscreen) && self.output_of(w).as_ref() == Some(&primary));
+        if !fullscreen {
+            tracing::debug!(x = pos.x, y = pos.y, "hot corner");
+            self.send(helix_comp::Event::ToggleOverview);
+        }
     }
 
     /// Keep the pointer within the outputs' combined bounding box.

@@ -186,6 +186,7 @@ pub struct Helix {
     pub access: helix_comp::a11y_keys::AccessX,
     /// The magnifier.
     pub zoom: zoom::ZoomState,
+    pub hot_corner: helix_comp::hot_corner::HotCorner,
     /// Where a dragged window would go if released now (edge tiling).
     pub tile_target: Option<wm::Takeover>,
     pub wm: wm_behavior::WmState,
@@ -293,6 +294,7 @@ impl Helix {
             wm_settings: Default::default(),
             access: Default::default(),
             zoom: Default::default(),
+            hot_corner: Default::default(),
             tile_target: None,
             wm: Default::default(),
             alive: Default::default(),
