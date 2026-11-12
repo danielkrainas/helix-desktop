@@ -8,6 +8,7 @@
 //! frontend to use (see `session/helix.portal`).
 
 pub mod clipboard;
+pub mod dialogs;
 pub mod inhibit;
 pub mod remote_desktop;
 pub mod screencast;
@@ -63,20 +64,30 @@ impl PortalService {
         conn.object_server()
             .at(OBJECT_PATH, InhibitBackend::new(sm.clone(), registry.clone()))
             .await?;
+        // Backends whose dialogs the shell shows.
+        let server = conn.object_server();
+        server.at(OBJECT_PATH, dialogs::AccessBackend { conn: conn.clone() }).await?;
+        server.at(OBJECT_PATH, dialogs::AccountBackend { conn: conn.clone() }).await?;
+        server.at(OBJECT_PATH, dialogs::AppChooserBackend { conn: conn.clone() }).await?;
+        server.at(OBJECT_PATH, dialogs::BackgroundBackend { conn: conn.clone() }).await?;
 
+        // Tests may run a second backend beside the real one.
+        let name = std::env::var("HELIX_PORTALS_BUS_NAME").unwrap_or_else(|_| BUS_NAME.to_owned());
+        let name = zbus::names::WellKnownName::try_from(name).map_err(zbus::Error::from)?;
         match conn
-            .request_name_with_flags(BUS_NAME, RequestNameFlags::DoNotQueue.into())
+            .request_name_with_flags(name.clone(), RequestNameFlags::DoNotQueue.into())
             .await?
         {
             RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner => {}
             _ => return Err(zbus::Error::NameTaken),
         }
-        tracing::info!(name = BUS_NAME, "portal backends ready");
+        tracing::info!(%name, "portal backends ready");
 
         let tasks = vec![
             spawn_owner_watcher(&conn, sm.clone(), registry.clone()).await?,
             spawn_session_watcher(&conn, sm.clone(), registry.clone()).await?,
             spawn_session_client(&conn, sm, registry.clone()),
+            tokio::spawn(dialogs::follow_running(conn.clone(), OBJECT_PATH)),
         ];
         Ok(Self {
             conn,

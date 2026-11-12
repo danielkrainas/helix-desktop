@@ -199,6 +199,8 @@ struct Ui {
     quick_list: Option<quick::Switch>,
     /// "Pair New Device…" started Bluetooth discovery.
     bt_discovery: bool,
+    /// The running apps last reported to the D-Bus side.
+    running_apps: HashMap<String, u32>,
     window_menu: Option<window_menu::WindowMenu>,
     workspace_popup: Option<workspace_popup::WorkspacePopup>,
     overview: Option<Overlay<overview::OverviewState>>,
@@ -279,6 +281,8 @@ enum OverlayHit {
     Expand(quick::Switch),
     Network(usize),
     BtDevice(usize),
+    /// A row of the prompt dialog's list.
+    Row(usize),
     /// "Pair New Device…", and a device found nearby.
     PairNew,
     BtNearby(usize),
@@ -2066,6 +2070,16 @@ impl Ui {
         self.bindings.insert(action, binding);
     }
 
+    /// Tell the D-Bus side which apps have windows, when that changed.
+    fn report_running_apps(&mut self) {
+        let focused = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).map(|e| e.app_id.clone());
+        let apps = crate::portal_dialog::app_states(self.windows.mru().iter().map(|e| e.app_id.as_str()), focused.as_deref());
+        if apps != self.running_apps {
+            self.running_apps = apps.clone();
+            let _ = self.requests.send(UiRequest::RunningApps(apps));
+        }
+    }
+
     /// Follow the active input source in the panel indicator.
     pub(super) fn refresh_source_label(&mut self) {
         let sources = crate::input_sources::current();
@@ -2082,6 +2096,7 @@ impl Ui {
         self.ime_sync();
         self.osk_sync();
         self.quick_discovery_check();
+        self.report_running_apps();
         self.refresh_source_label();
         self.dialog_tick();
         let osd_expired = self.osd.as_ref().is_some_and(|(_, until)| Instant::now() >= *until);
@@ -2196,6 +2211,7 @@ pub fn run(
         quick: Default::default(),
         quick_list: None,
         bt_discovery: false,
+        running_apps: HashMap::new(),
         window_menu: None,
         workspace_popup: None,
         overview: None,
@@ -2565,6 +2581,7 @@ impl Ui {
                     OverlayHit::Cancel => self.answer_dialog(Choice::Canceled),
                     OverlayHit::Monitor(index) => self.share_monitor(index),
                     OverlayHit::Toggle => self.prompt_toggle(),
+                    OverlayHit::Row(i) => self.prompt_pick(i),
                     _ => {}
                 }
             } else if self.switcher.as_ref().is_some_and(|o| o.layer.wl_surface() == &event.surface) {

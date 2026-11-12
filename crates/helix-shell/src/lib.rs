@@ -31,6 +31,7 @@ pub mod network_agent;
 pub mod media;
 pub mod notifications;
 pub mod polkit;
+pub mod portal_dialog;
 pub mod power;
 pub mod privacy;
 pub mod prompt;
@@ -226,6 +227,8 @@ pub enum UiRequest {
     OpenUri(String),
     /// The break screen's buttons.
     BreakAnswer(wellbeing::Answer),
+    /// The apps with windows (app id → 1 running, 2 focused).
+    RunningApps(HashMap<String, u32>),
     /// The tray's calendar shows `[from, to)`: read its data.
     Calendar { from: i64, to: i64 },
     /// A media button in the tray; then read the calendar data again.
@@ -925,6 +928,10 @@ impl UiBridge {
             UiRequest::NotificationsCleared => self.center.clear(&self.conn).await,
             UiRequest::SetDoNotDisturb(on) => {
                 notifications::set_do_not_disturb(on);
+                Ok(())
+            }
+            UiRequest::RunningApps(apps) => {
+                portal_dialog::set_running(&self.conn, apps).await;
                 Ok(())
             }
             UiRequest::BreakAnswer(answer) => {

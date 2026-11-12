@@ -33,7 +33,7 @@ async fn prompt(ui: &mut UnboundedReceiver<UiEvent>) -> Request {
 }
 
 fn answer(request: Request, password: &str) {
-    let _ = request.reply.send(Answer::Continue { password: Some(Secret::new(password.into())), confirm: None, choice: false });
+    let _ = request.reply.send(Answer::Continue { password: Some(Secret::new(password.into())), confirm: None, choice: false, selected: 0 });
 }
 
 async fn begin(conn: &zbus::Connection, cookie: &str) -> zbus::Result<zbus::Message> {

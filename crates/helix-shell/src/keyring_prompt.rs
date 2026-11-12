@@ -82,6 +82,7 @@ impl Props {
             warning: self.warning.clone(),
             continue_label: or(&self.continue_label, "Continue"),
             cancel_label: or(&self.cancel_label, "Cancel"),
+            ..Prompt::default()
         }
     }
 }
@@ -239,7 +240,7 @@ impl Prompter {
             let mut dialog = props.prompt(password);
             let answer = loop {
                 match prompt::ask(&ui, dialog.clone()).await {
-                    Answer::Continue { password: Some(p), confirm: Some(c), choice } if p.bytes() != c.bytes() => {
+                    Answer::Continue { password: Some(p), confirm: Some(c), choice, .. } if p.bytes() != c.bytes() => {
                         dialog.warning = MISMATCH.into();
                         dialog.choice = dialog.choice.map(|(l, _)| (l, choice));
                     }

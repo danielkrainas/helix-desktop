@@ -39,7 +39,7 @@ const SHELL_IFACE: &str = "org.gnome.Shell.Screenshot";
 /// The shell's message when the user cancels.
 const CANCELLED: &str = "Operation was cancelled";
 
-type Results = HashMap<String, OwnedValue>;
+pub(crate) type Results = HashMap<String, OwnedValue>;
 
 /// What to do for a `Screenshot` call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

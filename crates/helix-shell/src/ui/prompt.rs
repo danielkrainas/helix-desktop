@@ -10,6 +10,9 @@ use super::{baseline, label, physical, wipe, Canvas, DialogKind, DialogState, Ov
 use crate::auth::Secret;
 use crate::prompt::{Answer, Prompt, Request};
 
+const LIST_ROW: i32 = 32;
+const LIST_SHOWN: usize = 8;
+
 /// A prompt on screen.
 pub(super) struct PromptView {
     prompt: Prompt,
@@ -19,6 +22,8 @@ pub(super) struct PromptView {
     /// 0, 1: a field; 2: the check box.
     focus: usize,
     choice: bool,
+    /// The list row picked.
+    selected: usize,
     /// Answered; waiting for the next prompt or the end.
     busy: bool,
 }
@@ -27,7 +32,8 @@ impl PromptView {
     fn new(request: Request) -> Self {
         let choice = request.prompt.choice.as_ref().is_some_and(|c| c.1);
         let focus = if request.prompt.password.is_some() { 0 } else { 2 };
-        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), focus, choice, busy: false }
+        let selected = request.prompt.selected.min(request.prompt.list.len().saturating_sub(1));
+        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), focus, choice, selected, busy: false }
     }
 
     /// Answer "cancel" if nobody answered yet.
@@ -108,11 +114,21 @@ impl Ui {
         let take = |s: &mut String| Secret::new(std::mem::take(s));
         let password = view.prompt.password.is_some().then(|| take(&mut view.fields[0]));
         let confirm = view.prompt.confirm.is_some().then(|| take(&mut view.fields[1]));
-        let answer = Answer::Continue { password, confirm, choice: view.choice };
+        let answer = Answer::Continue { password, confirm, choice: view.choice, selected: view.selected };
         if let Some(reply) = view.reply.take() {
             let _ = reply.send(answer);
         }
         view.busy = true;
+        self.draw_dialog();
+    }
+
+    /// A list row was clicked.
+    pub(super) fn prompt_pick(&mut self, row: usize) {
+        let Some(view) = self.prompt_view() else { return };
+        if view.busy || row >= view.prompt.list.len() {
+            return;
+        }
+        view.selected = row;
         self.draw_dialog();
     }
 
@@ -144,6 +160,8 @@ impl Ui {
                     view.focus = order[next];
                 }
             }
+            Keysym::Down if !view.prompt.list.is_empty() => view.selected = (view.selected + 1).min(view.prompt.list.len() - 1),
+            Keysym::Up if !view.prompt.list.is_empty() => view.selected = view.selected.saturating_sub(1),
             Keysym::space if view.focus == 2 => {
                 view.choice = !view.choice;
             }
@@ -183,7 +201,11 @@ impl Ui {
         let message = wrap(&p.message, 14.0);
         let description = wrap(&p.description, 13.0);
         let fields = usize::from(p.password.is_some()) + usize::from(p.confirm.is_some());
-        let bh = 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + 26 + 64;
+        // At most LIST_SHOWN rows, scrolled to keep the selection in view.
+        let shown = p.list.len().min(LIST_SHOWN);
+        let first = view.selected.saturating_sub(LIST_SHOWN - 1).min(p.list.len().saturating_sub(shown));
+        let list_h = if shown > 0 { shown as i32 * LIST_ROW + 8 } else { 0 };
+        let bh = 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + 26 + 64;
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
@@ -201,6 +223,18 @@ impl Ui {
         }
         y += 8;
         let mut hits = Vec::new();
+        if shown > 0 {
+            canvas.rect(bx + 24, y, bw - 48, shown as i32 * LIST_ROW, FIELD_BG);
+            for (i, name) in p.list.iter().enumerate().skip(first).take(shown) {
+                let r = Rect { x: bx + 24, y: y + (i - first) as i32 * LIST_ROW, w: bw - 48, h: LIST_ROW };
+                if i == view.selected {
+                    canvas.rect(r.x, r.y, r.w, r.h, ACCENT);
+                }
+                label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 24) as f32);
+                hits.push((r, OverlayHit::Row(i)));
+            }
+            y += list_h;
+        }
         for (index, field) in [&p.password, &p.confirm].into_iter().enumerate() {
             let Some(name) = field else { continue };
             label(text, &mut canvas, name, (bx + 24) as f32, (y + 14) as f32, 13.0, DIM_FG, inner);

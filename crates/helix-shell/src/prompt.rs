@@ -22,6 +22,9 @@ pub struct Prompt {
     pub confirm: Option<String>,
     /// A check box: its label and state.
     pub choice: Option<(String, bool)>,
+    /// Rows to pick one of, and the one picked at first.
+    pub list: Vec<String>,
+    pub selected: usize,
     /// Shown in a warning color, e.g. after a wrong password.
     pub warning: String,
     pub continue_label: String,
@@ -30,7 +33,7 @@ pub struct Prompt {
 
 /// The user's answer.
 pub enum Answer {
-    Continue { password: Option<Secret>, confirm: Option<Secret>, choice: bool },
+    Continue { password: Option<Secret>, confirm: Option<Secret>, choice: bool, selected: usize },
     Cancel,
 }
 
