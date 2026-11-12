@@ -120,6 +120,10 @@ pub struct DockSettings {
     /// `preferred-monitor-by-connector`: a connector, or `primary`.
     pub monitor: String,
     pub isolate_workspaces: bool,
+    /// A dock on every monitor (`multi-monitor`).
+    pub multi_monitor: bool,
+    /// Each dock shows only the apps with windows on its monitor.
+    pub isolate_monitors: bool,
     pub opacity: f64,
     pub transparency: Transparency,
     pub indicator: Indicator,
@@ -154,6 +158,8 @@ impl Default for DockSettings {
             scroll: ScrollAction::Nothing,
             monitor: "primary".into(),
             isolate_workspaces: false,
+            multi_monitor: false,
+            isolate_monitors: false,
             opacity: 0.8,
             transparency: Transparency::Default,
             indicator: Indicator::Dots,
@@ -221,6 +227,8 @@ pub fn read() -> DockSettings {
         },
         monitor: text("preferred-monitor-by-connector").filter(|m| !m.is_empty()).unwrap_or(d.monitor),
         isolate_workspaces: b("isolate-workspaces", d.isolate_workspaces),
+        multi_monitor: b("multi-monitor", d.multi_monitor),
+        isolate_monitors: b("isolate-monitors", d.isolate_monitors),
         opacity: num("background-opacity", d.opacity).clamp(0.0, 1.0),
         transparency: match text("transparency-mode").as_deref() {
             Some("FIXED") => Transparency::Fixed,

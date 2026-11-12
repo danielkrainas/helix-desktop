@@ -44,11 +44,9 @@ pub(super) enum DockTarget {
     EmptyTrash,
 }
 
+/// One monitor's dock.
 #[derive(Default)]
-pub(super) struct DockState {
-    pub settings: DockSettings,
-    pub mounts: Vec<crate::media::MountInfo>,
-    pub trash_full: bool,
+pub(super) struct DockView {
     layer: Option<LayerSurface>,
     width: u32,
     height: u32,
@@ -73,6 +71,17 @@ pub(super) struct DockState {
     timer: Option<RegistrationToken>,
     press: Option<(usize, (f64, f64), u32)>,
     drag: Option<(usize, (f64, f64))>,
+}
+
+#[derive(Default)]
+pub(super) struct DockState {
+    pub settings: DockSettings,
+    pub mounts: Vec<crate::media::MountInfo>,
+    pub trash_full: bool,
+    /// A dock per monitor it is on.
+    views: Vec<DockView>,
+    /// The view being worked on.
+    cur: usize,
     /// What the open dock menu's entries do.
     pub menu_targets: Vec<DockTarget>,
     /// Apps' launcher entries, by lower-case app id.
@@ -113,24 +122,55 @@ fn find_desktop_id(id: &str) -> Option<String> {
 
 impl DockState {
     pub(super) fn output_is(&self, output: &wl_output::WlOutput) -> bool {
-        self.output.as_ref() == Some(output)
+        self.views.iter().any(|v| v.output.as_ref() == Some(output))
+    }
+
+    /// The view on `output`, if any.
+    fn view_on(&self, output: &wl_output::WlOutput) -> Option<usize> {
+        self.views.iter().position(|v| v.output.as_ref() == Some(output))
     }
 }
 
 impl Ui {
     /// Forget where the pointer was (the dock is about to move).
     pub(super) fn dock_reset_pointer(&mut self) {
-        self.dock.pointer_on = false;
-        self.dock.revealed = false;
-        self.dock.hover = None;
+        for view in &mut self.dock.views {
+            view.pointer_on = false;
+            view.revealed = false;
+            view.hover = None;
+        }
     }
 
-    /// The dock's monitor went away.
+    /// A monitor with a dock went away.
     pub(super) fn dock_forget_output(&mut self) {
-        self.dock.layer = None;
-        self.dock.trigger = None;
-        self.dock.output = None;
-        self.dock.configured = false;
+        let outputs: Vec<_> = self.output_state.outputs().collect();
+        self.dock.views.retain(|v| v.output.as_ref().is_some_and(|o| outputs.contains(o)));
+        self.dock.cur = 0;
+    }
+
+    /// The monitors that get a dock: every one with `multi-monitor`, else
+    /// the chosen one.
+    fn dock_monitors(&self) -> Vec<(wl_output::WlOutput, (i32, i32, i32, i32))> {
+        if !self.dock.settings.multi_monitor {
+            return self.dock_monitor().into_iter().collect();
+        }
+        self.output_state
+            .outputs()
+            .filter_map(|o| {
+                let info = self.output_state.info(&o)?;
+                let ((x, y), (w, h)) = (info.logical_position?, info.logical_size?);
+                Some((o, (x, y, w, h)))
+            })
+            .collect()
+    }
+
+    /// Whether window `id` is on the current view's monitor (its middle).
+    fn on_view_monitor(&self, id: u32) -> bool {
+        let (ax, ay, aw, ah) = self.dock.views.get(self.dock.cur).map_or((0, 0, 0, 0), |v| v.area);
+        self.window_geometry.get(&id).is_some_and(|&(x, y, w, h, _)| {
+            let (cx, cy) = (x + w / 2, y + h / 2);
+            cx >= ax && cy >= ay && cx < ax + aw && cy < ay + ah
+        })
     }
 
     fn dock_monitor(&self) -> Option<(wl_output::WlOutput, (i32, i32, i32, i32))> {
@@ -174,6 +214,7 @@ impl Ui {
             .mru()
             .iter()
             .filter(|e| !self.dock.settings.isolate_workspaces || e.workspace == self.windows.active || e.workspace == ALL_WORKSPACES)
+            .filter(|e| !self.dock.settings.isolate_monitors || self.on_view_monitor(e.id))
             .collect();
         entries.sort_by_key(|e| e.id);
         entries.into_iter().map(|e| e.app_id.clone()).collect()
@@ -187,6 +228,7 @@ impl Ui {
             .iter()
             .filter(|e| e.app_id.eq_ignore_ascii_case(app) || desktop_matches(&e.app_id, app))
             .filter(|e| !isolate || e.workspace == self.windows.active || e.workspace == ALL_WORKSPACES)
+            .filter(|e| !self.dock.settings.isolate_monitors || self.on_view_monitor(e.id))
             .map(|e| e.id)
             .collect()
     }
@@ -198,15 +240,30 @@ impl Ui {
         slot * items.len() as i32 + separators * 9 + icon / 4
     }
 
-    /// Recompute what the dock shows and whether it is up.
+    /// Recompute what the docks show and whether they are up.
     pub(super) fn dock_update(&mut self) {
         let s = self.dock.settings.clone();
         let blocked = !s.enabled || self.lock.session.is_some() || self.overview_shown() || self.launcher.is_some() || self.window_list.is_none();
-        let monitor = if blocked { None } else { self.dock_monitor() };
-        let Some((output, area)) = monitor else {
-            self.dock_hide(false);
-            return;
-        };
+        let monitors = if blocked { Vec::new() } else { self.dock_monitors() };
+        // A view per monitor: those of monitors gone (or not wanted) go.
+        self.dock.views.retain(|v| v.output.as_ref().is_some_and(|o| monitors.iter().any(|(m, _)| m == o)));
+        for (output, _) in &monitors {
+            if self.dock.view_on(output).is_none() {
+                self.dock.views.push(DockView { output: Some(output.clone()), ..DockView::default() });
+            }
+        }
+        for (output, area) in monitors {
+            if let Some(i) = self.dock.view_on(&output) {
+                self.dock.cur = i;
+                self.dock_update_view(output, area);
+            }
+        }
+        self.dock.cur = 0;
+    }
+
+    /// Update the current view, on `output` at `area`.
+    fn dock_update_view(&mut self, output: wl_output::WlOutput, area: (i32, i32, i32, i32)) {
+        let s = self.dock.settings.clone();
         use gio::prelude::*;
         let installed: Vec<String> = gio::AppInfo::all().into_iter().filter(|a| a.should_show()).filter_map(|a| a.id().map(|i| i.to_string())).collect();
         let running: Vec<String> = self.dock_running().into_iter().map(|a| desktop_id(&a).map_or(a, |d| d.trim_end_matches(".desktop").to_owned())).collect();
@@ -227,18 +284,18 @@ impl Ui {
         let focused_app = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).map(|e| e.app_id.clone());
         let overlapped = logic::windows_hide(s.hide_mode, rect, area, s.edge, &windows, focused_app.as_deref());
         let fullscreen = self.window_geometry.get(&self.windows.focused()).is_some_and(|&(x, y, w, h, min)| !min && logic::covers((x, y, w, h), area));
-        let hovered = self.dock.revealed || self.dock.pointer_on || self.dock.drag.is_some();
+        let hovered = self.dock.views[self.dock.cur].revealed || self.dock.views[self.dock.cur].pointer_on || self.dock.views[self.dock.cur].drag.is_some();
         let shown = logic::shown(&s, overlapped, fullscreen, hovered);
         tracing::debug!(?rect, overlapped, fullscreen, hovered, shown, windows = windows.len(), mode = ?s.hide_mode, "dock");
-        let changed = self.dock.items != items || self.dock.icon != icon || self.dock.output.as_ref() != Some(&output);
-        self.dock.items = items;
-        self.dock.icon = icon;
-        self.dock.thickness = thickness;
-        self.dock.area = area;
+        let changed = self.dock.views[self.dock.cur].items != items || self.dock.views[self.dock.cur].icon != icon || self.dock.views[self.dock.cur].output.as_ref() != Some(&output);
+        self.dock.views[self.dock.cur].items = items;
+        self.dock.views[self.dock.cur].icon = icon;
+        self.dock.views[self.dock.cur].thickness = thickness;
+        self.dock.views[self.dock.cur].area = area;
         if !shown {
             let may_reveal = if fullscreen { s.autohide_in_fullscreen } else { s.autohide && !s.fixed };
             self.dock_hide(may_reveal);
-            self.dock.output = Some(output);
+            self.dock.views[self.dock.cur].output = Some(output);
             return;
         }
         self.dock_drop_trigger();
@@ -246,10 +303,10 @@ impl Ui {
             Edge::Bottom | Edge::Top => (if s.extend { 0 } else { length as u32 }, (thickness + TOOLTIP_ROOM_H) as u32),
             Edge::Left | Edge::Right => ((thickness + TOOLTIP_ROOM_W) as u32, if s.extend { 0 } else { length as u32 }),
         };
-        if self.dock.layer.is_some() && (changed || self.dock.output.as_ref() != Some(&output)) && self.dock.output.as_ref() != Some(&output) {
-            self.dock.layer = None;
+        if self.dock.views[self.dock.cur].layer.is_some() && (changed || self.dock.views[self.dock.cur].output.as_ref() != Some(&output)) && self.dock.views[self.dock.cur].output.as_ref() != Some(&output) {
+            self.dock.views[self.dock.cur].layer = None;
         }
-        self.dock.output = Some(output.clone());
+        self.dock.views[self.dock.cur].output = Some(output.clone());
         let anchor = match (s.edge, s.extend) {
             (Edge::Bottom, false) => Anchor::BOTTOM,
             (Edge::Bottom, true) => Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
@@ -261,13 +318,13 @@ impl Ui {
             (Edge::Right, true) => Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM,
         };
         let zone = if s.fixed { thickness } else { 0 };
-        match self.dock.layer.as_ref() {
+        match self.dock.views[self.dock.cur].layer.as_ref() {
             Some(layer) => {
                 layer.set_anchor(anchor);
                 layer.set_size(sw, sh);
                 layer.set_exclusive_zone(zone);
                 layer.commit();
-                if self.dock.configured && (sw == 0 || sw == self.dock.width) && (sh == 0 || sh == self.dock.height) {
+                if self.dock.views[self.dock.cur].configured && (sw == 0 || sw == self.dock.views[self.dock.cur].width) && (sh == 0 || sh == self.dock.views[self.dock.cur].height) {
                     self.dock_draw();
                 }
             }
@@ -279,8 +336,8 @@ impl Ui {
                 layer.set_exclusive_zone(zone);
                 layer.set_keyboard_interactivity(KeyboardInteractivity::None);
                 layer.commit();
-                self.dock.layer = Some(layer);
-                self.dock.configured = false;
+                self.dock.views[self.dock.cur].layer = Some(layer);
+                self.dock.views[self.dock.cur].configured = false;
             }
         }
     }
@@ -288,18 +345,18 @@ impl Ui {
     /// Take the dock down; with `trigger`, leave the edge strip that
     /// reveals it.
     fn dock_hide(&mut self, trigger: bool) {
-        self.dock.layer = None;
-        self.dock.configured = false;
-        self.dock.hover = None;
-        self.dock.pointer_on = false;
+        self.dock.views[self.dock.cur].layer = None;
+        self.dock.views[self.dock.cur].configured = false;
+        self.dock.views[self.dock.cur].hover = None;
+        self.dock.views[self.dock.cur].pointer_on = false;
         if !trigger {
             self.dock_drop_trigger();
             return;
         }
-        if self.dock.trigger.is_some() {
+        if self.dock.views[self.dock.cur].trigger.is_some() {
             return;
         }
-        let Some((output, _)) = self.dock_monitor() else { return };
+        let Some(output) = self.dock.views[self.dock.cur].output.clone() else { return };
         let anchor = match self.dock.settings.edge {
             Edge::Bottom => Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
             Edge::Top => Anchor::TOP | Anchor::LEFT | Anchor::RIGHT,
@@ -314,15 +371,17 @@ impl Ui {
         layer.set_exclusive_zone(-1);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.commit();
-        self.dock.trigger = Some(layer);
+        self.dock.views[self.dock.cur].trigger = Some(layer);
     }
 
     fn dock_drop_trigger(&mut self) {
-        self.dock.trigger = None;
+        self.dock.views[self.dock.cur].trigger = None;
     }
 
     pub(super) fn dock_configured(&mut self, layer: &LayerSurface, size: (u32, u32)) -> bool {
-        if self.dock.trigger.as_ref() == Some(layer) {
+        let Some(i) = self.dock.views.iter().position(|v| v.layer.as_ref() == Some(layer) || v.trigger.as_ref() == Some(layer)) else { return false };
+        self.dock.cur = i;
+        if self.dock.views[self.dock.cur].trigger.as_ref() == Some(layer) {
             // An empty, see-through strip that only takes the pointer.
             let (w, h) = (size.0.max(1) as i32, size.1.max(1) as i32);
             let scale = self.scales.of(layer.wl_surface());
@@ -335,24 +394,26 @@ impl Ui {
             }
             return true;
         }
-        if self.dock.layer.as_ref() != Some(layer) {
+        if self.dock.views[self.dock.cur].layer.as_ref() != Some(layer) {
             return false;
         }
-        self.dock.width = size.0;
-        self.dock.height = size.1;
-        self.dock.configured = true;
+        self.dock.views[self.dock.cur].width = size.0;
+        self.dock.views[self.dock.cur].height = size.1;
+        self.dock.views[self.dock.cur].configured = true;
         self.dock_draw();
         true
     }
 
     pub(super) fn dock_closed(&mut self, layer: &LayerSurface) -> bool {
-        if self.dock.layer.as_ref() == Some(layer) {
-            self.dock.layer = None;
-            self.dock.configured = false;
+        let Some(i) = self.dock.views.iter().position(|v| v.layer.as_ref() == Some(layer) || v.trigger.as_ref() == Some(layer)) else { return false };
+        self.dock.cur = i;
+        if self.dock.views[self.dock.cur].layer.as_ref() == Some(layer) {
+            self.dock.views[self.dock.cur].layer = None;
+            self.dock.views[self.dock.cur].configured = false;
             return true;
         }
-        if self.dock.trigger.as_ref() == Some(layer) {
-            self.dock.trigger = None;
+        if self.dock.views[self.dock.cur].trigger.as_ref() == Some(layer) {
+            self.dock.views[self.dock.cur].trigger = None;
             return true;
         }
         false
@@ -407,25 +468,34 @@ impl Ui {
         self.notify.list.entries.iter().filter(|e| e.app_id.eq_ignore_ascii_case(id) || desktop_matches(&e.app_id, id)).count()
     }
 
+    /// Draw every dock.
     pub(super) fn dock_draw(&mut self) {
-        let Some(layer) = self.dock.layer.clone() else { return };
-        if !self.dock.configured || self.dock.width == 0 || self.dock.height == 0 {
+        for i in 0..self.dock.views.len() {
+            self.dock.cur = i;
+            self.dock_draw_view();
+        }
+        self.dock.cur = 0;
+    }
+
+    fn dock_draw_view(&mut self) {
+        let Some(layer) = self.dock.views[self.dock.cur].layer.clone() else { return };
+        if !self.dock.views[self.dock.cur].configured || self.dock.views[self.dock.cur].width == 0 || self.dock.views[self.dock.cur].height == 0 {
             return;
         }
-        let (w, h) = (self.dock.width as i32, self.dock.height as i32);
+        let (w, h) = (self.dock.views[self.dock.cur].width as i32, self.dock.views[self.dock.cur].height as i32);
         let scale = self.scales.of(layer.wl_surface());
         let s = self.dock.settings.clone();
-        let (icon, t) = (self.dock.icon, self.dock.thickness);
+        let (icon, t) = (self.dock.views[self.dock.cur].icon, self.dock.views[self.dock.cur].thickness);
         let bar = match s.edge {
             Edge::Bottom => Rect { x: 0, y: h - t, w, h: t },
             Edge::Top => Rect { x: 0, y: 0, w, h: t },
             Edge::Left => Rect { x: 0, y: 0, w: t, h },
             Edge::Right => Rect { x: w - t, y: 0, w: t, h },
         };
-        self.dock.bar = bar;
+        self.dock.views[self.dock.cur].bar = bar;
         // What to draw, gathered first.
-        let near = logic::windows_hide(logic::HideMode::AllWindows, self.dock_layout_rect(), self.dock.area, s.edge, &self.dock_windows(), None);
-        let items = self.dock.items.clone();
+        let near = logic::windows_hide(logic::HideMode::AllWindows, self.dock_layout_rect(), self.dock.views[self.dock.cur].area, s.edge, &self.dock_windows(), None);
+        let items = self.dock.views[self.dock.cur].items.clone();
         let px = (f64::from(icon) * scale).round() as u32;
         let icons: Vec<Option<helix_draw::Image>> = items.iter().map(|i| self.dock_icon(i, px)).collect();
         let counts: Vec<(usize, usize)> = items
@@ -448,8 +518,8 @@ impl Ui {
             .collect();
         let focused_app = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).map(|e| e.app_id.clone()).unwrap_or_default();
         let focused_item = items.iter().position(|i| matches!(i, Item::App { id, .. } if !focused_app.is_empty() && (id.eq_ignore_ascii_case(&focused_app) || desktop_matches(&focused_app, id))));
-        let hover_name = self.dock.hover.and_then(|i| items.get(i)).map(|i| self.dock_item_name(i));
-        let (hover, drag) = (self.dock.hover, self.dock.drag);
+        let hover_name = self.dock.views[self.dock.cur].hover.and_then(|i| items.get(i)).map(|i| self.dock_item_name(i));
+        let (hover, drag) = (self.dock.views[self.dock.cur].hover, self.dock.views[self.dock.cur].drag);
 
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w as usize, scale) as i32, physical(h as usize, scale) as i32, (physical(w as usize, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
@@ -539,7 +609,7 @@ impl Ui {
                 label(text, &mut canvas, &name, (lx + 12) as f32, base, 13.0, FG, (lw - 16) as f32);
             }
         }
-        self.dock.hits = hits;
+        self.dock.views[self.dock.cur].hits = hits;
         let surface = layer.wl_surface();
         // Only the bar takes the pointer; names float over windows.
         if let Ok(region) = Region::new(&self.compositor) {
@@ -554,12 +624,12 @@ impl Ui {
 
     /// The bar in layout coordinates.
     fn dock_layout_rect(&self) -> (i32, i32, i32, i32) {
-        let (ax, ay, aw, ah) = self.dock.area;
-        let t = self.dock.thickness;
+        let (ax, ay, aw, ah) = self.dock.views[self.dock.cur].area;
+        let t = self.dock.views[self.dock.cur].thickness;
         let len = if self.dock.settings.extend {
             if self.dock.settings.edge.vertical() { ah } else { aw }
         } else {
-            Self::dock_length(self.dock.icon, &self.dock.items)
+            Self::dock_length(self.dock.views[self.dock.cur].icon, &self.dock.views[self.dock.cur].items)
         };
         match self.dock.settings.edge {
             Edge::Bottom => (ax + (aw - len) / 2, ay + ah - t, len, t),
@@ -570,87 +640,96 @@ impl Ui {
     }
 
     fn dock_set_timer(&mut self, after: f64, reveal: bool) {
-        if let (Some(handle), Some(token)) = (self.loop_handle.as_ref(), self.dock.timer.take()) {
+        if let (Some(handle), Some(token)) = (self.loop_handle.as_ref(), self.dock.views[self.dock.cur].timer.take()) {
             handle.remove(token);
         }
         let Some(handle) = self.loop_handle.as_ref() else { return };
+        let output = self.dock.views[self.dock.cur].output.clone();
         let token = handle.insert_source(Timer::from_duration(Duration::from_secs_f64(after)), move |_, _, ui: &mut Ui| {
-            ui.dock.timer = None;
-            if !reveal && ui.dock.pointer_on {
+            let Some(i) = output.as_ref().and_then(|o| ui.dock.view_on(o)) else { return TimeoutAction::Drop };
+            ui.dock.cur = i;
+            ui.dock.views[i].timer = None;
+            if !reveal && ui.dock.views[ui.dock.cur].pointer_on {
                 return TimeoutAction::Drop;
             }
-            ui.dock.revealed = reveal;
+            ui.dock.views[ui.dock.cur].revealed = reveal;
             ui.dock_update();
             if reveal {
                 // It appears under a pointer that has not moved yet: unless
                 // the pointer comes onto it, it goes again.
-                ui.dock_set_timer(REVEAL_GRACE, false);
+                if let Some(i) = output.as_ref().and_then(|o| ui.dock.view_on(o)) {
+                    ui.dock.cur = i;
+                    ui.dock_set_timer(REVEAL_GRACE, false);
+                    ui.dock.cur = 0;
+                }
             }
             TimeoutAction::Drop
         });
-        self.dock.timer = token.ok();
+        self.dock.views[self.dock.cur].timer = token.ok();
     }
 
     fn dock_cancel_timer(&mut self) {
-        if let (Some(handle), Some(token)) = (self.loop_handle.as_ref(), self.dock.timer.take()) {
+        if let (Some(handle), Some(token)) = (self.loop_handle.as_ref(), self.dock.views[self.dock.cur].timer.take()) {
             handle.remove(token);
         }
     }
 
     /// Pointer input on the dock or its edge strip; true if it was for them.
     pub(super) fn dock_pointer(&mut self, event: &PointerEvent) -> bool {
-        if self.dock.trigger.as_ref().is_some_and(|t| t.wl_surface() == &event.surface) {
+        let Some(i) = self.dock.views.iter().position(|v| v.layer.as_ref().is_some_and(|l| l.wl_surface() == &event.surface) || v.trigger.as_ref().is_some_and(|t| t.wl_surface() == &event.surface)) else { return false };
+        self.dock.cur = i;
+        if self.dock.views[self.dock.cur].trigger.as_ref().is_some_and(|t| t.wl_surface() == &event.surface) {
             match event.kind {
                 PointerEventKind::Enter { .. } => self.dock_set_timer(self.dock.settings.show_delay, true),
-                PointerEventKind::Leave { .. } if !self.dock.revealed => self.dock_cancel_timer(),
+                PointerEventKind::Leave { .. } if !self.dock.views[self.dock.cur].revealed => self.dock_cancel_timer(),
                 _ => {}
             }
             return true;
         }
-        if !self.dock.layer.as_ref().is_some_and(|l| l.wl_surface() == &event.surface) {
+        if !self.dock.views[self.dock.cur].layer.as_ref().is_some_and(|l| l.wl_surface() == &event.surface) {
             return false;
         }
         let (x, y) = event.position;
-        let under = self.dock.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, i)| *i);
+        let under = self.dock.views[self.dock.cur].hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, i)| *i);
         match event.kind {
             PointerEventKind::Enter { .. } => {
-                self.dock.pointer_on = true;
+                self.dock.views[self.dock.cur].pointer_on = true;
                 self.dock_cancel_timer();
-                self.dock.hover = under;
+                self.dock.views[self.dock.cur].hover = under;
                 self.dock_draw();
             }
             PointerEventKind::Leave { .. } => {
-                self.dock.pointer_on = false;
-                self.dock.hover = None;
-                if self.dock.drag.is_none() {
+                self.dock.views[self.dock.cur].pointer_on = false;
+                self.dock.views[self.dock.cur].hover = None;
+                if self.dock.views[self.dock.cur].drag.is_none() {
                     self.dock_draw();
                     // Hide (if it should) after the delay.
                     self.dock_set_timer(self.dock.settings.hide_delay, false);
                 }
             }
             PointerEventKind::Motion { .. } => {
-                if let Some((item, start, button)) = self.dock.press {
+                if let Some((item, start, button)) = self.dock.views[self.dock.cur].press {
                     let moved = (x - start.0).hypot(y - start.1);
-                    if self.dock.drag.is_none() && button == BTN_LEFT && moved > DRAG_START && matches!(self.dock.items.get(item), Some(Item::App { .. })) {
-                        self.dock.drag = Some((item, (x, y)));
+                    if self.dock.views[self.dock.cur].drag.is_none() && button == BTN_LEFT && moved > DRAG_START && matches!(self.dock.views[self.dock.cur].items.get(item), Some(Item::App { .. })) {
+                        self.dock.views[self.dock.cur].drag = Some((item, (x, y)));
                     }
                 }
-                if let Some(drag) = self.dock.drag.as_mut() {
+                if let Some(drag) = self.dock.views[self.dock.cur].drag.as_mut() {
                     drag.1 = (x, y);
                     self.dock_draw();
-                } else if self.dock.hover != under {
-                    self.dock.hover = under;
+                } else if self.dock.views[self.dock.cur].hover != under {
+                    self.dock.views[self.dock.cur].hover = under;
                     self.dock_draw();
                 }
             }
             PointerEventKind::Press { button, .. } => {
                 if let Some(item) = under {
-                    self.dock.press = Some((item, (x, y), button));
+                    self.dock.views[self.dock.cur].press = Some((item, (x, y), button));
                 }
             }
             PointerEventKind::Release { button, .. } => {
-                let press = self.dock.press.take();
-                if let Some((item, _)) = self.dock.drag.take() {
+                let press = self.dock.views[self.dock.cur].press.take();
+                if let Some((item, _)) = self.dock.views[self.dock.cur].drag.take() {
                     self.dock_drop(item, (x, y));
                     self.dock_draw();
                     return true;
@@ -683,7 +762,7 @@ impl Ui {
                 }
             }
             logic::ScrollAction::CycleWindows => {
-                let Some(Item::App { id, .. }) = under.and_then(|i| self.dock.items.get(i)).cloned() else { return };
+                let Some(Item::App { id, .. }) = under.and_then(|i| self.dock.views[self.dock.cur].items.get(i)).cloned() else { return };
                 let mut ids = self.app_windows(&id);
                 ids.sort_unstable();
                 if ids.is_empty() {
@@ -703,7 +782,7 @@ impl Ui {
 
     /// Click item `index` with `action`.
     fn dock_activate(&mut self, index: usize, action: logic::ClickAction) {
-        let Some(item) = self.dock.items.get(index).cloned() else { return };
+        let Some(item) = self.dock.views[self.dock.cur].items.get(index).cloned() else { return };
         match item {
             Item::ShowApps => {
                 if self.launcher.is_some() {
@@ -769,9 +848,9 @@ impl Ui {
     /// middle.
     fn dock_item_point(&self, id: &str) -> (i32, i32) {
         let (bx, by, bw, bh) = self.dock_layout_rect();
-        let found = self.dock.items.iter().position(|i| matches!(i, Item::App { id: a, .. } if a == id));
-        let cell = found.and_then(|n| self.dock.hits.iter().find(|(_, i)| *i == n)).map(|(r, _)| *r);
-        let (sx, sy) = (bx - self.dock.bar.x, by - self.dock.bar.y);
+        let found = self.dock.views[self.dock.cur].items.iter().position(|i| matches!(i, Item::App { id: a, .. } if a == id));
+        let cell = found.and_then(|n| self.dock.views[self.dock.cur].hits.iter().find(|(_, i)| *i == n)).map(|(r, _)| *r);
+        let (sx, sy) = (bx - self.dock.views[self.dock.cur].bar.x, by - self.dock.views[self.dock.cur].bar.y);
         match cell {
             Some(r) => (sx + r.x + r.w / 2, sy + r.y),
             None => (bx + bw / 2, by + bh / 2),
@@ -812,9 +891,9 @@ impl Ui {
 
     /// The right-click menu of item `index`, at surface point (x, y).
     fn dock_menu(&mut self, index: usize, x: f64, y: f64) {
-        let Some(item) = self.dock.items.get(index).cloned() else { return };
+        let Some(item) = self.dock.views[self.dock.cur].items.get(index).cloned() else { return };
         let (bx, by, _, _) = self.dock_layout_rect();
-        let (lx, ly) = (bx - self.dock.bar.x + x as i32, by - self.dock.bar.y + y as i32);
+        let (lx, ly) = (bx - self.dock.views[self.dock.cur].bar.x + x as i32, by - self.dock.views[self.dock.cur].bar.y + y as i32);
         self.dock.menu_targets.clear();
         let mut items: Vec<Option<window_menu::Item>> = Vec::new();
         match item {
@@ -895,8 +974,8 @@ impl Ui {
 
     /// Item `item` dragged and let go at surface point `at`.
     fn dock_drop(&mut self, item: usize, at: (f64, f64)) {
-        let Some(Item::App { id, favorite }) = self.dock.items.get(item).cloned() else { return };
-        let bar = self.dock.bar;
+        let Some(Item::App { id, favorite }) = self.dock.views[self.dock.cur].items.get(item).cloned() else { return };
+        let bar = self.dock.views[self.dock.cur].bar;
         let vertical = self.dock.settings.edge.vertical();
         let off = if vertical {
             (at.0 - f64::from(bar.x)).max(f64::from(bar.x + bar.w) - at.0).max(0.0) - f64::from(bar.w)
@@ -913,11 +992,11 @@ impl Ui {
         } else {
             // The slot it was dropped at, counted among the favorites.
             let p = if vertical { at.1 } else { at.0 };
-            let favorite_cells: Vec<(Rect, usize)> = self.dock.hits.iter().filter(|(_, i)| matches!(self.dock.items.get(*i), Some(Item::App { favorite: true, .. }))).copied().collect();
+            let favorite_cells: Vec<(Rect, usize)> = self.dock.views[self.dock.cur].hits.iter().filter(|(_, i)| matches!(self.dock.views[self.dock.cur].items.get(*i), Some(Item::App { favorite: true, .. }))).copied().collect();
             let to = favorite_cells.iter().position(|(r, _)| p < f64::from(if vertical { r.y + r.h / 2 } else { r.x + r.w / 2 })).unwrap_or(favorite_cells.len());
             let shown_favorites: Vec<String> = favorite_cells
                 .iter()
-                .filter_map(|(_, i)| match self.dock.items.get(*i) {
+                .filter_map(|(_, i)| match self.dock.views[self.dock.cur].items.get(*i) {
                     Some(Item::App { id, .. }) => Some(desktop_id(id).unwrap_or_else(|| format!("{id}.desktop"))),
                     _ => None,
                 })
