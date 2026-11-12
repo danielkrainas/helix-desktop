@@ -56,6 +56,7 @@ mod capture;
 mod ime;
 mod notify;
 mod overview;
+mod prompt;
 mod quick;
 mod scale;
 mod window_menu;
@@ -234,6 +235,8 @@ enum OverlayHit {
     Inside,
     /// A monitor in the share dialog, by index.
     Monitor(usize),
+    /// The prompt dialog's check box.
+    Toggle,
     Outside,
 }
 
@@ -266,6 +269,8 @@ enum DialogKind {
         control: Vec<String>,
         reply: Option<tokio::sync::oneshot::Sender<Option<crate::screencast_chooser::Shared>>>,
     },
+    /// A password prompt (polkit, keyring).
+    Prompt(Box<prompt::PromptView>),
 }
 
 const POWER_LABEL: &str = "Power";
@@ -1287,6 +1292,9 @@ impl Ui {
                         let _ = reply.send(false);
                     }
                 }
+                if let DialogKind::Prompt(view) = &mut open.state.kind {
+                    view.cancel();
+                }
                 if let DialogKind::ShortcutsInhibit { id, .. } = open.state.kind {
                     if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 6) {
                         list.allow_shortcuts_inhibit(id, 0);
@@ -1303,6 +1311,10 @@ impl Ui {
     }
 
     fn answer_dialog(&mut self, choice: Choice) {
+        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::Prompt(_))) {
+            self.prompt_answer(choice == Choice::Confirmed);
+            return;
+        }
         let Some(dialog) = self.dialog.take() else { return };
         let request = match dialog.state.kind {
             DialogKind::End(_) => UiRequest::EndDialogAnswer(choice),
@@ -1328,6 +1340,7 @@ impl Ui {
                 }
                 return;
             }
+            DialogKind::Prompt(_) => return,
             DialogKind::ShareScreen { sources, reply, .. } => {
                 // Confirm (Enter) shares the first entry.
                 let chosen = (choice == Choice::Confirmed).then(|| sources.first().map(|s| s.0.clone())).flatten();
@@ -1349,6 +1362,10 @@ impl Ui {
     }
 
     fn dialog_key(&mut self, event: &KeyEvent) {
+        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::Prompt(_))) {
+            self.prompt_key(event);
+            return;
+        }
         match event.keysym {
             Keysym::Escape => self.answer_dialog(Choice::Canceled),
             Keysym::Return | Keysym::KP_Enter => self.answer_dialog(Choice::Confirmed),
@@ -1364,7 +1381,8 @@ impl Ui {
             DialogKind::ShareScreen { .. }
             | DialogKind::NotResponding { .. }
             | DialogKind::RemoteControl { .. }
-            | DialogKind::ShortcutsInhibit { .. } => return,
+            | DialogKind::ShortcutsInhibit { .. }
+            | DialogKind::Prompt(_) => return,
             DialogKind::End(data) if !data.blockers.is_empty() => return,
             DialogKind::End(_) => Choice::Confirmed,
             DialogKind::DisplayChange => Choice::Canceled,
@@ -1390,6 +1408,10 @@ impl Ui {
             self.paint_share_dialog(overlay);
             return;
         }
+        if matches!(overlay.state.kind, DialogKind::Prompt(_)) {
+            self.paint_prompt(overlay);
+            return;
+        }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
@@ -1411,7 +1433,7 @@ impl Ui {
                 let message = format!("The session will end automatically in {remaining} seconds.");
                 (title.to_owned(), message, "Cancel", confirm, &d.blockers)
             }
-            DialogKind::ShareScreen { .. } => return,
+            DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) => return,
             DialogKind::RemoteControl { app, devices, .. } => (
                 "Allow remote control?".to_owned(),
                 format!("{app} wants to control your {}.", crate::screencast_chooser::device_list(devices)),
@@ -1694,6 +1716,12 @@ impl Ui {
                 }
             }
             UiEvent::RebindKeys => self.rebind_internal(),
+            UiEvent::Prompt(slot) => {
+                if let Some(request) = slot.take() {
+                    self.show_prompt(request);
+                }
+            }
+            UiEvent::PromptDone => self.prompt_done(),
             UiEvent::Unbind { action } => {
                 if let Some(binding) = self.bindings.remove(&action) {
                     binding.destroy();
@@ -2306,6 +2334,7 @@ impl Ui {
                     OverlayHit::Confirm => self.answer_dialog(Choice::Confirmed),
                     OverlayHit::Cancel => self.answer_dialog(Choice::Canceled),
                     OverlayHit::Monitor(index) => self.share_monitor(index),
+                    OverlayHit::Toggle => self.prompt_toggle(),
                     _ => {}
                 }
             } else if self.switcher.as_ref().is_some_and(|o| o.layer.wl_surface() == &event.surface) {

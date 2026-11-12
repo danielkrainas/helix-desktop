@@ -72,6 +72,17 @@ fn main() -> ExitCode {
     });
     runtime.spawn(helix_shell::screencast_chooser::follow_sharing(service.connection().clone(), service.ui_sender()));
     runtime.spawn(helix_shell::notifications::follow_settings(service.notifications()));
+    // The polkit authentication agent for our session.
+    if std::env::var_os("HELIX_NO_POLKIT_AGENT").is_none() {
+        let ui = service.ui_sender();
+        runtime.spawn(async move {
+            match helix_shell::polkit::register(ui).await {
+                // Registered while this connection lives.
+                Ok(_system) => std::future::pending::<()>().await,
+                Err(err) => tracing::info!(%err, "no polkit authentication agent"),
+            }
+        });
+    }
     // Changed shortcuts (Settings, custom shortcuts) apply at once.
     let rebind = service.ui_sender();
     helix_shell::extra_keys::follow(helix_shell::shell_keys::KEY_SCHEMAS, move || {

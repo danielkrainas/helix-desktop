@@ -339,3 +339,27 @@ async fn fake_logind_matches_the_login1_contract() {
         assert_matches_contract(&conn, BUS_NAME, path, iface, "org.freedesktop.login1.xml", &[]).await;
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn polkit_authentication_agent() {
+    let Some(bus) = TestBus::start() else { return };
+    let (ui, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let agent = bus
+        .builder()
+        .serve_at(helix_shell::polkit::AGENT_PATH, helix_shell::polkit::Agent::new(ui))
+        .unwrap()
+        .name("org.helix.TestAgent")
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert_matches_contract(
+        &agent,
+        "org.helix.TestAgent",
+        helix_shell::polkit::AGENT_PATH,
+        "org.freedesktop.PolicyKit1.AuthenticationAgent",
+        "org.freedesktop.PolicyKit1.AuthenticationAgent.xml",
+        &[],
+    )
+    .await;
+}

@@ -61,6 +61,13 @@ impl Secret {
     }
 }
 
+impl Secret {
+    /// The password's bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 impl Drop for Secret {
     fn drop(&mut self) {
         for b in self.0.iter_mut() {

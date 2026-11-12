@@ -22,6 +22,8 @@ pub mod night_light;
 pub mod icons;
 pub mod markup;
 pub mod notifications;
+pub mod polkit;
+pub mod prompt;
 pub mod notify_store;
 pub mod recording;
 pub mod screensaver;
@@ -131,6 +133,10 @@ pub enum UiEvent {
     Recording(bool),
     /// Key settings changed: bind the shell's keys again.
     RebindKeys,
+    /// Ask for a password (or update the prompt shown).
+    Prompt(prompt::PromptSlot),
+    /// Close the prompt dialog.
+    PromptDone,
     /// From IBus, for the input method.
     Ime(ibus::ImEvent),
     /// Quick settings values: volume (percent, muted, max) and brightness
