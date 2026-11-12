@@ -300,6 +300,18 @@ fn current_theme() -> String {
     }
 }
 
+/// A symbolic icon from the theme (else Adwaita) at `px`, drawn in `rgb`.
+pub fn symbolic(name: &str, px: u32, rgb: [u8; 3]) -> Option<Image> {
+    let path = find_icon(name, px, &current_theme()).or_else(|| find_icon(name, px, "Adwaita"))?;
+    let mut image = decode(&std::fs::read(path).ok()?, px)?;
+    for p in image.rgba.as_chunks_mut::<4>().0 {
+        p[0] = rgb[0];
+        p[1] = rgb[1];
+        p[2] = rgb[2];
+    }
+    Some(image)
+}
+
 /// The icon at `px` pixels, if it can be found and decoded.
 pub fn load(source: &IconSource, px: u32) -> Option<Image> {
     match source {

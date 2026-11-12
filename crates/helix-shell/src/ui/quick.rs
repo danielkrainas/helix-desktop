@@ -7,7 +7,18 @@ use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
 use smithay_client_toolkit::shell::WaylandSurface;
 
 use super::{baseline, label, physical, power_menu_items, Canvas, OverlayHit, Rect, Ui, ACCENT, BANNER_BG, BANNER_BORDER, DIM_FG, FG, FIELD_BG, PANEL_HEIGHT};
+use crate::status::Toggle;
 use crate::{QuickChange, UiRequest};
+
+/// A power profile as the user knows it.
+fn profile_label(name: &str) -> String {
+    match name {
+        "power-saver" => "Power Saver".into(),
+        "balanced" => "Balanced".into(),
+        "performance" => "Performance".into(),
+        other => other.into(),
+    }
+}
 
 const MENU_W: i32 = 320;
 const ROW_H: i32 = 40;
@@ -16,6 +27,9 @@ const PAD: i32 = 12;
 /// A quick settings switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Switch {
+    Wifi,
+    Bluetooth,
+    Airplane,
     NightLight,
     DarkStyle,
     DoNotDisturb,
@@ -47,6 +61,9 @@ impl Ui {
     fn switch_on(&self, switch: Switch) -> bool {
         use gio::prelude::*;
         match switch {
+            Switch::Wifi => self.status.wifi.as_ref().is_some_and(|w| w.0),
+            Switch::Bluetooth => self.status.bluetooth == Some(true),
+            Switch::Airplane => self.status.airplane,
             Switch::NightLight => settings(COLOR, "night-light-enabled").is_some_and(|s| s.boolean("night-light-enabled")),
             Switch::DarkStyle => settings(INTERFACE, "color-scheme").is_some_and(|s| s.string("color-scheme") == "prefer-dark"),
             Switch::DoNotDisturb => self.notify.do_not_disturb,
@@ -56,7 +73,17 @@ impl Ui {
     fn flip(&mut self, switch: Switch) {
         use gio::prelude::*;
         let on = !self.switch_on(switch);
+        let toggle = |t: Toggle| UiRequest::QuickSettings(QuickChange::Toggle(t));
         match switch {
+            Switch::Wifi => {
+                let _ = self.requests.send(toggle(Toggle::Wifi(on)));
+            }
+            Switch::Bluetooth => {
+                let _ = self.requests.send(toggle(Toggle::Bluetooth(on)));
+            }
+            Switch::Airplane => {
+                let _ = self.requests.send(toggle(Toggle::Airplane(on)));
+            }
             Switch::NightLight => {
                 if let Some(s) = settings(COLOR, "night-light-enabled") {
                     let _ = s.set_boolean("night-light-enabled", on);
@@ -117,6 +144,12 @@ impl Ui {
                 self.draw_power_menu();
                 true
             }
+            OverlayHit::Profile(index) => {
+                if let Some(name) = self.status.profiles.get(index).cloned() {
+                    let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Toggle(Toggle::Profile(name))));
+                }
+                true
+            }
             OverlayHit::Inside => true,
             _ => false,
         }
@@ -130,7 +163,23 @@ impl Ui {
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
-        let states: Vec<bool> = [Switch::NightLight, Switch::DarkStyle, Switch::DoNotDisturb].iter().map(|s| self.switch_on(*s)).collect();
+        // The switches there are, with their labels and states.
+        let mut switches: Vec<(Switch, String)> = Vec::new();
+        if let Some((on, ssid)) = &self.status.wifi {
+            let name = ssid.as_ref().filter(|_| *on).cloned().unwrap_or_else(|| "Wi-Fi".into());
+            switches.push((Switch::Wifi, name));
+        }
+        if self.status.bluetooth.is_some() {
+            switches.push((Switch::Bluetooth, "Bluetooth".into()));
+        }
+        if self.status.wifi.is_some() || self.status.bluetooth.is_some() {
+            switches.push((Switch::Airplane, "Airplane Mode".into()));
+        }
+        switches.extend([(Switch::NightLight, "Night Light".into()), (Switch::DarkStyle, "Dark Style".into()), (Switch::DoNotDisturb, "Do Not Disturb".into())]);
+        let states: Vec<bool> = switches.iter().map(|(s, _)| self.switch_on(*s)).collect();
+        let profiles: Vec<(String, bool)> = self.status.profiles.iter().map(|p| (profile_label(p), self.status.profile.as_deref() == Some(p.as_str()))).collect();
+        let switch_rows = switches.len().div_ceil(3) as i32;
+        let profile_h = if profiles.is_empty() { 0 } else { 26 + 36 + 8 };
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             self.power_menu = Some(overlay);
             return;
@@ -139,9 +188,8 @@ impl Ui {
         canvas.fill(0x00000000);
         let text = self.text.as_ref();
         let items = power_menu_items(self.power);
-        let switches = [(Switch::NightLight, "Night Light"), (Switch::DarkStyle, "Dark Style"), (Switch::DoNotDisturb, "Do Not Disturb")];
         let sliders = usize::from(self.quick.volume.is_some()) + usize::from(self.quick.brightness.is_some());
-        let mh = PAD + sliders as i32 * ROW_H + 44 + PAD + 1 + items.len() as i32 * 36 + 8;
+        let mh = PAD + sliders as i32 * ROW_H + switch_rows * 48 + profile_h + PAD + 1 + items.len() as i32 * 36 + 8;
         let mx = w as i32 - MENU_W - 6;
         let my = PANEL_HEIGHT as i32 + 4;
         canvas.rect(mx - 1, my - 1, MENU_W + 2, mh + 2, BANNER_BORDER);
@@ -172,17 +220,33 @@ impl Ui {
             slider(&mut canvas, &mut overlay.hits, y, "Brightness", percent, 100, false, OverlayHit::BrightnessSlider, None);
             y += ROW_H;
         }
-        // Switches.
+        // Switches, three to a row.
         let sw = (MENU_W - 2 * PAD - 2 * 8) / 3;
         for (i, (switch, name)) in switches.iter().enumerate() {
-            let r = Rect { x: mx + PAD + i as i32 * (sw + 8), y: y + 2, w: sw, h: 40 };
+            let (row, col) = (i as i32 / 3, i as i32 % 3);
+            let r = Rect { x: mx + PAD + col * (sw + 8), y: y + 2 + row * 48, w: sw, h: 40 };
             let on = states[i];
             canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT } else { FIELD_BG });
             let tw = text.map_or(0.0, |t| t.width(name, 12.0)).min((r.w - 8) as f32);
             label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, FG, (r.w - 8) as f32);
             overlay.hits.push((r, OverlayHit::Switch(*switch)));
         }
-        y += 44 + PAD;
+        y += switch_rows * 48;
+        // Power mode: one button per profile.
+        if !profiles.is_empty() {
+            label(text, &mut canvas, "Power Mode", (mx + PAD) as f32, (y + 18) as f32, 13.0, DIM_FG, (MENU_W - 2 * PAD) as f32);
+            let n = profiles.len() as i32;
+            let bw = (MENU_W - 2 * PAD - (n - 1) * 8) / n;
+            for (i, (name, active)) in profiles.iter().enumerate() {
+                let r = Rect { x: mx + PAD + i as i32 * (bw + 8), y: y + 26, w: bw, h: 36 };
+                canvas.rect(r.x, r.y, r.w, r.h, if *active { ACCENT } else { FIELD_BG });
+                let tw = text.map_or(0.0, |t| t.width(name, 12.0)).min((r.w - 8) as f32);
+                label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, FG, (r.w - 8) as f32);
+                overlay.hits.push((r, OverlayHit::Profile(i)));
+            }
+            y += profile_h;
+        }
+        y += PAD;
         canvas.rect(mx + PAD, y, MENU_W - 2 * PAD, 1, BANNER_BORDER);
         y += 1;
         // Power actions.

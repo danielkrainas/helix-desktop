@@ -36,6 +36,7 @@ pub mod screenshot;
 pub mod shell_keys;
 pub mod shortcuts_inhibit;
 pub mod state;
+pub mod status;
 pub mod text;
 pub mod ui;
 pub mod wallpaper;
@@ -140,6 +141,8 @@ pub enum UiEvent {
     Prompt(prompt::PromptSlot),
     /// Close the prompt dialog.
     PromptDone,
+    /// System status (panel icons, quick settings switches).
+    Status(Box<status::Status>),
     /// The desktop and lock screen backgrounds to show.
     Background { desktop: Box<wallpaper::Background>, lock: Box<wallpaper::Background> },
     /// From IBus, for the input method.
@@ -154,13 +157,15 @@ pub enum UiEvent {
 }
 
 /// What the quick settings menu changes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QuickChange {
     /// Nothing: just read the values.
     Refresh,
     Volume(u32),
     Mute,
     Brightness(u32),
+    /// Wi-Fi, Bluetooth, airplane mode or the power profile.
+    Toggle(status::Toggle),
 }
 
 /// Power menu entries.
@@ -751,7 +756,16 @@ impl UiBridge {
                         QuickChange::Volume(percent) => shell_keys::set_volume(percent).await,
                         QuickChange::Mute => shell_keys::toggle_mute().await,
                         QuickChange::Brightness(percent) => shell_keys::set_brightness_percent(&conn, percent).await,
+                        QuickChange::Toggle(toggle) => match zbus::Connection::system().await {
+                            Ok(system) => {
+                                if let Err(err) = status::apply(&system, toggle.clone()).await {
+                                    tracing::warn!(%err, ?toggle, "cannot change the system setting");
+                                }
+                            }
+                            Err(err) => tracing::warn!(%err, "no system bus"),
+                        },
                     }
+                    status::changed();
                     let (_, max) = shell_keys::volume_limits();
                     let volume = shell_keys::volume_state().await.map(|(p, m)| (p, m, max));
                     let brightness = shell_keys::brightness_percent(&conn).await;
@@ -777,7 +791,11 @@ impl UiBridge {
                             None
                         }
                         shell_keys::KeyAction::Brightness(step) => shell_keys::change_brightness(&conn, step).await,
-                        shell_keys::KeyAction::Volume(change) => shell_keys::change_volume(change).await,
+                        shell_keys::KeyAction::Volume(change) => {
+                            let osd = shell_keys::change_volume(change).await;
+                            status::changed();
+                            osd
+                        }
                         shell_keys::KeyAction::Playback(command) => {
                             shell_keys::control_player(&conn, command).await;
                             None

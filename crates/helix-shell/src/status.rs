@@ -1,0 +1,288 @@
+//! System status for the panel and quick settings (helix-desktop-spec
+//! `contracts/wayland/README.md`, "Quick settings", "System status"):
+//! network, battery, volume, Wi-Fi, Bluetooth, airplane mode and power
+//! profiles, from the system bus.
+
+use std::collections::HashMap;
+use std::sync::LazyLock;
+use std::time::Duration;
+
+use futures_util::StreamExt;
+use gio::prelude::*;
+use tokio::sync::{mpsc, Notify};
+use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+use zbus::Connection;
+
+use crate::UiEvent;
+
+const NM: &str = "org.freedesktop.NetworkManager";
+const NM_PATH: &str = "/org/freedesktop/NetworkManager";
+const UPOWER: &str = "org.freedesktop.UPower";
+const BLUEZ: &str = "org.bluez";
+const PROFILES: [(&str, &str); 2] = [("org.freedesktop.UPower.PowerProfiles", "org.freedesktop.UPower.PowerProfiles"), ("net.hadess.PowerProfiles", "net.hadess.PowerProfiles")];
+const PROFILES_PATH: &str = "/org/freedesktop/UPower/PowerProfiles";
+const REFRESH: Duration = Duration::from_secs(5);
+
+/// What the panel and quick settings show.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Status {
+    /// The network icon, when NetworkManager runs.
+    pub network: Option<String>,
+    /// Wi-Fi: (enabled, connected network's name), when NetworkManager runs.
+    pub wifi: Option<(bool, Option<String>)>,
+    /// Bluetooth powered, when an adapter exists.
+    pub bluetooth: Option<bool>,
+    pub airplane: bool,
+    /// Power profiles offered, and the active one.
+    pub profiles: Vec<String>,
+    pub profile: Option<String>,
+    /// Battery: (icon, percent), when present.
+    pub battery: Option<(String, f64)>,
+    pub show_percentage: bool,
+    /// The volume icon, when a sound server answers.
+    pub volume: Option<String>,
+}
+
+/// A quick settings switch acting on the system.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Toggle {
+    Wifi(bool),
+    Bluetooth(bool),
+    Airplane(bool),
+    Profile(String),
+}
+
+/// The Wi-Fi icon for an access point's strength (0–100).
+pub fn wifi_icon(strength: u8) -> &'static str {
+    match strength {
+        0..20 => "network-wireless-signal-none-symbolic",
+        20..40 => "network-wireless-signal-weak-symbolic",
+        40..50 => "network-wireless-signal-ok-symbolic",
+        50..80 => "network-wireless-signal-good-symbolic",
+        _ => "network-wireless-signal-excellent-symbolic",
+    }
+}
+
+/// The network icon: `primary` the active connection's type (and Wi-Fi
+/// strength), if any.
+pub fn network_icon(airplane: bool, wifi_on: bool, primary: Option<(&str, Option<u8>)>) -> String {
+    if airplane {
+        return "airplane-mode-symbolic".into();
+    }
+    match primary {
+        Some(("802-11-wireless", strength)) => wifi_icon(strength.unwrap_or(0)).into(),
+        Some(("vpn" | "wireguard", _)) => "network-vpn-symbolic".into(),
+        Some(("gsm" | "cdma", _)) => "network-cellular-connected-symbolic".into(),
+        Some(_) => "network-wired-symbolic".into(),
+        None if wifi_on => "network-wireless-offline-symbolic".into(),
+        None => "network-offline-symbolic".into(),
+    }
+}
+
+/// Airplane mode: no radio on.
+pub fn airplane(wifi_on: Option<bool>, bluetooth_on: Option<bool>) -> bool {
+    (wifi_on.is_some() || bluetooth_on.is_some()) && wifi_on != Some(true) && bluetooth_on != Some(true)
+}
+
+async fn prop<T: TryFrom<OwnedValue>>(conn: &Connection, dest: &str, path: &str, iface: &str, name: &str) -> Option<T>
+where
+    T::Error: Into<zbus::Error>,
+{
+    let proxy = zbus::Proxy::new_owned(conn.clone(), dest.to_owned(), path.to_owned(), iface.to_owned()).await.ok()?;
+    proxy.get_property(name).await.ok()
+}
+
+async fn set_prop(conn: &Connection, dest: &str, path: &str, iface: &str, name: &str, value: Value<'_>) -> zbus::Result<()> {
+    conn.call_method(Some(dest), path, Some("org.freedesktop.DBus.Properties"), "Set", &(iface, name, value)).await.map(drop)
+}
+
+/// BlueZ adapters: (path, powered).
+async fn adapters(conn: &Connection) -> Vec<(OwnedObjectPath, bool)> {
+    type Objects = HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>;
+    let Ok(reply) = conn.call_method(Some(BLUEZ), "/", Some("org.freedesktop.DBus.ObjectManager"), "GetManagedObjects", &()).await else { return Vec::new() };
+    let Ok(objects) = reply.body().deserialize::<Objects>() else { return Vec::new() };
+    let mut out: Vec<(OwnedObjectPath, bool)> = objects
+        .into_iter()
+        .filter_map(|(path, ifaces)| {
+            let adapter = ifaces.get("org.bluez.Adapter1")?;
+            let powered = adapter.get("Powered").and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(false);
+            Some((path, powered))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+    out
+}
+
+/// The power-profiles service: (bus name and interface).
+async fn profiles_service(conn: &Connection) -> Option<(&'static str, &'static str)> {
+    for (name, iface) in PROFILES {
+        if prop::<String>(conn, name, PROFILES_PATH, iface, "ActiveProfile").await.is_some() {
+            return Some((name, iface));
+        }
+    }
+    None
+}
+
+/// Read everything now.
+pub async fn read(system: Option<&Connection>) -> Status {
+    let mut status = Status { show_percentage: show_percentage(), ..Status::default() };
+    if let Some((percent, muted)) = crate::shell_keys::volume_state().await {
+        status.volume = Some(crate::shell_keys::volume_icon(percent, muted).to_owned());
+    }
+    let Some(conn) = system else { return status };
+    // NetworkManager.
+    let wifi_on = prop::<bool>(conn, NM, NM_PATH, NM, "WirelessEnabled").await;
+    let mut primary: Option<(String, Option<u8>, Option<String>)> = None;
+    if wifi_on.is_some() {
+        if let Some(active) = prop::<OwnedObjectPath>(conn, NM, NM_PATH, NM, "PrimaryConnection").await.filter(|p| p.as_str() != "/") {
+            let iface = "org.freedesktop.NetworkManager.Connection.Active";
+            let kind = prop::<String>(conn, NM, active.as_str(), iface, "Type").await.unwrap_or_default();
+            let (mut strength, mut ssid) = (None, None);
+            if kind == "802-11-wireless" {
+                if let Some(ap) = prop::<OwnedObjectPath>(conn, NM, active.as_str(), iface, "SpecificObject").await.filter(|p| p.as_str() != "/") {
+                    let ap_iface = "org.freedesktop.NetworkManager.AccessPoint";
+                    strength = prop::<u8>(conn, NM, ap.as_str(), ap_iface, "Strength").await;
+                    ssid = prop::<Vec<u8>>(conn, NM, ap.as_str(), ap_iface, "Ssid").await.map(|b| String::from_utf8_lossy(&b).into_owned());
+                }
+            }
+            primary = Some((kind, strength, ssid));
+        }
+    }
+    // BlueZ.
+    let adapters = adapters(conn).await;
+    let bluetooth = (!adapters.is_empty()).then(|| adapters.iter().any(|(_, on)| *on));
+    status.bluetooth = bluetooth;
+    status.airplane = airplane(wifi_on, bluetooth);
+    if let Some(on) = wifi_on {
+        let ssid = primary.as_ref().filter(|p| p.0 == "802-11-wireless").and_then(|p| p.2.clone());
+        status.wifi = Some((on, ssid));
+        status.network = Some(network_icon(status.airplane, on, primary.as_ref().map(|p| (p.0.as_str(), p.1))));
+    }
+    // UPower.
+    let display = "/org/freedesktop/UPower/devices/DisplayDevice";
+    let device = "org.freedesktop.UPower.Device";
+    if prop::<bool>(conn, UPOWER, display, device, "IsPresent").await == Some(true) {
+        let percent = prop::<f64>(conn, UPOWER, display, device, "Percentage").await.unwrap_or(0.0);
+        let icon = prop::<String>(conn, UPOWER, display, device, "IconName").await.filter(|i| !i.is_empty()).unwrap_or_else(|| "battery-symbolic".into());
+        status.battery = Some((icon, percent));
+    }
+    // Power profiles.
+    if let Some((name, iface)) = profiles_service(conn).await {
+        status.profile = prop::<String>(conn, name, PROFILES_PATH, iface, "ActiveProfile").await;
+        if let Some(list) = prop::<Vec<HashMap<String, OwnedValue>>>(conn, name, PROFILES_PATH, iface, "Profiles").await {
+            status.profiles = list.iter().filter_map(|p| p.get("Profile").and_then(|v| String::try_from(v.clone()).ok())).collect();
+        }
+    }
+    status
+}
+
+fn show_percentage() -> bool {
+    let Some(source) = gio::SettingsSchemaSource::default() else { return false };
+    let Some(schema) = source.lookup("org.gnome.desktop.interface", true) else { return false };
+    schema.has_key("show-battery-percentage") && gio::Settings::new("org.gnome.desktop.interface").boolean("show-battery-percentage")
+}
+
+/// Turn a switch on or off.
+pub async fn apply(system: &Connection, toggle: Toggle) -> zbus::Result<()> {
+    match toggle {
+        Toggle::Wifi(on) => set_prop(system, NM, NM_PATH, NM, "WirelessEnabled", Value::from(on)).await,
+        Toggle::Bluetooth(on) => {
+            for (path, _) in adapters(system).await {
+                set_prop(system, BLUEZ, path.as_str(), "org.bluez.Adapter1", "Powered", Value::from(on)).await?;
+            }
+            Ok(())
+        }
+        Toggle::Airplane(on) => {
+            let radios = !on;
+            if prop::<bool>(system, NM, NM_PATH, NM, "WirelessEnabled").await.is_some() {
+                set_prop(system, NM, NM_PATH, NM, "WirelessEnabled", Value::from(radios)).await?;
+                if on {
+                    let _ = set_prop(system, NM, NM_PATH, NM, "WwanEnabled", Value::from(false)).await;
+                }
+            }
+            for (path, _) in adapters(system).await {
+                set_prop(system, BLUEZ, path.as_str(), "org.bluez.Adapter1", "Powered", Value::from(radios)).await?;
+            }
+            Ok(())
+        }
+        Toggle::Profile(profile) => {
+            let (name, iface) = profiles_service(system).await.ok_or_else(|| zbus::Error::Failure("no power profiles".into()))?;
+            set_prop(system, name, PROFILES_PATH, iface, "ActiveProfile", Value::from(profile.as_str())).await
+        }
+    }
+}
+
+static POKE: LazyLock<Notify> = LazyLock::new(Notify::new);
+
+/// Something changed (volume, a switch): read the status again soon.
+pub fn changed() {
+    POKE.notify_one();
+}
+
+/// Keep the UI's status current: on property changes on the system bus,
+/// [`changed`], and every few seconds.
+pub async fn follow(ui: mpsc::UnboundedSender<UiEvent>) {
+    let system = Connection::system().await.ok();
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.freedesktop.DBus.Properties")
+        .and_then(|b| b.member("PropertiesChanged"))
+        .map(|b| b.build());
+    let mut signals = match (&system, rule) {
+        (Some(conn), Ok(rule)) => zbus::MessageStream::for_match_rule(rule, conn, Some(64)).await.ok(),
+        _ => None,
+    };
+    let mut last: Option<Status> = None;
+    loop {
+        let status = read(system.as_ref()).await;
+        if last.as_ref() != Some(&status) {
+            let _ = ui.send(UiEvent::Status(Box::new(status.clone())));
+            last = Some(status);
+        }
+        let signal = async {
+            match signals.as_mut() {
+                Some(s) => {
+                    s.next().await;
+                }
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            _ = signal => {}
+            _ = POKE.notified() => {}
+            _ = tokio::time::sleep(REFRESH) => {}
+        }
+        // Changes come in bursts.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        if let Some(s) = signals.as_mut() {
+            while futures_util::FutureExt::now_or_never(s.next()).flatten().is_some() {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn icons() {
+        assert_eq!(wifi_icon(10), "network-wireless-signal-none-symbolic");
+        assert_eq!(wifi_icon(45), "network-wireless-signal-ok-symbolic");
+        assert_eq!(wifi_icon(90), "network-wireless-signal-excellent-symbolic");
+        assert_eq!(network_icon(false, true, Some(("802-3-ethernet", None))), "network-wired-symbolic");
+        assert_eq!(network_icon(false, true, Some(("802-11-wireless", Some(60)))), "network-wireless-signal-good-symbolic");
+        assert_eq!(network_icon(false, true, None), "network-wireless-offline-symbolic");
+        assert_eq!(network_icon(false, false, None), "network-offline-symbolic");
+        assert_eq!(network_icon(true, false, None), "airplane-mode-symbolic");
+        assert_eq!(network_icon(false, true, Some(("wireguard", None))), "network-vpn-symbolic");
+    }
+
+    #[test]
+    fn airplane_mode() {
+        assert!(!airplane(None, None), "no radios at all");
+        assert!(airplane(Some(false), None));
+        assert!(airplane(Some(false), Some(false)));
+        assert!(!airplane(Some(true), Some(false)));
+        assert!(!airplane(None, Some(true)));
+    }
+}

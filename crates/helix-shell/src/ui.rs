@@ -60,6 +60,7 @@ mod overview;
 mod prompt;
 mod quick;
 mod scale;
+mod status;
 mod window_menu;
 mod workspace_popup;
 use notify::BannerHit;
@@ -213,6 +214,10 @@ struct Ui {
     sharing: bool,
     /// The screen is being recorded (panel indicator).
     recording: bool,
+    /// Network, battery, volume, radios.
+    status: crate::status::Status,
+    /// Where the status area starts (clicking it opens quick settings).
+    status_left: i32,
     exit: bool,
 }
 
@@ -244,6 +249,8 @@ enum OverlayHit {
     Monitor(usize),
     /// The prompt dialog's check box.
     Toggle,
+    /// A power profile in quick settings, by index.
+    Profile(usize),
     Outside,
 }
 
@@ -419,6 +426,7 @@ impl Ui {
         let (w, h) = (self.panel_width as usize, PANEL_HEIGHT as usize);
         let (unseen_dot, list_open) = (self.unseen_dot(), self.notify.view.is_some());
         let scale = self.scales.of(self.panel.wl_surface());
+        let status_items = self.status_items(scale);
         let Ok((buffer, data)) =
             self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
@@ -454,8 +462,25 @@ impl Ui {
             }
         }
 
-        // Left of the Power button: a red dot and "Recording", then "Sharing".
+        // Left of the Power button: the status icons, then a red dot and
+        // "Recording", then "Sharing".
         let mut x = w as i32 - POWER_BUTTON_W;
+        for item in &status_items {
+            match item {
+                status::StatusItem::Icon(image) => {
+                    x -= status::ICON;
+                    canvas.image(f64::from(x), f64::from((h as i32 - status::ICON) / 2), f64::from(status::ICON), f64::from(status::ICON), image);
+                    x -= 10;
+                }
+                status::StatusItem::Text(s) => {
+                    let tw = self.text.as_ref().map_or(0.0, |t| t.width(s, px)) as i32;
+                    x -= tw;
+                    label(self.text.as_ref(), &mut canvas, s, x as f32, base, px, FG, tw as f32 + 1.0);
+                    x -= 4;
+                }
+            }
+        }
+        self.status_left = x;
         if self.recording {
             x -= RECORDING_W;
             canvas.rect(x, h as i32 / 2 - 4, 8, 8, SHARING);
@@ -1695,6 +1720,11 @@ impl Ui {
                 self.sharing = on;
                 self.draw_panel();
             }
+            UiEvent::Status(status) => {
+                self.status = *status;
+                self.draw_panel();
+                self.draw_power_menu();
+            }
             UiEvent::Recording(on) => {
                 self.recording = on;
                 self.draw_panel();
@@ -2038,6 +2068,8 @@ pub fn run(
         power: Default::default(),
         sharing: false,
         recording: false,
+        status: Default::default(),
+        status_left: i32::MAX,
         lock: LockScreen {
             state: SessionLockState::new(&globals, &qh),
             session: None,
@@ -2396,11 +2428,12 @@ impl Ui {
             } else if self.banner.as_ref().is_some_and(|b| b.layer.wl_surface() == &event.surface) {
                 self.banner_click(x, y);
             } else if &event.surface == self.panel.wl_surface() {
-                let power_x = f64::from(self.panel_width as i32 - POWER_BUTTON_W);
-                if x >= power_x {
+                // The Power button and the status icons open quick settings.
+                let status_x = f64::from(self.status_left.min(self.panel_width as i32 - POWER_BUTTON_W));
+                if x >= status_x {
                     self.toggle_power_menu();
                     self.draw_panel();
-                } else if self.recording && x >= power_x - f64::from(RECORDING_W) {
+                } else if self.recording && x >= status_x - f64::from(RECORDING_W) {
                     let _ = self.requests.send(UiRequest::StopRecording);
                 } else if (x - f64::from(self.panel_width) / 2.0).abs() < f64::from(notify::CLOCK_HALF_W) {
                     self.toggle_notification_list();
