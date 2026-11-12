@@ -23,6 +23,7 @@ pub mod logind;
 pub mod night_light;
 pub mod icons;
 pub mod markup;
+pub mod media;
 pub mod notifications;
 pub mod polkit;
 pub mod power;

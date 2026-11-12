@@ -162,6 +162,36 @@ impl Center {
         }, None)
     }
 
+    /// Whether the session is locked.
+    pub fn locked(&self) -> bool {
+        screensaver::status(&self.lock).locked()
+    }
+
+    /// Take back one of the shell's own notifications.
+    pub fn withdraw(&self, id: u32) {
+        self.remove(id);
+    }
+
+    /// About removable media; with `root`, "Open with Files" and "Eject"
+    /// buttons for that mount.
+    pub fn media_notice(&self, summary: &str, body: &str, root: Option<String>) -> u32 {
+        let actions = if root.is_some() { vec![("open".into(), "Open with Files".into()), ("eject".into(), "Eject".into())] } else { Vec::new() };
+        self.post(Notification {
+            id: 0,
+            app_name: "Removable Media".into(),
+            summary: summary.into(),
+            body: body.into(),
+            actions,
+            has_default: false,
+            urgency: Urgency::Normal,
+            timeout: Notification::timeout_from(-1, Urgency::Normal),
+            icon: Some(IconSource::Names(vec!["media-removable-symbolic".into()])),
+            origin: Origin::Media { root },
+            markup: false,
+            transient: false,
+        }, None)
+    }
+
     /// A notice from the system itself (battery warnings).
     pub fn system_notice(&self, summary: &str, body: &str, critical: bool) -> u32 {
         let urgency = if critical { Urgency::Critical } else { Urgency::Normal };
@@ -318,6 +348,14 @@ impl Center {
                             tracing::warn!(%err, app_id, "cannot activate application");
                         }
                     }
+                }
+                self.remove(id);
+            }
+            Origin::Media { root } => {
+                match (key.as_str(), root) {
+                    ("open", Some(root)) => crate::media::request(root.clone(), crate::media::Request::Open),
+                    ("eject", Some(root)) => crate::media::request(root.clone(), crate::media::Request::Eject),
+                    _ => {}
                 }
                 self.remove(id);
             }

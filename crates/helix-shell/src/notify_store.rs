@@ -45,6 +45,9 @@ pub enum Origin {
     /// The shell's own: a screenshot it saved (click opens it; the
     /// `show-in-files` button shows it in the file manager).
     Screenshot { path: std::path::PathBuf },
+    /// The shell's own: removable media; `open`/`eject` buttons act on
+    /// the mount at `root` (a URI), when there is one.
+    Media { root: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq)]

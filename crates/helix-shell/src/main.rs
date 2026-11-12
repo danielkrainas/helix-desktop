@@ -95,6 +95,8 @@ fn main() -> ExitCode {
     runtime.spawn(helix_shell::power::run_idle(service.connection().clone()));
     runtime.spawn(helix_shell::power::run_logind_locks(service.connection().clone()));
     runtime.spawn(helix_shell::power::run_battery(service.notifications()));
+    // Automounting and new removable media.
+    helix_shell::media::run(service.notifications());
     // The desktop and lock screen backgrounds.
     runtime.spawn(helix_shell::wallpaper::follow(service.ui_sender()));
     // The polkit authentication agent for our session.
