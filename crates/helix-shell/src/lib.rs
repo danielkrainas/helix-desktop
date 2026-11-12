@@ -28,6 +28,7 @@ pub mod ical;
 pub mod icons;
 pub mod markup;
 pub mod network_agent;
+pub mod vpn_secrets;
 pub mod media;
 pub mod mount_handler;
 pub mod notifications;
