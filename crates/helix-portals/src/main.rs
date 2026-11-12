@@ -33,7 +33,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let gsettings = GSettings::new(PORTAL_SCHEMAS);
     let (mut changes, _watch) = gsettings.watch();
     let (mut lockdown, _lockdown_watch) = GSettings::new(helix_portals::lockdown::SCHEMAS).watch();
-    let service =
+    let mut service =
         PortalService::start(zbus::connection::Builder::session()?, Arc::new(gsettings)).await?;
 
     let mut sigterm = signal(SignalKind::terminate())?;
@@ -50,6 +50,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 if let Err(err) = service.lockdown_changed().await {
                     tracing::warn!(%err, "failed to publish lockdown change");
                 }
+            }
+            () = service.bus_closed() => {
+                tracing::warn!("the session bus went away");
+                break;
             }
             _ = sigterm.recv() => break,
             _ = sigint.recv() => break,

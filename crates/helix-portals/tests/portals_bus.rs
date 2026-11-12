@@ -277,3 +277,29 @@ async fn owns_backend_name() {
         .unwrap();
     assert!(!dbus.name_has_owner(BUS_NAME.try_into().unwrap()).await.unwrap());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bus_going_away_lets_the_backend_exit() {
+    let Some(f) = fixture().await else { return };
+    let Fixture { bus, mut portals, .. } = f;
+    drop(bus);
+    tokio::time::timeout(Duration::from_secs(5), portals.bus_closed())
+        .await
+        .expect("the backend notices the bus is gone");
+    tokio::time::timeout(Duration::from_secs(5), portals.shutdown())
+        .await
+        .expect("shutdown does not wait for a bus that is gone")
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_is_bounded() {
+    let Some(f) = fixture().await else { return };
+    // A clone held elsewhere (as by a call in progress) would keep a
+    // graceful shutdown waiting forever.
+    let _held = f.portals.connection().clone();
+    tokio::time::timeout(helix_portals::SHUTDOWN_TIMEOUT + Duration::from_secs(3), f.portals.shutdown())
+        .await
+        .expect("shutdown gives up waiting")
+        .unwrap();
+}

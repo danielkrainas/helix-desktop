@@ -9,6 +9,8 @@
 
 pub mod clipboard;
 pub mod dialogs;
+pub mod dynamic_launcher;
+pub mod email;
 pub mod file_chooser;
 pub mod inhibit;
 pub mod lockdown;
@@ -34,6 +36,8 @@ use crate::settings::{SettingsBackend, SettingsSource};
 
 /// Bus name advertised in `helix.portal`.
 pub const BUS_NAME: &str = "org.freedesktop.impl.portal.desktop.helix";
+/// How long [`PortalService::shutdown`] spends leaving the bus.
+pub const SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// Where portal backends serve their interfaces.
 pub const OBJECT_PATH: &str = "/org/freedesktop/portal/desktop";
 
@@ -44,6 +48,8 @@ pub struct PortalService {
     name: zbus::names::WellKnownName<'static>,
     registry: SharedRegistry,
     tasks: Vec<JoinHandle<()>>,
+    /// Fires when the connection to the bus closes.
+    bus_lost: Option<tokio::sync::oneshot::Receiver<()>>,
 }
 
 impl PortalService {
@@ -78,6 +84,8 @@ impl PortalService {
         server.at(OBJECT_PATH, dialogs::AppChooserBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, dialogs::BackgroundBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, wallpaper::WallpaperBackend { conn: conn.clone() }).await?;
+        server.at(OBJECT_PATH, email::EmailBackend).await?;
+        server.at(OBJECT_PATH, dynamic_launcher::DynamicLauncherBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, lockdown::LockdownBackend::default()).await?;
         server.at(OBJECT_PATH, file_chooser::FileChooserBackend { conn: conn.clone(), folders: Default::default() }).await?;
         server.at(OBJECT_PATH, print::PrintBackend { conn: conn.clone(), prepared: Default::default() }).await?;
@@ -97,8 +105,9 @@ impl PortalService {
         }
         tracing::info!(%name, "portal backends ready");
 
+        let (lost_tx, bus_lost) = tokio::sync::oneshot::channel();
         let tasks = vec![
-            spawn_owner_watcher(&conn, sm.clone(), registry.clone()).await?,
+            spawn_owner_watcher(&conn, sm.clone(), registry.clone(), lost_tx).await?,
             spawn_session_watcher(&conn, sm.clone(), registry.clone()).await?,
             spawn_session_client(&conn, sm, registry.clone()),
             tokio::spawn(dialogs::follow_running(conn.clone(), OBJECT_PATH)),
@@ -109,6 +118,7 @@ impl PortalService {
             name,
             registry,
             tasks,
+            bus_lost: Some(bus_lost),
         })
     }
 
@@ -138,13 +148,49 @@ impl PortalService {
     }
 
     /// Release everything, the name, and close the connection.
-    pub async fn shutdown(self) -> zbus::Result<()> {
+    pub async fn shutdown(mut self) -> zbus::Result<()> {
         for task in &self.tasks {
             task.abort();
         }
-        for task in self.tasks {
+        for task in std::mem::take(&mut self.tasks) {
             let _ = task.await;
         }
+        let closed = match self.bus_lost.as_mut() {
+            Some(rx) => rx.try_recv().is_ok(),
+            // `bus_closed` saw it close.
+            None => true,
+        };
+        if closed {
+            // Nothing to tell a bus that is gone.
+            return Ok(());
+        }
+        // Leaving the bus is bounded: a call in progress (a dialog the
+        // user has not answered) may hold the connection.
+        match tokio::time::timeout(SHUTDOWN_TIMEOUT, self.leave_bus()).await {
+            Ok(result) => result,
+            Err(_) => {
+                tracing::warn!("leaving the bus timed out");
+                Ok(())
+            }
+        }
+    }
+
+    /// Resolves when the connection to the bus closes (the bus went away).
+    pub async fn bus_closed(&mut self) {
+        match self.bus_lost.as_mut() {
+            Some(rx) => {
+                if rx.await.is_err() {
+                    // The watcher stopped without the bus closing.
+                    std::future::pending::<()>().await;
+                }
+                // Remembered as closed (see `shutdown`).
+                self.bus_lost = None;
+            }
+            None => std::future::pending().await,
+        }
+    }
+
+    async fn leave_bus(self) -> zbus::Result<()> {
         self.conn.release_name(self.name.clone()).await?;
         // Exported objects hold SessionManager proxies, which hold the
         // connection: unregister them or the connection never drops.
@@ -162,6 +208,8 @@ impl PortalService {
         server.remove::<dialogs::AppChooserBackend, _>(OBJECT_PATH).await?;
         server.remove::<dialogs::BackgroundBackend, _>(OBJECT_PATH).await?;
         server.remove::<wallpaper::WallpaperBackend, _>(OBJECT_PATH).await?;
+        server.remove::<email::EmailBackend, _>(OBJECT_PATH).await?;
+        server.remove::<dynamic_launcher::DynamicLauncherBackend, _>(OBJECT_PATH).await?;
         server.remove::<lockdown::LockdownBackend, _>(OBJECT_PATH).await?;
         server.remove::<notification::NotificationBackend, _>(OBJECT_PATH).await?;
         server.remove::<print::PrintBackend, _>(OBJECT_PATH).await?;
@@ -175,6 +223,7 @@ async fn spawn_owner_watcher(
     conn: &Connection,
     sm: SessionManagerProxy<'static>,
     registry: SharedRegistry,
+    lost: tokio::sync::oneshot::Sender<()>,
 ) -> zbus::Result<JoinHandle<()>> {
     let mut changes = DBusProxy::new(conn).await?.receive_name_owner_changed().await?;
     let conn = conn.clone();
@@ -186,6 +235,8 @@ async fn spawn_owner_watcher(
                 inhibit::release_owner(&conn, &sm, &registry, name).await;
             }
         }
+        // The stream ends when the connection closes.
+        let _ = lost.send(());
     }))
 }
 
