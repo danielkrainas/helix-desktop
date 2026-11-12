@@ -99,6 +99,20 @@ fn main() -> ExitCode {
     helix_shell::media::run(service.notifications());
     // The desktop and lock screen backgrounds.
     runtime.spawn(helix_shell::wallpaper::follow(service.ui_sender()));
+    // GeoClue's location agent.
+    if std::env::var_os("HELIX_NO_GEOCLUE_AGENT").is_none() {
+        let (ui, session) = (service.ui_sender(), service.connection().clone());
+        runtime.spawn(async move {
+            match zbus::Connection::system().await {
+                Ok(system) => {
+                    if let Err(err) = helix_shell::geoclue_agent::run(system, session, ui).await {
+                        tracing::info!(%err, "no GeoClue agent");
+                    }
+                }
+                Err(err) => tracing::info!(%err, "no system bus; no GeoClue agent"),
+            }
+        });
+    }
     // The polkit authentication agent for our session.
     if std::env::var_os("HELIX_NO_POLKIT_AGENT").is_none() {
         let ui = service.ui_sender();

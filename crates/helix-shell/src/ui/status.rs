@@ -39,6 +39,9 @@ impl Ui {
         if let Some(icon) = &status.network {
             out.extend(self.symbolic_icon(icon, scale).map(StatusItem::Icon));
         }
+        if status.location {
+            out.extend(self.symbolic_icon("location-services-active-symbolic", scale).map(StatusItem::Icon));
+        }
         out
     }
 }

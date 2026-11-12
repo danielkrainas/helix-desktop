@@ -43,6 +43,8 @@ pub struct Status {
     pub volume: Option<String>,
     /// iio-sensor-proxy has an accelerometer (automatic rotation).
     pub accelerometer: bool,
+    /// An app uses the location (GeoClue), with location services on.
+    pub location: bool,
 }
 
 /// A quick settings switch acting on the system.
@@ -126,6 +128,10 @@ async fn profiles_service(conn: &Connection) -> Option<(&'static str, &'static s
 }
 
 /// Read everything now.
+fn location_enabled() -> bool {
+    helix_settings::has_schema(crate::location::LOCATION) && gio::Settings::new(crate::location::LOCATION).boolean("enabled")
+}
+
 pub async fn read(system: Option<&Connection>) -> Status {
     let mut status = Status { show_percentage: show_percentage(), ..Status::default() };
     if let Some((percent, muted)) = crate::shell_keys::volume_state().await {
@@ -159,6 +165,17 @@ pub async fn read(system: Option<&Connection>) -> Status {
         let ssid = primary.as_ref().filter(|p| p.0 == "802-11-wireless").and_then(|p| p.2.clone());
         status.wifi = Some((on, ssid));
         status.network = Some(network_icon(status.airplane, on, primary.as_ref().map(|p| (p.0.as_str(), p.1))));
+    }
+    // GeoClue, only while it runs.
+    let geoclue = "org.freedesktop.GeoClue2";
+    if location_enabled() {
+        let running = match zbus::fdo::DBusProxy::new(conn).await {
+            Ok(dbus) => dbus.name_has_owner(zbus::names::BusName::from_static_str(geoclue).expect("a valid name")).await.unwrap_or(false),
+            Err(_) => false,
+        };
+        if running {
+            status.location = prop::<bool>(conn, geoclue, "/org/freedesktop/GeoClue2/Manager", "org.freedesktop.GeoClue2.Manager", "InUse").await == Some(true);
+        }
     }
     // UPower.
     let display = "/org/freedesktop/UPower/devices/DisplayDevice";
