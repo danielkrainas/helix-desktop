@@ -547,6 +547,19 @@ impl Helix {
         layers.layer_under(Layer::Overlay, local).is_some() || layers.layer_under(Layer::Top, local).is_some()
     }
 
+    /// The window under `pos` and where it is: as the space has it, except
+    /// that shaded windows are only their title bar (their contents let
+    /// the pointer through).
+    pub fn window_under(&self, pos: Point<f64, Logical>) -> Option<(&Window, Point<i32, Logical>)> {
+        if self.frames.shaded.is_empty() {
+            return self.space.element_under(pos);
+        }
+        self.space.elements().rev().filter(|w| !self.frames.shaded.contains(w)).find_map(|w| {
+            let location = self.space.element_location(w)? - w.geometry().loc;
+            smithay::desktop::space::SpaceElement::is_in_input_region(w, &(pos - location.to_f64())).then_some((w, location))
+        })
+    }
+
     pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
         if self.lock.locked {
             return self.lock_surface_under(pos);
@@ -565,7 +578,7 @@ impl Helix {
         layer_hit(Layer::Overlay)
             .or_else(|| layer_hit(Layer::Top))
             .or_else(|| {
-                self.space.element_under(pos).and_then(|(window, location)| {
+                self.window_under(pos).and_then(|(window, location)| {
                     window
                         .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
                         .map(|(s, p)| (s, (p + location).to_f64()))

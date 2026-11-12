@@ -248,7 +248,7 @@ impl Helix {
             // As a click would, the tip focuses the window it touches.
             if down && !self.lock.locked {
                 let pos = self.seat.get_pointer().unwrap().current_location();
-                if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
+                if let Some(window) = self.window_under(pos).map(|(w, _)| w.clone()) {
                     self.focus_window_with(&window, self.wm_settings.raise_on_click);
                 }
             }

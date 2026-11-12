@@ -44,6 +44,8 @@ pub enum TitleAction {
     Lower,
     /// The window menu.
     Menu,
+    /// Roll the window up to its title bar, or back down.
+    ToggleShade,
     None,
 }
 
@@ -56,7 +58,7 @@ impl TitleAction {
             "minimize" => Self::Minimize,
             "lower" => Self::Lower,
             "menu" => Self::Menu,
-            // `toggle-shade` (no shading), `none`.
+            "toggle-shade" => Self::ToggleShade,
             _ => Self::None,
         }
     }
@@ -227,6 +229,12 @@ pub enum Part {
     Edge(u32),
 }
 
+/// Whether `part` is the title bar (title or button), all a shaded window
+/// keeps.
+pub fn is_title_part(part: Part) -> bool {
+    matches!(part, Part::Title | Part::Button(_))
+}
+
 /// The part of the frame of a window whose own area is `client` that
 /// `pos` is on; `None` inside the window or outside the frame.
 pub fn hit(config: &FrameConfig, client: Rect, pos: (f64, f64)) -> Option<Part> {
@@ -299,7 +307,9 @@ mod tests {
     fn actions() {
         assert_eq!(TitleAction::parse("lower"), TitleAction::Lower);
         assert_eq!(TitleAction::parse("menu"), TitleAction::Menu);
-        assert_eq!(TitleAction::parse("toggle-shade"), TitleAction::None);
+        assert_eq!(TitleAction::parse("toggle-shade"), TitleAction::ToggleShade);
+        assert_eq!(TitleAction::parse("none"), TitleAction::None);
+        assert!(is_title_part(Part::Title) && is_title_part(Part::Button(Button::Close)) && !is_title_part(Part::Edge(2)));
     }
 
     #[test]

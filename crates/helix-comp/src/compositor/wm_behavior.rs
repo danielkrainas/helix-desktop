@@ -104,7 +104,7 @@ impl Helix {
         if mode == FocusMode::Click || self.lock.locked || self.seat.get_pointer().unwrap().is_grabbed() || self.over_panel(pos) {
             return;
         }
-        let under = self.space.element_under(pos).map(|(w, _)| w.clone()).filter(|w| !is_override_redirect(w));
+        let under = self.window_under(pos).map(|(w, _)| w.clone()).filter(|w| !is_override_redirect(w));
         let focused = self.focused_window();
         match under {
             Some(window) if focused.as_ref() != Some(&window) => {
@@ -295,7 +295,7 @@ impl Helix {
             if now.duration_since(since) >= REST {
                 self.wm.pending_focus = None;
                 let pos = self.seat.get_pointer().unwrap().current_location();
-                let still = self.space.element_under(pos).is_some_and(|(w, _)| *w == window);
+                let still = self.window_under(pos).is_some_and(|(w, _)| *w == window);
                 if still {
                     self.focus_by_pointer(&window);
                 }

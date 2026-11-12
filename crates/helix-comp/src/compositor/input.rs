@@ -335,7 +335,7 @@ impl Helix {
             }
             if self.over_panel(pos) {
                 // Clicks on panels don't change window focus.
-            } else if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
+            } else if let Some(window) = self.window_under(pos).map(|(w, _)| w.clone()) {
                 // `mouse-button-modifier` clicks move, resize or open
                 // the window menu, and are not passed to the app.
                 if self.modifier_click(&window, button, pos) {
@@ -392,7 +392,7 @@ impl Helix {
     pub(super) fn touch_down(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, time: u32) {
         if !self.lock.locked {
             // A touch focuses the window it lands on, as a click does.
-            if let Some(window) = self.space.element_under(pos).map(|(w, _)| w.clone()) {
+            if let Some(window) = self.window_under(pos).map(|(w, _)| w.clone()) {
                 self.focus_window(&window);
             }
         }

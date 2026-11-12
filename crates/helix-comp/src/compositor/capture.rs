@@ -326,7 +326,7 @@ impl Helix {
             let window = self
                 .frame_under(at)
                 .map(|(w, _)| w)
-                .or_else(|| self.space.element_under(at).map(|(w, _)| w.clone()))
+                .or_else(|| self.window_under(at).map(|(w, _)| w.clone()))
                 .filter(|w| !super::wm::is_override_redirect(w))
                 .ok_or(Reason::NoWindow)?;
             return self.window_image(renderer, &window, cursor, true).map_err(|e| match e {

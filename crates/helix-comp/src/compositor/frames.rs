@@ -85,6 +85,8 @@ pub struct Frames {
     flashes: Vec<(Rectangle<i32, Logical>, std::time::Instant, SolidColorBuffer)>,
     /// Locate pointer: where, and since when.
     locating: Option<(Point<f64, Logical>, std::time::Instant)>,
+    /// Windows rolled up to their title bar.
+    pub shaded: Vec<Window>,
 }
 
 /// How long a visual bell flash lasts.
@@ -191,6 +193,7 @@ impl Frames {
     /// Forget a window that went away.
     pub fn forget(&mut self, window: &Window) {
         self.cache.borrow_mut().retain(|(w, _, _)| w != window);
+        self.shaded.retain(|w| w != window);
         if self.hover.as_ref().is_some_and(|(w, _)| w == window) {
             self.hover = None;
         }
@@ -371,7 +374,8 @@ pub fn scene(
             continue;
         }
         let at = (location - window.geometry().loc - output_geo.loc).to_physical_precise_round(scale);
-        let surfaces = window.render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(renderer, at, Scale::from(scale), look.alpha as f32);
+        let shaded = frames.shaded.contains(window);
+        let surfaces = if shaded { Vec::new() } else { window.render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(renderer, at, Scale::from(scale), look.alpha as f32) };
         if look.scale == 1.0 {
             elements.extend(surfaces.into_iter().map(SceneElement::Surface));
         } else {
@@ -441,14 +445,18 @@ impl Helix {
         }
         for window in self.space.elements().rev() {
             let Some(client) = client_rect(&self.space, window) else { continue };
+            let shaded = self.frames.shaded.contains(window);
             let bbox = self.space.element_bbox(window).unwrap_or(client);
-            if client.to_f64().contains(pos) || (!framed(window) && bbox.to_f64().contains(pos)) {
+            if !shaded && (client.to_f64().contains(pos) || (!framed(window) && bbox.to_f64().contains(pos))) {
                 return None;
             }
             if framed(window) {
                 let rect = (client.loc.x, client.loc.y, client.size.w, client.size.h);
-                if let Some(part) = frames::hit(&self.frames.config, rect, (pos.x, pos.y)) {
-                    return Some((window.clone(), part));
+                match frames::hit(&self.frames.config, rect, (pos.x, pos.y)) {
+                    // A shaded window is only its title bar.
+                    Some(part) if shaded && !frames::is_title_part(part) => {}
+                    Some(part) => return Some((window.clone(), part)),
+                    None => {}
                 }
             }
         }
@@ -544,6 +552,16 @@ impl Helix {
             TitleAction::Menu => {
                 let pos = self.seat.get_pointer().unwrap().current_location().to_i32_round();
                 self.send_window_menu(window, pos);
+            }
+            TitleAction::ToggleShade => {
+                if let Some(i) = self.frames.shaded.iter().position(|w| w == window) {
+                    self.frames.shaded.remove(i);
+                    tracing::debug!("window unshaded");
+                } else if framed(window) {
+                    self.frames.shaded.push(window.clone());
+                    tracing::debug!("window shaded");
+                }
+                self.render_all();
             }
             TitleAction::None => {}
         }
