@@ -163,15 +163,38 @@ impl NotificationBackend {
         2
     }
 
-    /// The categories (and no button purposes) version 2 may use.
+    /// The categories and button purposes version 2 may use.
     #[zbus(property, name = "SupportedOptions")]
     fn supported_options(&self) -> HashMap<String, OwnedValue> {
         let list: Vec<&str> = CATEGORIES.to_vec();
-        HashMap::from([("category".to_owned(), OwnedValue::try_from(Value::from(list)).expect("array"))])
+        let purposes: Vec<&str> = BUTTON_PURPOSES.to_vec();
+        HashMap::from([
+            ("category".to_owned(), OwnedValue::try_from(Value::from(list)).expect("array")),
+            ("button-purpose".to_owned(), OwnedValue::try_from(Value::from(purposes)).expect("array")),
+        ])
     }
 
     #[zbus(signal)]
     pub async fn action_invoked(emitter: &SignalEmitter<'_>, app_id: &str, id: &str, action: &str, parameter: Vec<Value<'_>>) -> zbus::Result<()>;
+}
+
+/// The button purposes the shell understands (as its `BUTTON_PURPOSES`).
+pub const BUTTON_PURPOSES: &[&str] = &["im.reply-with-text", "call.accept", "call.decline", "call.hang-up", "call.enable-speakerphone", "call.disable-speakerphone"];
+
+/// The shell's platform-data key carrying a reply.
+const RESPONSE_KEY: &str = "x-helix-response";
+
+/// The portal's `ActionInvoked` parameter from the shell's: the target (if
+/// any), the platform data, then the reply (if any). The shell sends the
+/// target then the reply, and the reply again in its platform data.
+pub fn portal_parameter(mut parameter: Vec<OwnedValue>, mut platform: HashMap<String, OwnedValue>) -> Vec<OwnedValue> {
+    let response = platform.remove(RESPONSE_KEY);
+    if response.is_some() {
+        parameter.pop();
+    }
+    parameter.push(OwnedValue::try_from(Value::from(platform)).expect("dict"));
+    parameter.extend(response);
+    parameter
 }
 
 /// Pass the shell's `ActionInvoked` for this backend's notifications on.
@@ -181,14 +204,14 @@ pub async fn follow_actions(conn: Connection, path: &'static str, added: Added) 
     let Ok(mut stream) = zbus::MessageStream::for_match_rule(rule, &conn, Some(32)).await else { return };
     while let Some(Ok(message)) = stream.next().await {
         let body = message.body();
-        let Ok((app_id, id, action, parameter, _)) = body.deserialize::<(String, String, String, Vec<OwnedValue>, HashMap<String, OwnedValue>)>() else { continue };
+        let Ok((app_id, id, action, parameter, platform)) = body.deserialize::<(String, String, String, Vec<OwnedValue>, HashMap<String, OwnedValue>)>() else { continue };
         let ours = added.lock().unwrap_or_else(|e| e.into_inner()).remove(&(app_id.clone(), id.clone()));
         if !ours {
             continue;
         }
         tracing::info!(app_id, id, action, "portal notification action");
         if let Ok(emitter) = SignalEmitter::new(&conn, path) {
-            let parameter: Vec<Value<'_>> = parameter.into_iter().map(Value::from).collect();
+            let parameter: Vec<Value<'_>> = portal_parameter(parameter, platform).into_iter().map(Value::from).collect();
             let _ = NotificationBackend::action_invoked(&emitter, &app_id, &id, &action, parameter).await;
         }
     }
@@ -197,6 +220,28 @@ pub async fn follow_actions(conn: Connection, path: &'static str, added: Added) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parameters() {
+        let o = |v: Value<'_>| OwnedValue::try_from(v).unwrap();
+        // A target and no reply: target, platform data.
+        let p = portal_parameter(vec![o(Value::from(7i32))], HashMap::new());
+        assert_eq!(p.len(), 2);
+        assert_eq!(i32::try_from(p[0].clone()).unwrap(), 7);
+        assert!(HashMap::<String, OwnedValue>::try_from(p[1].clone()).unwrap().is_empty());
+        // A reply: target, platform data (without Helix's key), reply.
+        let platform = HashMap::from([(RESPONSE_KEY.to_owned(), o(Value::from("on my way")))]);
+        let p = portal_parameter(vec![o(Value::from("chat-3")), o(Value::from("on my way"))], platform);
+        assert_eq!(p.len(), 3);
+        assert_eq!(String::try_from(p[0].clone()).unwrap(), "chat-3");
+        assert!(HashMap::<String, OwnedValue>::try_from(p[1].clone()).unwrap().is_empty());
+        assert_eq!(String::try_from(p[2].clone()).unwrap(), "on my way");
+        // No target, a reply.
+        let platform = HashMap::from([(RESPONSE_KEY.to_owned(), o(Value::from("ok")))]);
+        let p = portal_parameter(vec![o(Value::from("ok"))], platform);
+        assert_eq!(p.len(), 2);
+        assert_eq!(String::try_from(p[1].clone()).unwrap(), "ok");
+    }
 
     #[test]
     fn keys() {

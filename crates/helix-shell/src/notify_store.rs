@@ -41,6 +41,9 @@ pub enum Origin {
         default_action: Option<String>,
         /// Buttons' action names, by index (key `button-N`).
         buttons: Vec<String>,
+        /// The button whose purpose is `im.reply-with-text`: choosing it
+        /// asks for the reply first.
+        reply: Option<usize>,
     },
     /// The shell's own: a screenshot it saved (click opens it; the
     /// `show-in-files` button shows it in the file manager).
@@ -335,7 +338,7 @@ mod tests {
     fn gtk_lookup() {
         let mut s = Store::default();
         let mut g = n("g", Urgency::Normal, None);
-        g.origin = Origin::Gtk { app_id: "org.example.App".into(), id: "x".into(), default_action: None, buttons: vec![] };
+        g.origin = Origin::Gtk { app_id: "org.example.App".into(), id: "x".into(), default_action: None, buttons: vec![], reply: None };
         let id = s.add(g, true);
         assert_eq!(s.find_gtk("org.example.App", "x"), Some(id));
         assert_eq!(s.find_gtk("org.example.App", "y"), None);

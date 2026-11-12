@@ -326,6 +326,52 @@ impl Center {
         Ok(())
     }
 
+    /// Run an org.gtk notification's action `key` (`default` or
+    /// `button-N`), with the user's reply if it asked for one.
+    async fn gtk_activate(&self, conn: &Connection, id: u32, n: &Notification, key: &str, response: Option<String>) -> zbus::Result<()> {
+        let Origin::Gtk { app_id, id: gtk_id, default_action, buttons, .. } = &n.origin else { return Ok(()) };
+        let action = if key == "default" {
+            default_action.clone()
+        } else {
+            key.strip_prefix("button-").and_then(|i| i.parse::<usize>().ok()).and_then(|i| buttons.get(i).cloned())
+        };
+        let target = self.targets.lock().unwrap_or_else(|e| e.into_inner()).get(&(id, key.to_owned())).and_then(|v| v.try_clone().ok());
+        let parameter = action_parameter(target, response.as_deref());
+        // For apps reached by signal (the portal's): the reply also in the
+        // platform data, where the portal backend looks for it.
+        let mut platform: HashMap<&str, Value<'_>> = HashMap::new();
+        if let Some(text) = response.as_deref() {
+            platform.insert(RESPONSE_KEY, Value::from(text.to_owned()));
+        }
+        let signal = |name: &str| {
+            let parameter: Vec<Value<'_>> = parameter.iter().filter_map(|v| v.try_clone().ok()).map(Value::from).collect();
+            (name.to_owned(), parameter)
+        };
+        match action.as_deref() {
+            // Not an `app.` action: the app hears about it by signal.
+            Some(name) if !name.starts_with("app.") => {
+                let emitter = SignalEmitter::new(conn, GTK_PATH)?;
+                let (name, parameter) = signal(name);
+                GtkNotifications::action_invoked(&emitter, app_id, gtk_id, &name, parameter, platform).await?;
+            }
+            _ => {
+                let owned: Vec<OwnedValue> = parameter.iter().filter_map(|v| v.try_clone().ok()).collect();
+                if let Err(err) = activate_app(conn, app_id, action.as_deref(), owned).await {
+                    tracing::info!(%err, app_id, "cannot activate application");
+                    // An app that cannot be reached (not on the bus, as
+                    // portal clients may be) hears by signal.
+                    if let (Some(name), true) = (action.as_deref(), unreachable(&err)) {
+                        let emitter = SignalEmitter::new(conn, GTK_PATH)?;
+                        let (name, parameter) = signal(name);
+                        GtkNotifications::action_invoked(&emitter, app_id, gtk_id, &name, parameter, platform).await?;
+                    }
+                }
+            }
+        }
+        self.remove(id);
+        Ok(())
+    }
+
     /// The user clicked the banner (`action` = None means the default
     /// action) or a button (`Some(key)`).
     pub async fn activate(&self, conn: &Connection, id: u32, action: Option<String>) -> zbus::Result<()> {
@@ -341,51 +387,28 @@ impl Center {
                     self.close(conn, id, CloseReason::Dismissed).await?;
                 }
             }
-            Origin::Gtk { app_id, default_action, buttons, .. } => {
-                let action = if key == "default" {
-                    default_action.clone()
-                } else {
-                    key.strip_prefix("button-")
-                        .and_then(|i| i.parse::<usize>().ok())
-                        .and_then(|i| buttons.get(i).cloned())
-                };
-                let target = self
-                    .targets
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .get(&(id, key.clone()))
-                    .and_then(|v| v.try_clone().ok());
-                match action.as_deref() {
-                    // Not an `app.` action: the app hears about it by signal.
-                    Some(name) if !name.starts_with("app.") => {
-                        let emitter = SignalEmitter::new(conn, GTK_PATH)?;
-                        let parameter: Vec<Value<'_>> = target.map(Value::from).into_iter().collect();
-                        let gtk_id = match &n.origin {
-                            Origin::Gtk { id, .. } => id.clone(),
-                            _ => String::new(),
-                        };
-                        GtkNotifications::action_invoked(&emitter, app_id, &gtk_id, name, parameter, HashMap::new()).await?;
+            Origin::Gtk { reply: Some(r), .. } if key == format!("button-{r}") => {
+                // Ask for the reply first, without holding up other requests.
+                let (center, conn) = (self.clone(), conn.clone());
+                tokio::spawn(async move {
+                    let prompt = crate::prompt::Prompt {
+                        title: format!("Reply to {}", n.app_name),
+                        message: n.summary.clone(),
+                        description: crate::markup::plain(&n.body),
+                        entry: Some(("Reply".into(), String::new())),
+                        continue_label: "Send".into(),
+                        cancel_label: "Cancel".into(),
+                        ..Default::default()
+                    };
+                    let answer = crate::prompt::ask(&center.ui, prompt).await;
+                    crate::prompt::done(&center.ui);
+                    let crate::prompt::Answer::Continue { entry: Some(text), .. } = answer else { return };
+                    if let Err(err) = center.gtk_activate(&conn, id, &n, &key, Some(text)).await {
+                        tracing::info!(%err, "cannot send the reply");
                     }
-                    _ => {
-                        let parameter: Vec<OwnedValue> = target.as_ref().and_then(|t| t.try_clone().ok()).into_iter().collect();
-                        if let Err(err) = activate_app(conn, app_id, action.as_deref(), target).await {
-                            tracing::info!(%err, app_id, "cannot activate application");
-                            // An app that cannot be reached (not on the
-                            // bus, as portal clients may be) hears by signal.
-                            if let (Some(name), true) = (action.as_deref(), unreachable(&err)) {
-                                let emitter = SignalEmitter::new(conn, GTK_PATH)?;
-                                let gtk_id = match &n.origin {
-                                    Origin::Gtk { id, .. } => id.clone(),
-                                    _ => String::new(),
-                                };
-                                let parameter: Vec<Value<'_>> = parameter.into_iter().map(Value::from).collect();
-                                GtkNotifications::action_invoked(&emitter, app_id, &gtk_id, name, parameter, HashMap::new()).await?;
-                            }
-                        }
-                    }
-                }
-                self.remove(id);
+                });
             }
+            Origin::Gtk { .. } => self.gtk_activate(conn, id, &n, &key, None).await?,
             Origin::Media { root } => {
                 match (key.as_str(), root) {
                     ("open", Some(root)) => crate::media::request(root.clone(), crate::media::Request::Open),
@@ -478,13 +501,13 @@ async fn activate_app(
     conn: &Connection,
     app_id: &str,
     action: Option<&str>,
-    target: Option<OwnedValue>,
+    parameter: Vec<OwnedValue>,
 ) -> zbus::Result<()> {
     let path = app_object_path(app_id);
     let platform_data: HashMap<&str, Value<'_>> = HashMap::new();
     match action.and_then(|a| a.strip_prefix("app.")) {
         Some(name) => {
-            let parameter: Vec<Value<'_>> = target.map(Value::from).into_iter().collect();
+            let parameter: Vec<Value<'_>> = parameter.into_iter().map(Value::from).collect();
             conn.call_method(
                 Some(app_id),
                 path.as_str(),
@@ -634,6 +657,46 @@ fn unwrap_variant(v: &Value<'_>) -> Option<OwnedValue> {
     inner.try_to_owned().ok()
 }
 
+/// The button purpose that asks for a text reply.
+pub const REPLY_PURPOSE: &str = "im.reply-with-text";
+
+/// The button purposes the shell understands (the portal's
+/// `SupportedOptions` `button-purpose`).
+pub const BUTTON_PURPOSES: &[&str] = &[REPLY_PURPOSE, "call.accept", "call.decline", "call.hang-up", "call.enable-speakerphone", "call.disable-speakerphone"];
+
+/// A button's label: its own, else one for its purpose; `None` for a
+/// button not to show (no label and no purpose Helix names, such as
+/// `system.custom-alert`).
+pub fn button_label(label: Option<&str>, purpose: &str) -> Option<String> {
+    if let Some(label) = label.map(str::trim).filter(|l| !l.is_empty()) {
+        return Some(label.to_owned());
+    }
+    let named = match purpose {
+        REPLY_PURPOSE => "Reply",
+        "call.accept" => "Accept",
+        "call.decline" => "Decline",
+        "call.hang-up" => "Hang Up",
+        "call.enable-speakerphone" => "Speaker On",
+        "call.disable-speakerphone" => "Speaker Off",
+        _ => return None,
+    };
+    Some(named.to_owned())
+}
+
+/// A notification action's parameter: its target (if any), then the
+/// user's reply (if any).
+pub fn action_parameter(target: Option<OwnedValue>, response: Option<&str>) -> Vec<OwnedValue> {
+    let mut out: Vec<OwnedValue> = target.into_iter().collect();
+    if let Some(text) = response {
+        out.push(OwnedValue::try_from(Value::from(text)).expect("string"));
+    }
+    out
+}
+
+/// Helix's key in `ActionInvoked`'s platform data carrying the reply
+/// (the portal backend moves it into the parameter).
+pub const RESPONSE_KEY: &str = "x-helix-response";
+
 #[interface(name = "org.gtk.Notifications")]
 impl GtkNotifications {
     async fn add_notification(&self, app_id: String, id: String, notification: HashMap<String, OwnedValue>) {
@@ -650,12 +713,18 @@ impl GtkNotifications {
         if let Some(target) = notification.get("default-action-target").and_then(|v| unwrap_variant(v)) {
             targets.push(("default".to_owned(), target));
         }
+        let mut reply = None;
         if let Some(Value::Array(buttons)) = notification.get("buttons").map(|v| &**v) {
-            for (i, button) in buttons.iter().enumerate() {
+            for button in buttons.iter() {
                 let Ok(owned) = button.try_to_owned() else { continue };
                 let Ok(dict) = HashMap::<String, OwnedValue>::try_from(owned) else { continue };
-                let label = dict_str(&dict, "label").unwrap_or_default();
+                let purpose = dict_str(&dict, "purpose").unwrap_or_default();
+                let Some(label) = button_label(dict_str(&dict, "label").as_deref(), &purpose) else { continue };
                 let action = dict_str(&dict, "action").unwrap_or_default();
+                let i = button_actions.len();
+                if purpose == REPLY_PURPOSE && reply.is_none() {
+                    reply = Some(i);
+                }
                 let key = format!("button-{i}");
                 if let Some(target) = dict.get("target").and_then(|v| unwrap_variant(v)) {
                     targets.push((key.clone(), target));
@@ -680,7 +749,7 @@ impl GtkNotifications {
             urgency,
             timeout: Notification::timeout_from(-1, urgency),
             icon: notification.get("icon").and_then(|v| IconSource::from_gicon(v)).or_else(|| IconSource::for_app(&app_id)),
-            origin: Origin::Gtk { app_id, id, default_action, buttons: button_actions },
+            origin: Origin::Gtk { app_id, id, default_action, buttons: button_actions, reply },
             markup: markup_body.is_some(),
             transient,
             app_id: String::new(),
@@ -763,6 +832,19 @@ pub fn spawn_ticker(center: Center, conn: Connection) -> tokio::task::JoinHandle
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn purposes() {
+        assert_eq!(button_label(Some("Answer"), "call.accept").as_deref(), Some("Answer"));
+        assert_eq!(button_label(None, "call.accept").as_deref(), Some("Accept"));
+        assert_eq!(button_label(Some("  "), REPLY_PURPOSE).as_deref(), Some("Reply"));
+        assert_eq!(button_label(None, "system.custom-alert"), None, "not shown");
+        assert_eq!(button_label(None, ""), None);
+        let o = |v: Value<'_>| OwnedValue::try_from(v).unwrap();
+        let p = action_parameter(Some(o(Value::from(3u32))), Some("hi"));
+        assert_eq!((u32::try_from(p[0].clone()).unwrap(), String::try_from(p[1].clone()).unwrap().as_str()), (3, "hi"));
+        assert!(action_parameter(None, None).is_empty());
+    }
 
     #[test]
     fn object_paths() {
