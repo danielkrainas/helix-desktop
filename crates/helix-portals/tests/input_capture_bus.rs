@@ -69,6 +69,19 @@ impl Session {
     async fn close(&self) {
         self.calls.lock().unwrap().push("Close".into());
     }
+    async fn enable_clipboard(&self, options: HashMap<String, OwnedValue>, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) {
+        self.calls.lock().unwrap().push(format!("EnableClipboard {}", options.len()));
+        // The clipboard already holds something.
+        let offered = HashMap::from([("mime-types".to_owned(), o(Value::from(vec!["text/plain"]))), ("session-is-owner".to_owned(), o(Value::from(false)))]);
+        Self::selection_owner_changed(&emitter, offered).await.unwrap();
+    }
+    async fn selection_read(&self, mime_type: String) -> OwnedFd {
+        self.calls.lock().unwrap().push(format!("SelectionRead {mime_type}"));
+        let (a, _b) = std::os::unix::net::UnixStream::pair().unwrap();
+        OwnedFd::from(std::os::fd::OwnedFd::from(a))
+    }
+    #[zbus(signal)]
+    async fn selection_owner_changed(emitter: &SignalEmitter<'_>, options: HashMap<String, OwnedValue>) -> zbus::Result<()>;
     #[zbus(signal)]
     async fn activated(emitter: &SignalEmitter<'_>, activation_id: u32, barrier_id: u32, cursor_position: (f64, f64)) -> zbus::Result<()>;
 }
@@ -204,4 +217,57 @@ async fn version_two_remembers() {
     assert_eq!(code, 0);
     assert_eq!(calls.lock().unwrap().iter().filter(|c| c.starts_with("Dialog")).count(), 1);
     assert_eq!(calls.lock().unwrap().iter().filter(|c| c.starts_with("CreateSession")).count(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn clipboard_shared() {
+    let Some(bus) = TestBus::start() else { return };
+    let calls: Calls = Arc::default();
+    let _shell = bus.builder().serve_at("/org/helix/PortalDialog", Dialogs { calls: calls.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
+    let _compositor = bus
+        .builder()
+        .serve_at("/org/helix/InputCapture", Capture { calls: calls.clone() })
+        .unwrap()
+        .serve_at(SESSION, Session { calls: calls.clone() })
+        .unwrap()
+        .name("org.helix.InputCapture")
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let session = SessionService::start(bus.builder()).await.unwrap();
+    let _session = tokio::spawn(session.run(std::future::pending()));
+    let settings: Arc<Mutex<Snapshot>> = Arc::new(Mutex::new(BTreeMap::new()));
+    let _portals = PortalService::start(bus.builder(), settings).await.unwrap();
+    let app = bus.connect().await;
+    const IFACE: &str = "org.freedesktop.impl.portal.InputCapture";
+    const CLIP: &str = "org.freedesktop.impl.portal.Clipboard";
+    let s = OwnedObjectPath::try_from("/org/freedesktop/portal/desktop/session/1_1/c1").unwrap();
+    let none = HashMap::<String, OwnedValue>::new();
+    // Not a session yet.
+    assert!(app.call_method(Some(BUS_NAME), OBJECT_PATH, Some(CLIP), "RequestClipboard", &(s.clone(), none.clone())).await.is_err());
+    app.call_method(Some(BUS_NAME), OBJECT_PATH, Some(IFACE), "CreateSession2", &(s.clone(), "org.example.Leap", none.clone())).await.unwrap();
+    app.call_method(Some(BUS_NAME), OBJECT_PATH, Some(CLIP), "RequestClipboard", &(s.clone(), none.clone())).await.unwrap();
+    let rule = zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(CLIP).unwrap().member("SelectionOwnerChanged").unwrap().build();
+    let mut owner = zbus::MessageStream::for_match_rule(rule, &app, None).await.unwrap();
+    let r = OwnedObjectPath::try_from("/org/freedesktop/portal/desktop/request/1_1/c1").unwrap();
+    let options = HashMap::from([("capabilities", o(Value::from(3u32)))]);
+    let reply = app.call_method(Some(BUS_NAME), OBJECT_PATH, Some(IFACE), "Start", &(r, s.clone(), "org.example.Leap", "", options)).await.unwrap();
+    let (code, results) = reply.body().deserialize::<(u32, HashMap<String, OwnedValue>)>().unwrap();
+    assert_eq!(code, 0);
+    assert!(bool::try_from(results["clipboard_enabled"].clone()).unwrap());
+    assert!(calls.lock().unwrap().contains(&"EnableClipboard 0".to_owned()));
+
+    // The compositor's news reaches the app, for its session.
+    let msg = tokio::time::timeout(Duration::from_secs(5), owner.next()).await.unwrap().unwrap().unwrap();
+    let (session_handle, options) = msg.body().deserialize::<(OwnedObjectPath, HashMap<String, OwnedValue>)>().unwrap();
+    assert_eq!(session_handle, s);
+    assert_eq!(Vec::<String>::try_from(options["mime_types"].clone()).unwrap(), ["text/plain"]);
+
+    // Reading goes to the compositor's session.
+    let fd = app.call_method(Some(BUS_NAME), OBJECT_PATH, Some(CLIP), "SelectionRead", &(s.clone(), "text/plain")).await.unwrap();
+    fd.body().deserialize::<OwnedFd>().unwrap();
+    assert!(calls.lock().unwrap().contains(&"SelectionRead text/plain".to_owned()));
+    // Too late to ask once started.
+    assert!(app.call_method(Some(BUS_NAME), OBJECT_PATH, Some(CLIP), "RequestClipboard", &(s, none)).await.is_err());
 }

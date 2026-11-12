@@ -62,12 +62,14 @@ impl PortalService {
     ) -> zbus::Result<Self> {
         // ScreenCast and RemoteDesktop share their sessions.
         let casts = screencast::Shared::default();
+        // Input capture sessions may share the clipboard too.
+        let (captures, capture_pending) = (input_capture::Sessions::default(), input_capture::Pending::default());
         let conn = builder
             .serve_at(OBJECT_PATH, SettingsBackend::new(settings))?
             .serve_at(OBJECT_PATH, screenshot::ScreenshotBackend)?
             .serve_at(OBJECT_PATH, screencast::ScreenCastBackend { shared: casts.clone() })?
             .serve_at(OBJECT_PATH, remote_desktop::RemoteDesktopBackend { shared: casts.clone() })?
-            .serve_at(OBJECT_PATH, clipboard::ClipboardBackend { shared: casts })?
+            .serve_at(OBJECT_PATH, clipboard::ClipboardBackend { shared: casts, captures: captures.clone(), capture_pending: capture_pending.clone() })?
             .build()
             .await?;
 
@@ -87,7 +89,7 @@ impl PortalService {
         server.at(OBJECT_PATH, dialogs::BackgroundBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, wallpaper::WallpaperBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, email::EmailBackend).await?;
-        server.at(OBJECT_PATH, input_capture::InputCaptureBackend { conn: conn.clone(), sessions: Default::default(), pending: Default::default() }).await?;
+        server.at(OBJECT_PATH, input_capture::InputCaptureBackend { conn: conn.clone(), sessions: captures, pending: capture_pending }).await?;
         server.at(OBJECT_PATH, dynamic_launcher::DynamicLauncherBackend { conn: conn.clone() }).await?;
         server.at(OBJECT_PATH, lockdown::LockdownBackend::default()).await?;
         server.at(OBJECT_PATH, file_chooser::FileChooserBackend { conn: conn.clone(), folders: Default::default() }).await?;

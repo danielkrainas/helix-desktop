@@ -57,6 +57,43 @@ fn lock_pending(p: &Pending) -> std::sync::MutexGuard<'_, std::collections::Hash
     p.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Clipboard sharing of capture sessions: those that asked for it
+/// (`RequestClipboard` before starting) and those sharing it (portal
+/// session → compositor session).
+#[derive(Default)]
+struct Clipboards {
+    requested: std::collections::HashSet<OwnedObjectPath>,
+    shared: HashMap<OwnedObjectPath, OwnedObjectPath>,
+}
+
+static CLIPBOARDS: std::sync::LazyLock<Mutex<Clipboards>> = std::sync::LazyLock::new(Default::default);
+
+fn clipboards() -> std::sync::MutexGuard<'static, Clipboards> {
+    CLIPBOARDS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// `RequestClipboard` for portal session `portal`, if it is a capture
+/// session: `None` when it is not one.
+pub(crate) fn request_clipboard(sessions: &Sessions, pending: &Pending, portal: &OwnedObjectPath) -> Option<fdo::Result<()>> {
+    if lock_pending(pending).contains(portal) {
+        clipboards().requested.insert(portal.clone());
+        return Some(Ok(()));
+    }
+    lock(sessions).contains_key(portal).then(|| Err(fdo::Error::Failed("the session is already started".into())))
+}
+
+/// The compositor session of capture session `portal`, when it shares
+/// the clipboard; `None` when it is not a capture session.
+pub(crate) fn clipboard_session(sessions: &Sessions, portal: &OwnedObjectPath) -> Option<fdo::Result<OwnedObjectPath>> {
+    if !lock(sessions).contains_key(portal) {
+        return None;
+    }
+    Some(clipboards().shared.get(portal).cloned().ok_or_else(|| fdo::Error::Failed("the clipboard is not shared".into())))
+}
+
+/// The bus name and interface of the compositor's capture sessions.
+pub(crate) const CLIPBOARD_TARGET: (&str, &str) = (COMPOSITOR, SESSION_IFACE);
+
 /// Whether the user must be asked: unless `restored` (the capabilities
 /// allowed before) covers what is wanted.
 pub fn must_ask(wanted: u32, restored: Option<u32>) -> bool {
@@ -90,12 +127,33 @@ async fn start(conn: &Connection, sessions: &Sessions, portal: &OwnedObjectPath,
         }
     };
     lock(sessions).insert(portal.clone(), compositor.clone());
-    tokio::spawn(follow(conn.clone(), sessions.clone(), portal.clone(), compositor));
-    tracing::info!(%portal, "input capture session started");
+    // Follow its signals from before the clipboard is turned on (which may
+    // say at once what the clipboard holds).
+    let rule = zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(SESSION_IFACE).and_then(|r| r.path(compositor.clone())).map(|r| r.build());
+    let signals = match rule {
+        Ok(rule) => zbus::MessageStream::for_match_rule(rule, conn, None).await.ok(),
+        Err(_) => None,
+    };
+    let clipboard = clipboards().requested.remove(portal) && signals.is_some() && {
+        let none: HashMap<&str, Value<'_>> = HashMap::new();
+        match conn.call_method(Some(COMPOSITOR), compositor.as_str(), Some(SESSION_IFACE), "EnableClipboard", &(none,)).await {
+            Ok(_) => {
+                clipboards().shared.insert(portal.clone(), compositor.clone());
+                true
+            }
+            Err(err) => {
+                tracing::warn!(%err, "cannot share the clipboard with input capture");
+                false
+            }
+        }
+    };
+    if let Some(signals) = signals {
+        tokio::spawn(follow(conn.clone(), sessions.clone(), portal.clone(), signals));
+    }
+    tracing::info!(%portal, clipboard, "input capture session started");
     let mut results = HashMap::from([
         ("capabilities".to_owned(), value(Value::from(wanted))),
-        // Clipboard sharing is not offered for input capture.
-        ("clipboard_enabled".to_owned(), value(Value::from(false))),
+        ("clipboard_enabled".to_owned(), value(Value::from(clipboard))),
     ]);
     if persist != 0 {
         let remembered = crate::screencast::Remembered { monitor: None, window: None, devices: Some(wanted) };
@@ -121,12 +179,7 @@ impl InputCaptureBackend {
 
 /// Pass the compositor session's signals on as the portal's, until it
 /// closes (then the portal session closes too).
-async fn follow(conn: Connection, sessions: Sessions, portal: OwnedObjectPath, compositor: OwnedObjectPath) {
-    let rule = match zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(SESSION_IFACE).and_then(|r| r.path(compositor.clone())) {
-        Ok(rule) => rule.build(),
-        Err(_) => return,
-    };
-    let Ok(mut signals) = zbus::MessageStream::for_match_rule(rule, &conn, None).await else { return };
+async fn follow(conn: Connection, sessions: Sessions, portal: OwnedObjectPath, mut signals: zbus::MessageStream) {
     let Ok(emitter) = SignalEmitter::new(&conn, crate::OBJECT_PATH) else { return };
     let session = ObjectPath::from(&portal);
     while let Some(Ok(message)) = signals.next().await {
@@ -145,6 +198,14 @@ async fn follow(conn: Connection, sessions: Sessions, portal: OwnedObjectPath, c
                 Err(_) => continue,
             },
             "Disabled" => InputCaptureBackend::disabled(&emitter, session.clone(), HashMap::new()).await,
+            "SelectionOwnerChanged" => match body.deserialize::<HashMap<String, OwnedValue>>() {
+                Ok(options) => crate::clipboard::ClipboardBackend::selection_owner_changed(&emitter, session.clone(), crate::clipboard::rename(options, false)).await,
+                Err(_) => continue,
+            },
+            "SelectionTransfer" => match body.deserialize::<(String, u32)>() {
+                Ok((mime, serial)) => crate::clipboard::ClipboardBackend::selection_transfer(&emitter, session.clone(), &mime, serial).await,
+                Err(_) => continue,
+            },
             "ZonesChanged" => match body.deserialize::<u32>() {
                 Ok(set) => InputCaptureBackend::zones_changed(&emitter, session.clone(), o(vec![("zone_set", Value::from(set))])).await,
                 Err(_) => continue,
@@ -165,6 +226,11 @@ async fn follow(conn: Connection, sessions: Sessions, portal: OwnedObjectPath, c
 /// compositor's).
 async fn end(conn: &Connection, sessions: &Sessions, portal: &OwnedObjectPath, close_compositor: bool) {
     let compositor = lock(sessions).remove(portal);
+    {
+        let mut c = clipboards();
+        c.requested.remove(portal);
+        c.shared.remove(portal);
+    }
     if let (true, Some(compositor)) = (close_compositor, &compositor) {
         let _ = conn.call_method(Some(COMPOSITOR), compositor.as_str(), Some(SESSION_IFACE), "Close", &()).await;
     }
@@ -187,6 +253,7 @@ impl CaptureSession {
         if let Some(path) = header.path() {
             let path = OwnedObjectPath::from(path.to_owned());
             lock_pending(&self.pending).remove(&path);
+            clipboards().requested.remove(&path);
             end(conn, &self.sessions, &path, true).await;
         }
         Ok(())

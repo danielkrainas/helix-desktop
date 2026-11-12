@@ -1,6 +1,7 @@
 //! The Clipboard portal backend (helix-desktop-spec
 //! `org.freedesktop.impl.portal.md`, "Clipboard"): remote desktop sessions
 //! share the clipboard through their `org.gnome.Mutter.RemoteDesktop`
+//! session; input capture sessions through their `org.helix.InputCapture`
 //! session.
 
 use std::collections::HashMap;
@@ -18,11 +19,14 @@ const MUTTER_SESSION: &str = "org.gnome.Mutter.RemoteDesktop.Session";
 /// The exported Clipboard backend.
 pub struct ClipboardBackend {
     pub shared: Shared,
+    /// Input capture sessions: started, and made but not started.
+    pub captures: crate::input_capture::Sessions,
+    pub capture_pending: crate::input_capture::Pending,
 }
 
 /// The portal's option names → the compositor's (`mime_types` →
 /// `mime-types`, `session_is_owner` → `session-is-owner`) and back.
-fn rename(options: HashMap<String, OwnedValue>, to_mutter: bool) -> HashMap<String, OwnedValue> {
+pub(crate) fn rename(options: HashMap<String, OwnedValue>, to_mutter: bool) -> HashMap<String, OwnedValue> {
     options
         .into_iter()
         .map(|(k, v)| (if to_mutter { k.replace('_', "-") } else { k.replace('-', "_") }, v))
@@ -30,16 +34,22 @@ fn rename(options: HashMap<String, OwnedValue>, to_mutter: bool) -> HashMap<Stri
 }
 
 impl ClipboardBackend {
-    /// The compositor session of `session`, when it shares the clipboard.
-    fn mutter(&self, session: &ObjectPath<'_>) -> fdo::Result<OwnedObjectPath> {
+    /// The compositor session of `session` (bus name, path, interface),
+    /// when it shares the clipboard.
+    fn target(&self, session: &ObjectPath<'_>) -> fdo::Result<(&'static str, OwnedObjectPath, &'static str)> {
+        let portal = OwnedObjectPath::from(session.to_owned());
+        if let Some(found) = crate::input_capture::clipboard_session(&self.captures, &portal) {
+            let (bus, iface) = crate::input_capture::CLIPBOARD_TARGET;
+            return found.map(|path| (bus, path, iface));
+        }
         let casts = lock(&self.shared);
         let remote = casts
             .sessions
-            .get(&OwnedObjectPath::from(session.to_owned()))
+            .get(&portal)
             .and_then(|c| c.remote.as_ref())
-            .ok_or_else(|| fdo::Error::InvalidArgs("no such remote desktop session".into()))?;
+            .ok_or_else(|| fdo::Error::InvalidArgs("no such remote desktop or input capture session".into()))?;
         match (&remote.mutter, remote.clipboard) {
-            (Some(m), true) => Ok(m.clone()),
+            (Some(m), true) => Ok((REMOTE, m.clone(), MUTTER_SESSION)),
             _ => Err(fdo::Error::Failed("the clipboard is not shared".into())),
         }
     }
@@ -48,14 +58,18 @@ impl ClipboardBackend {
     where
         B: serde::Serialize + zbus::zvariant::DynamicType,
     {
-        let mutter = self.mutter(session)?;
-        conn.call_method(Some(REMOTE), mutter.as_str(), Some(MUTTER_SESSION), method, body).await.map_err(fdo::Error::from)
+        let (bus, path, iface) = self.target(session)?;
+        conn.call_method(Some(bus), path.as_str(), Some(iface), method, body).await.map_err(fdo::Error::from)
     }
 }
 
 #[interface(name = "org.freedesktop.impl.portal.Clipboard")]
 impl ClipboardBackend {
     async fn request_clipboard(&self, session_handle: ObjectPath<'_>, _options: HashMap<String, Value<'_>>) -> fdo::Result<()> {
+        let portal = OwnedObjectPath::from(session_handle.to_owned());
+        if let Some(result) = crate::input_capture::request_clipboard(&self.captures, &self.capture_pending, &portal) {
+            return result;
+        }
         let mut casts = lock(&self.shared);
         let remote = casts
             .sessions
@@ -99,10 +113,10 @@ impl ClipboardBackend {
     }
 
     #[zbus(signal)]
-    async fn selection_owner_changed(emitter: &SignalEmitter<'_>, session_handle: ObjectPath<'_>, options: HashMap<String, OwnedValue>) -> zbus::Result<()>;
+    pub async fn selection_owner_changed(emitter: &SignalEmitter<'_>, session_handle: ObjectPath<'_>, options: HashMap<String, OwnedValue>) -> zbus::Result<()>;
 
     #[zbus(signal)]
-    async fn selection_transfer(emitter: &SignalEmitter<'_>, session_handle: ObjectPath<'_>, mime_type: &str, serial: u32) -> zbus::Result<()>;
+    pub async fn selection_transfer(emitter: &SignalEmitter<'_>, session_handle: ObjectPath<'_>, mime_type: &str, serial: u32) -> zbus::Result<()>;
 
     #[zbus(property, name = "version")]
     async fn version(&self) -> u32 {

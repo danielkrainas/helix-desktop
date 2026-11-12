@@ -13,6 +13,7 @@ use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedFd, OwnedObjectPath};
 use zbus::{fdo, interface, Connection};
 
+use crate::remote_desktop::{mime_types, ClipboardRequest, RemoteReply, RemoteRequest};
 use crate::screencast::CastRequest;
 
 pub const BUS_NAME: &str = "org.helix.InputCapture";
@@ -106,6 +107,20 @@ fn lock(shared: &Shared) -> std::sync::MutexGuard<'_, Sessions> {
     shared.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Capture sessions share the clipboard like remote desktop sessions;
+/// their clipboard ids have this bit set to keep the two apart.
+pub const CLIPBOARD_BIT: u32 = 1 << 31;
+
+/// The clipboard id of capture session `id`.
+pub fn clipboard_id(id: u32) -> u32 {
+    id | CLIPBOARD_BIT
+}
+
+/// The capture session of a clipboard id, if it is one.
+pub fn of_clipboard_id(id: u32) -> Option<u32> {
+    (id & CLIPBOARD_BIT != 0).then_some(id & !CLIPBOARD_BIT)
+}
+
 pub fn session_path(id: u32) -> String {
     format!("{OBJECT_PATH}/Session/u{id}")
 }
@@ -168,6 +183,16 @@ impl Session {
 
     fn send(&self, request: CaptureRequest) -> fdo::Result<()> {
         self.compositor.send(CastRequest::Capture(request)).map_err(|_| fdo::Error::Failed("the compositor is gone".into()))
+    }
+
+    /// A clipboard request, as a remote desktop session's.
+    async fn clipboard(&self, header: &Header<'_>, request: ClipboardRequest) -> fdo::Result<RemoteReply> {
+        self.check_owner(header)?;
+        let (reply, answer) = oneshot::channel();
+        self.compositor
+            .send(CastRequest::Remote { session: clipboard_id(self.id), request: RemoteRequest::Clipboard(request), reply })
+            .map_err(|_| fdo::Error::Failed("the compositor is gone".into()))?;
+        answer.await.map_err(|_| fdo::Error::Failed("the compositor did not answer".into()))?.map_err(fdo::Error::from)
     }
 }
 
@@ -236,6 +261,45 @@ impl Session {
         Ok(())
     }
 
+    async fn enable_clipboard(&self, options: HashMap<String, zbus::zvariant::OwnedValue>, #[zbus(header)] header: Header<'_>) -> fdo::Result<()> {
+        let types = mime_types(&options)?;
+        self.clipboard(&header, ClipboardRequest::Enable(types)).await.map(|_| ())
+    }
+
+    async fn disable_clipboard(&self, #[zbus(header)] header: Header<'_>) -> fdo::Result<()> {
+        self.clipboard(&header, ClipboardRequest::Disable).await.map(|_| ())
+    }
+
+    async fn set_selection(&self, options: HashMap<String, zbus::zvariant::OwnedValue>, #[zbus(header)] header: Header<'_>) -> fdo::Result<()> {
+        let types = mime_types(&options)?;
+        if types.is_empty() {
+            return Err(fdo::Error::InvalidArgs("mime-types is required".into()));
+        }
+        self.clipboard(&header, ClipboardRequest::SetSelection(types)).await.map(|_| ())
+    }
+
+    async fn selection_write(&self, serial: u32, #[zbus(header)] header: Header<'_>) -> fdo::Result<OwnedFd> {
+        match self.clipboard(&header, ClipboardRequest::Write(serial)).await? {
+            RemoteReply::Fd(fd) => Ok(OwnedFd::from(fd)),
+            _ => Err(fdo::Error::Failed("no file descriptor".into())),
+        }
+    }
+
+    async fn selection_write_done(&self, serial: u32, success: bool, #[zbus(header)] header: Header<'_>) -> fdo::Result<()> {
+        self.clipboard(&header, ClipboardRequest::WriteDone(serial, success)).await.map(|_| ())
+    }
+
+    async fn selection_read(&self, mime_type: &str, #[zbus(header)] header: Header<'_>) -> fdo::Result<OwnedFd> {
+        match self.clipboard(&header, ClipboardRequest::Read(mime_type.to_owned())).await? {
+            RemoteReply::Fd(fd) => Ok(OwnedFd::from(fd)),
+            _ => Err(fdo::Error::Failed("no file descriptor".into())),
+        }
+    }
+
+    #[zbus(signal)]
+    pub async fn selection_owner_changed(emitter: &SignalEmitter<'_>, options: HashMap<String, zbus::zvariant::OwnedValue>) -> zbus::Result<()>;
+    #[zbus(signal)]
+    pub async fn selection_transfer(emitter: &SignalEmitter<'_>, mime_type: &str, serial: u32) -> zbus::Result<()>;
     #[zbus(signal)]
     pub async fn activated(emitter: &SignalEmitter<'_>, activation_id: u32, barrier_id: u32, cursor_position: (f64, f64)) -> zbus::Result<()>;
     #[zbus(signal)]
@@ -272,6 +336,12 @@ mod tests {
     use super::*;
 
     const ZONES: [Zone; 2] = [(1000, 800, 0, 0), (1000, 800, 1000, 0)];
+
+    #[test]
+    fn clipboard_ids() {
+        assert_eq!(of_clipboard_id(clipboard_id(7)), Some(7));
+        assert_eq!(of_clipboard_id(7), None, "a remote desktop session's");
+    }
 
     #[test]
     fn barriers_on_edges() {

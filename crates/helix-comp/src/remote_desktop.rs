@@ -117,7 +117,7 @@ fn read_keymap(fd: std::os::fd::OwnedFd) -> Result<String, String> {
 }
 
 /// `mime-types` of clipboard options (missing: none).
-fn mime_types(options: &HashMap<String, OwnedValue>) -> fdo::Result<Vec<String>> {
+pub fn mime_types(options: &HashMap<String, OwnedValue>) -> fdo::Result<Vec<String>> {
     match options.get("mime-types") {
         None => Ok(Vec::new()),
         Some(v) => Vec::<String>::try_from(v.try_clone().map_err(|e| fdo::Error::InvalidArgs(e.to_string()))?)

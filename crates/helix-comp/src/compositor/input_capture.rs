@@ -136,6 +136,7 @@ impl Helix {
                 let _ = reply.send(self.capture_connect_eis(session));
             }
             CaptureRequest::Close { session } => {
+                self.end_remote_share(helix_comp::input_capture::clipboard_id(session));
                 if self.input_capture.active.as_ref().is_some_and(|a| a.session == session) {
                     self.capture_deactivate(None);
                 }

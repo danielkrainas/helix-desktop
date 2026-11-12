@@ -258,6 +258,16 @@ impl CompositorServices {
                 let emitter = SignalEmitter::new(&self.conn, idle_monitor::CORE_PATH)?;
                 self.idle.activity(&emitter).await
             }
+            Event::RemoteSelectionOwner { session, mime_types, is_owner } if input_capture::of_clipboard_id(session).is_some() => {
+                let path = input_capture::session_path(input_capture::of_clipboard_id(session).unwrap_or_default());
+                let emitter = SignalEmitter::new(&self.conn, path.as_str())?;
+                input_capture::Session::selection_owner_changed(&emitter, remote_desktop::owner_options(mime_types, is_owner)).await
+            }
+            Event::RemoteSelectionTransfer { session, mime_type, serial } if input_capture::of_clipboard_id(session).is_some() => {
+                let path = input_capture::session_path(input_capture::of_clipboard_id(session).unwrap_or_default());
+                let emitter = SignalEmitter::new(&self.conn, path.as_str())?;
+                input_capture::Session::selection_transfer(&emitter, &mime_type, serial).await
+            }
             Event::RemoteSelectionOwner { session, mime_types, is_owner } => {
                 let path = remote_desktop::path_of(session);
                 let emitter = SignalEmitter::new(&self.conn, path.as_str())?;
