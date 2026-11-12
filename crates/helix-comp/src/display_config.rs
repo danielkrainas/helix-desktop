@@ -111,7 +111,7 @@ impl Monitor {
         )
     }
 
-    fn current_mode(&self) -> Option<&Mode> {
+    pub fn current_mode(&self) -> Option<&Mode> {
         self.modes.iter().find(|m| m.current)
     }
 }
@@ -802,7 +802,7 @@ impl DisplayConfig {
         *self.backlight_shown.lock().unwrap_or_else(|e| e.into_inner()) != now
     }
 
-    fn layout(&self) -> MutexGuard<'_, Layout> {
+    pub fn layout(&self) -> MutexGuard<'_, Layout> {
         self.layout.lock().unwrap_or_else(|e| e.into_inner())
     }
 

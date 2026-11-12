@@ -193,6 +193,22 @@ pub fn touchpad(key: Toggle) -> Option<Osd> {
     })
 }
 
+/// `org.gnome.settings-daemon.peripherals.touchscreen`.
+pub const TOUCHSCREEN: &str = "org.gnome.settings-daemon.peripherals.touchscreen";
+
+/// Whether automatic rotation is locked.
+pub fn orientation_locked() -> bool {
+    settings_with(TOUCHSCREEN, "orientation-lock").is_some_and(|s| s.boolean("orientation-lock"))
+}
+
+/// Flip `orientation-lock`.
+pub fn toggle_orientation_lock() {
+    if let Some(s) = settings_with(TOUCHSCREEN, "orientation-lock") {
+        let _ = s.set_boolean("orientation-lock", !s.boolean("orientation-lock"));
+        gio::Settings::sync();
+    }
+}
+
 // ----- Keyboard backlight, battery -------------------------------------
 
 const UPOWER: &str = "org.freedesktop.UPower";

@@ -19,6 +19,7 @@ pub mod idle;
 pub mod idle_monitor;
 pub mod input_settings;
 pub mod remote_desktop;
+pub mod rotation;
 pub mod screencast;
 pub mod wm_settings;
 pub mod workspaces;
@@ -125,6 +126,7 @@ impl CompositorServices {
         let idle = Shared::new();
         let layout = Arc::new(Mutex::new(Layout::new(monitors)));
         let watch_backlight = control.backlight.is_some();
+        let can_apply = control.applier.is_some();
         let casts = screencast::Shared::default();
         let remotes = remote_desktop::Shared::default();
         let cast = control.cast.clone();
@@ -168,6 +170,9 @@ impl CompositorServices {
         ];
         if watch_backlight {
             tasks.push(spawn_backlight_watcher(&conn));
+        }
+        if can_apply {
+            tasks.push(tokio::spawn(rotation::follow(conn.clone())));
         }
         if let Some(cast) = &cast {
             tasks.push(spawn_cast_owner_watcher(&conn, casts.clone(), remotes.clone(), cast.clone()).await?);

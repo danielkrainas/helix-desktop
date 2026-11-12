@@ -155,6 +155,8 @@ pub enum KeyAction {
     Battery,
     /// A custom shortcut, by its place in `custom-keybindings`.
     Custom(usize),
+    /// `rotate-video-lock`: flip the orientation lock.
+    RotationLock,
 }
 
 impl KeyAction {
@@ -257,6 +259,8 @@ const KEYS: &[(&str, &str, &[&str], KeyAction)] = &[
     (MEDIA_KEYS, "keyboard-brightness-down-static", &["XF86KbdBrightnessDown"], KeyAction::KbdBacklight(KbdKey::Down)),
     (MEDIA_KEYS, "keyboard-brightness-toggle", &[], KeyAction::KbdBacklight(KbdKey::Toggle)),
     (MEDIA_KEYS, "keyboard-brightness-toggle-static", &["XF86KbdLightOnOff"], KeyAction::KbdBacklight(KbdKey::Toggle)),
+    (MEDIA_KEYS, "rotate-video-lock", &[], KeyAction::RotationLock),
+    (MEDIA_KEYS, "rotate-video-lock-static", &["<Super>o", "XF86RotationLockToggle"], KeyAction::RotationLock),
     (MEDIA_KEYS, "battery-status", &[], KeyAction::Battery),
     (MEDIA_KEYS, "battery-status-static", &["XF86Battery"], KeyAction::Battery),
     (MEDIA_KEYS, "magnifier", &["<Alt><Super>8"], KeyAction::A11y(A11yKey::Magnifier)),

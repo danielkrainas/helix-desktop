@@ -41,6 +41,8 @@ pub struct Status {
     pub show_percentage: bool,
     /// The volume icon, when a sound server answers.
     pub volume: Option<String>,
+    /// iio-sensor-proxy has an accelerometer (automatic rotation).
+    pub accelerometer: bool,
 }
 
 /// A quick settings switch acting on the system.
@@ -166,6 +168,8 @@ pub async fn read(system: Option<&Connection>) -> Status {
         let icon = prop::<String>(conn, UPOWER, display, device, "IconName").await.filter(|i| !i.is_empty()).unwrap_or_else(|| "battery-symbolic".into());
         status.battery = Some((icon, percent));
     }
+    // The accelerometer.
+    status.accelerometer = prop::<bool>(conn, "net.hadess.SensorProxy", "/net/hadess/SensorProxy", "net.hadess.SensorProxy", "HasAccelerometer").await == Some(true);
     // Power profiles.
     if let Some((name, iface)) = profiles_service(conn).await {
         status.profile = prop::<String>(conn, name, PROFILES_PATH, iface, "ActiveProfile").await;

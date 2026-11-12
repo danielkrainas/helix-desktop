@@ -30,6 +30,7 @@ pub(super) enum Switch {
     Wifi,
     Bluetooth,
     Airplane,
+    AutoRotate,
     NightLight,
     DarkStyle,
     DoNotDisturb,
@@ -64,6 +65,7 @@ impl Ui {
             Switch::Wifi => self.status.wifi.as_ref().is_some_and(|w| w.0),
             Switch::Bluetooth => self.status.bluetooth == Some(true),
             Switch::Airplane => self.status.airplane,
+            Switch::AutoRotate => !crate::extra_keys::orientation_locked(),
             Switch::NightLight => settings(COLOR, "night-light-enabled").is_some_and(|s| s.boolean("night-light-enabled")),
             Switch::DarkStyle => settings(INTERFACE, "color-scheme").is_some_and(|s| s.string("color-scheme") == "prefer-dark"),
             Switch::DoNotDisturb => self.notify.do_not_disturb,
@@ -84,6 +86,7 @@ impl Ui {
             Switch::Airplane => {
                 let _ = self.requests.send(toggle(Toggle::Airplane(on)));
             }
+            Switch::AutoRotate => crate::extra_keys::toggle_orientation_lock(),
             Switch::NightLight => {
                 if let Some(s) = settings(COLOR, "night-light-enabled") {
                     let _ = s.set_boolean("night-light-enabled", on);
@@ -174,6 +177,9 @@ impl Ui {
         }
         if self.status.wifi.is_some() || self.status.bluetooth.is_some() {
             switches.push((Switch::Airplane, "Airplane Mode".into()));
+        }
+        if self.status.accelerometer {
+            switches.push((Switch::AutoRotate, "Auto Rotate".into()));
         }
         switches.extend([(Switch::NightLight, "Night Light".into()), (Switch::DarkStyle, "Dark Style".into()), (Switch::DoNotDisturb, "Do Not Disturb".into())]);
         let states: Vec<bool> = switches.iter().map(|(s, _)| self.switch_on(*s)).collect();

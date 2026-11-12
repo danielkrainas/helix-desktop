@@ -857,6 +857,17 @@ impl UiBridge {
                             Ok(system) => extra_keys::battery(&system).await,
                             Err(_) => None,
                         },
+                        shell_keys::KeyAction::RotationLock => {
+                            extra_keys::toggle_orientation_lock();
+                            let locked = extra_keys::orientation_locked();
+                            Some(Osd {
+                                icon: Some(if locked { "rotation-locked-symbolic" } else { "rotation-allowed-symbolic" }.into()),
+                                label: Some(if locked { "Rotation Locked" } else { "Auto Rotate" }.into()),
+                                level: None,
+                                max_level: 1.0,
+                                connector: None,
+                            })
+                        }
                         shell_keys::KeyAction::Custom(index) => {
                             extra_keys::run_custom(index);
                             None
