@@ -250,6 +250,10 @@ struct Ui {
     source_label: Option<String>,
     /// Where the indicator starts (it ends at `status_left`).
     source_left: i32,
+    /// The accessibility switches, and where their indicator starts (it
+    /// ends at `source_left`).
+    a11y: crate::a11y_menu::Status,
+    a11y_left: i32,
     exit: bool,
 }
 
@@ -336,6 +340,18 @@ const POWER_LABEL: &str = "Power";
 const POWER_BUTTON_W: i32 = 80;
 /// The "Recording" indicator's width (clicking it stops the recording).
 const RECORDING_W: i32 = 104;
+/// The accessibility indicator's width.
+const A11Y_W: i32 = 30;
+
+/// The accessibility indicator: a figure with arms out.
+fn draw_a11y_glyph(canvas: &mut Canvas, cx: i32, cy: i32) {
+    let (cx, cy) = (f64::from(cx), f64::from(cy));
+    canvas.circle(cx, cy - 6.5, 2.2, FG);
+    canvas.line((cx - 6.5, cy - 2.5), (cx + 6.5, cy - 2.5), 1.8, FG);
+    canvas.line((cx, cy - 2.5), (cx, cy + 2.5), 1.8, FG);
+    canvas.line((cx, cy + 2.5), (cx - 4.0, cy + 8.5), 1.8, FG);
+    canvas.line((cx, cy + 2.5), (cx + 4.0, cy + 8.5), 1.8, FG);
+}
 
 struct BannerView {
     data: crate::notifications::Banner,
@@ -535,6 +551,11 @@ impl Ui {
             x -= 8;
         }
         self.source_left = x;
+        if self.a11y.shown {
+            x -= A11Y_W;
+            draw_a11y_glyph(&mut canvas, x + A11Y_W / 2, h as i32 / 2);
+        }
+        self.a11y_left = x;
         if self.recording {
             x -= RECORDING_W;
             canvas.rect(x, h as i32 / 2 - 4, 8, 8, SHARING);
@@ -1799,6 +1820,13 @@ impl Ui {
 
     fn handle(&mut self, event: UiEvent) {
         match event {
+            UiEvent::A11y(status) => {
+                let changed = status.shown != self.a11y.shown;
+                self.a11y = status;
+                if changed {
+                    self.draw_panel();
+                }
+            }
             UiEvent::Dock(settings) => {
                 dock::forget_desktop_ids();
                 // It may move away from under the pointer.
@@ -2288,6 +2316,8 @@ pub fn run(
         status_left: i32::MAX,
         source_label: None,
         source_left: i32::MAX,
+        a11y: crate::a11y_menu::Status::default(),
+        a11y_left: i32::MAX,
         search_serial: 0,
         searched_query: None,
         ctrl_held: false,
@@ -2694,7 +2724,13 @@ impl Ui {
                     } else {
                         self.show_sources_menu(self.source_left);
                     }
-                } else if self.recording && x >= source_x - f64::from(RECORDING_W) {
+                } else if self.a11y.shown && x >= f64::from(self.a11y_left) {
+                    if self.window_menu.is_some() {
+                        self.window_menu = None;
+                    } else {
+                        self.show_a11y_menu(self.a11y_left);
+                    }
+                } else if self.recording && x >= f64::from(self.a11y_left - RECORDING_W) {
                     let _ = self.requests.send(UiRequest::StopRecording);
                 } else if (x - f64::from(self.panel_width) / 2.0).abs() < f64::from(notify::CLOCK_HALF_W) {
                     self.toggle_notification_list();

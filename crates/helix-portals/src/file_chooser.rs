@@ -173,7 +173,7 @@ fn recent_files(home: &Path, filter: Option<&Filter>) -> Vec<PathBuf> {
             (path.is_file() && filter.is_none_or(|f| passes(f, &name))).then_some((when, path))
         })
         .collect();
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|f| std::cmp::Reverse(f.0));
     found.into_iter().map(|(_, p)| p).take(RECENT_SHOWN).collect()
 }
 

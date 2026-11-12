@@ -92,6 +92,19 @@ fn main() -> ExitCode {
             }
         }
     });
+    // The panel's accessibility menu.
+    let a11y_ui = service.ui_sender();
+    runtime.spawn(async move {
+        let schemas: Vec<&str> = helix_shell::a11y_menu::SCHEMAS.into_iter().filter(|s| helix_settings::has_schema(s)).collect();
+        let watched = helix_settings::GSettings::new(&schemas);
+        let (mut changes, _watch) = watched.watch();
+        loop {
+            let _ = a11y_ui.send(helix_shell::UiEvent::A11y(helix_shell::a11y_menu::read()));
+            if changes.recv().await.is_none() {
+                break;
+            }
+        }
+    });
     // The dock's settings (Ubuntu's Dash to Dock schema, when installed).
     let dock_ui = service.ui_sender();
     runtime.spawn(async move {

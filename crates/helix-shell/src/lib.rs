@@ -30,6 +30,7 @@ pub mod markup;
 pub mod network_agent;
 pub mod vpn_secrets;
 pub mod media;
+pub mod a11y_menu;
 pub mod dock;
 pub mod mount_handler;
 pub mod notifications;
@@ -115,6 +116,8 @@ impl Osd {
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
     Overview(bool),
+    /// The accessibility switches changed (or were read at start).
+    A11y(a11y_menu::Status),
     /// The dock's settings changed (or were read at start).
     Dock(dock::DockSettings),
     /// Mounted drives (for the dock).

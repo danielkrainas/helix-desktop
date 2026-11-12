@@ -21,6 +21,8 @@ pub(super) enum Choice {
     InputSource(usize),
     /// A dock menu entry, by index into its targets.
     Dock(usize),
+    /// An accessibility switch (`a11y_menu::SWITCHES` index).
+    A11y(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +125,17 @@ impl Ui {
             })
             .collect();
         self.open_menu(0, x, PANEL_HEIGHT as i32, items, sources);
+    }
+
+    /// The panel's accessibility menu, below its indicator at `x`.
+    pub(super) fn show_a11y_menu(&mut self, x: i32) {
+        let items = crate::a11y_menu::SWITCHES
+            .iter()
+            .zip(&self.a11y.switches)
+            .enumerate()
+            .filter_map(|(i, (s, state))| Some(Some(Item { label: s.label.to_owned(), choice: Choice::A11y(i), checked: Some((*state)?), active: false })))
+            .collect();
+        self.open_menu(0, x, PANEL_HEIGHT as i32, items, Vec::new());
     }
 
     pub(super) fn open_menu(&mut self, id: u32, x: i32, y: i32, items: Vec<Option<Item>>, sources: Vec<crate::input_sources::Source>) {
@@ -253,6 +266,10 @@ impl Ui {
     fn choose_window_menu(&mut self, index: usize) {
         let Some(menu) = self.window_menu.take() else { return };
         let Some(Some(item)) = menu.items.get(index) else { return };
+        if let Choice::A11y(i) = item.choice {
+            crate::a11y_menu::set(i, !item.checked.unwrap_or(false));
+            return;
+        }
         if let Choice::Dock(i) = item.choice {
             self.dock_menu_choice(i);
             return;
