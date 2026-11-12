@@ -13,6 +13,7 @@ pub mod a11y_mouse;
 pub mod hot_corner;
 pub mod magnifier;
 pub mod backlight;
+pub mod ddc;
 pub mod display_config;
 pub mod edid;
 pub mod tablet;
@@ -335,12 +336,18 @@ impl CompositorServices {
 /// How often the backlight is re-read for changes made elsewhere.
 const BACKLIGHT_POLL: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Publish brightness changes made outside DisplayConfig.
+/// How many polls pass between re-reading external monitors over DDC/CI.
+const DDC_REREAD: u32 = 5;
+
+/// Publish brightness changes made outside DisplayConfig, and follow which
+/// external monitors can be controlled over DDC/CI.
 fn spawn_backlight_watcher(conn: &Connection) -> JoinHandle<()> {
     let conn = conn.clone();
     tokio::spawn(async move {
+        let mut tick: u32 = 0;
         loop {
             tokio::time::sleep(BACKLIGHT_POLL).await;
+            tick = tick.wrapping_add(1);
             let Ok(iface) = conn
                 .object_server()
                 .interface::<_, DisplayConfig>(display_config::OBJECT_PATH)
@@ -348,8 +355,17 @@ fn spawn_backlight_watcher(conn: &Connection) -> JoinHandle<()> {
             else {
                 return;
             };
+            let (ddc, connectors) = {
+                let dc = iface.get().await;
+                (dc.ddc(), dc.external_connectors())
+            };
+            let mut moved = false;
+            if let Some(ddc) = ddc {
+                let reread = tick.is_multiple_of(DDC_REREAD);
+                moved = tokio::task::spawn_blocking(move || ddc.refresh(&connectors, reread)).await.unwrap_or(false);
+            }
             let dc = iface.get().await;
-            if dc.backlight_moved() {
+            if moved || dc.backlight_moved() {
                 if let Err(err) = dc.backlight_changed(iface.signal_emitter()).await {
                     tracing::warn!(%err, "cannot publish the backlight");
                 }

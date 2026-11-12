@@ -741,8 +741,8 @@ pub struct DisplayConfig {
     backlight: Option<crate::backlight::Backlight>,
     /// The compositor, if it handles gamma.
     gamma: Option<mpsc::UnboundedSender<ColorRequest>>,
-    /// The value last published, to notice outside changes.
-    backlight_shown: Mutex<Option<i32>>,
+    /// The values last published, to notice outside changes.
+    backlight_shown: Mutex<Vec<(String, i32)>>,
 }
 
 impl DisplayConfig {
@@ -763,7 +763,7 @@ impl DisplayConfig {
             pending: Mutex::new(None),
             generation: Default::default(),
             backlight,
-            backlight_shown: Mutex::new(None),
+            backlight_shown: Mutex::default(),
             gamma,
         }
     }
@@ -803,10 +803,42 @@ impl DisplayConfig {
         Some((connector, device, value))
     }
 
+    /// External monitors' DDC/CI control, if any.
+    pub fn ddc(&self) -> Option<std::sync::Arc<crate::ddc::Ddc>> {
+        self.backlight.as_ref()?.ddc().cloned()
+    }
+
+    /// The active external monitors, whose brightness DDC/CI may control.
+    pub fn external_connectors(&self) -> Vec<String> {
+        let layout = self.layout();
+        layout.monitors.iter().filter(|m| !m.builtin && m.current_mode().is_some()).map(|m| m.connector.clone()).collect()
+    }
+
+    /// Every controllable monitor: connector, min, max and value.
+    fn controlled(&self) -> Vec<(String, i32, i32, i32)> {
+        let mut out: Vec<_> = self
+            .builtin_backlight()
+            .map(|(connector, device, value)| (connector, crate::backlight::MIN, device.max, value))
+            .into_iter()
+            .collect();
+        if let Some(ddc) = self.backlight.as_ref().and_then(|b| b.ddc()) {
+            for connector in self.external_connectors() {
+                if let Some(r) = ddc.reading(&connector) {
+                    out.push((connector, crate::ddc::MIN, i32::from(r.max), i32::from(r.value)));
+                }
+            }
+        }
+        out
+    }
+
+    fn shown(controlled: &[(String, i32, i32, i32)]) -> Vec<(String, i32)> {
+        controlled.iter().map(|c| (c.0.clone(), c.3)).collect()
+    }
+
     /// `Backlight`: one entry per monitor.
     pub fn backlight_entries(&self) -> (u32, Vec<Props>) {
-        let controlled = self.builtin_backlight();
-        *self.backlight_shown.lock().unwrap_or_else(|e| e.into_inner()) = controlled.as_ref().map(|c| c.2);
+        let controlled = self.controlled();
+        *self.backlight_shown.lock().unwrap_or_else(|e| e.into_inner()) = Self::shown(&controlled);
         let layout = self.layout();
         let entries = layout
             .monitors
@@ -816,12 +848,10 @@ impl DisplayConfig {
                     ("connector", string(&m.connector)),
                     ("active", OwnedValue::from(m.current_mode().is_some())),
                 ]);
-                if let Some((connector, device, value)) = &controlled {
-                    if *connector == m.connector {
-                        entry.insert("min".into(), OwnedValue::from(crate::backlight::MIN));
-                        entry.insert("max".into(), OwnedValue::from(device.max));
-                        entry.insert("value".into(), OwnedValue::from(*value));
-                    }
+                if let Some((_, min, max, value)) = controlled.iter().find(|c| c.0 == m.connector) {
+                    entry.insert("min".into(), OwnedValue::from(*min));
+                    entry.insert("max".into(), OwnedValue::from(*max));
+                    entry.insert("value".into(), OwnedValue::from(*value));
                 }
                 entry
             })
@@ -829,9 +859,9 @@ impl DisplayConfig {
         (layout.serial, entries)
     }
 
-    /// Whether the brightness changed since it was last published.
+    /// Whether a brightness changed since it was last published.
     pub fn backlight_moved(&self) -> bool {
-        let now = self.builtin_backlight().map(|c| c.2);
+        let now = Self::shown(&self.controlled());
         *self.backlight_shown.lock().unwrap_or_else(|e| e.into_inner()) != now
     }
 
@@ -1077,19 +1107,26 @@ impl DisplayConfig {
         if serial != self.layout().serial {
             return Err(fdo::Error::InvalidArgs(format!("stale backlight serial {serial}")));
         }
-        let Some((builtin, device, _)) = self.builtin_backlight().filter(|c| c.0 == connector) else {
+        let Some((_, min, max, _)) = self.controlled().into_iter().find(|c| c.0 == connector) else {
             return Err(fdo::Error::InvalidArgs(format!("no backlight control for {connector:?}")));
         };
-        if !(crate::backlight::MIN..=device.max).contains(&value) {
-            return Err(fdo::Error::InvalidArgs(format!(
-                "backlight value {value} outside {}..={}",
-                crate::backlight::MIN,
-                device.max
-            )));
+        if !(min..=max).contains(&value) {
+            return Err(fdo::Error::InvalidArgs(format!("backlight value {value} outside {min}..={max}")));
         }
         let backlight = self.backlight.as_ref().expect("checked above");
-        backlight.set(&device, value).await.map_err(fdo::Error::Failed)?;
-        tracing::debug!(connector = builtin, value, "backlight set");
+        match self.builtin_backlight().filter(|c| c.0 == connector) {
+            Some((_, device, _)) => backlight.set(&device, value).await.map_err(fdo::Error::Failed)?,
+            None => {
+                let ddc = backlight.ddc().expect("an external monitor is only controlled through DDC/CI").clone();
+                let target = connector.to_owned();
+                let value = u16::try_from(value).map_err(|_| fdo::Error::InvalidArgs("negative brightness".into()))?;
+                tokio::task::spawn_blocking(move || ddc.set(&target, value))
+                    .await
+                    .map_err(|e| fdo::Error::Failed(e.to_string()))?
+                    .map_err(|e| fdo::Error::Failed(format!("DDC/CI: {e}")))?;
+            }
+        }
+        tracing::debug!(connector, value, "backlight set");
         self.backlight_changed(&emitter).await?;
         Ok(())
     }

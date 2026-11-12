@@ -210,7 +210,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .map_err(|e| format!("cannot follow focus for the magnifier: {e}"))?;
-    start_dbus_thread(socket, monitors, events_rx, xdisplay_rx, apply_tx, gamma_tx, cast_tx, track_tx);
+    start_dbus_thread(socket, monitors, matches!(backend, Backend::Drm), events_rx, xdisplay_rx, apply_tx, gamma_tx, cast_tx, track_tx);
 
     stop_on_signals(state.loop_signal.clone());
 
@@ -295,6 +295,8 @@ fn parse_args() -> Result<Args, String> {
 fn start_dbus_thread(
     socket: String,
     monitors: Vec<Monitor>,
+    // Real monitors: control external ones over DDC/CI.
+    ddc: bool,
     events: mpsc::UnboundedReceiver<Event>,
     xdisplay: tokio::sync::oneshot::Receiver<Option<u32>>,
     to_compositor: smithay::reexports::calloop::channel::Sender<ApplyRequest>,
@@ -346,7 +348,7 @@ fn start_dbus_thread(
                     gamma: Some(gamma),
                     cast: Some(cast),
                     store: Store::user(),
-                    backlight: Some(helix_comp::backlight::Backlight::system().await),
+                    backlight: Some(helix_comp::backlight::Backlight::system(ddc).await),
                     ..MonitorControl::default()
                 };
                 let services = match zbus::connection::Builder::session() {

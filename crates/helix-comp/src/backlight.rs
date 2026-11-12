@@ -49,16 +49,35 @@ pub fn find_device(root: &Path) -> Option<Device> {
 pub struct Backlight {
     root: PathBuf,
     logind: Option<Logind>,
+    /// External monitors' brightness over DDC/CI.
+    ddc: Option<std::sync::Arc<crate::ddc::Ddc>>,
 }
 
 impl Backlight {
     pub fn new(root: PathBuf, logind: Option<Logind>) -> Self {
-        Self { root, logind }
+        Self { root, logind, ddc: None }
     }
 
-    /// `/sys/class/backlight`, written through logind on the system bus.
-    pub async fn system() -> Self {
-        Self::new(PathBuf::from("/sys/class/backlight"), Logind::system().await)
+    /// Also control external monitors through `ddc`.
+    pub fn with_ddc(mut self, ddc: crate::ddc::Ddc) -> Self {
+        self.ddc = Some(std::sync::Arc::new(ddc));
+        self
+    }
+
+    pub fn ddc(&self) -> Option<&std::sync::Arc<crate::ddc::Ddc>> {
+        self.ddc.as_ref()
+    }
+
+    /// `/sys/class/backlight`, written through logind on the system bus,
+    /// and with `ddc` DDC/CI for external monitors (unless `HELIX_NO_DDC`
+    /// is set).
+    pub async fn system(ddc: bool) -> Self {
+        let backlight = Self::new(PathBuf::from("/sys/class/backlight"), Logind::system().await);
+        if !ddc || std::env::var_os("HELIX_NO_DDC").is_some() {
+            backlight
+        } else {
+            backlight.with_ddc(crate::ddc::Ddc::system())
+        }
     }
 
     pub fn device(&self) -> Option<Device> {

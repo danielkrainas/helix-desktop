@@ -126,3 +126,48 @@ async fn backlight_of_the_builtin_panel() {
     assert!(noticed.is_ok(), "outside change published");
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+/// An external monitor on a simulated DDC/CI bus (no real monitor is used).
+#[tokio::test]
+async fn backlight_of_an_external_monitor() {
+    use helix_comp::ddc::simulated::{Fake, Monitor as Simulated};
+    use helix_comp::ddc::{Bus, Ddc};
+    use std::sync::{Arc, Mutex};
+
+    let Some(bus) = TestBus::start() else { return };
+    let root = sysfs("ddc");
+    let drm = root.join("drm");
+    std::fs::create_dir_all(drm.join("card1-HDMI-A-1")).unwrap();
+    std::os::unix::fs::symlink("../../../i2c-4", drm.join("card1-HDMI-A-1/ddc")).unwrap();
+    let screen = Arc::new(Mutex::new(Simulated { brightness: Some((100, 75)), ..Default::default() }));
+    let sim = screen.clone();
+    let ddc = Ddc::new(drm, root.join("dev"), Box::new(move |_| Ok(Box::new(Fake(sim.clone())) as Box<dyn Bus>)));
+    let backlight = Backlight::new(root.join("none"), None).with_ddc(ddc);
+    let control = MonitorControl { store: Store::at(root.join("monitors.toml")), backlight: Some(backlight), ..MonitorControl::default() };
+    let services = CompositorServices::start_with(bus.builder(), vec![monitor("HDMI-A-1", false)], control).await.unwrap();
+    let (_events, rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(services.run(rx));
+
+    let conn = bus.connect().await;
+    let dc = DisplayConfigProxy::builder(&conn).cache_properties(CacheProperties::No).build().await.unwrap();
+    // Found by the first poll.
+    let found = tokio::time::timeout(Duration::from_secs(6), async {
+        loop {
+            let (serial, entries) = dc.backlight().await.unwrap();
+            if get::<i32>(&entries[0], "value").is_some() {
+                return (serial, entries);
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    })
+    .await;
+    let (serial, entries) = found.expect("the monitor's DDC/CI brightness is offered");
+    assert_eq!((get::<i32>(&entries[0], "min"), get::<i32>(&entries[0], "max"), get::<i32>(&entries[0], "value")), (Some(0), Some(100), Some(75)));
+
+    dc.set_backlight(serial, "HDMI-A-1", 40).await.unwrap();
+    assert_eq!(screen.lock().unwrap().brightness, Some((100, 40)), "written to the monitor");
+    let (_, entries) = dc.backlight().await.unwrap();
+    assert_eq!(get::<i32>(&entries[0], "value"), Some(40));
+    assert!(dc.set_backlight(serial, "HDMI-A-1", 101).await.is_err());
+    std::fs::remove_dir_all(&root).unwrap();
+}
