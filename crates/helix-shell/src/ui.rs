@@ -53,6 +53,7 @@ use crate::windows::{SwitchEntry, SwitchMode, Switcher, WindowAction};
 use std::collections::HashMap;
 
 mod background;
+mod break_screen;
 mod calendar;
 mod capture;
 mod dash;
@@ -187,6 +188,8 @@ struct Ui {
     /// Full-screen overlays: the end-session dialog and the power menu.
     dialog: Option<Overlay<DialogState>>,
     power_menu: Option<Overlay<()>>,
+    /// The break screen (break reminders).
+    break_screen: Option<Overlay<crate::wellbeing::BreakView>>,
     /// What the quick settings menu shows.
     quick: quick::QuickState,
     /// The quick settings list that is open (Wi-Fi or Bluetooth).
@@ -1765,6 +1768,7 @@ impl Ui {
         match event {
             UiEvent::Notifications(list) => self.notifications_changed(list),
             UiEvent::Calendar(data) => self.calendar_data(*data),
+            UiEvent::Break(view) => self.show_break(view),
             UiEvent::DoNotDisturb(on) => {
                 self.notify.do_not_disturb = on;
                 self.draw_notification_list();
@@ -2177,6 +2181,7 @@ pub fn run(
         banner: None,
         dialog: None,
         power_menu: None,
+        break_screen: None,
         quick: Default::default(),
         quick_list: None,
         window_menu: None,
@@ -2309,6 +2314,8 @@ impl LayerShellHandler for Ui {
             self.answer_dialog(Choice::Canceled);
         } else if self.power_menu.as_ref().is_some_and(|m| &m.layer == layer) {
             self.power_menu = None;
+        } else if self.break_screen.as_ref().is_some_and(|m| &m.layer == layer) {
+            self.break_screen = None;
         } else if self.switcher.as_ref().is_some_and(|o| &o.layer == layer) {
             self.switcher = None;
         } else if self.monitor_labels.iter().any(|l| &l.layer == layer) {
@@ -2347,6 +2354,11 @@ impl LayerShellHandler for Ui {
             overlay.height = configure.new_size.1;
             overlay.configured = true;
             self.draw_dialog();
+        } else if let Some(overlay) = self.break_screen.as_mut().filter(|o| &o.layer == layer) {
+            overlay.width = configure.new_size.0;
+            overlay.height = configure.new_size.1;
+            overlay.configured = true;
+            self.draw_break();
         } else if let Some(overlay) = self.power_menu.as_mut().filter(|o| &o.layer == layer) {
             overlay.width = configure.new_size.0;
             overlay.height = configure.new_size.1;
@@ -2452,6 +2464,8 @@ impl KeyboardHandler for Ui {
         } else if self.power_menu.is_some() && event.keysym == Keysym::Escape {
             self.power_menu = None;
             self.draw_panel();
+        } else if self.break_screen.is_some() {
+            self.break_key(&event);
         } else {
             self.launcher_key(&event);
         }
@@ -2551,6 +2565,8 @@ impl Ui {
                 } else {
                     self.finish_switching(false);
                 }
+            } else if self.break_screen.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
+                self.break_click(x, y);
             } else if self.power_menu.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
                 let hit = self.power_menu.as_ref().and_then(|m| m.hits.iter().find(|(r, _)| r.contains(x, y)).copied());
                 let keep = hit.is_some_and(|(rect, hit)| self.quick_click(hit, x, rect));

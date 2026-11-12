@@ -130,6 +130,7 @@ impl CompositorServices {
         let casts = screencast::Shared::default();
         let remotes = remote_desktop::Shared::default();
         let cast = control.cast.clone();
+        let effects = display_config::ScreenEffects { gamma: control.gamma.clone(), grayscale: false };
         let display_config = DisplayConfig::new(
             layout.clone(),
             control.applier,
@@ -142,6 +143,7 @@ impl CompositorServices {
             .serve_at(idle_monitor::MANAGER_PATH, ObjectManager)?
             .serve_at(idle_monitor::CORE_PATH, IdleMonitor::new(idle.clone()))?
             .serve_at(display_config::OBJECT_PATH, display_config)?
+            .serve_at(display_config::OBJECT_PATH, effects)?
             .serve_at(
                 screencast::OBJECT_PATH,
                 screencast::ScreenCast {

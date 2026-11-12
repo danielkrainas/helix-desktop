@@ -52,6 +52,16 @@ impl Helix {
             let _ = reply.send(Ok((Vec::new(), Vec::new(), Vec::new())));
             return;
         }
+        if let Some(ColorSet::Grayscale(on)) = set {
+            if self.zoom.grayscale != on {
+                tracing::info!(on, "grayscale");
+                self.zoom.grayscale = on;
+                self.redraw_fully();
+                self.render_all();
+            }
+            let _ = reply.send(Ok((Vec::new(), Vec::new(), Vec::new())));
+            return;
+        }
         let result = match self.gamma_size(&connector) {
             None => Err(ColorError::Invalid(format!("no monitor {connector}"))),
             Some(size) => {
@@ -67,7 +77,7 @@ impl Helix {
                         Ok(ramps)
                     }
                     Some(ColorSet::Ctm(ctm)) => self.set_ctm(&connector, ctm).map(|()| current),
-                    Some(ColorSet::PowerSave(_)) => Ok(current),
+                    Some(ColorSet::PowerSave(_) | ColorSet::Grayscale(_)) => Ok(current),
                 }
             }
         };

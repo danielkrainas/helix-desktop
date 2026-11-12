@@ -194,17 +194,23 @@ impl Center {
 
     /// A notice from the system itself (battery warnings).
     pub fn system_notice(&self, summary: &str, body: &str, critical: bool) -> u32 {
+        let icon = if critical { "battery-caution-symbolic" } else { "battery-low-symbolic" };
+        self.notice("Power", summary, body, icon, critical)
+    }
+
+    /// One of the shell's own notices, as `app` with an icon by name.
+    pub fn notice(&self, app: &str, summary: &str, body: &str, icon: &str, critical: bool) -> u32 {
         let urgency = if critical { Urgency::Critical } else { Urgency::Normal };
         self.post(Notification {
             id: 0,
-            app_name: "Power".into(),
+            app_name: app.into(),
             summary: summary.into(),
             body: body.into(),
             actions: Vec::new(),
             has_default: false,
             urgency,
             timeout: Notification::timeout_from(-1, urgency),
-            icon: Some(IconSource::Names(vec![if critical { "battery-caution-symbolic" } else { "battery-low-symbolic" }.into()])),
+            icon: Some(IconSource::Names(vec![icon.into()])),
             origin: Origin::Freedesktop { resident: false },
             markup: false,
             transient: false,

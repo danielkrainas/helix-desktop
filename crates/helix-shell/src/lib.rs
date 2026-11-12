@@ -48,6 +48,7 @@ pub mod status;
 pub mod text;
 pub mod ui;
 pub mod wallpaper;
+pub mod wellbeing;
 pub mod windows;
 
 use std::collections::HashMap;
@@ -124,6 +125,8 @@ pub enum UiEvent {
     Notifications(notifications::List),
     /// The message tray's calendar data.
     Calendar(Box<calendar::CalendarData>),
+    /// Show (or update, or with `None` hide) the break screen.
+    Break(Option<wellbeing::BreakView>),
     /// `org.gnome.desktop.notifications show-banners` changed.
     DoNotDisturb(bool),
     /// The end-session confirmation dialog to show, or none.
@@ -219,6 +222,8 @@ pub enum UiRequest {
     SetDoNotDisturb(bool),
     /// A link in a notification was clicked.
     OpenUri(String),
+    /// The break screen's buttons.
+    BreakAnswer(wellbeing::Answer),
     /// The tray's calendar shows `[from, to)`: read its data.
     Calendar { from: i64, to: i64 },
     /// A media button in the tray; then read the calendar data again.
@@ -911,6 +916,10 @@ impl UiBridge {
             UiRequest::NotificationsCleared => self.center.clear(&self.conn).await,
             UiRequest::SetDoNotDisturb(on) => {
                 notifications::set_do_not_disturb(on);
+                Ok(())
+            }
+            UiRequest::BreakAnswer(answer) => {
+                wellbeing::answer(answer);
                 Ok(())
             }
             UiRequest::Calendar { from, to } => {

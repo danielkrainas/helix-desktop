@@ -652,6 +652,8 @@ pub enum ColorSet {
     /// `PowerSaveMode` for every monitor (the connector is ignored): 0 on,
     /// anything else off.
     PowerSave(i32),
+    /// Draw every monitor without color (the connector is ignored).
+    Grayscale(bool),
 }
 
 /// Why a color request failed.
@@ -697,6 +699,34 @@ struct Pending {
 }
 
 /// The exported DisplayConfig object.
+/// `org.helix.ScreenEffects` (helix-desktop-spec
+/// `contracts/gsettings/wellbeing.md`), next to DisplayConfig.
+pub struct ScreenEffects {
+    pub gamma: Option<mpsc::UnboundedSender<ColorRequest>>,
+    pub grayscale: bool,
+}
+
+#[zbus::interface(name = "org.helix.ScreenEffects")]
+impl ScreenEffects {
+    async fn set_grayscale(&mut self, on: bool, #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>) {
+        if let Some(compositor) = &self.gamma {
+            let (reply, answer) = oneshot::channel();
+            if compositor.send(ColorRequest { connector: String::new(), set: Some(ColorSet::Grayscale(on)), reply }).is_ok() {
+                let _ = answer.await;
+            }
+        }
+        if self.grayscale != on {
+            self.grayscale = on;
+            let _ = self.grayscale_changed(&emitter).await;
+        }
+    }
+
+    #[zbus(property)]
+    fn grayscale(&self) -> bool {
+        self.grayscale
+    }
+}
+
 pub struct DisplayConfig {
     layout: Arc<Mutex<Layout>>,
     power_save_mode: i32,

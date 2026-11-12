@@ -97,6 +97,8 @@ fn main() -> ExitCode {
     runtime.spawn(helix_shell::power::run_idle(service.connection().clone()));
     runtime.spawn(helix_shell::power::run_logind_locks(service.connection().clone()));
     runtime.spawn(helix_shell::power::run_battery(service.notifications()));
+    // Break reminders and screen time.
+    runtime.spawn(helix_shell::wellbeing::run(service.connection().clone(), service.notifications(), service.ui_sender()));
     // Automounting and new removable media.
     helix_shell::media::run(service.notifications());
     // The desktop and lock screen backgrounds.

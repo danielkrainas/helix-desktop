@@ -128,6 +128,8 @@ pub struct ZoomState {
     cross: [SolidColorBuffer; 4],
     /// The effect shader, once compiled.
     program: Option<GlesTexProgram>,
+    /// Everything drawn without color (screen time limits).
+    pub grayscale: bool,
 }
 
 impl Helix {
@@ -149,7 +151,7 @@ impl Helix {
 /// magnifier is on.
 pub fn wrap(zoom: &mut ZoomState, renderer: &mut GlesRenderer, output: &Output, geo: Rectangle<i32, Logical>, pointer: Point<f64, Logical>, elements: Vec<OutputElements>) -> Vec<ScreenElement> {
     let list = magnify(zoom, output, geo, pointer, elements);
-    if !zoom.settings.effects() {
+    if !zoom.settings.effects() && !zoom.grayscale {
         return list;
     }
     match effect_program(zoom, renderer) {
@@ -178,11 +180,13 @@ fn effect_program(zoom: &mut ZoomState, renderer: &mut GlesRenderer) -> Result<G
 /// Draw every element of `list` through the effect shader.
 fn effect(zoom: &ZoomState, program: GlesTexProgram, list: Vec<ScreenElement>) -> Vec<ScreenElement> {
     let s = &zoom.settings;
+    // The magnifier's effects only while it is on; grayscale on top.
+    let (invert, saturation, contrast, brightness) = if s.effects() { (s.invert, s.saturation, s.contrast, s.brightness) } else { (false, 1.0, [0.0; 3], [0.0; 3]) };
     let uniforms = vec![
-        Uniform::new("invert", if s.invert { 1.0f32 } else { 0.0 }),
-        Uniform::new("saturation", s.saturation),
-        Uniform::new("contrast", s.contrast),
-        Uniform::new("brightness", s.brightness),
+        Uniform::new("invert", if invert { 1.0f32 } else { 0.0 }),
+        Uniform::new("saturation", if zoom.grayscale { 0.0 } else { saturation }),
+        Uniform::new("contrast", contrast),
+        Uniform::new("brightness", brightness),
     ];
     list.into_iter()
         .map(|e| ScreenElement::Effect(Effected { inner: Box::new(e), program: program.clone(), uniforms: uniforms.clone() }))
