@@ -131,10 +131,84 @@ fn drives() -> Vec<(String, PathBuf)> {
     out
 }
 
+/// A readable name for a GVfs FUSE folder (`smb-share:server=nas,share=docs`
+/// is "docs on nas"; `sftp:host=box,user=me` "me on box"); else the name.
+pub fn gvfs_label(name: &str) -> String {
+    let Some((kind, args)) = name.split_once(':') else { return name.to_owned() };
+    let get = |k: &str| args.split(',').find_map(|kv| kv.strip_prefix(k).and_then(|v| v.strip_prefix('='))).map(str::to_owned);
+    match kind {
+        "smb-share" => match (get("share"), get("server")) {
+            (Some(share), Some(server)) => format!("{share} on {server}"),
+            _ => name.to_owned(),
+        },
+        _ => match (get("host"), get("user")) {
+            (Some(host), Some(user)) => format!("{user} on {host}"),
+            (Some(host), None) => host,
+            _ => name.to_owned(),
+        },
+    }
+}
+
+/// Network places the user connected to: GVfs's FUSE folders under
+/// `$XDG_RUNTIME_DIR/gvfs`.
+fn network_places() -> Vec<(String, PathBuf)> {
+    let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") else { return Vec::new() };
+    let mut out: Vec<(String, PathBuf)> = std::fs::read_dir(Path::new(&runtime).join("gvfs"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| (gvfs_label(&e.file_name().to_string_lossy()), e.path()))
+        .collect();
+    out.sort();
+    out
+}
+
 fn user_places(home: &Path, recent: bool) -> Vec<Place> {
     let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
     let marks = std::fs::read_to_string(config.join("gtk-3.0/bookmarks")).map(|t| bookmarks(&t)).unwrap_or_default();
-    places(home, &standard_folders(home), &marks, &drives(), recent)
+    let mut drives = drives();
+    drives.extend(network_places());
+    places(home, &standard_folders(home), &marks, &drives, recent)
+}
+
+/// The most search results shown, and the most entries looked at.
+pub const SEARCH_SHOWN: usize = 200;
+const SEARCH_LOOKED: usize = 20_000;
+
+/// Files under `dir` (its folders too, hidden ones skipped) whose names
+/// hold `query` (ignoring case) and pass `filter`, nearest first, then by
+/// name.
+pub fn search(dir: &Path, query: &str, filter: Option<&Filter>) -> Vec<PathBuf> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    let mut queue = std::collections::VecDeque::from([dir.to_path_buf()]);
+    let mut looked = 0;
+    while let Some(folder) = queue.pop_front() {
+        let Ok(read) = std::fs::read_dir(&folder) else { continue };
+        let mut names: Vec<(String, PathBuf, bool)> = read
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                (!name.starts_with('.')).then(|| (name, e.path(), e.file_type().is_ok_and(|t| t.is_dir())))
+            })
+            .collect();
+        names.sort_by_key(|(n, _, _)| n.to_lowercase());
+        for (name, path, is_dir) in names {
+            looked += 1;
+            if looked > SEARCH_LOOKED || found.len() >= SEARCH_SHOWN {
+                return found;
+            }
+            if is_dir {
+                queue.push_back(path);
+            } else if name.to_lowercase().contains(&q) && filter.is_none_or(|f| passes(f, &name)) {
+                found.push(path);
+            }
+        }
+    }
+    found
 }
 
 /// The most recently used files shown.
@@ -299,13 +373,22 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
     // Recent files are offered when choosing files to open.
     let offer_recent = matches!(ask.mode, Mode::Open { directory: false, .. });
     let mut recent = false;
+    // A search being shown (opening files).
+    let mut searching: Option<String> = None;
     loop {
         if !ask.folder.is_dir() {
             ask.folder = home.clone();
         }
         let filter = ask.filter.and_then(|i| ask.filters.get(i));
         let places = user_places(&home, offer_recent);
-        let list = if recent {
+        let list = if let Some(query) = &searching {
+            let mut list = Vec::new();
+            if ask.filters.len() > 1 {
+                list.push(Row::FilterRow);
+            }
+            list.extend(search(&ask.folder, query, filter).into_iter().map(Row::Recent));
+            list
+        } else if recent {
             let mut list = Vec::new();
             if ask.filters.len() > 1 {
                 list.push(Row::FilterRow);
@@ -316,8 +399,8 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             rows(&ask.folder, &entries(&ask.folder), ask.mode, filter, ask.filters.len() > 1)
         };
         let place_current = places.iter().position(|p| match p {
-            Place::Recent => recent,
-            Place::Folder(_, path) => !recent && *path == ask.folder,
+            Place::Recent => recent && searching.is_none(),
+            Place::Folder(_, path) => !recent && searching.is_none() && *path == ask.folder,
         });
         let filter_name = filter.map_or("All Files", |f| f.0.as_str());
         let labels: Vec<String> = list.iter().map(|r| label(r, filter_name)).collect();
@@ -336,7 +419,11 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
         let multiple = matches!(ask.mode, Mode::Open { multiple: true, directory: false });
         let mut options = HashMap::from([
             ("title".to_owned(), value(Value::from(ask.title.clone()))),
-            ("message".to_owned(), value(Value::from(if recent { "Recent".to_owned() } else { shown_path(&ask.folder, &home) }))),
+            ("message".to_owned(), value(Value::from(match (&searching, recent) {
+                (Some(q), _) => format!("Search for “{q}” in {}", shown_path(&ask.folder, &home)),
+                (None, true) => "Recent".to_owned(),
+                (None, false) => shown_path(&ask.folder, &home),
+            }))),
             ("places".to_owned(), value(Value::from(places.iter().map(|p| p.label().to_owned()).collect::<Vec<String>>()))),
             ("place-current".to_owned(), value(Value::from(place_current.map_or(-1, |i| i as i32)))),
             ("rows".to_owned(), value(Value::from(labels))),
@@ -360,6 +447,7 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
         }
         // A place was clicked: show it.
         if let Some(place) = opt::<i32>(&results, "place").and_then(|i| usize::try_from(i).ok()).and_then(|i| places.get(i)) {
+            searching = None;
             match place {
                 Place::Recent => recent = true,
                 Place::Folder(_, path) => {
@@ -383,9 +471,19 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             let path = resolve(&ask.folder, &typed, &home);
             if path.is_dir() {
                 recent = false;
+                searching = None;
                 ask.folder = path;
             } else if path.is_file() && matches!(ask.mode, Mode::Open { directory: false, .. }) {
                 return done(vec![path], &ask);
+            } else if matches!(ask.mode, Mode::Open { directory: false, .. }) && !typed.contains('/') {
+                // Not a place: look for files by that name.
+                let filter = ask.filter.and_then(|i| ask.filters.get(i));
+                if search(&ask.folder, &typed, filter).is_empty() {
+                    warning = format!("No files named like “{}”.", typed.trim());
+                } else {
+                    recent = false;
+                    searching = Some(typed.trim().to_owned());
+                }
             } else {
                 warning = format!("“{}” was not found.", typed.trim());
             }
@@ -585,6 +683,20 @@ mod tests {
         assert_eq!(labels, ["Recent", "Home", "Documents", "Work", "USB", "Computer"]);
         assert!(!places(&tmp, &[], &[], &[], false).contains(&Place::Recent));
         assert_eq!(label(&Row::Recent(PathBuf::from("/home/a/Documents/report.pdf")), ""), "report.pdf — Documents");
+        assert_eq!(gvfs_label("smb-share:server=nas,share=docs"), "docs on nas");
+        assert_eq!(gvfs_label("sftp:host=box,user=me"), "me on box");
+        assert_eq!(gvfs_label("dav:host=cloud,ssl=true"), "cloud");
+        assert_eq!(gvfs_label("plain"), "plain");
+        // Search: below the folder, hidden folders skipped, filtered.
+        std::fs::create_dir_all(docs.join("2026/.cache")).unwrap();
+        std::fs::write(docs.join("Report.pdf"), "").unwrap();
+        std::fs::write(docs.join("2026/report-final.txt"), "").unwrap();
+        std::fs::write(docs.join("2026/.cache/report.tmp"), "").unwrap();
+        let found: Vec<String> = search(&tmp, "REPORT", None).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(found, ["Report.pdf", "report-final.txt"]);
+        let pdf = ("PDF".to_owned(), vec![(0u32, "*.pdf".to_owned())]);
+        assert_eq!(search(&tmp, "report", Some(&pdf)).len(), 1);
+        assert!(search(&tmp, "  ", None).is_empty());
         let _ = std::fs::remove_dir_all(&tmp);
         let xbel = r#"<xbel><bookmark href="file:///a/b%20c.txt" added="2026-01-01T10:00:00Z" modified="2026-03-01T10:00:00.5Z" visited="x"><info/></bookmark>
 <bookmark href="file:///x?a&amp;b" added="2026-02-01T00:00:00Z"></bookmark></xbel>"#;
