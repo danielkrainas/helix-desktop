@@ -145,6 +145,8 @@ pub enum UiEvent {
     PromptDone,
     /// A search provider answered: its results for search `serial`.
     SearchResults { serial: u64, provider: usize, hits: Vec<launcher::SearchHit> },
+    /// `org.gnome.desktop.a11y.interface` `high-contrast`.
+    HighContrast(bool),
     /// System status (panel icons, quick settings switches).
     Status(Box<status::Status>),
     /// The desktop and lock screen backgrounds to show.

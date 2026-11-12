@@ -24,6 +24,54 @@ pub fn physical(logical: usize, scale: f64) -> usize {
     (logical as f64 * scale).round() as usize
 }
 
+static HIGH_CONTRAST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// High contrast (helix-desktop-spec `a11y-interface.md`): text white,
+/// dark shapes black and light ones white, saturated colors kept.
+pub fn set_high_contrast(on: bool) {
+    HIGH_CONTRAST.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn high_contrast() -> bool {
+    HIGH_CONTRAST.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Saturated colors (the accent, warnings) are kept in high contrast.
+fn saturated(color: u32) -> bool {
+    let [r, g, b, _] = rgba(color);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    max > 0.2 && (max - min) / max > 0.5
+}
+
+fn luminance(color: u32) -> f32 {
+    let [r, g, b, _] = rgba(color);
+    0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/// A shape's high-contrast color.
+fn contrast_shape(color: u32) -> u32 {
+    if saturated(color) {
+        return color;
+    }
+    let alpha = color & 0xFF00_0000;
+    if luminance(color) >= 0.4 { alpha | 0x00FF_FFFF } else { alpha }
+}
+
+/// Text's high-contrast color.
+fn contrast_text(color: u32) -> u32 {
+    if saturated(color) { color } else { (color & 0xFF00_0000) | 0x00FF_FFFF }
+}
+
+/// A shape's color, in high contrast when it is on.
+pub fn shape_color(color: u32) -> u32 {
+    if high_contrast() { contrast_shape(color) } else { color }
+}
+
+/// Text's color, in high contrast when it is on.
+pub fn text_color(color: u32) -> u32 {
+    if high_contrast() { contrast_text(color) } else { color }
+}
+
 /// Colors are `0xAARRGGBB`, not premultiplied.
 pub fn rgba(color: u32) -> [f32; 4] {
     let c = |shift: u32| ((color >> shift) & 0xff) as f32 / 255.0;
@@ -58,7 +106,7 @@ impl<'a> Canvas<'a> {
     }
 
     pub fn fill(&mut self, color: u32) {
-        let [r, g, b, a] = rgba(color);
+        let [r, g, b, a] = rgba(shape_color(color));
         let px = [(b * a * 255.0) as u8, (g * a * 255.0) as u8, (r * a * 255.0) as u8, (a * 255.0) as u8];
         for chunk in self.data.as_chunks_mut::<4>().0 {
             *chunk = px;
@@ -88,6 +136,7 @@ impl<'a> Canvas<'a> {
     /// the signed distance (logical units) of a point to the shape's edge,
     /// positive inside.
     fn shape(&mut self, x0: f64, y0: f64, x1: f64, y1: f64, inside: impl Fn(f64, f64) -> f64, color: u32) {
+        let color = shape_color(color);
         let s = self.scale;
         let (px0, py0) = ((x0 * s).floor() as i32 - 1, (y0 * s).floor() as i32 - 1);
         let (px1, py1) = ((x1 * s).ceil() as i32 + 1, (y1 * s).ceil() as i32 + 1);
@@ -105,6 +154,7 @@ impl<'a> Canvas<'a> {
 
     /// Fill a rectangle given in logical units.
     pub fn rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: u32) {
+        let color = shape_color(color);
         let edge = |v: i32| (f64::from(v) * self.scale).round() as i32;
         let (x0, y0, x1, y1) = (edge(x), edge(y), edge(x + w), edge(y + h));
         for yy in y0.max(0)..y1.min(self.height as i32) {
@@ -198,6 +248,7 @@ impl Text {
     /// rasterized at the canvas's scale).
     pub fn draw(&self, canvas: &mut Canvas, text: &str, x: f32, y: f32, style: Style) {
         let Style { px, color, max_width } = style;
+        let color = text_color(color);
         let text = self.fit(text, px, max_width);
         let scale = canvas.scale as f32;
         let (px, x, y) = (px * scale, x * scale, y * scale);
@@ -263,6 +314,20 @@ impl Text {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn high_contrast_colors() {
+        // Dark backgrounds black, light text and borders white, alpha kept.
+        assert_eq!(contrast_shape(0xF01E1E24), 0xF0000000);
+        assert_eq!(contrast_shape(0xFF9A9AA2), 0xFFFFFFFF);
+        assert_eq!(contrast_shape(0xFF45454D), 0xFF000000, "mid gray fills go dark");
+        // The accent stays.
+        assert_eq!(contrast_shape(0xFF3584E4), 0xFF3584E4);
+        // Text is white, whatever gray it was.
+        assert_eq!(contrast_text(0xFF9A9AA2), 0xFFFFFFFF);
+        assert_eq!(contrast_text(0x80303030), 0x80FFFFFF);
+        assert_eq!(contrast_text(0xFFE01B24), 0xFFE01B24, "warnings stay");
+    }
 
     #[test]
     fn blend_and_rect() {

@@ -157,6 +157,38 @@ pub fn init(
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
                 {
+                    // The elements first (the magnifier's color effects draw
+                    // offscreen, which must happen before the window is bound).
+                    let renderer = backend.renderer();
+                    let scale = output.current_scale().fractional_scale();
+                    let origin = state.space.output_geometry(&output).map(|g| g.loc.to_f64()).unwrap_or_default();
+                    let geo = state.space.output_geometry(&output).unwrap_or_default();
+                    let pointer = state.seat.get_pointer().unwrap().current_location();
+                    let locked = state.lock.locked;
+                    let elements: Vec<super::udev::OutputElements> = if locked {
+                        // Locked: only the lock surface (if any), on black.
+                        let mut elements: Vec<super::udev::OutputElements> =
+                            state.cursor_surface_elements(renderer, origin, scale).into_iter().map(super::udev::OutputElements::CursorSurface).collect();
+                        if let Some(s) = state.lock.surface_for(&output) {
+                            let lock: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
+                                render_elements_from_surface_tree(renderer, s.wl_surface(), (0, 0), scale, 1.0, Kind::Unspecified);
+                            elements.extend(lock.into_iter().map(super::udev::OutputElements::CursorSurface));
+                        }
+                        elements
+                    } else {
+                        let focused = state.focused_window();
+                        // An app's own pointer image, in front.
+                        let mut elements: Vec<super::udev::OutputElements> =
+                            state.cursor_surface_elements(renderer, origin, scale).into_iter().map(super::udev::OutputElements::CursorSurface).collect();
+                        elements.extend(
+                            super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref())
+                                .into_iter()
+                                .map(super::udev::OutputElements::Scene),
+                        );
+                        elements
+                    };
+                    let elements = super::zoom::wrap(&mut state.zoom, renderer, &output, geo, pointer, elements);
+                    let clear = if locked { [0.0, 0.0, 0.0, 1.0] } else { [0.12, 0.12, 0.14, 1.0] };
                     let (renderer, mut framebuffer) = match backend.bind() {
                         Ok(bound) => bound,
                         Err(err) => {
@@ -164,62 +196,8 @@ pub fn init(
                             return;
                         }
                     };
-                    if state.lock.locked {
-                        // Locked: only the lock surface (if any), on black.
-                        let scale = output.current_scale().fractional_scale();
-                        let origin = state.space.output_geometry(&output).map(|g| g.loc.to_f64()).unwrap_or_default();
-                        let mut elements = state.cursor_surface_elements(renderer, origin, scale);
-                        let lock: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = state
-                            .lock
-                            .surface_for(&output)
-                            .map(|s| {
-                                render_elements_from_surface_tree(
-                                    renderer,
-                                    s.wl_surface(),
-                                    (0, 0),
-                                    scale,
-                                    1.0,
-                                    Kind::Unspecified,
-                                )
-                            })
-                            .unwrap_or_default();
-                        elements.extend(lock);
-                        let elements: Vec<super::udev::OutputElements> = elements.into_iter().map(super::udev::OutputElements::CursorSurface).collect();
-                        let geo = state.space.output_geometry(&output).unwrap_or_default();
-                        let pointer = state.seat.get_pointer().unwrap().current_location();
-                        let elements = super::zoom::wrap(&mut state.zoom, &output, geo, pointer, elements);
-                        if let Err(err) = damage_tracker.render_output(
-                            renderer,
-                            &mut framebuffer,
-                            0,
-                            &elements,
-                            [0.0, 0.0, 0.0, 1.0],
-                        ) {
-                            tracing::warn!(?err, "render failed");
-                        }
-                    } else {
-                        let focused = state.focused_window();
-                        let origin = state.space.output_geometry(&output).map(|g| g.loc.to_f64()).unwrap_or_default();
-                        let scale = output.current_scale().fractional_scale();
-                        // An app's own pointer image, in front.
-                        let mut elements: Vec<super::udev::OutputElements> = state
-                            .cursor_surface_elements(renderer, origin, scale)
-                            .into_iter()
-                            .map(super::udev::OutputElements::CursorSurface)
-                            .collect();
-                        elements.extend(
-                            super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref())
-                                .into_iter()
-                                .map(super::udev::OutputElements::Scene),
-                        );
-                        let geo = state.space.output_geometry(&output).unwrap_or_default();
-                        let pointer = state.seat.get_pointer().unwrap().current_location();
-                        let elements = super::zoom::wrap(&mut state.zoom, &output, geo, pointer, elements);
-                        if let Err(err) =
-                            damage_tracker.render_output(renderer, &mut framebuffer, 0, &elements, [0.12, 0.12, 0.14, 1.0])
-                        {
-                            tracing::warn!(?err, "render failed");
-                        }
+                    if let Err(err) = damage_tracker.render_output(renderer, &mut framebuffer, 0, &elements, clear) {
+                        tracing::warn!(?err, "render failed");
                     }
                 }
                 if let Err(err) = backend.submit(Some(&[damage])) {

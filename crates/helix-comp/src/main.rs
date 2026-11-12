@@ -136,6 +136,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .chain(helix_comp::frames::SCHEMAS.iter())
                 .chain(helix_comp::wm_settings::SCHEMAS.iter())
                 .chain(helix_comp::a11y_keys::SCHEMAS.iter())
+                .chain(helix_comp::a11y_mouse::SCHEMAS.iter())
                 .chain(helix_comp::magnifier::SCHEMAS.iter())
                 .copied()
                 .collect();

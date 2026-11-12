@@ -473,6 +473,16 @@ impl Helix {
         self.render_crtc(crtc);
     }
 
+    /// Draw every monitor in full next time (e.g. the magnifier's color
+    /// effects changed, which no element's damage shows).
+    pub fn redraw_fully(&mut self) {
+        if let Some(udev) = self.udev.as_ref() {
+            for surface in udev.surfaces.values() {
+                surface.drm_output.reset_buffers();
+            }
+        }
+    }
+
     pub fn render_all(&mut self) {
         let crtcs: Vec<_> = self
             .udev
@@ -538,7 +548,7 @@ impl Helix {
             elements.extend(scene.into_iter().map(OutputElements::Scene));
         }
 
-        let elements = super::zoom::wrap(zoom, &output, geo, pointer_location, elements);
+        let elements = super::zoom::wrap(zoom, renderer, &output, geo, pointer_location, elements);
         let clear = if lock.locked { [0.0, 0.0, 0.0, 1.0] } else { CLEAR_COLOR };
         let rendered = match surface.drm_output.render_frame(renderer, &elements, clear, FrameFlags::DEFAULT) {
             Ok(result) => !result.is_empty,

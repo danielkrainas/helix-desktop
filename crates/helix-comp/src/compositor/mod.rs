@@ -184,6 +184,8 @@ pub struct Helix {
     pub wm_settings: helix_comp::wm_settings::WmSettings,
     /// Keyboard accessibility (sticky, slow, bounce, mouse keys…).
     pub access: helix_comp::a11y_keys::AccessX,
+    /// Mouse accessibility (secondary click, dwell click).
+    pub mouse_access: helix_comp::a11y_mouse::Mouse,
     /// The magnifier.
     pub zoom: zoom::ZoomState,
     pub hot_corner: helix_comp::hot_corner::HotCorner,
@@ -293,6 +295,7 @@ impl Helix {
             frames: Default::default(),
             wm_settings: Default::default(),
             access: Default::default(),
+            mouse_access: Default::default(),
             zoom: Default::default(),
             hot_corner: Default::default(),
             tile_target: None,

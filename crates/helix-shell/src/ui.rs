@@ -1804,6 +1804,15 @@ impl Ui {
                     }
                 }
             }
+            UiEvent::HighContrast(on) => {
+                if on != helix_draw::high_contrast() {
+                    tracing::info!(on, "high contrast");
+                    helix_draw::set_high_contrast(on);
+                    self.redraw_all();
+                    self.draw_workspace_popup();
+                    self.draw_overview();
+                }
+            }
             UiEvent::Status(status) => {
                 self.status = *status;
                 self.draw_panel();

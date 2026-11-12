@@ -72,6 +72,23 @@ fn main() -> ExitCode {
     });
     runtime.spawn(helix_shell::screencast_chooser::follow_sharing(service.connection().clone(), service.ui_sender()));
     runtime.spawn(helix_shell::notifications::follow_settings(service.notifications()));
+    // High contrast for Helix's own UI.
+    let contrast_ui = service.ui_sender();
+    runtime.spawn(async move {
+        const SCHEMA: &str = "org.gnome.desktop.a11y.interface";
+        let read = || {
+            use gio::prelude::*;
+            gio::SettingsSchemaSource::default().and_then(|s| s.lookup(SCHEMA, true)).is_some_and(|_| gio::Settings::new(SCHEMA).boolean("high-contrast"))
+        };
+        let watched = helix_settings::GSettings::new(&[SCHEMA]);
+        let (mut changes, _watch) = watched.watch();
+        loop {
+            let _ = contrast_ui.send(helix_shell::UiEvent::HighContrast(read()));
+            if changes.recv().await.is_none() {
+                break;
+            }
+        }
+    });
     // Network, battery, volume and radios for the panel.
     runtime.spawn(helix_shell::status::follow(service.ui_sender()));
     // The desktop and lock screen backgrounds.

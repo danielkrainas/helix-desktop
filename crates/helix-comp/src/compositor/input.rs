@@ -143,10 +143,12 @@ impl Helix {
                 };
                 let pos = event.position_transformed(output_geo.size) + output_geo.loc.to_f64();
                 self.pointer_moved_to_host(pos, Event::time(&event), event.time_msec());
+                self.device_moved(event.time_msec());
             }
             InputEvent::PointerMotion { event, .. } => {
                 // Relative motion (real mice/touchpads on bare hardware).
                 self.pointer_moved_by(event.delta(), event.delta_unaccel(), Event::time(&event), event.time_msec());
+                self.device_moved(event.time_msec());
             }
             InputEvent::GestureSwipeBegin { event } => self.gesture_swipe_begin(event.fingers(), event.time_msec()),
             InputEvent::GestureSwipeUpdate { event } => self.gesture_swipe_update(event.delta(), event.time_msec()),
@@ -177,7 +179,7 @@ impl Helix {
                 pointer.gesture_hold_end(self, &e);
             }
             InputEvent::PointerButton { event, .. } => {
-                self.button_input(event.button_code(), event.state(), event.time_msec());
+                self.device_button(event.button_code(), event.state(), event.time_msec());
             }
             InputEvent::PointerAxis { event, .. } => {
                 let source = event.source();

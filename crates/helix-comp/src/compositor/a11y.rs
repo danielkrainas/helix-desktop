@@ -3,6 +3,7 @@
 //! [`helix_comp::a11y_keys`].
 
 use helix_comp::a11y_keys::{self, Out};
+use helix_comp::a11y_mouse;
 use smithay::backend::input::{ButtonState, KeyState};
 use smithay::input::keyboard::Keycode;
 
@@ -23,6 +24,38 @@ impl Helix {
             tracing::info!(?settings, "keyboard accessibility settings");
             self.access.set_settings(settings);
         }
+        let mouse = a11y_mouse::read();
+        if &mouse != self.mouse_access.settings() {
+            tracing::info!(?mouse, "mouse accessibility settings");
+            let outs = self.mouse_access.set_settings(mouse);
+            let now = self.access_now();
+            self.run_mouse_access(outs, now as u32);
+        }
+    }
+
+    /// A pointer button from an input device.
+    pub(super) fn device_button(&mut self, button: u32, state: ButtonState, time: u32) {
+        let pos = self.seat.get_pointer().map(|p| p.current_location()).unwrap_or_default();
+        let outs = self.mouse_access.button(button, state == ButtonState::Pressed, self.access_now(), (pos.x, pos.y));
+        self.run_mouse_access(outs, time);
+    }
+
+    /// The pointer moved (from an input device).
+    pub(super) fn device_moved(&mut self, time: u32) {
+        let pos = self.seat.get_pointer().map(|p| p.current_location()).unwrap_or_default();
+        let outs = self.mouse_access.moved((pos.x, pos.y), self.access_now());
+        self.run_mouse_access(outs, time);
+    }
+
+    fn run_mouse_access(&mut self, outs: Vec<a11y_mouse::Out>, time: u32) {
+        for out in outs {
+            match out {
+                a11y_mouse::Out::Button(button, pressed) => {
+                    self.button_input(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, time);
+                }
+                a11y_mouse::Out::Warp(x, y) => self.pointer_to((x, y).into(), time),
+            }
+        }
     }
 
     /// A key from an input device.
@@ -34,10 +67,15 @@ impl Helix {
 
     /// Slow keys, mouse key motion, the Shift shortcut, the timeout.
     pub fn a11y_tick(&mut self) {
+        let now = self.access_now();
+        if self.mouse_access.busy() {
+            let outs = self.mouse_access.tick(now);
+            self.run_mouse_access(outs, now as u32);
+        }
         if !self.access.busy() {
             return;
         }
-        let (now, num_lock) = (self.access_now(), self.num_lock());
+        let num_lock = self.num_lock();
         let outs = self.access.tick(now, num_lock);
         self.run_access(outs, now as u32);
     }

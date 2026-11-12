@@ -7,8 +7,10 @@ use std::collections::HashMap;
 use helix_comp::magnifier::{self, Settings};
 use smithay::backend::renderer::element::solid::{SolidColorBuffer, SolidColorRenderElement};
 use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement, RescaleRenderElement};
-use smithay::backend::renderer::element::Kind;
-use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
+use smithay::backend::renderer::gles::{GlesError, GlesFrame, GlesRenderer, GlesTexProgram, Uniform, UniformName, UniformType};
+use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
+use smithay::utils::{Buffer, Scale, Transform};
 use smithay::output::Output;
 use smithay::utils::{Logical, Physical, Point, Rectangle};
 
@@ -20,7 +22,99 @@ smithay::backend::renderer::element::render_elements! {
     Plain = OutputElements,
     Zoomed = RelocateRenderElement<RescaleRenderElement<OutputElements>>,
     Cross = SolidColorRenderElement,
+    /// An element drawn through the color effects.
+    Effect = Effected,
 }
+
+/// An element whose textures are drawn with the color effect shader.
+pub struct Effected {
+    inner: Box<ScreenElement>,
+    program: GlesTexProgram,
+    uniforms: Vec<Uniform<'static>>,
+}
+
+impl Element for Effected {
+    fn id(&self) -> &Id {
+        self.inner.id()
+    }
+    fn current_commit(&self) -> CommitCounter {
+        self.inner.current_commit()
+    }
+    fn src(&self) -> Rectangle<f64, Buffer> {
+        self.inner.src()
+    }
+    fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
+        self.inner.geometry(scale)
+    }
+    fn location(&self, scale: Scale<f64>) -> Point<i32, Physical> {
+        self.inner.location(scale)
+    }
+    fn transform(&self) -> Transform {
+        self.inner.transform()
+    }
+    fn damage_since(&self, scale: Scale<f64>, commit: Option<CommitCounter>) -> DamageSet<i32, Physical> {
+        self.inner.damage_since(scale, commit)
+    }
+    fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
+        self.inner.opaque_regions(scale)
+    }
+    fn alpha(&self) -> f32 {
+        self.inner.alpha()
+    }
+    fn kind(&self) -> Kind {
+        self.inner.kind()
+    }
+}
+
+impl RenderElement<GlesRenderer> for Effected {
+    fn draw(&self, frame: &mut GlesFrame<'_, '_>, src: Rectangle<f64, Buffer>, dst: Rectangle<i32, Physical>, damage: &[Rectangle<i32, Physical>], opaque_regions: &[Rectangle<i32, Physical>]) -> Result<(), GlesError> {
+        frame.override_default_tex_program(self.program.clone(), self.uniforms.clone());
+        let result = RenderElement::<GlesRenderer>::draw(&*self.inner, frame, src, dst, damage, opaque_regions);
+        frame.clear_tex_program_override();
+        result
+    }
+
+    fn underlying_storage(&self, _renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
+        // Never scanned out directly: it must go through the shader.
+        None
+    }
+}
+
+/// The magnifier's color effects (helix-desktop-spec `a11y-magnifier.md`).
+const EFFECT_SHADER: &str = r#"#version 100
+//_DEFINES_
+#if defined(EXTERNAL)
+#extension GL_OES_EGL_image_external : require
+#endif
+precision mediump float;
+#if defined(EXTERNAL)
+uniform samplerExternalOES tex;
+#else
+uniform sampler2D tex;
+#endif
+uniform float alpha;
+varying vec2 v_coords;
+uniform float invert;
+uniform float saturation;
+uniform vec3 contrast;
+uniform vec3 brightness;
+void main() {
+    vec4 color = texture2D(tex, v_coords);
+#if defined(NO_ALPHA)
+    color = vec4(color.rgb, 1.0);
+#endif
+    vec3 c = color.a > 0.0 ? color.rgb / color.a : color.rgb;
+    if (invert > 0.5) {
+        float mx = max(c.r, max(c.g, c.b));
+        float mn = min(c.r, min(c.g, c.b));
+        c = c + (1.0 - mx - mn);
+    }
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    c = mix(vec3(l), c, saturation);
+    c = clamp((c - 0.5) * (1.0 + contrast) + 0.5 + brightness, 0.0, 1.0);
+    gl_FragColor = vec4(c * color.a, color.a) * alpha;
+}
+"#;
 
 /// The gap around the pointer with `cross-hairs-clip`, in logical pixels
 /// before magnification.
@@ -32,17 +126,20 @@ pub struct ZoomState {
     /// The shown part's top-left corner per monitor (by name).
     views: HashMap<String, (f64, f64)>,
     cross: [SolidColorBuffer; 4],
+    /// The effect shader, once compiled.
+    program: Option<GlesTexProgram>,
 }
 
 impl Helix {
     pub fn apply_magnifier_settings(&mut self) {
         let settings = magnifier::read();
         if settings != self.zoom.settings {
-            tracing::info!(enabled = settings.enabled, factor = settings.factor, tracking = ?settings.tracking, "magnifier settings");
+            tracing::info!(enabled = settings.enabled, factor = settings.factor, tracking = ?settings.tracking, effects = settings.effects(), "magnifier settings");
             if !settings.active() {
                 self.zoom.views.clear();
             }
             self.zoom.settings = settings;
+            self.redraw_fully();
             self.render_all();
         }
     }
@@ -50,7 +147,50 @@ impl Helix {
 
 /// `elements` (front to back) of `output` at `geo`, magnified when the
 /// magnifier is on.
-pub fn wrap(zoom: &mut ZoomState, output: &Output, geo: Rectangle<i32, Logical>, pointer: Point<f64, Logical>, elements: Vec<OutputElements>) -> Vec<ScreenElement> {
+pub fn wrap(zoom: &mut ZoomState, renderer: &mut GlesRenderer, output: &Output, geo: Rectangle<i32, Logical>, pointer: Point<f64, Logical>, elements: Vec<OutputElements>) -> Vec<ScreenElement> {
+    let list = magnify(zoom, output, geo, pointer, elements);
+    if !zoom.settings.effects() {
+        return list;
+    }
+    match effect_program(zoom, renderer) {
+        Ok(program) => effect(zoom, program, list),
+        Err(err) => {
+            tracing::warn!(err, "cannot apply the magnifier's color effects");
+            list
+        }
+    }
+}
+
+/// The effect shader (compiled the first time).
+fn effect_program(zoom: &mut ZoomState, renderer: &mut GlesRenderer) -> Result<GlesTexProgram, String> {
+    if zoom.program.is_none() {
+        let uniforms = [
+            UniformName::new("invert", UniformType::_1f),
+            UniformName::new("saturation", UniformType::_1f),
+            UniformName::new("contrast", UniformType::_3f),
+            UniformName::new("brightness", UniformType::_3f),
+        ];
+        zoom.program = Some(renderer.compile_custom_texture_shader(EFFECT_SHADER, &uniforms).map_err(|e| format!("{e:?}"))?);
+    }
+    zoom.program.clone().ok_or_else(|| "no shader".into())
+}
+
+/// Draw every element of `list` through the effect shader.
+fn effect(zoom: &ZoomState, program: GlesTexProgram, list: Vec<ScreenElement>) -> Vec<ScreenElement> {
+    let s = &zoom.settings;
+    let uniforms = vec![
+        Uniform::new("invert", if s.invert { 1.0f32 } else { 0.0 }),
+        Uniform::new("saturation", s.saturation),
+        Uniform::new("contrast", s.contrast),
+        Uniform::new("brightness", s.brightness),
+    ];
+    list.into_iter()
+        .map(|e| ScreenElement::Effect(Effected { inner: Box::new(e), program: program.clone(), uniforms: uniforms.clone() }))
+        .collect()
+}
+
+/// The elements, magnified when the magnifier is.
+fn magnify(zoom: &mut ZoomState, output: &Output, geo: Rectangle<i32, Logical>, pointer: Point<f64, Logical>, elements: Vec<OutputElements>) -> Vec<ScreenElement> {
     if !zoom.settings.active() {
         return elements.into_iter().map(ScreenElement::Plain).collect();
     }

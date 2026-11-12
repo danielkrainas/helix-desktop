@@ -27,6 +27,10 @@ pub struct Settings {
     pub cross_thickness: i32,
     pub cross_length: i32,
     pub cross_clip: bool,
+    pub invert: bool,
+    pub saturation: f32,
+    pub contrast: [f32; 3],
+    pub brightness: [f32; 3],
 }
 
 impl Default for Settings {
@@ -41,6 +45,10 @@ impl Default for Settings {
             cross_thickness: 8,
             cross_length: 4096,
             cross_clip: false,
+            invert: false,
+            saturation: 1.0,
+            contrast: [0.0; 3],
+            brightness: [0.0; 3],
         }
     }
 }
@@ -49,6 +57,11 @@ impl Settings {
     /// Whether the screen is magnified.
     pub fn active(&self) -> bool {
         self.enabled && self.factor > 1.0
+    }
+
+    /// Whether colors are changed (while the magnifier is on).
+    pub fn effects(&self) -> bool {
+        self.enabled && (self.invert || self.saturation != 1.0 || self.contrast != [0.0; 3] || self.brightness != [0.0; 3])
     }
 }
 
@@ -89,6 +102,10 @@ pub fn read() -> Settings {
         cross_thickness: s.int("cross-hairs-thickness").clamp(1, 100),
         cross_length: s.int("cross-hairs-length").clamp(20, 4096),
         cross_clip: s.boolean("cross-hairs-clip"),
+        invert: s.boolean("invert-lightness"),
+        saturation: s.double("color-saturation").clamp(0.0, 1.0) as f32,
+        contrast: ["contrast-red", "contrast-green", "contrast-blue"].map(|k| s.double(k).clamp(-1.0, 1.0) as f32),
+        brightness: ["brightness-red", "brightness-green", "brightness-blue"].map(|k| s.double(k).clamp(-1.0, 1.0) as f32),
     }
 }
 

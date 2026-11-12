@@ -9,6 +9,7 @@
 //! - [`input_settings`] — keyboard, mouse and touchpad GSettings
 
 pub mod a11y_keys;
+pub mod a11y_mouse;
 pub mod hot_corner;
 pub mod magnifier;
 pub mod backlight;
