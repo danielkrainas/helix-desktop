@@ -126,12 +126,19 @@ async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
         }
     };
     let conn = service.connection().clone();
-    let end = service.run(stop).await?;
-    helix_session::environment::retract(&conn).await;
+    // Whatever happened on the bus, the components are stopped.
+    let end = service.run(stop).await;
+    if matches!(end, Ok(SessionEnd::Requested(_) | SessionEnd::Stopped)) {
+        let retract = helix_session::environment::retract(&conn);
+        if tokio::time::timeout(helix_session::BUS_CLEANUP_TIMEOUT, retract).await.is_err() {
+            tracing::warn!("unsetting the session environment timed out");
+        }
+    }
 
     if let Some(children) = children {
         children.terminate(Duration::from_secs(5)).await;
     }
+    let end = end?;
     if let SessionEnd::Requested(action) = end {
         logind::after_session(action, logind.as_ref()).await;
     }

@@ -41,6 +41,9 @@ pub enum SessionEnd {
     Requested(EndSessionAction),
     /// The caller-supplied stop future resolved (e.g. SIGTERM).
     Stopped,
+    /// The connection to the session bus closed (the bus went away), so no
+    /// client can reach the session any more.
+    BusLost,
 }
 
 /// A running `org.gnome.SessionManager` service.
@@ -48,6 +51,7 @@ pub struct SessionService {
     conn: Connection,
     state: Arc<Mutex<SessionState>>,
     end_rx: mpsc::UnboundedReceiver<EndSessionAction>,
+    bus_lost: tokio::sync::oneshot::Receiver<()>,
     watcher: JoinHandle<()>,
     lock_watcher: JoinHandle<()>,
     active_watcher: Option<JoinHandle<()>>,
@@ -119,7 +123,8 @@ impl SessionService {
         }
         tracing::info!(name = BUS_NAME, unique = ?conn.unique_name(), "owning bus name");
 
-        let watcher = spawn_owner_watcher(&conn).await?;
+        let (lost_tx, bus_lost) = tokio::sync::oneshot::channel();
+        let watcher = spawn_owner_watcher(&conn, lost_tx).await?;
         let lock_watcher = spawn_lock_watcher(&conn).await?;
         let active_watcher = match &logind {
             Some(logind) => spawn_active_watcher(&conn, logind).await,
@@ -129,6 +134,7 @@ impl SessionService {
             conn,
             state,
             end_rx,
+            bus_lost,
             watcher,
             lock_watcher,
             active_watcher,
@@ -166,40 +172,60 @@ impl SessionService {
         manager.mark_initialized(iface.signal_emitter()).await
     }
 
-    /// Serve until a client ends the session or `stop` resolves, then release
-    /// the bus name and close the connection.
+    /// Serve until a client ends the session, `stop` resolves or the bus
+    /// goes away, then release the bus name and close the connection.
+    ///
+    /// The clean-up on the bus is best effort (it is skipped when the bus is
+    /// gone, and bounded in time otherwise), so the caller can always go on
+    /// to stop the session's components.
     pub async fn run(mut self, stop: impl Future<Output = ()>) -> zbus::Result<SessionEnd> {
         let end = tokio::select! {
             Some(action) = self.end_rx.recv() => SessionEnd::Requested(action),
             () = stop => SessionEnd::Stopped,
+            Ok(()) = &mut self.bus_lost => SessionEnd::BusLost,
         };
-
-        if end == SessionEnd::Stopped {
-            // Externally terminated: still tell listeners the session is over.
-            let previous = self
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .force_end();
-            if previous != Phase::Ending {
-                let emitter = SignalEmitter::new(&self.conn, OBJECT_PATH)?;
-                SessionManager::session_over(&emitter).await?;
-            }
-        }
 
         self.watcher.abort();
         self.lock_watcher.abort();
         if let Some(task) = &self.active_watcher {
             task.abort();
         }
-        // A round trip to the bus also ensures the end-request reply has
-        // been flushed. (Not `graceful_shutdown`: it waits for every clone
-        // of the connection, and the caller keeps one to clean up.)
-        self.conn.release_name(BUS_NAME).await?;
-        self.conn.object_server().remove::<SessionManager, _>(OBJECT_PATH).await?;
+        if end == SessionEnd::BusLost {
+            tracing::warn!("the session bus went away; ending the session");
+            self.state.lock().unwrap_or_else(|e| e.into_inner()).force_end();
+            return Ok(end);
+        }
+        let cleanup = async {
+            if end == SessionEnd::Stopped {
+                // Externally terminated: still tell listeners the session is over.
+                let previous = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .force_end();
+                if previous != Phase::Ending {
+                    let emitter = SignalEmitter::new(&self.conn, OBJECT_PATH)?;
+                    SessionManager::session_over(&emitter).await?;
+                }
+            }
+            // A round trip to the bus also ensures the end-request reply has
+            // been flushed. (Not `graceful_shutdown`: it waits for every clone
+            // of the connection, and the caller keeps one to clean up.)
+            self.conn.release_name(BUS_NAME).await?;
+            self.conn.object_server().remove::<SessionManager, _>(OBJECT_PATH).await?;
+            zbus::Result::Ok(())
+        };
+        match tokio::time::timeout(BUS_CLEANUP_TIMEOUT, cleanup).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => tracing::warn!(%err, "cannot leave the bus cleanly"),
+            Err(_) => tracing::warn!("leaving the bus timed out"),
+        }
         Ok(end)
     }
 }
+
+/// How long [`SessionService::run`] spends leaving the bus.
+pub const BUS_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// `SessionIsActive` follows logind's session `Active` property.
 async fn spawn_active_watcher(conn: &Connection, logind: &logind::Logind) -> Option<JoinHandle<()>> {
@@ -254,7 +280,9 @@ async fn spawn_lock_watcher(conn: &Connection) -> zbus::Result<JoinHandle<()>> {
 
 /// Watch for peers leaving the bus so their clients and inhibitors don't leak
 /// (a crashed app must not block logout forever).
-async fn spawn_owner_watcher(conn: &Connection) -> zbus::Result<JoinHandle<()>> {
+///
+/// The stream ends when the connection closes; `lost` then fires.
+async fn spawn_owner_watcher(conn: &Connection, lost: tokio::sync::oneshot::Sender<()>) -> zbus::Result<JoinHandle<()>> {
     let dbus = DBusProxy::new(conn).await?;
     let mut changes = dbus.receive_name_owner_changed().await?;
     let iface = conn
@@ -274,5 +302,6 @@ async fn spawn_owner_watcher(conn: &Connection) -> zbus::Result<JoinHandle<()>> 
                 tracing::warn!(%err, name, "failed to announce released resources");
             }
         }
+        let _ = lost.send(());
     }))
 }

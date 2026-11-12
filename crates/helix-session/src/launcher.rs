@@ -327,6 +327,19 @@ async fn start_component(
         .envs(&config.environment)
         .envs(service.environment())
         .kill_on_drop(true);
+    // If helix-session itself dies (even by SIGKILL), its components get
+    // SIGTERM instead of running on without a session. (The signal follows
+    // the spawning thread, a runtime worker that lives as long as the
+    // process.)
+    // SAFETY: prctl is async-signal-safe and touches no shared state.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
     let mut child = cmd
         .spawn()
         .map_err(|e| LaunchError::Spawn(component.name.clone(), e))?;

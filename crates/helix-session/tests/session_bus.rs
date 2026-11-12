@@ -254,3 +254,17 @@ async fn session_is_locked_follows_the_screensaver() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bus_going_away_ends_the_session() {
+    let Some(bus) = TestBus::start() else { return };
+    let (service, _stop) = spawn_service(&bus).await;
+    // The bus daemon dies (as when dbus-run-session or the user's bus ends).
+    drop(bus);
+    let end = tokio::time::timeout(Duration::from_secs(5), service)
+        .await
+        .expect("the service notices the bus is gone")
+        .unwrap()
+        .unwrap();
+    assert_eq!(end, SessionEnd::BusLost);
+}
