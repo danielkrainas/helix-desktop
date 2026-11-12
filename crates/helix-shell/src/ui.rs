@@ -189,6 +189,8 @@ struct Ui {
     power_menu: Option<Overlay<()>>,
     /// What the quick settings menu shows.
     quick: quick::QuickState,
+    /// The quick settings list that is open (Wi-Fi or Bluetooth).
+    quick_list: Option<quick::Switch>,
     window_menu: Option<window_menu::WindowMenu>,
     workspace_popup: Option<workspace_popup::WorkspacePopup>,
     overview: Option<Overlay<overview::OverviewState>>,
@@ -265,6 +267,10 @@ enum OverlayHit {
     Toggle,
     /// A power profile in quick settings, by index.
     Profile(usize),
+    /// Quick settings: a switch's "›" (its list), a network, a device.
+    Expand(quick::Switch),
+    Network(usize),
+    BtDevice(usize),
     Outside,
 }
 
@@ -2172,6 +2178,7 @@ pub fn run(
         dialog: None,
         power_menu: None,
         quick: Default::default(),
+        quick_list: None,
         window_menu: None,
         workspace_popup: None,
         overview: None,

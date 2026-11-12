@@ -48,6 +48,56 @@ pub struct Status {
     /// An app records from a microphone; a camera is running.
     pub microphone: bool,
     pub camera: bool,
+    /// Wi-Fi networks in reach (while Wi-Fi is on), strongest first.
+    pub networks: Vec<Network>,
+    /// Paired Bluetooth devices (while Bluetooth is on).
+    pub devices: Vec<BtDevice>,
+}
+
+/// A Wi-Fi network in reach.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Network {
+    pub ssid: String,
+    pub strength: u8,
+    pub secured: bool,
+    pub active: bool,
+}
+
+/// A paired Bluetooth device.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BtDevice {
+    pub path: String,
+    pub name: String,
+    pub connected: bool,
+}
+
+/// At most this many networks or devices are listed.
+pub const LISTED: usize = 8;
+
+/// One entry per name (the strongest; connected if any is), strongest
+/// first; nameless networks are left out.
+pub fn group_networks(access_points: Vec<Network>) -> Vec<Network> {
+    let mut out: Vec<Network> = Vec::new();
+    for ap in access_points.into_iter().filter(|a| !a.ssid.is_empty()) {
+        match out.iter_mut().find(|n| n.ssid == ap.ssid) {
+            Some(n) => {
+                n.active |= ap.active;
+                if ap.strength > n.strength {
+                    n.strength = ap.strength;
+                    n.secured = ap.secured;
+                }
+            }
+            None => out.push(ap),
+        }
+    }
+    out.sort_by(|a, b| b.active.cmp(&a.active).then(b.strength.cmp(&a.strength)).then_with(|| a.ssid.cmp(&b.ssid)));
+    out.truncate(LISTED);
+    out
+}
+
+/// An access point needs a password: the privacy flag, or WPA/RSN flags.
+pub fn is_secured(flags: u32, wpa: u32, rsn: u32) -> bool {
+    flags & 1 != 0 || wpa != 0 || rsn != 0
 }
 
 /// A quick settings switch acting on the system.
@@ -57,6 +107,10 @@ pub enum Toggle {
     Bluetooth(bool),
     Airplane(bool),
     Profile(String),
+    /// Connect to the Wi-Fi network of this name.
+    ConnectWifi(String),
+    /// Connect (true) or disconnect a Bluetooth device, by object path.
+    BluetoothDevice { path: String, connect: bool },
 }
 
 /// The Wi-Fi icon for an access point's strength (0–100).
@@ -103,11 +157,114 @@ async fn set_prop(conn: &Connection, dest: &str, path: &str, iface: &str, name: 
     conn.call_method(Some(dest), path, Some("org.freedesktop.DBus.Properties"), "Set", &(iface, name, value)).await.map(drop)
 }
 
+type Objects = HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>;
+
+async fn bluez_objects(conn: &Connection) -> Objects {
+    match conn.call_method(Some(BLUEZ), "/", Some("org.freedesktop.DBus.ObjectManager"), "GetManagedObjects", &()).await {
+        Ok(reply) => reply.body().deserialize::<Objects>().unwrap_or_default(),
+        Err(_) => Objects::new(),
+    }
+}
+
+/// BlueZ's paired devices, by name.
+async fn bt_devices(conn: &Connection) -> Vec<BtDevice> {
+    let get = |props: &HashMap<String, OwnedValue>, key: &str| props.get(key).cloned();
+    let mut out: Vec<BtDevice> = bluez_objects(conn)
+        .await
+        .into_iter()
+        .filter_map(|(path, ifaces)| {
+            let d = ifaces.get("org.bluez.Device1")?;
+            let paired = get(d, "Paired").and_then(|v| bool::try_from(v).ok()).unwrap_or(false);
+            let name = get(d, "Alias").or_else(|| get(d, "Name")).and_then(|v| String::try_from(v).ok()).unwrap_or_default();
+            let connected = get(d, "Connected").and_then(|v| bool::try_from(v).ok()).unwrap_or(false);
+            paired.then(|| BtDevice { path: path.to_string(), name, connected })
+        })
+        .collect();
+    out.sort_by(|a, b| b.connected.cmp(&a.connected).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    out.truncate(LISTED);
+    out
+}
+
+const NM_WIRELESS: &str = "org.freedesktop.NetworkManager.Device.Wireless";
+const NM_AP: &str = "org.freedesktop.NetworkManager.AccessPoint";
+
+/// NetworkManager's Wi-Fi devices.
+async fn wifi_devices(conn: &Connection) -> Vec<OwnedObjectPath> {
+    let devices: Vec<OwnedObjectPath> = match conn.call_method(Some(NM), NM_PATH, Some(NM), "GetDevices", &()).await {
+        Ok(reply) => reply.body().deserialize().unwrap_or_default(),
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for d in devices {
+        if prop::<u32>(conn, NM, d.as_str(), "org.freedesktop.NetworkManager.Device", "DeviceType").await == Some(2) {
+            out.push(d);
+        }
+    }
+    out
+}
+
+/// Every access point in reach: (device, access point path, network).
+async fn access_points(conn: &Connection) -> Vec<(OwnedObjectPath, OwnedObjectPath, Network)> {
+    let mut out = Vec::new();
+    for device in wifi_devices(conn).await {
+        let active = prop::<OwnedObjectPath>(conn, NM, device.as_str(), NM_WIRELESS, "ActiveAccessPoint").await;
+        let aps = prop::<Vec<OwnedObjectPath>>(conn, NM, device.as_str(), NM_WIRELESS, "AccessPoints").await.unwrap_or_default();
+        for ap in aps {
+            let Ok(reply) = conn.call_method(Some(NM), ap.as_str(), Some("org.freedesktop.DBus.Properties"), "GetAll", &(NM_AP,)).await else { continue };
+            let Ok(props) = reply.body().deserialize::<HashMap<String, OwnedValue>>() else { continue };
+            let num = |k: &str| props.get(k).and_then(|v| u32::try_from(v.clone()).ok()).unwrap_or(0);
+            let ssid = props.get("Ssid").and_then(|v| Vec::<u8>::try_from(v.clone()).ok()).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+            let strength = props.get("Strength").and_then(|v| u8::try_from(v.clone()).ok()).unwrap_or(0);
+            let network = Network { ssid, strength, secured: is_secured(num("Flags"), num("WpaFlags"), num("RsnFlags")), active: active.as_ref() == Some(&ap) };
+            out.push((device.clone(), ap, network));
+        }
+    }
+    out
+}
+
+/// A saved connection for the network `ssid`.
+async fn saved_connection(conn: &Connection, ssid: &str) -> Option<OwnedObjectPath> {
+    const SETTINGS: &str = "org.freedesktop.NetworkManager.Settings";
+    let reply = conn.call_method(Some(NM), "/org/freedesktop/NetworkManager/Settings", Some(SETTINGS), "ListConnections", &()).await.ok()?;
+    let list: Vec<OwnedObjectPath> = reply.body().deserialize().ok()?;
+    for path in list {
+        let Ok(reply) = conn.call_method(Some(NM), path.as_str(), Some("org.freedesktop.NetworkManager.Settings.Connection"), "GetSettings", &()).await else { continue };
+        let Ok(settings) = reply.body().deserialize::<HashMap<String, HashMap<String, OwnedValue>>>() else { continue };
+        let saved = settings.get("802-11-wireless").and_then(|w| w.get("ssid")).and_then(|v| Vec::<u8>::try_from(v.clone()).ok());
+        if saved.as_deref() == Some(ssid.as_bytes()) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Connect to the network `ssid` (see the spec's "Wi-Fi networks and
+/// Bluetooth devices").
+async fn connect_wifi(conn: &Connection, ssid: &str) -> zbus::Result<()> {
+    let best = access_points(conn).await.into_iter().filter(|(_, _, n)| n.ssid == ssid).max_by_key(|(_, _, n)| n.strength);
+    let Some((device, ap, network)) = best else { return Err(zbus::Error::Failure(format!("no network {ssid}"))) };
+    if network.active {
+        return Ok(());
+    }
+    if let Some(saved) = saved_connection(conn, ssid).await {
+        tracing::info!(ssid, "activating the saved Wi-Fi connection");
+        return conn.call_method(Some(NM), NM_PATH, Some(NM), "ActivateConnection", &(saved, device, ap)).await.map(drop);
+    }
+    if !network.secured {
+        tracing::info!(ssid, "joining an open Wi-Fi network");
+        let empty: HashMap<&str, HashMap<&str, Value<'_>>> = HashMap::new();
+        return conn.call_method(Some(NM), NM_PATH, Some(NM), "AddAndActivateConnection", &(empty, device, ap)).await.map(drop);
+    }
+    tracing::info!(ssid, "a new secured network: opening the Wi-Fi settings");
+    if let Err(err) = std::process::Command::new("gnome-control-center").arg("wifi").spawn() {
+        tracing::warn!(%err, "cannot open the Wi-Fi settings");
+    }
+    Ok(())
+}
+
 /// BlueZ adapters: (path, powered).
 async fn adapters(conn: &Connection) -> Vec<(OwnedObjectPath, bool)> {
-    type Objects = HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>;
-    let Ok(reply) = conn.call_method(Some(BLUEZ), "/", Some("org.freedesktop.DBus.ObjectManager"), "GetManagedObjects", &()).await else { return Vec::new() };
-    let Ok(objects) = reply.body().deserialize::<Objects>() else { return Vec::new() };
+    let objects = bluez_objects(conn).await;
     let mut out: Vec<(OwnedObjectPath, bool)> = objects
         .into_iter()
         .filter_map(|(path, ifaces)| {
@@ -165,6 +322,12 @@ pub async fn read(system: Option<&Connection>) -> Status {
     let bluetooth = (!adapters.is_empty()).then(|| adapters.iter().any(|(_, on)| *on));
     status.bluetooth = bluetooth;
     status.airplane = airplane(wifi_on, bluetooth);
+    if bluetooth == Some(true) {
+        status.devices = bt_devices(conn).await;
+    }
+    if wifi_on == Some(true) {
+        status.networks = group_networks(access_points(conn).await.into_iter().map(|(_, _, n)| n).collect());
+    }
     if let Some(on) = wifi_on {
         let ssid = primary.as_ref().filter(|p| p.0 == "802-11-wireless").and_then(|p| p.2.clone());
         status.wifi = Some((on, ssid));
@@ -234,6 +397,11 @@ pub async fn apply(system: &Connection, toggle: Toggle) -> zbus::Result<()> {
             let (name, iface) = profiles_service(system).await.ok_or_else(|| zbus::Error::Failure("no power profiles".into()))?;
             set_prop(system, name, PROFILES_PATH, iface, "ActiveProfile", Value::from(profile.as_str())).await
         }
+        Toggle::ConnectWifi(ssid) => connect_wifi(system, &ssid).await,
+        Toggle::BluetoothDevice { path, connect } => {
+            let method = if connect { "Connect" } else { "Disconnect" };
+            system.call_method(Some(BLUEZ), path.as_str(), Some("org.bluez.Device1"), method, &()).await.map(drop)
+        }
     }
 }
 
@@ -288,6 +456,14 @@ pub async fn follow(ui: mpsc::UnboundedSender<UiEvent>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn network_lists() {
+        let n = |ssid: &str, strength, secured, active| Network { ssid: ssid.into(), strength, secured, active };
+        let grouped = group_networks(vec![n("Cafe", 40, false, false), n("Home", 30, true, true), n("Cafe", 70, false, false), n("", 99, false, false), n("Home", 60, true, false)]);
+        assert_eq!(grouped, [n("Home", 60, true, true), n("Cafe", 70, false, false)], "connected first, strongest kept, nameless dropped");
+        assert!(is_secured(1, 0, 0) && is_secured(0, 0, 0x188) && !is_secured(0, 0, 0));
+    }
 
     #[test]
     fn icons() {

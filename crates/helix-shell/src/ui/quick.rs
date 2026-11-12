@@ -8,6 +8,7 @@ use smithay_client_toolkit::shell::WaylandSurface;
 
 use super::{baseline, label, physical, power_menu_items, Canvas, OverlayHit, Rect, Ui, ACCENT, BANNER_BG, BANNER_BORDER, DIM_FG, FG, FIELD_BG, PANEL_HEIGHT};
 use crate::status::Toggle;
+use helix_draw::Image;
 use crate::{QuickChange, UiRequest};
 
 /// A power profile as the user knows it.
@@ -23,6 +24,7 @@ fn profile_label(name: &str) -> String {
 const MENU_W: i32 = 320;
 const ROW_H: i32 = 40;
 const PAD: i32 = 12;
+const LIST_ROW_H: i32 = 32;
 
 /// A quick settings switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +115,7 @@ impl Ui {
         self.close_overview(true);
         let overlay = self.new_overlay("helix-power-menu", KeyboardInteractivity::OnDemand, ());
         self.power_menu = Some(overlay);
+        self.quick_list = None;
         let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Refresh));
     }
 
@@ -153,6 +156,24 @@ impl Ui {
                 }
                 true
             }
+            OverlayHit::Expand(switch) => {
+                self.quick_list = if self.quick_list == Some(switch) { None } else { Some(switch) };
+                self.draw_power_menu();
+                true
+            }
+            OverlayHit::Network(index) => {
+                if let Some(network) = self.status.networks.get(index).filter(|n| !n.active) {
+                    let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Toggle(Toggle::ConnectWifi(network.ssid.clone()))));
+                }
+                true
+            }
+            OverlayHit::BtDevice(index) => {
+                if let Some(device) = self.status.devices.get(index) {
+                    let toggle = Toggle::BluetoothDevice { path: device.path.clone(), connect: !device.connected };
+                    let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Toggle(toggle)));
+                }
+                true
+            }
             OverlayHit::Inside => true,
             _ => false,
         }
@@ -185,6 +206,18 @@ impl Ui {
         let states: Vec<bool> = switches.iter().map(|(s, _)| self.switch_on(*s)).collect();
         let profiles: Vec<(String, bool)> = self.status.profiles.iter().map(|p| (profile_label(p), self.status.profile.as_deref() == Some(p.as_str()))).collect();
         let switch_rows = switches.len().div_ceil(3) as i32;
+        // The open list: (icon, name, secured, connected) rows.
+        let list_open = self.quick_list.filter(|s| switches.iter().any(|(x, _)| x == s));
+        let rows: Vec<(Option<Image>, String, bool, bool)> = match list_open {
+            Some(Switch::Wifi) => {
+                let networks = self.status.networks.clone();
+                networks.iter().map(|n| (self.symbolic_icon(crate::status::wifi_icon(n.strength), scale), n.ssid.clone(), n.secured, n.active)).collect()
+            }
+            Some(Switch::Bluetooth) => self.status.devices.clone().into_iter().map(|d| (None, d.name, false, d.connected)).collect(),
+            _ => Vec::new(),
+        };
+        let lock = if rows.iter().any(|r| r.2) { self.symbolic_icon("channel-secure-symbolic", scale) } else { None };
+        let list_h = if list_open.is_some() { 8 + rows.len().max(1) as i32 * LIST_ROW_H + 8 } else { 0 };
         let profile_h = if profiles.is_empty() { 0 } else { 26 + 36 + 8 };
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             self.power_menu = Some(overlay);
@@ -195,7 +228,7 @@ impl Ui {
         let text = self.text.as_ref();
         let items = power_menu_items(self.power);
         let sliders = usize::from(self.quick.volume.is_some()) + usize::from(self.quick.brightness.is_some());
-        let mh = PAD + sliders as i32 * ROW_H + switch_rows * 48 + profile_h + PAD + 1 + items.len() as i32 * 36 + 8;
+        let mh = PAD + sliders as i32 * ROW_H + switch_rows * 48 + list_h + profile_h + PAD + 1 + items.len() as i32 * 36 + 8;
         let mx = w as i32 - MENU_W - 6;
         let my = PANEL_HEIGHT as i32 + 4;
         canvas.rect(mx - 1, my - 1, MENU_W + 2, mh + 2, BANNER_BORDER);
@@ -233,11 +266,55 @@ impl Ui {
             let r = Rect { x: mx + PAD + col * (sw + 8), y: y + 2 + row * 48, w: sw, h: 40 };
             let on = states[i];
             canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT } else { FIELD_BG });
-            let tw = text.map_or(0.0, |t| t.width(name, 12.0)).min((r.w - 8) as f32);
-            label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, FG, (r.w - 8) as f32);
+            // Wi-Fi and Bluetooth: a "›" for their list.
+            let expandable = matches!(switch, Switch::Wifi | Switch::Bluetooth);
+            let arrow_w = if expandable { 20 } else { 0 };
+            let tw = text.map_or(0.0, |t| t.width(name, 12.0)).min((r.w - 8 - arrow_w) as f32);
+            label(text, &mut canvas, name, r.x as f32 + (r.w - arrow_w) as f32 / 2.0 - tw / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, FG, (r.w - 8 - arrow_w) as f32);
+            if expandable {
+                let a = Rect { x: r.x + r.w - arrow_w, y: r.y, w: arrow_w, h: r.h };
+                canvas.rect(a.x, a.y + 8, 1, a.h - 16, if on { FG } else { DIM_FG });
+                let glyph = if list_open == Some(*switch) { "‹" } else { "›" };
+                label(text, &mut canvas, glyph, (a.x + 6) as f32, baseline(text, a.y, a.h, 16.0), 16.0, FG, 12.0);
+                overlay.hits.push((a, OverlayHit::Expand(*switch)));
+            }
             overlay.hits.push((r, OverlayHit::Switch(*switch)));
         }
         y += switch_rows * 48;
+        // The open list.
+        if let Some(open) = list_open {
+            let lx = mx + PAD;
+            let lw = MENU_W - 2 * PAD;
+            canvas.rect(lx, y + 4, lw, list_h - 8, FIELD_BG);
+            let mut ry = y + 8;
+            if rows.is_empty() {
+                let empty = if open == Switch::Wifi { "No Networks" } else { "No Devices" };
+                label(text, &mut canvas, empty, (lx + 12) as f32, baseline(text, ry, LIST_ROW_H, 13.0), 13.0, DIM_FG, (lw - 24) as f32);
+            }
+            for (i, (icon, name, secured, connected)) in rows.iter().enumerate() {
+                let r = Rect { x: lx, y: ry, w: lw, h: LIST_ROW_H };
+                let mut tx = r.x + 12;
+                if let Some(icon) = icon {
+                    canvas.image(f64::from(tx), f64::from(r.y + (r.h - 16) / 2), 16.0, 16.0, icon);
+                    tx += 24;
+                }
+                let state_w = if *connected { 76 } else { 0 };
+                let lock_w = if *secured { 22 } else { 0 };
+                label(text, &mut canvas, name, tx as f32, baseline(text, r.y, r.h, 13.0), 13.0, FG, (r.x + r.w - tx - state_w - lock_w - 8) as f32);
+                if *secured {
+                    if let Some(lock) = &lock {
+                        canvas.image(f64::from(r.x + r.w - state_w - lock_w - 4), f64::from(r.y + (r.h - 14) / 2), 14.0, 14.0, lock);
+                    }
+                }
+                if *connected {
+                    label(text, &mut canvas, "Connected", (r.x + r.w - state_w) as f32, baseline(text, r.y, r.h, 12.0), 12.0, ACCENT, (state_w - 8) as f32);
+                }
+                let hit = if open == Switch::Wifi { OverlayHit::Network(i) } else { OverlayHit::BtDevice(i) };
+                overlay.hits.push((r, hit));
+                ry += LIST_ROW_H;
+            }
+            y += list_h;
+        }
         // Power mode: one button per profile.
         if !profiles.is_empty() {
             label(text, &mut canvas, "Power Mode", (mx + PAD) as f32, (y + 18) as f32, 13.0, DIM_FG, (MENU_W - 2 * PAD) as f32);
