@@ -39,7 +39,12 @@ impl Helix {
         let Some(geo) = self.space.output_geometry(&primary) else { return };
         let outputs: Vec<_> = self.space.outputs().filter_map(|o| self.space.output_geometry(o)).map(rect).collect();
         let Some(corner) = helix_comp::hot_corner::corner(rect(geo), &outputs) else { return };
-        if !self.hot_corner.moved(corner, (pos.x, pos.y)) {
+        // A relative pointer pushes into the corner; others reach it.
+        let fired = match self.relative_motion.take() {
+            Some((from, unaccel, time_ms)) => self.hot_corner.pushed(corner, (from.x, from.y), (pos.x, pos.y), (unaccel.x, unaccel.y), time_ms),
+            None => self.hot_corner.moved(corner, (pos.x, pos.y)),
+        };
+        if !fired {
             return;
         }
         let fullscreen = self

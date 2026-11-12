@@ -82,6 +82,9 @@ use tokio::sync::mpsc::UnboundedSender;
 /// Minimum spacing between activity events sent to the IdleMonitor.
 const ACTIVITY_THROTTLE_MS: u128 = 50;
 
+/// A relative pointer motion: from where, unaccelerated delta, time (ms).
+pub type RelativeMotion = (Point<f64, Logical>, Point<f64, Logical>, u64);
+
 pub struct Helix {
     pub start_time: Instant,
     pub socket_name: OsString,
@@ -215,6 +218,10 @@ pub struct Helix {
     /// The magnifier.
     pub zoom: zoom::ZoomState,
     pub hot_corner: helix_comp::hot_corner::HotCorner,
+    /// The relative motion being handled (from where, unaccelerated
+    /// delta, time in ms), for the hot corner's pressure; `None` for
+    /// absolute pointers.
+    pub relative_motion: Option<RelativeMotion>,
     /// `PowerSaveMode` turned the monitors off.
     pub screens_off: bool,
     /// Where a dragged window would go if released now (edge tiling).
@@ -337,6 +344,7 @@ impl Helix {
             mouse_access: Default::default(),
             zoom: Default::default(),
             hot_corner: Default::default(),
+            relative_motion: None,
             screens_off: false,
             tile_target: None,
             wm: Default::default(),
@@ -617,4 +625,5 @@ pub struct ClientState {
 impl ClientData for ClientState {
     fn initialized(&self, _client_id: ClientId) {}
     fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
+
 }

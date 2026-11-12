@@ -166,7 +166,10 @@ impl Helix {
         let pointer = self.seat.get_pointer().unwrap();
         let current = pointer.current_location();
         let target = self.clamp_to_outputs(current + delta);
+        // For the hot corner's pressure.
+        self.relative_motion = Some((current, unaccel, utime / 1000));
         self.pointer_moved(current, target, delta, unaccel, utime, time);
+        self.relative_motion = None;
     }
 
     /// The pointer was put at `pos` (a tablet pen).
