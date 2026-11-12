@@ -26,6 +26,7 @@ const GSM: &str = "gsm";
 const CDMA: &str = "cdma";
 const PPPOE: &str = "pppoe";
 const VPN: &str = "vpn";
+const WIREGUARD: &str = "wireguard";
 
 const ALLOW_INTERACTION: u32 = 0x1;
 const REQUEST_NEW: u32 = 0x2;
@@ -195,6 +196,9 @@ impl Agent {
         if setting_name == VPN {
             return self.vpn(&connection, connection_path, hints, flags).await;
         }
+        if setting_name == WIREGUARD {
+            return self.wireguard(&connection, connection_path, hints, flags).await;
+        }
         let Some(need) = wanted(&connection, &setting_name, &hints) else {
             return Err(AgentError::NoSecrets(format!("Helix has no secrets for {setting_name}")));
         };
@@ -253,7 +257,110 @@ impl Agent {
     async fn delete_secrets(&self, _connection: Settings, _connection_path: OwnedObjectPath) {}
 }
 
+/// A WireGuard secret to ask for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WgSecret {
+    PrivateKey,
+    /// A peer's preshared key, by the peer's public key.
+    Preshared(String),
+}
+
+/// What NetworkManager's hints ask for (`private-key`,
+/// `peers.<public key>.preshared-key`); none means the private key.
+pub fn wireguard_wanted(hints: &[String]) -> Vec<WgSecret> {
+    let mut out: Vec<WgSecret> = hints
+        .iter()
+        .filter_map(|h| {
+            let h = h.strip_prefix("wireguard.").unwrap_or(h);
+            if h == "private-key" {
+                Some(WgSecret::PrivateKey)
+            } else {
+                h.strip_prefix("peers.")?.strip_suffix(".preshared-key").map(|k| WgSecret::Preshared(k.to_owned()))
+            }
+        })
+        .collect();
+    if out.is_empty() {
+        out.push(WgSecret::PrivateKey);
+    }
+    out
+}
+
+/// A WireGuard key: 32 bytes in base64 (43 characters and `=`).
+pub fn valid_wg_key(key: &str) -> bool {
+    key.len() == 44 && key.ends_with('=') && key[..43].bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+}
+
 impl Agent {
+    /// A WireGuard connection's private key or peers' preshared keys.
+    async fn wireguard(&self, connection: &Settings, path: OwnedObjectPath, hints: Vec<String>, flags: u32) -> Result<HashMap<String, HashMap<String, OwnedValue>>, AgentError> {
+        if flags & ALLOW_INTERACTION == 0 {
+            return Err(AgentError::NoSecrets("no interaction allowed".into()));
+        }
+        let name = text(connection, "connection", "id").unwrap_or_else(|| "WireGuard".into());
+        let wanted = wireguard_wanted(&hints);
+        tracing::info!(name, asked = wanted.len(), "WireGuard secrets asked");
+        let key = (path.to_string(), WIREGUARD.to_owned());
+        let (cancel_tx, mut cancel_rx) = oneshot::channel();
+        self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone(), cancel_tx);
+        let _turn = prompt::turn().await;
+        let mut answers: Vec<(WgSecret, String)> = Vec::new();
+        let mut result = Ok(());
+        'secrets: for secret in &wanted {
+            let message = match secret {
+                WgSecret::PrivateKey => format!("The private key is needed to connect to “{name}”."),
+                WgSecret::Preshared(peer) => format!("The preshared key for peer {}… is needed to connect to “{name}”.", peer.chars().take(8).collect::<String>()),
+            };
+            let mut warning = if flags & REQUEST_NEW != 0 { "Wrong key? Try again.".to_owned() } else { String::new() };
+            loop {
+                let prompt = Prompt {
+                    title: "WireGuard Connection".into(),
+                    message: message.clone(),
+                    password: Some(if *secret == WgSecret::PrivateKey { "Private key".into() } else { "Preshared key".into() }),
+                    warning: warning.clone(),
+                    continue_label: "Connect".into(),
+                    cancel_label: "Cancel".into(),
+                    ..Prompt::default()
+                };
+                let answer = tokio::select! {
+                    a = prompt::ask(&self.ui, prompt) => a,
+                    _ = &mut cancel_rx => {
+                        result = Err(AgentError::AgentCanceled("canceled by NetworkManager".into()));
+                        break 'secrets;
+                    }
+                };
+                let Answer::Continue { password: Some(p), .. } = answer else {
+                    result = Err(AgentError::UserCanceled("canceled".into()));
+                    break 'secrets;
+                };
+                let value = String::from_utf8_lossy(p.bytes()).trim().to_owned();
+                if valid_wg_key(&value) {
+                    answers.push((secret.clone(), value));
+                    break;
+                }
+                warning = "This key is not valid.".into();
+            }
+        }
+        prompt::done(&self.ui);
+        self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
+        result?;
+        let ov = |v: Value<'_>| OwnedValue::try_from(v).map_err(|e| AgentError::ZBus(e.into()));
+        let mut group: HashMap<String, OwnedValue> = HashMap::new();
+        let mut peers: Vec<HashMap<String, Value<'static>>> = Vec::new();
+        for (secret, value) in answers {
+            match secret {
+                WgSecret::PrivateKey => {
+                    group.insert("private-key".into(), ov(Value::from(value))?);
+                }
+                WgSecret::Preshared(peer) => peers.push(HashMap::from([("public-key".to_owned(), Value::from(peer)), ("preshared-key".to_owned(), Value::from(value))])),
+            }
+        }
+        if !peers.is_empty() {
+            group.insert("peers".into(), ov(Value::from(peers))?);
+        }
+        tracing::info!(name, "WireGuard secrets");
+        Ok(HashMap::from([(WIREGUARD.to_owned(), group)]))
+    }
+
     /// A VPN's secrets, through its plugin's auth dialog.
     async fn vpn(&self, connection: &Settings, path: OwnedObjectPath, hints: Vec<String>, flags: u32) -> Result<HashMap<String, HashMap<String, OwnedValue>>, AgentError> {
         use crate::vpn_secrets as v;
@@ -392,6 +499,18 @@ mod tests {
         assert_eq!((n.wanted, n.user.as_str()), (Wanted::Pppoe, "ann"));
         assert_eq!(Wanted::Pppoe.secrets("ann", "pw".into()), (PPPOE, vec![("username", "ann".into()), ("password", "pw".into())]));
         assert_eq!(wanted(&dsl, VPN, &[]), None);
+    }
+
+    #[test]
+    fn wireguard() {
+        assert_eq!(wireguard_wanted(&[]), [WgSecret::PrivateKey]);
+        assert_eq!(
+            wireguard_wanted(&["private-key".into(), "peers.AbC+/=.preshared-key".into(), "x".into()]),
+            [WgSecret::PrivateKey, WgSecret::Preshared("AbC+/=".into())]
+        );
+        assert!(valid_wg_key("yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk="));
+        assert!(!valid_wg_key("yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk"));
+        assert!(!valid_wg_key("not a key"));
     }
 
     #[test]

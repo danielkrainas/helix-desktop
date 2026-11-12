@@ -250,6 +250,10 @@ struct Ui {
     source_label: Option<String>,
     /// Where the indicator starts (it ends at `status_left`).
     source_left: i32,
+    /// The IBus engine's properties, and what the source menu's property
+    /// entries are (key, kind, state).
+    ime_props: Vec<crate::ibus::Prop>,
+    ime_menu: Vec<(String, crate::ibus::PropKind, u32)>,
     /// The accessibility switches, and where their indicator starts (it
     /// ends at `source_left`).
     a11y: crate::a11y_menu::Status,
@@ -342,6 +346,11 @@ const POWER_BUTTON_W: i32 = 80;
 const RECORDING_W: i32 = 104;
 /// The accessibility indicator's width.
 const A11Y_W: i32 = 30;
+
+/// The symbol of an engine's `InputMode` property, if it has one.
+fn input_mode_symbol(props: &[crate::ibus::Prop]) -> Option<String> {
+    props.iter().find_map(|p| if p.key == "InputMode" && !p.symbol.is_empty() { Some(p.symbol.clone()) } else { input_mode_symbol(&p.sub) })
+}
 
 /// The accessibility indicator: a figure with arms out.
 fn draw_a11y_glyph(canvas: &mut Canvas, cx: i32, cy: i32) {
@@ -2164,7 +2173,9 @@ impl Ui {
     /// Follow the active input source in the panel indicator.
     pub(super) fn refresh_source_label(&mut self) {
         let sources = crate::input_sources::current();
-        let label = (sources.len() >= 2).then(|| crate::input_sources::short_label(&sources[0]));
+        // An IBus engine's input mode symbol (e.g. "あ") stands for it.
+        let mode = sources.first().filter(|s| s.0 == "ibus").and_then(|_| input_mode_symbol(&self.ime_props));
+        let label = (sources.len() >= 2 || mode.is_some()).then(|| mode.unwrap_or_else(|| crate::input_sources::short_label(&sources[0])));
         if label != self.source_label {
             self.source_label = label;
             self.draw_panel();
@@ -2317,6 +2328,8 @@ pub fn run(
         source_label: None,
         source_left: i32::MAX,
         a11y: crate::a11y_menu::Status::default(),
+        ime_props: Vec::new(),
+        ime_menu: Vec::new(),
         a11y_left: i32::MAX,
         search_serial: 0,
         searched_query: None,

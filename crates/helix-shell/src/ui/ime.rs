@@ -169,6 +169,21 @@ impl Ui {
     }
 
     pub(super) fn ime_event(&mut self, event: ImEvent) {
+        match event {
+            ImEvent::Properties(props) => {
+                self.ime_props = props;
+                self.refresh_source_label();
+                return;
+            }
+            ImEvent::Property(prop) => {
+                if !crate::ibus::update_prop(&mut self.ime_props, &prop) {
+                    self.ime_props.push(prop);
+                }
+                self.refresh_source_label();
+                return;
+            }
+            _ => {}
+        }
         let Some(ime) = self.ime.as_mut() else { return };
         match event {
             ImEvent::KeyHandled { seq, handled } => {

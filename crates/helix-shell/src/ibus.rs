@@ -18,8 +18,8 @@ const BUS_NAME: &str = "org.freedesktop.IBus";
 const PATH: &str = "/org/freedesktop/IBus";
 const IFACE: &str = "org.freedesktop.IBus";
 const IC_IFACE: &str = "org.freedesktop.IBus.InputContext";
-/// Pre-edit text, lookup table, focus, surrounding text.
-pub const CAPABILITIES: u32 = 1 | 4 | 8 | 32;
+/// Pre-edit text, lookup table, focus, properties, surrounding text.
+pub const CAPABILITIES: u32 = 1 | 4 | 8 | 16 | 32;
 /// `state` bit of a key release.
 pub const RELEASE_MASK: u32 = 1 << 30;
 
@@ -35,6 +35,97 @@ pub enum ImRequest {
     Key { seq: u64, keyval: u32, keycode: u32, state: u32 },
     /// The text cursor, in screen coordinates.
     Cursor { x: i32, y: i32, width: i32, height: i32 },
+    /// An engine property was chosen (`state`: 1 checked, 0 not).
+    PropertyActivate { key: String, state: u32 },
+}
+
+/// An engine property's kind (`IBusPropType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropKind {
+    Normal,
+    Toggle,
+    Radio,
+    Menu,
+    Separator,
+}
+
+/// An engine property (`IBusProperty`): an input mode, a switch, a menu.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Prop {
+    pub key: String,
+    pub kind: PropKind,
+    pub label: String,
+    /// `IBusPropState`: 1 checked.
+    pub state: u32,
+    pub sensitive: bool,
+    pub visible: bool,
+    /// A short text for the panel (e.g. the input mode's "あ").
+    pub symbol: String,
+    pub sub: Vec<Prop>,
+}
+
+/// A serialized `IBusProperty`.
+pub fn prop(value: &Value<'_>) -> Option<Prop> {
+    let Value::Structure(s) = unwrap_variant(value) else { return None };
+    let f = s.fields();
+    if !matches!(f.first(), Some(Value::Str(n)) if n.as_str() == "IBusProperty") || f.len() < 11 {
+        return None;
+    }
+    let text = |v: &Value<'_>| ibus_text(v).unwrap_or_default();
+    let string = |v: &Value<'_>| match unwrap_variant(v) {
+        Value::Str(s) => s.to_string(),
+        _ => String::new(),
+    };
+    let number = |v: &Value<'_>| match unwrap_variant(v) {
+        Value::U32(n) => *n,
+        _ => 0,
+    };
+    let flag = |v: &Value<'_>| matches!(unwrap_variant(v), Value::Bool(true));
+    Some(Prop {
+        key: string(&f[2]),
+        kind: match number(&f[3]) {
+            1 => PropKind::Toggle,
+            2 => PropKind::Radio,
+            3 => PropKind::Menu,
+            4 => PropKind::Separator,
+            _ => PropKind::Normal,
+        },
+        label: text(&f[4]),
+        sensitive: flag(&f[7]),
+        visible: flag(&f[8]),
+        state: number(&f[9]),
+        sub: prop_list(&f[10]),
+        symbol: f.get(11).map(text).unwrap_or_default(),
+    })
+}
+
+/// A serialized `IBusPropList`.
+pub fn prop_list(value: &Value<'_>) -> Vec<Prop> {
+    let Value::Structure(s) = unwrap_variant(value) else { return Vec::new() };
+    let f = s.fields();
+    if !matches!(f.first(), Some(Value::Str(n)) if n.as_str() == "IBusPropList") {
+        return Vec::new();
+    }
+    match f.get(2).map(unwrap_variant) {
+        Some(Value::Array(items)) => items.iter().filter_map(prop).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Replace the property with `new`'s key (at any depth); false if none.
+pub fn update_prop(list: &mut [Prop], new: &Prop) -> bool {
+    for p in list.iter_mut() {
+        if p.key == new.key {
+            // An update keeps the sub-properties it does not carry.
+            let sub = if new.sub.is_empty() { std::mem::take(&mut p.sub) } else { new.sub.clone() };
+            *p = Prop { sub, ..new.clone() };
+            return true;
+        }
+        if update_prop(&mut p.sub, new) {
+            return true;
+        }
+    }
+    false
 }
 
 /// From IBus to the input method.
@@ -48,6 +139,10 @@ pub enum ImEvent {
     Candidates(Option<(Vec<String>, usize)>),
     /// Deliver this key to the app (`keycode` evdev).
     Forward { keycode: u32, pressed: bool },
+    /// The engine's properties (all of them).
+    Properties(Vec<Prop>),
+    /// One property changed.
+    Property(Prop),
 }
 
 /// The value inside any number of variant wrappers.
@@ -196,6 +291,8 @@ impl Ibus {
                         .ok()
                         .map(|(v, visible)| ImEvent::Candidates(if visible { lookup_table(&v) } else { None })),
                     "HideLookupTable" => Some(ImEvent::Candidates(None)),
+                    "RegisterProperties" => body.deserialize::<OwnedValue>().ok().map(|v| ImEvent::Properties(prop_list(&v))),
+                    "UpdateProperty" => body.deserialize::<OwnedValue>().ok().and_then(|v| prop(&v)).map(ImEvent::Property),
                     "ForwardKeyEvent" => body
                         .deserialize::<(u32, u32, u32)>()
                         .ok()
@@ -227,6 +324,8 @@ impl Ibus {
                     return;
                 }
                 self.engine = engine.clone();
+                // The new engine registers its own properties.
+                self.send(ImEvent::Properties(Vec::new()));
                 match engine {
                     Some(name) => match self.connect().await {
                         Ok(conn) => {
@@ -243,6 +342,7 @@ impl Ibus {
                 let _ = self.call("Reset", &()).await;
                 self.call("FocusOut", &()).await.map(drop)
             }
+            ImRequest::PropertyActivate { key, state } if self.engine.is_some() => self.call("PropertyActivate", &(key.as_str(), state)).await.map(drop),
             ImRequest::Cursor { x, y, width, height } if self.engine.is_some() => {
                 self.call("SetCursorLocation", &(x, y, width, height)).await.map(drop)
             }

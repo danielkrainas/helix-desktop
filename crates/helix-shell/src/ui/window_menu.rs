@@ -23,6 +23,8 @@ pub(super) enum Choice {
     Dock(usize),
     /// An accessibility switch (`a11y_menu::SWITCHES` index).
     A11y(usize),
+    /// An IBus engine property (index into the menu's properties).
+    ImProperty(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +85,38 @@ pub(super) fn items(state: MenuState, workspace: Option<u32>, count: u32) -> Vec
     out
 }
 
+/// The menu entries for engine properties (`None`: a separator): visible
+/// and sensitive ones, a menu's entries in its place, separators only
+/// between entries.
+pub(super) fn property_entries(props: &[crate::ibus::Prop]) -> Vec<Option<&crate::ibus::Prop>> {
+    use crate::ibus::PropKind;
+    let mut out: Vec<Option<&crate::ibus::Prop>> = Vec::new();
+    for p in props.iter().filter(|p| p.visible) {
+        match p.kind {
+            PropKind::Separator => out.push(None),
+            PropKind::Menu => {
+                out.push(None);
+                out.extend(p.sub.iter().filter(|s| s.visible && s.sensitive && s.kind != PropKind::Separator && s.kind != PropKind::Menu).map(Some));
+                out.push(None);
+            }
+            _ if p.sensitive => out.push(Some(p)),
+            _ => {}
+        }
+    }
+    // No separator first, last or twice.
+    let mut clean: Vec<Option<&crate::ibus::Prop>> = Vec::new();
+    for e in out {
+        if e.is_none() && clean.last().is_none_or(|l| l.is_none()) {
+            continue;
+        }
+        clean.push(e);
+    }
+    if clean.last().is_some_and(|l| l.is_none()) {
+        clean.pop();
+    }
+    clean
+}
+
 /// The open window menu.
 pub(super) struct WindowMenu {
     layer: LayerSurface,
@@ -116,7 +150,7 @@ impl Ui {
     /// "Input source indicator").
     pub(super) fn show_sources_menu(&mut self, x: i32) {
         let sources = crate::input_sources::current();
-        let items = sources
+        let mut items: Vec<Option<Item>> = sources
             .iter()
             .enumerate()
             .map(|(i, s)| {
@@ -124,6 +158,26 @@ impl Ui {
                 Some(Item { label, choice: Choice::InputSource(i), checked: None, active: i == 0 })
             })
             .collect();
+        // The IBus engine's properties, below its source.
+        self.ime_menu.clear();
+        if sources.first().is_some_and(|s| s.0 == "ibus") {
+            let props = property_entries(&self.ime_props);
+            if !props.is_empty() {
+                items.push(None);
+            }
+            for entry in props {
+                match entry {
+                    None => items.push(None),
+                    Some(p) => {
+                        let index = self.ime_menu.len();
+                        self.ime_menu.push((p.key.clone(), p.kind, p.state));
+                        let checked = (p.kind == crate::ibus::PropKind::Toggle).then_some(p.state == 1);
+                        let active = p.kind == crate::ibus::PropKind::Radio && p.state == 1;
+                        items.push(Some(Item { label: p.label.clone(), choice: Choice::ImProperty(index), checked, active }));
+                    }
+                }
+            }
+        }
         self.open_menu(0, x, PANEL_HEIGHT as i32, items, sources);
     }
 
@@ -266,6 +320,17 @@ impl Ui {
     fn choose_window_menu(&mut self, index: usize) {
         let Some(menu) = self.window_menu.take() else { return };
         let Some(Some(item)) = menu.items.get(index) else { return };
+        if let Choice::ImProperty(i) = item.choice {
+            if let Some((key, kind, state)) = self.ime_menu.get(i).cloned() {
+                let state = match kind {
+                    crate::ibus::PropKind::Toggle => u32::from(state != 1),
+                    crate::ibus::PropKind::Radio => 1,
+                    _ => 0,
+                };
+                let _ = self.requests.send(UiRequest::Ime(crate::ibus::ImRequest::PropertyActivate { key, state }));
+            }
+            return;
+        }
         if let Choice::A11y(i) = item.choice {
             crate::a11y_menu::set(i, !item.checked.unwrap_or(false));
             return;
@@ -344,6 +409,24 @@ mod tests {
 
     fn labels(items: &[Option<Item>]) -> Vec<&str> {
         items.iter().map(|i| i.as_ref().map_or("-", |i| i.label.as_str())).collect()
+    }
+
+    fn p(key: &str, kind: crate::ibus::PropKind, visible: bool, sub: Vec<crate::ibus::Prop>) -> crate::ibus::Prop {
+        crate::ibus::Prop { key: key.into(), kind, label: key.into(), state: 0, sensitive: true, visible, symbol: String::new(), sub }
+    }
+
+    #[test]
+    fn property_menu() {
+        use crate::ibus::PropKind::*;
+        let props = vec![
+            p("sep", Separator, true, vec![]),
+            p("InputMode", Menu, true, vec![p("Hira", Radio, true, vec![]), p("Kata", Radio, true, vec![]), p("hidden", Radio, false, vec![])]),
+            p("Wide", Toggle, true, vec![]),
+            p("Gone", Normal, false, vec![]),
+            p("sep2", Separator, true, vec![]),
+        ];
+        let keys: Vec<&str> = property_entries(&props).iter().map(|e| e.map_or("-", |p| p.key.as_str())).collect();
+        assert_eq!(keys, ["Hira", "Kata", "-", "Wide"]);
     }
 
     #[test]

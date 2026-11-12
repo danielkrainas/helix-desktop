@@ -33,10 +33,11 @@ pub enum X11Note {
 /// An icon: premultiplied ARGB8888 (native byte order) and its size.
 pub type X11Icon = (Vec<u8>, u32);
 
-/// The largest square image of a `_NET_WM_ICON` value (width, height,
-/// then width×height straight-alpha ARGB pixels, repeated).
+/// The best image of a `_NET_WM_ICON` value (width, height, then
+/// width×height straight-alpha ARGB pixels, repeated): the largest square
+/// one, else the largest, centered on a transparent square.
 pub fn pick_icon(values: &[u32]) -> Option<X11Icon> {
-    let mut best: Option<(usize, &[u32])> = None;
+    let mut images: Vec<(usize, usize, &[u32])> = Vec::new();
     let mut rest = values;
     while let [w, h, tail @ ..] = rest {
         let (w, h) = (*w as usize, *h as usize);
@@ -44,18 +45,29 @@ pub fn pick_icon(values: &[u32]) -> Option<X11Icon> {
         if n == 0 || tail.len() < n {
             break;
         }
-        if w == h && w <= 512 && best.is_none_or(|(s, _)| w > s) {
-            best = Some((w, &tail[..n]));
+        if w <= 512 && h <= 512 {
+            images.push((w, h, &tail[..n]));
         }
         rest = &tail[n..];
     }
-    let (size, pixels) = best?;
-    let mut out = Vec::with_capacity(size * size * 4);
-    for p in pixels {
-        let a = p >> 24;
-        let m = |c: u32| (c * a + 127) / 255;
-        let premul = (a << 24) | (m((p >> 16) & 0xff) << 16) | (m((p >> 8) & 0xff) << 8) | m(p & 0xff);
-        out.extend_from_slice(&premul.to_ne_bytes());
+    let (w, h, pixels) = images
+        .iter()
+        .filter(|(w, h, _)| w == h)
+        .max_by_key(|(w, _, _)| *w)
+        .or_else(|| images.iter().max_by_key(|(w, h, _)| w * h))
+        .copied()?;
+    let size = w.max(h);
+    let (dx, dy) = ((size - w) / 2, (size - h) / 2);
+    let mut out = vec![0u8; size * size * 4];
+    for y in 0..h {
+        for x in 0..w {
+            let p = pixels[y * w + x];
+            let a = p >> 24;
+            let m = |c: u32| (c * a + 127) / 255;
+            let premul = (a << 24) | (m((p >> 16) & 0xff) << 16) | (m((p >> 8) & 0xff) << 8) | m(p & 0xff);
+            let at = ((y + dy) * size + x + dx) * 4;
+            out[at..at + 4].copy_from_slice(&premul.to_ne_bytes());
+        }
     }
     Some((out, size as u32))
 }
@@ -158,6 +170,17 @@ mod tests {
         assert_eq!(u32::from_ne_bytes(pixels[0..4].try_into().unwrap()), 0x80808080);
         assert_eq!(u32::from_ne_bytes(pixels[4..8].try_into().unwrap()), 0xFF0000FF);
         assert!(pick_icon(&[3, 3, 1]).is_none(), "truncated");
+        // Only a 2x3 image: centered on a 3x3 square (columns of padding
+        // are whole pixels, so it starts at column 0).
+        let (pixels, size) = pick_icon(&[2, 3, 0xFF0000FF, 0xFF00FF00, 0xFF0000FF, 0xFF00FF00, 0xFF0000FF, 0xFF00FF00]).unwrap();
+        assert_eq!(size, 3);
+        assert_eq!(u32::from_ne_bytes(pixels[0..4].try_into().unwrap()), 0xFF0000FF);
+        assert_eq!(u32::from_ne_bytes(pixels[8..12].try_into().unwrap()), 0, "padding on the right");
+        // A square one wins over a larger non-square one.
+        let mut v = vec![4, 2];
+        v.extend([0xFFFFFFFF; 8]);
+        v.extend([1, 1, 0xFF000000]);
+        assert_eq!(pick_icon(&v).unwrap().1, 1);
         assert!(pick_icon(&[]).is_none());
     }
 }
