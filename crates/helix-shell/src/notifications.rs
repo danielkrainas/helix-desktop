@@ -184,13 +184,33 @@ impl Center {
     /// Show (or, with do not disturb, only list) a notification; play its
     /// sound if it gets a banner. Closes the oldest beyond the list's limit.
     fn post(&self, notification: Notification, sound: Option<Sound>) -> u32 {
-        let banner = self.show_banners.load(Ordering::Relaxed) || notification.urgency == Urgency::Critical;
+        // The app's own settings (none for the shell's own).
+        let app = match &notification.origin {
+            Origin::Gtk { app_id, .. } => Some(app_id.clone()),
+            _ => None,
+        };
+        self.post_for(notification, sound, app.as_deref())
+    }
+
+    /// [`Center::post`] for a notification of app `app_id`.
+    fn post_for(&self, notification: Notification, sound: Option<Sound>, app_id: Option<&str>) -> u32 {
+        let policy = app_id.map(crate::app_notify::policy).unwrap_or_default();
+        let critical = notification.urgency == Urgency::Critical;
+        if !policy.enable {
+            // Dropped: an id, and nothing else.
+            let mut store = self.store();
+            let id = store.add(notification, false);
+            store.close(id);
+            tracing::debug!(id, app_id, "notifications of this app are off");
+            return id;
+        }
+        let banner = critical || (self.show_banners.load(Ordering::Relaxed) && policy.banners);
         let (id, overflow) = {
             let mut store = self.store();
             let id = store.add(notification, banner);
             (id, store.overflow())
         };
-        if let Some(sound) = sound.filter(|_| banner) {
+        if let Some(sound) = sound.filter(|_| banner && policy.sounds) {
             crate::sound::play(&sound);
         }
         for old in overflow {
@@ -436,7 +456,8 @@ impl FdoNotifications {
         } else {
             app_name
         };
-        let id = self.center.post(Notification {
+        let app_id = hint_str(&hints, "desktop-entry").map(|e| crate::app_notify::app_id_of_entry(&e).to_owned());
+        let id = self.center.post_for(Notification {
             id: replaces_id,
             app_name,
             summary,
@@ -449,7 +470,7 @@ impl FdoNotifications {
             icon,
             markup: true,
             transient,
-        }, sound);
+        }, sound, app_id.as_deref());
         tracing::debug!(id, "notification");
         id
     }

@@ -6,6 +6,7 @@
 //!   the shell UI.
 
 pub mod accel;
+pub mod app_notify;
 pub mod auth;
 pub mod display_change;
 pub mod end_dialog;
