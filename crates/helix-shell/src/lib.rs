@@ -298,6 +298,8 @@ pub enum UiRequest {
     Power(PowerAction),
     /// `panel-run-dialog`: ask for a command to run.
     RunDialog,
+    /// Restart or Power Off confirmed on the lock screen.
+    LockPower(PowerAction),
     /// The user kept or reverted a display change (or time ran out).
     DisplayChangeAnswer { keep: bool },
     /// A screenshot, brightness or volume key was pressed.
@@ -1056,6 +1058,20 @@ impl UiBridge {
                 portal_dialog::set_running(&self.conn, apps).await;
                 Ok(())
             }
+            UiRequest::LockPower(action) => {
+                // Confirmed already: the end-session dialog answers at once.
+                let (kind, member) = match action {
+                    PowerAction::Restart => (end_dialog::KIND_RESTART, "Reboot"),
+                    PowerAction::PowerOff => (end_dialog::KIND_POWER_OFF, "Shutdown"),
+                    _ => return Ok(()),
+                };
+                end_dialog::preconfirm(kind);
+                if let Err(err) = self.conn.call_method(Some("org.gnome.SessionManager"), "/org/gnome/SessionManager", Some("org.gnome.SessionManager"), member, &()).await {
+                    tracing::warn!(%err, member, "cannot end the session from the lock screen");
+                    end_dialog::preconfirm_clear();
+                }
+                Ok(())
+            }
             UiRequest::RunDialog => {
                 tokio::spawn(run_dialog::run(self.ui.clone()));
                 Ok(())
@@ -1170,6 +1186,21 @@ pub async fn lock_and_wait(conn: &Connection, timeout: std::time::Duration) -> b
             return false;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+/// A boolean key of `org.gnome.desktop.screensaver` (`default` without it).
+pub fn screensaver_flag(key: &str, default: bool) -> bool {
+    use gio::prelude::*;
+    const SCREENSAVER: &str = "org.gnome.desktop.screensaver";
+    if !helix_settings::has_schema(SCREENSAVER) {
+        return default;
+    }
+    let s = gio::Settings::new(SCREENSAVER);
+    if s.settings_schema().is_some_and(|schema| schema.has_key(key)) {
+        s.boolean(key)
+    } else {
+        default
     }
 }
 

@@ -37,6 +37,21 @@ pub enum Choice {
     Canceled,
 }
 
+/// `Open` types.
+pub const KIND_POWER_OFF: u32 = 1;
+pub const KIND_RESTART: u32 = 2;
+
+/// An end of session already confirmed (on the lock screen), by type.
+static PRECONFIRMED: Mutex<Option<u32>> = Mutex::new(None);
+
+pub fn preconfirm(kind: u32) {
+    *PRECONFIRMED.lock().unwrap_or_else(|e| e.into_inner()) = Some(kind);
+}
+
+pub fn preconfirm_clear() {
+    PRECONFIRMED.lock().unwrap_or_else(|e| e.into_inner()).take();
+}
+
 pub struct EndSessionDialog {
     pub ui: mpsc::UnboundedSender<UiEvent>,
     /// Type of the open dialog, if any.
@@ -100,7 +115,20 @@ impl EndSessionDialog {
         seconds_to_stay_open: u32,
         inhibitor_object_paths: Vec<OwnedObjectPath>,
         #[zbus(connection)] conn: &Connection,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) {
+        let preconfirmed = PRECONFIRMED.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if preconfirmed == Some(r#type) {
+            tracing::info!(kind = r#type, "end of session confirmed on the lock screen");
+            let sent = match r#type {
+                KIND_RESTART => Self::confirmed_reboot(&emitter).await,
+                _ => Self::confirmed_shutdown(&emitter).await,
+            };
+            if let Err(err) = sent {
+                tracing::warn!(%err, "cannot confirm the end of the session");
+            }
+            return;
+        }
         let mut blockers = Vec::new();
         for path in &inhibitor_object_paths {
             if let Some(b) = describe(conn, path).await {

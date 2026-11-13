@@ -418,6 +418,16 @@ struct LockScreen {
     user: String,
     /// Results of password checks, from the worker thread.
     results: channel::Sender<Result<(), AuthError>>,
+    /// Restart or Power Off asked on the lock screen, to be confirmed.
+    confirming: Option<PowerAction>,
+}
+
+/// The lock screen's Restart and Power Off buttons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LockPowerHit {
+    Ask(PowerAction),
+    Cancel,
+    Confirm,
 }
 
 struct LockView {
@@ -428,6 +438,8 @@ struct LockView {
     hits: Vec<(Rect, crate::shell_keys::Playback)>,
     /// "Switch User…", when offered.
     switch_user: Option<Rect>,
+    /// Restart and Power Off (`restart-enabled`).
+    power_hits: Vec<(Rect, LockPowerHit)>,
 }
 
 /// Clear a password buffer, overwriting its bytes first.
@@ -1342,6 +1354,7 @@ impl Ui {
                 tracing::info!("unlocking");
                 if let Some(session) = self.lock.session.take() {
                     session.unlock();
+                    self.lock.confirming = None;
                 }
                 self.lock.surfaces.clear();
                 self.lock.message = None;
@@ -1413,6 +1426,37 @@ impl Ui {
             label(text, &mut canvas, message, center(message, 15.0), (fy + 76) as f32, 15.0, DIM_FG, w as f32);
         }
         view.hits = lock_extras::paint_lock_extras(&mut canvas, (text, self.bold.as_ref()), w as i32, fy + 110, self.lock_extras.media.as_ref(), &counts, &icons);
+        // Restart and Power Off at the bottom left (`restart-enabled`).
+        view.power_hits.clear();
+        if crate::screensaver_flag("restart-enabled", false) && (self.power.restart || self.power.power_off) {
+            let button = |canvas: &mut Canvas, x: i32, label_text: &str, strong: bool| -> Rect {
+                let bw = text.map_or(100.0, |t| t.width(label_text, 15.0)).ceil() as i32 + 32;
+                let r = Rect { x, y: h as i32 - 36 - 24, w: bw, h: 36 };
+                canvas.rect(r.x, r.y, r.w, r.h, if strong { ACCENT } else { 0x40FFFFFF });
+                label(text, canvas, label_text, (r.x + 16) as f32, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
+                r
+            };
+            match self.lock.confirming {
+                Some(action) => {
+                    let (question, verb) = if action == PowerAction::Restart { ("Restart this computer?", "Restart") } else { ("Power off this computer?", "Power Off") };
+                    label(text, &mut canvas, question, 24.0, (h as i32 - 36 - 24 - 14) as f32, 15.0, FG, w as f32 / 2.0);
+                    let cancel = button(&mut canvas, 24, "Cancel", false);
+                    view.power_hits.push((cancel, LockPowerHit::Cancel));
+                    let confirm = button(&mut canvas, cancel.x + cancel.w + 12, verb, true);
+                    view.power_hits.push((confirm, LockPowerHit::Confirm));
+                }
+                None => {
+                    let mut x = 24;
+                    for (allowed, label_text, action) in [(self.power.restart, "Restart…", PowerAction::Restart), (self.power.power_off, "Power Off…", PowerAction::PowerOff)] {
+                        if allowed {
+                            let r = button(&mut canvas, x, label_text, false);
+                            view.power_hits.push((r, LockPowerHit::Ask(action)));
+                            x = r.x + r.w + 12;
+                        }
+                    }
+                }
+            }
+        }
         // "Switch User…" at the bottom right.
         view.switch_user = None;
         if self.user_switch && crate::user_switch::allowed() && crate::user_switch::on_lock_screen() {
@@ -2556,6 +2600,7 @@ pub fn run(
             auth,
             user: crate::auth::current_user(),
             results: auth_tx,
+            confirming: None,
         },
         exit: false,
     };
@@ -3077,7 +3122,7 @@ impl SessionLockHandler for Ui {
         for output in self.output_state.outputs() {
             let surface = self.compositor.create_surface(qh);
             let lock_surface = session_lock.create_lock_surface(surface, &output, qh);
-            self.lock.surfaces.push(LockView { surface: lock_surface, width: 0, height: 0, hits: Vec::new(), switch_user: None });
+            self.lock.surfaces.push(LockView { surface: lock_surface, width: 0, height: 0, hits: Vec::new(), switch_user: None, power_hits: Vec::new() });
         }
         self.lock_extras_start();
         tracing::info!(surfaces = self.lock.surfaces.len(), "session locked");

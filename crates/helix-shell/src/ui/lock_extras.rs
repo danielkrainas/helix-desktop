@@ -132,6 +132,20 @@ impl Ui {
     /// A click on a lock surface.
     pub(super) fn lock_click(&mut self, surface: &wl_surface::WlSurface, x: f64, y: f64) {
         let Some(view) = self.lock.surfaces.iter().find(|v| v.surface.wl_surface() == surface) else { return };
+        if let Some(&(_, hit)) = view.power_hits.iter().find(|(r, _)| r.contains(x, y)) {
+            match hit {
+                LockPowerHit::Ask(action) => self.lock.confirming = Some(action),
+                LockPowerHit::Cancel => self.lock.confirming = None,
+                LockPowerHit::Confirm => {
+                    if let Some(action) = self.lock.confirming.take() {
+                        tracing::info!(?action, "power action from the lock screen");
+                        let _ = self.requests.send(UiRequest::LockPower(action));
+                    }
+                }
+            }
+            self.draw_lock();
+            return;
+        }
         if view.switch_user.is_some_and(|r| r.contains(x, y)) {
             tracing::info!("switch user from the lock screen");
             let _ = self.requests.send(UiRequest::Power(crate::PowerAction::SwitchUser));
