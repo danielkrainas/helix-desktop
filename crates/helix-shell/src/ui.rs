@@ -66,6 +66,7 @@ mod notify;
 mod osk;
 mod overview;
 mod panel_editor;
+mod panel_tooltip;
 mod prompt;
 mod quick;
 mod lock_extras;
@@ -279,6 +280,9 @@ struct Ui {
     /// and its entries' ids).
     tray: Vec<crate::tray::Item>,
     tray_menu: Option<(String, Vec<i32>)>,
+    /// What the pointer rests on in the panel, and its tooltip.
+    panel_hover: panel_tooltip::Hover,
+    panel_tooltip: Option<panel_tooltip::PanelTooltip>,
     /// The input source indicator's text (two or more sources).
     source_label: Option<String>,
     /// The IBus engine's properties, and what the source menu's property
@@ -667,10 +671,15 @@ impl Ui {
                 Slot::Item(Item::Clock) => {}
                 Slot::Item(Item::Tray) => {
                     let y = (h as i32 - status::ICON) / 2;
-                    for (i, (image, attention)) in tray_images.iter().enumerate() {
+                    for (i, (image, overlay, attention)) in tray_images.iter().enumerate() {
                         let ix = x + i as i32 * (status::ICON + tray::TRAY_GAP);
                         if let Some(image) = image {
                             canvas.image(f64::from(ix), f64::from(y), f64::from(status::ICON), f64::from(status::ICON), image);
+                        }
+                        // The overlay: half size, over the lower-right corner.
+                        if let Some(overlay) = overlay {
+                            let half = status::ICON / 2;
+                            canvas.image(f64::from(ix + half), f64::from(y + half), f64::from(half), f64::from(half), overlay);
                         }
                         if *attention {
                             canvas.rect(ix, h as i32 - 4, status::ICON, 2, ACCENT);
@@ -2857,6 +2866,8 @@ pub fn run(
         panel_placed: Vec::new(),
         tray: Vec::new(),
         tray_menu: None,
+        panel_hover: Default::default(),
+        panel_tooltip: None,
         source_label: None,
         a11y: crate::a11y_menu::Status::default(),
         ime_props: Vec::new(),
@@ -2970,6 +2981,7 @@ impl LayerShellHandler for Ui {
             || self.click_type_closed(layer)
             || self.desktop_icons_closed(layer)
             || self.workspace_popup_closed(layer)
+            || self.panel_tooltip_closed(layer)
         {
             return;
         }
@@ -3017,6 +3029,7 @@ impl LayerShellHandler for Ui {
             || self.click_type_configured(layer, configure.new_size)
             || self.desktop_icons_configured(layer, configure.new_size)
             || self.workspace_popup_configured(layer, configure.new_size)
+            || self.panel_tooltip_configured(layer, configure.new_size)
         {
             return;
         }

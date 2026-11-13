@@ -28,24 +28,29 @@ impl Ui {
         }
     }
 
-    /// The icons to draw, at `scale`: (image, needs attention).
-    pub(super) fn tray_images(&mut self, scale: f64) -> Vec<(Option<Image>, bool)> {
+    /// The icons to draw, at `scale`: (image, overlay, needs attention).
+    pub(super) fn tray_images(&mut self, scale: f64) -> Vec<(Option<Image>, Option<Image>, bool)> {
         let px = (f64::from(status::ICON) * scale).round() as u32;
-        let shown: Vec<(crate::tray::Icon, bool)> = self.tray_shown().iter().map(|i| (i.icon_now().clone(), i.needs_attention())).collect();
+        let shown: Vec<(crate::tray::Icon, crate::tray::Icon, bool)> = self.tray_shown().iter().map(|i| (i.icon_now().clone(), i.overlay_icon.clone(), i.needs_attention())).collect();
         shown
             .into_iter()
-            .map(|(icon, attention)| {
-                let key = format!("tray:{}:{}:{}@{px}", icon.name, icon.theme_path, icon.pixmaps.iter().map(|p| p.2.len()).sum::<usize>());
-                let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];
-                let image = if icon.pixmaps.is_empty() {
-                    self.icon_cache.entry(key).or_insert_with(|| tray_icon(&icon, px, rgb)).clone()
-                } else {
-                    // Pixmaps can change without their name changing.
-                    tray_icon(&icon, px, rgb)
-                };
-                (image, attention)
+            .map(|(icon, overlay, attention)| {
+                let image = self.tray_image(&icon, px);
+                let overlay = if overlay.is_empty() { None } else { self.tray_image(&overlay, px / 2) };
+                (image, overlay, attention)
             })
             .collect()
+    }
+
+    fn tray_image(&mut self, icon: &crate::tray::Icon, px: u32) -> Option<Image> {
+        let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];
+        if icon.pixmaps.is_empty() {
+            let key = format!("tray:{}:{}@{px}", icon.name, icon.theme_path);
+            self.icon_cache.entry(key).or_insert_with(|| tray_icon(icon, px, rgb)).clone()
+        } else {
+            // Pixmaps can change without their name changing.
+            tray_icon(icon, px, rgb)
+        }
     }
 
     /// The status icon at panel `x` within the tray drawn at `tray_x`:
@@ -67,14 +72,31 @@ impl Ui {
         if &event.surface != self.panel.wl_surface() || self.lock.session.is_some() {
             return false;
         }
-        let Some(&(_, tray_x, tray_w)) = self.panel_placed.iter().find(|p| p.0 == crate::panel_layout::Slot::Item(crate::panel_layout::Item::Tray)) else { return false };
-        let x = event.position.0;
-        if x < f64::from(tray_x - TRAY_GAP / 2) || x >= f64::from(tray_x + tray_w + TRAY_GAP / 2) {
+        if let PointerEventKind::Leave { .. } = event.kind {
+            self.panel_hover(None, 0);
             return false;
         }
-        let Some((key, ix)) = self.tray_at(x, tray_x) else { return false };
+        let under = self
+            .panel_placed
+            .iter()
+            .find(|p| p.0 == crate::panel_layout::Slot::Item(crate::panel_layout::Item::Tray))
+            .and_then(|&(_, tray_x, tray_w)| {
+                let x = event.position.0;
+                (x >= f64::from(tray_x - TRAY_GAP / 2) && x < f64::from(tray_x + tray_w + TRAY_GAP / 2)).then(|| self.tray_at(x, tray_x)).flatten()
+            });
+        let Some((key, ix)) = under else {
+            self.panel_hover(None, 0);
+            return false;
+        };
         match event.kind {
+            PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                self.panel_hover(Some(key), ix);
+                true
+            }
             PointerEventKind::Press { button, .. } => {
+                // A click takes the tooltip away until the pointer moves on.
+                self.panel_tooltip = None;
+                self.panel_hover.serial += 1;
                 let action = match button {
                     BTN_RIGHT => Action::Secondary,
                     BTN_MIDDLE => Action::Middle,
@@ -107,6 +129,13 @@ impl Ui {
         if items != self.tray {
             self.tray = items;
             self.draw_panel();
+            // The tooltip shown follows its item (`NewToolTip`), and goes
+            // with it.
+            if self.panel_hover.key.as_ref().is_some_and(|k| !self.tray.iter().any(|i| &i.key == k)) {
+                self.panel_hover(None, 0);
+            } else if self.panel_tooltip.is_some() {
+                self.show_panel_tooltip();
+            }
         }
     }
 

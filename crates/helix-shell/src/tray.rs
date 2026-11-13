@@ -53,6 +53,11 @@ pub struct Item {
     pub status: String,
     pub icon: Icon,
     pub attention_icon: Icon,
+    /// Drawn small over the icon's corner.
+    pub overlay_icon: Icon,
+    /// The tooltip: its title and its text (markup removed).
+    pub tooltip_title: String,
+    pub tooltip_text: String,
     pub item_is_menu: bool,
     pub has_menu: bool,
 }
@@ -61,6 +66,22 @@ impl Item {
     /// Whether the panel shows it.
     pub fn shown(&self) -> bool {
         self.status != "Passive" && !self.icon_now().is_empty()
+    }
+
+    /// The tooltip's lines: the title (else the item's), then at most 6
+    /// lines of text; empty for none.
+    pub fn tooltip_lines(&self) -> Vec<String> {
+        let title = if self.tooltip_title.trim().is_empty() { self.title.trim() } else { self.tooltip_title.trim() };
+        let mut lines = Vec::new();
+        if !title.is_empty() {
+            lines.push(title.to_owned());
+        }
+        lines.extend(self.tooltip_text.lines().map(str::trim).filter(|l| !l.is_empty()).take(6).map(str::to_owned));
+        if lines.len() == 1 && self.tooltip_title.trim().is_empty() && self.tooltip_text.trim().is_empty() {
+            // Only the item's title: that is no tooltip.
+            return Vec::new();
+        }
+        lines
     }
 
     pub fn needs_attention(&self) -> bool {
@@ -277,6 +298,9 @@ async fn menu_path(conn: &Connection, bus: &str, path: &str) -> Option<String> {
     (menu.as_str() != "/").then(|| menu.to_string())
 }
 
+/// `ToolTip`: icon name, icon pixmaps, title, text.
+type ToolTip = (String, Vec<(i32, i32, Vec<u8>)>, String, String);
+
 /// A `GetLayout` node: id, properties, children.
 type Layout = (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>);
 
@@ -306,6 +330,13 @@ async fn read_item(proxy: &zbus::Proxy<'_>, key: &str) -> Item {
         theme_path,
         pixmaps: pixmaps(get::<Vec<(i32, i32, Vec<u8>)>>(proxy, "AttentionIconPixmap").await.unwrap_or_default()),
     };
+    let overlay_icon = Icon {
+        name: string(get(proxy, "OverlayIconName").await),
+        theme_path: attention_icon.theme_path.clone(),
+        pixmaps: pixmaps(get::<Vec<(i32, i32, Vec<u8>)>>(proxy, "OverlayIconPixmap").await.unwrap_or_default()),
+    };
+    let tooltip: Option<ToolTip> = get(proxy, "ToolTip").await;
+    let (tooltip_title, tooltip_text) = tooltip.map(|(_, _, title, text)| (title, crate::markup::plain(&text))).unwrap_or_default();
     let menu: Option<zbus::zvariant::OwnedObjectPath> = get(proxy, "Menu").await;
     Item {
         key: key.to_owned(),
@@ -313,6 +344,9 @@ async fn read_item(proxy: &zbus::Proxy<'_>, key: &str) -> Item {
         status: get(proxy, "Status").await.unwrap_or_else(|| "Active".to_owned()),
         icon,
         attention_icon,
+        overlay_icon,
+        tooltip_title,
+        tooltip_text,
         item_is_menu: get(proxy, "ItemIsMenu").await.unwrap_or(false),
         has_menu: menu.is_some_and(|m| m.as_str() != "/"),
     }
@@ -395,7 +429,18 @@ impl Watcher {
             if list.len() >= MAX_ITEMS {
                 return Err(zbus::fdo::Error::LimitsExceeded("too many status icons".into()));
             }
-            list.push(Item { key: key.clone(), title: String::new(), status: "Active".into(), icon: Icon::default(), attention_icon: Icon::default(), item_is_menu: false, has_menu: false });
+            list.push(Item {
+                key: key.clone(),
+                title: String::new(),
+                status: "Active".into(),
+                icon: Icon::default(),
+                attention_icon: Icon::default(),
+                overlay_icon: Icon::default(),
+                tooltip_title: String::new(),
+                tooltip_text: String::new(),
+                item_is_menu: false,
+                has_menu: false,
+            });
         }
         tracing::info!(key, service, "status icon registered");
         tokio::spawn(follow_item(self.tray.clone(), conn.clone(), key.clone(), emitter.to_owned()));
@@ -448,6 +493,23 @@ mod tests {
         assert_eq!(best_pixmap(&set, 24).map(|p| p.0), Some(32));
         assert_eq!(best_pixmap(&set, 128).map(|p| p.0), Some(64));
         assert_eq!(split_key(":1.42/org/x"), Some((":1.42", "/org/x")));
+        let mut item = Item {
+            key: String::new(),
+            title: "App".into(),
+            status: "Active".into(),
+            icon: Icon::default(),
+            attention_icon: Icon::default(),
+            overlay_icon: Icon::default(),
+            tooltip_title: String::new(),
+            tooltip_text: String::new(),
+            item_is_menu: false,
+            has_menu: false,
+        };
+        assert!(item.tooltip_lines().is_empty(), "the title alone is no tooltip");
+        item.tooltip_text = "3 new\n\n a\nb\nc\nd\ne\nf\ng".to_owned();
+        assert_eq!(item.tooltip_lines(), ["App", "3 new", "a", "b", "c", "d", "e"]);
+        item.tooltip_title = "Mail".into();
+        assert_eq!(item.tooltip_lines()[0], "Mail");
     }
 
     #[test]
