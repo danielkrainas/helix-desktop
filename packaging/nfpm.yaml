@@ -39,6 +39,8 @@ contents:
     dst: /usr/share/xdg-desktop-portal/portals/helix.portal
   - src: ./stage/usr/share/xdg-desktop-portal/helix-portals.conf
     dst: /usr/share/xdg-desktop-portal/helix-portals.conf
+  - src: ./stage/usr/share/glib-2.0/schemas/org.helix.shell.gschema.xml
+    dst: /usr/share/glib-2.0/schemas/org.helix.shell.gschema.xml
   - src: ./stage/usr/share/doc/helix-desktop/README.md
     dst: /usr/share/doc/helix-desktop/README.md
   - src: ./stage/usr/share/licenses/helix-desktop/LICENSE

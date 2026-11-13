@@ -51,6 +51,19 @@ PipeWire bindings are generated with libclang; without the `clang` package,
 point it at GCC's headers instead, e.g.
 `BINDGEN_EXTRA_CLANG_ARGS=-I/usr/lib/gcc/x86_64-linux-gnu/13/include`.
 
+Helix has its own GSettings schema, `data/org.helix.shell.gschema.xml`
+(the panel layout and quick settings switches). Packages install it, and
+the distribution compiles it. To run from the source tree, compile it
+somewhere and point GSettings at it; without it the shell uses the
+defaults and cannot save layout changes:
+
+```sh
+mkdir -p ~/.cache/helix-schemas
+cp data/*.gschema.xml ~/.cache/helix-schemas/
+glib-compile-schemas ~/.cache/helix-schemas
+export GSETTINGS_SCHEMA_DIR=~/.cache/helix-schemas
+```
+
 ## Releases and packages
 
 Pushing a tag `vX.Y.Z` that matches the workspace version in `Cargo.toml`
@@ -60,7 +73,8 @@ and aarch64, as:
 - a `.deb` (built on Ubuntu 24.04; also for Debian 13),
 - an `.rpm` (built on Fedora 44),
 - an Arch Linux package (x86_64 only; built on Arch as of the release),
-- a tarball of the installed files (Ubuntu build, Debian-style PAM file),
+- a tarball of the installed files (Ubuntu build, Debian-style PAM file;
+  run `glib-compile-schemas /usr/share/glib-2.0/schemas` after unpacking it),
 
 and `helix-desktop-full`, a meta package (no files; one each for Debian,
 RPM and Arch, architecture-independent) that depends on the same version

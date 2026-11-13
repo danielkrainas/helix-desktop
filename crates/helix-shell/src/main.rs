@@ -151,6 +151,8 @@ fn main() -> ExitCode {
     runtime.spawn(helix_shell::clock::follow());
     // Desktop icons.
     runtime.spawn(helix_shell::desktop_icons::follow(service.ui_sender()));
+    // The panel's layout.
+    runtime.spawn(helix_shell::panel_layout::follow(service.ui_sender()));
     // The dwell click type window.
     runtime.spawn(helix_shell::click_type::follow(service.connection().clone(), service.ui_sender()));
     // Network, battery, volume and radios for the panel.

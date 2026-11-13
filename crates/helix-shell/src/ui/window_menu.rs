@@ -32,6 +32,12 @@ pub(super) enum Choice {
     A11y(usize),
     /// An IBus engine property (index into the menu's properties).
     ImProperty(usize),
+    /// A status icon menu entry (index into the open menu's ids).
+    Tray(usize),
+    /// An entry that does nothing (shown dimmed).
+    Disabled,
+    /// The panel's "Customize Panel…".
+    CustomizePanel,
     /// Show the item's submenu.
     Submenu,
     /// Back to the menu a submenu came from.
@@ -220,6 +226,7 @@ impl Ui {
 
     pub(super) fn open_menu(&mut self, id: u32, x: i32, y: i32, items: Vec<Option<Item>>, sources: Vec<crate::input_sources::Source>) {
         self.close_launcher(true);
+        self.tray_menu = None;
         self.power_menu = None;
         // The monitor the point is on.
         let output = self.output_state.outputs().find(|o| {
@@ -312,6 +319,8 @@ impl Ui {
         menu.hits.clear();
         let text = self.text.as_ref();
         let mut y = my + 4;
+        // Radio items show which one is on.
+        let radio_marks = menu.items.iter().flatten().any(|i| i.active);
         for (i, item) in menu.items.iter().enumerate() {
             let Some(item) = item else {
                 canvas.rect(mx + 8, y + SEPARATOR_H / 2, MENU_W - 16, 1, BANNER_BORDER);
@@ -337,7 +346,7 @@ impl Ui {
                 }
                 x += 22;
             }
-            if !menu.sources.is_empty() {
+            if !menu.sources.is_empty() || radio_marks {
                 if item.active {
                     canvas.circle(f64::from(x) + 4.0, f64::from(r.y + r.h / 2), 3.5, ACCENT);
                 }
@@ -359,7 +368,8 @@ impl Ui {
                 }
                 _ => {}
             }
-            label(text, &mut canvas, &item.label, x as f32, base, 14.0, FG, (r.x + r.w - x - 24) as f32);
+            let color = if item.choice == Choice::Disabled { DIM_FG } else { FG };
+            label(text, &mut canvas, &item.label, x as f32, base, 14.0, color, (r.x + r.w - x - 24) as f32);
             menu.hits.push((r, i));
             y += ITEM_H;
         }
@@ -398,6 +408,7 @@ impl Ui {
         match self.window_menu.as_ref().and_then(|m| m.items.get(index)).and_then(|i| i.as_ref()).map(|i| i.choice) {
             Some(Choice::Submenu) => return self.window_submenu(Some(index)),
             Some(Choice::Back) => return self.window_submenu(None),
+            Some(Choice::Disabled) => return,
             _ => {}
         }
         let Some(menu) = self.window_menu.take() else { return };
@@ -411,6 +422,14 @@ impl Ui {
                 };
                 let _ = self.requests.send(UiRequest::Ime(crate::ibus::ImRequest::PropertyActivate { key, state }));
             }
+            return;
+        }
+        if item.choice == Choice::CustomizePanel {
+            self.open_panel_editor();
+            return;
+        }
+        if let Choice::Tray(i) = item.choice {
+            self.tray_menu_choice(i);
             return;
         }
         if let Choice::A11y(i) = item.choice {

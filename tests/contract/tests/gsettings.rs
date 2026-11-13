@@ -62,3 +62,31 @@ fn installed_schemas_match_contracts() {
     }
     assert!(problems.is_empty(), "GSettings contract mismatches:\n  {}", problems.join("\n  "));
 }
+
+/// Helix's own schemas (in `data/`) must match their contracts exactly:
+/// the same keys, types and defaults.
+#[test]
+fn helix_schemas_match_contracts() {
+    for schema in ["org.helix.shell"] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../data/{schema}.gschema.xml"));
+        let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        let mut ours = Vec::new();
+        for part in xml.split("<key ").skip(1) {
+            let attr = |name: &str| part.split(&format!("{name}=\"")).nth(1).and_then(|r| r.split('"').next()).unwrap_or_default().to_owned();
+            let default = part.split("<default>").nth(1).and_then(|r| r.split("</default>").next()).unwrap_or_default().to_owned();
+            ours.push((attr("name"), attr("type"), default));
+        }
+        let path = spec_dir().join(format!("contracts/gsettings/{schema}.md"));
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        let contract: Vec<(String, String, String)> = text
+            .lines()
+            .filter(|l| l.starts_with("| `"))
+            .map(|l| {
+                let cells: Vec<_> = l.split('|').map(|c| c.trim().trim_matches('`').to_owned()).collect();
+                (cells[1].clone(), cells[2].clone(), cells[3].clone())
+            })
+            .collect();
+        assert!(!contract.is_empty(), "no keys parsed for {schema}");
+        assert_eq!(ours, contract, "{schema}: data/{schema}.gschema.xml and its contract differ");
+    }
+}

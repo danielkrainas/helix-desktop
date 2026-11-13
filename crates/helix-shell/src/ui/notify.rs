@@ -16,8 +16,6 @@ pub(super) const ICON: i32 = 32;
 const ICON_PX: u32 = 64;
 const LIST_W: i32 = 420;
 const LIST_PAD: i32 = 10;
-/// The clock's clickable area in the panel, either side of the middle.
-pub(super) const CLOCK_HALF_W: i32 = 70;
 const BODY_PX: f32 = 14.0;
 const BODY_LINE: i32 = 19;
 

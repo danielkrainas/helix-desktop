@@ -65,11 +65,13 @@ mod ime;
 mod notify;
 mod osk;
 mod overview;
+mod panel_editor;
 mod prompt;
 mod quick;
 mod lock_extras;
 mod scale;
 mod status;
+mod tray;
 mod window_menu;
 mod workspace_popup;
 use notify::BannerHit;
@@ -213,6 +215,8 @@ struct Ui {
     power_menu: Option<Overlay<()>>,
     /// The break screen (break reminders).
     break_screen: Option<Overlay<crate::wellbeing::BreakView>>,
+    /// "Customize Panel…".
+    panel_editor: Option<Overlay<panel_editor::EditorState>>,
     /// What the quick settings menu shows.
     quick: quick::QuickState,
     /// The quick settings list that is open (Wi-Fi or Bluetooth).
@@ -266,20 +270,23 @@ struct Ui {
     searched_query: Option<String>,
     /// Control is held (launcher shortcuts).
     ctrl_held: bool,
-    /// Where the status area starts (clicking it opens quick settings).
-    status_left: i32,
+    /// The panel's layout, and where its items were last drawn
+    /// (slot, x, width).
+    panel_layout: crate::panel_layout::Layout,
+    panel_keys: crate::panel_layout::Keys,
+    panel_placed: Vec<(crate::panel_layout::Slot, i32, i32)>,
+    /// Apps' status icons, and the open status icon menu (its item's key
+    /// and its entries' ids).
+    tray: Vec<crate::tray::Item>,
+    tray_menu: Option<(String, Vec<i32>)>,
     /// The input source indicator's text (two or more sources).
     source_label: Option<String>,
-    /// Where the indicator starts (it ends at `status_left`).
-    source_left: i32,
     /// The IBus engine's properties, and what the source menu's property
     /// entries are (key, kind, state).
     ime_props: Vec<crate::ibus::Prop>,
     ime_menu: Vec<(String, crate::ibus::PropKind, u32)>,
-    /// The accessibility switches, and where their indicator starts (it
-    /// ends at `source_left`).
+    /// The accessibility switches.
     a11y: crate::a11y_menu::Status,
-    a11y_left: i32,
     exit: bool,
 }
 
@@ -295,6 +302,8 @@ struct Overlay<T> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum OverlayHit {
+    /// A button of "Customize Panel…".
+    PanelEditor(panel_editor::EditorHit),
     Confirm,
     Cancel,
     /// A window in the switcher.
@@ -375,6 +384,29 @@ const POWER_LABEL: &str = "Power";
 const POWER_BUTTON_W: i32 = 80;
 /// The "Recording" indicator's width (clicking it stops the recording).
 const RECORDING_W: i32 = 104;
+/// The "Sharing" indicator's width.
+const SHARING_W: i32 = 96;
+/// Space on each side of the clock (the unseen-notifications dot sits
+/// in the right one).
+const CLOCK_PAD: i32 = 24;
+
+/// The panel items that react to clicks, left to right: what
+/// `switch-panels` moves between.
+/// Each of the `tray_icons` status icons is a control of its own.
+fn panel_controls(placed: &[(crate::panel_layout::Slot, i32, i32)], tray_icons: usize) -> Vec<(crate::panel_layout::Slot, i32, i32)> {
+    use crate::panel_layout::{Item, Slot};
+    let mut out = Vec::new();
+    for &(slot, x, w) in placed {
+        match slot {
+            Slot::Privacy | Slot::Item(Item::Workspaces) => {}
+            Slot::Item(Item::Tray) => {
+                out.extend((0..tray_icons as i32).map(|i| (slot, x + i * (status::ICON + tray::TRAY_GAP), status::ICON)));
+            }
+            _ => out.push((slot, x, w)),
+        }
+    }
+    out
+}
 /// The accessibility indicator's width.
 const A11Y_W: i32 = 30;
 
@@ -542,6 +574,8 @@ impl Ui {
         let (unseen_dot, list_open) = (self.unseen_dot(), self.notify.view.is_some());
         let scale = self.scales.of(self.panel.wl_surface());
         let status_items = self.status_items(scale);
+        let tray_images = self.tray_images(scale);
+        let tray_w = self.tray_width();
         let Ok((buffer, data)) =
             self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
@@ -555,110 +589,156 @@ impl Ui {
             self.osd = None;
         }
 
-        // "Apps" button, highlighted while the launcher is open.
-        if self.launcher.is_some() {
-            canvas.rect(4, 4, APPS_BUTTON_W - 8, h as i32 - 8, HOVER_BG);
-        }
+        // Measure, place, then draw each item (helix-desktop-spec
+        // `contracts/wayland/README.md`, "Panel layout").
+        use crate::panel_layout::{Item, Slot};
         let px = 14.0;
         let base = baseline(self.text.as_ref(), 0, h as i32, px);
-        if let Some(text) = &self.text {
-            let lw = text.width(APPS_LABEL, px);
-            text.draw(&mut canvas, APPS_LABEL, (APPS_BUTTON_W as f32 - lw) / 2.0, base, Style { px, color: FG, max_width: 64.0 });
-        }
-        // Workspace dots, the active one highlighted.
-        if self.windows.count > 1 {
-            let y = h as i32 / 2 - WORKSPACE_DOT / 2;
-            for i in 0..self.windows.count.min(36) as i32 {
-                let x = APPS_BUTTON_W + 6 + i * (WORKSPACE_DOT + 6);
-                let active = i as u32 == self.windows.active;
-                let (w, color) = if active { (WORKSPACE_DOT * 2, FG) } else { (WORKSPACE_DOT, DIM_FG) };
-                let x = if i as u32 > self.windows.active { x + WORKSPACE_DOT } else { x };
-                canvas.rect(x, y, w, WORKSPACE_DOT, color);
-            }
-        }
-
-        // Left of the Power button: the status icons, then a red dot and
-        // "Recording", then "Sharing".
-        let mut x = w as i32 - POWER_BUTTON_W;
-        for item in &status_items {
-            match item {
-                status::StatusItem::Icon(image) => {
-                    x -= status::ICON;
-                    canvas.image(f64::from(x), f64::from((h as i32 - status::ICON) / 2), f64::from(status::ICON), f64::from(status::ICON), image);
-                    x -= 10;
+        let text_w = |s: &str| self.text.as_ref().map_or(0.0, |t| t.width(s, px)) as i32;
+        let clock = clock_text();
+        let clock_w = match &self.text {
+            Some(text) => text.width(&clock, px) as i32,
+            None => font::text_width(&clock, 2) as i32,
+        };
+        let status_w: i32 = status_items
+            .iter()
+            .map(|item| match item {
+                status::StatusItem::Icon(_) => status::ICON + 10,
+                status::StatusItem::Text(s) => text_w(s) + 4,
+            })
+            .sum();
+        let osd_shown = self.osd.is_some();
+        let size = |slot: Slot| match slot {
+            Slot::Item(Item::Apps) => APPS_BUTTON_W,
+            Slot::Item(Item::Workspaces) if self.windows.count > 1 => self.windows.count.min(36) as i32 * (WORKSPACE_DOT + 6) + WORKSPACE_DOT + 4,
+            Slot::Item(Item::Workspaces) => 0,
+            Slot::Item(Item::Clock) => clock_w + 2 * CLOCK_PAD,
+            Slot::Item(Item::Tray) => tray_w,
+            Slot::Item(Item::Accessibility) if self.a11y.shown => A11Y_W,
+            Slot::Item(Item::Accessibility) => 0,
+            Slot::Item(Item::Keyboard) => self.source_label.as_deref().map_or(0, |s| text_w(s) + 16),
+            Slot::Item(Item::Status) => status_w,
+            Slot::Item(Item::Power) => POWER_BUTTON_W,
+            Slot::Privacy => (if self.sharing { SHARING_W } else { 0 }) + if self.recording { RECORDING_W } else { 0 },
+        };
+        let placed = crate::panel_layout::place(&self.panel_layout, w as i32, size);
+        for &(slot, x, iw) in &placed {
+            match slot {
+                Slot::Item(Item::Apps) => {
+                    // Highlighted while the launcher is open.
+                    if self.launcher.is_some() {
+                        canvas.rect(x + 4, 4, iw - 8, h as i32 - 8, HOVER_BG);
+                    }
+                    if let Some(text) = &self.text {
+                        let lw = text.width(APPS_LABEL, px);
+                        text.draw(&mut canvas, APPS_LABEL, x as f32 + (iw as f32 - lw) / 2.0, base, Style { px, color: FG, max_width: 64.0 });
+                    }
                 }
-                status::StatusItem::Text(s) => {
-                    let tw = self.text.as_ref().map_or(0.0, |t| t.width(s, px)) as i32;
-                    x -= tw;
-                    label(self.text.as_ref(), &mut canvas, s, x as f32, base, px, FG, tw as f32 + 1.0);
-                    x -= 4;
+                Slot::Item(Item::Workspaces) => {
+                    // The active workspace's dot is wide.
+                    let y = h as i32 / 2 - WORKSPACE_DOT / 2;
+                    for i in 0..self.windows.count.min(36) as i32 {
+                        let dx = x + 2 + i * (WORKSPACE_DOT + 6);
+                        let active = i as u32 == self.windows.active;
+                        let (dw, color) = if active { (WORKSPACE_DOT * 2, FG) } else { (WORKSPACE_DOT, DIM_FG) };
+                        let dx = if i as u32 > self.windows.active { dx + WORKSPACE_DOT } else { dx };
+                        canvas.rect(dx, y, dw, WORKSPACE_DOT, color);
+                    }
+                }
+                Slot::Item(Item::Clock) if !osd_shown => {
+                    let tx = x + CLOCK_PAD;
+                    match &self.text {
+                        Some(text) => {
+                            text.draw(&mut canvas, &clock, tx as f32, base, Style { px, color: FG, max_width: 280.0 });
+                            // Unseen notifications: a dot after the clock.
+                            if unseen_dot {
+                                canvas.circle(f64::from(tx + clock_w + 9), f64::from(h as i32) / 2.0, 3.0, FG);
+                            }
+                            if list_open {
+                                canvas.rect(tx - 8, h as i32 - 3, clock_w + 16, 2, ACCENT);
+                            }
+                        }
+                        None => {
+                            let ty = (h - font::GLYPH_H * 2) / 2;
+                            font::render(&clock, 2, |gx, gy| canvas.rect(tx + gx as i32, (ty + gy) as i32, 1, 1, FG));
+                        }
+                    }
+                }
+                Slot::Item(Item::Clock) => {}
+                Slot::Item(Item::Tray) => {
+                    let y = (h as i32 - status::ICON) / 2;
+                    for (i, (image, attention)) in tray_images.iter().enumerate() {
+                        let ix = x + i as i32 * (status::ICON + tray::TRAY_GAP);
+                        if let Some(image) = image {
+                            canvas.image(f64::from(ix), f64::from(y), f64::from(status::ICON), f64::from(status::ICON), image);
+                        }
+                        if *attention {
+                            canvas.rect(ix, h as i32 - 4, status::ICON, 2, ACCENT);
+                        }
+                    }
+                }
+                Slot::Item(Item::Accessibility) => draw_a11y_glyph(&mut canvas, x + iw / 2, h as i32 / 2),
+                Slot::Item(Item::Keyboard) => {
+                    if let Some(s) = &self.source_label {
+                        label(self.text.as_ref(), &mut canvas, s, (x + 8) as f32, base, px, FG, (iw - 15) as f32);
+                    }
+                }
+                Slot::Item(Item::Status) => {
+                    // The first item is the rightmost.
+                    let mut sx = x + iw;
+                    for item in &status_items {
+                        match item {
+                            status::StatusItem::Icon(image) => {
+                                sx -= status::ICON;
+                                canvas.image(f64::from(sx), f64::from((h as i32 - status::ICON) / 2), f64::from(status::ICON), f64::from(status::ICON), image);
+                                sx -= 10;
+                            }
+                            status::StatusItem::Text(s) => {
+                                let tw = text_w(s);
+                                sx -= tw;
+                                label(self.text.as_ref(), &mut canvas, s, sx as f32, base, px, FG, tw as f32 + 1.0);
+                                sx -= 4;
+                            }
+                        }
+                    }
+                }
+                Slot::Item(Item::Power) => {
+                    if self.power_menu.is_some() {
+                        canvas.rect(x + 4, 4, iw - 8, h as i32 - 8, HOVER_BG);
+                    }
+                    if let Some(text) = &self.text {
+                        let pw = text.width(POWER_LABEL, px);
+                        text.draw(&mut canvas, POWER_LABEL, x as f32 + (iw as f32 - pw) / 2.0, base, Style { px, color: FG, max_width: 72.0 });
+                    }
+                }
+                Slot::Privacy => {
+                    let mut ix = x;
+                    if self.sharing {
+                        canvas.rect(ix, h as i32 / 2 - 4, 8, 8, SHARING);
+                        label(self.text.as_ref(), &mut canvas, "Sharing", (ix + 14) as f32, base, px, SHARING, 80.0);
+                        ix += SHARING_W;
+                    }
+                    if self.recording {
+                        canvas.rect(ix, h as i32 / 2 - 4, 8, 8, SHARING);
+                        label(self.text.as_ref(), &mut canvas, "Recording", (ix + 14) as f32, base, px, SHARING, (RECORDING_W - 16) as f32);
+                    }
                 }
             }
-        }
-        self.status_left = x;
-        if let Some(s) = &self.source_label {
-            let tw = self.text.as_ref().map_or(0.0, |t| t.width(s, px)) as i32;
-            x -= tw + 8;
-            label(self.text.as_ref(), &mut canvas, s, x as f32, base, px, FG, tw as f32 + 1.0);
-            x -= 8;
-        }
-        self.source_left = x;
-        if self.a11y.shown {
-            x -= A11Y_W;
-            draw_a11y_glyph(&mut canvas, x + A11Y_W / 2, h as i32 / 2);
-        }
-        self.a11y_left = x;
-        if self.recording {
-            x -= RECORDING_W;
-            canvas.rect(x, h as i32 / 2 - 4, 8, 8, SHARING);
-            label(self.text.as_ref(), &mut canvas, "Recording", (x + 14) as f32, base, px, SHARING, (RECORDING_W - 16) as f32);
-        }
-        if self.sharing {
-            x -= 96;
-            canvas.rect(x, h as i32 / 2 - 4, 8, 8, SHARING);
-            label(self.text.as_ref(), &mut canvas, "Sharing", (x + 14) as f32, base, px, SHARING, 80.0);
-        }
-        if let Some(text) = &self.text {
-            let pw = text.width(POWER_LABEL, px);
-            if self.power_menu.is_some() {
-                canvas.rect(w as i32 - POWER_BUTTON_W + 4, 4, POWER_BUTTON_W - 8, h as i32 - 8, HOVER_BG);
-            }
-            text.draw(&mut canvas, POWER_LABEL, w as f32 - (POWER_BUTTON_W as f32 + pw) / 2.0, base, Style { px, color: FG, max_width: 72.0 });
         }
         // Keyboard focus ring (switch-panels).
-        if let Some(control) = self.panel_focus {
-            let (x, bw) = if control == 0 { (4, APPS_BUTTON_W - 8) } else { (w as i32 - POWER_BUTTON_W + 4, POWER_BUTTON_W - 8) };
+        let controls = panel_controls(&placed, tray_images.len());
+        if let Some(&(_, x, iw)) = self.panel_focus.and_then(|i| controls.get(i)) {
             let (y, bh) = (3, h as i32 - 6);
-            for (rx, ry, rw, rh) in [(x, y, bw, 2), (x, y + bh - 2, bw, 2), (x, y, 2, bh), (x + bw - 2, y, 2, bh)] {
+            for (rx, ry, rw, rh) in [(x, y, iw, 2), (x, y + bh - 2, iw, 2), (x, y, 2, bh), (x + iw - 2, y, 2, bh)] {
                 canvas.rect(rx, ry, rw, rh, ACCENT);
             }
         }
-        match &self.osd {
-            Some((osd, _)) => draw_osd(self.text.as_ref(), &mut canvas, osd, w, h),
-            None => {
-                let clock = clock_text();
-                match &self.text {
-                    Some(text) => {
-                        let cw = text.width(&clock, px);
-                        text.draw(&mut canvas, &clock, (w as f32 - cw) / 2.0, base, Style { px, color: FG, max_width: 280.0 });
-                        // Unseen notifications: a dot after the clock.
-                        if unseen_dot {
-                            canvas.circle(f64::from((w as f32 + cw) / 2.0 + 9.0), f64::from(h as i32) / 2.0, 3.0, FG);
-                        }
-                        if list_open {
-                            canvas.rect(((w as f32 - cw) / 2.0) as i32 - 8, h as i32 - 3, cw as i32 + 16, 2, ACCENT);
-                        }
-                    }
-                    None => {
-                        let scale = 2;
-                        let tx = w.saturating_sub(font::text_width(&clock, scale)) / 2;
-                        let ty = (h - font::GLYPH_H * scale) / 2;
-                        font::render(&clock, scale, |x, y| canvas.rect((tx + x) as i32, (ty + y) as i32, 1, 1, FG));
-                    }
-                }
-                self.shown_minute = Some(clock);
-            }
+        if let Some((osd, _)) = &self.osd {
+            draw_osd(self.text.as_ref(), &mut canvas, osd, w, h);
+        } else {
+            self.shown_minute = Some(clock);
         }
+        self.panel_placed = placed;
 
         let surface = self.panel.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -891,11 +971,12 @@ impl Ui {
     // ----- Panel keyboard focus (switch-panels) -------------------------------
 
     fn focus_panel(&mut self, backward: bool) {
+        let count = panel_controls(&self.panel_placed, self.tray_shown().len()).len().max(1);
         let next = match self.panel_focus {
-            None if backward => PANEL_CONTROLS - 1,
+            None if backward => count - 1,
             None => 0,
-            Some(i) if backward => (i + PANEL_CONTROLS - 1) % PANEL_CONTROLS,
-            Some(i) => (i + 1) % PANEL_CONTROLS,
+            Some(i) if backward => (i + count - 1) % count,
+            Some(i) => (i + 1) % count,
         };
         if self.panel_focus.is_none() {
             self.close_launcher(true);
@@ -905,6 +986,59 @@ impl Ui {
         }
         self.panel_focus = Some(next);
         self.draw_panel();
+    }
+
+    /// A click (or Enter) on panel item `slot`, drawn at `x`.
+    fn panel_activate(&mut self, slot: crate::panel_layout::Slot, x: i32) {
+        use crate::panel_layout::{Item, Slot};
+        match slot {
+            Slot::Item(Item::Apps) => {
+                if self.launcher.is_some() {
+                    self.close_launcher(true);
+                } else {
+                    self.open_launcher(true);
+                }
+            }
+            Slot::Item(Item::Clock) => self.toggle_notification_list(),
+            Slot::Item(Item::Keyboard) => {
+                if self.window_menu.take().is_none() {
+                    self.show_sources_menu(x);
+                }
+            }
+            Slot::Item(Item::Accessibility) => {
+                if self.window_menu.take().is_none() {
+                    self.show_a11y_menu(x);
+                }
+            }
+            Slot::Item(Item::Status) | Slot::Item(Item::Power) => {
+                self.toggle_power_menu();
+                self.draw_panel();
+            }
+            Slot::Item(Item::Tray) => {
+                let tray_x = self.panel_placed.iter().find(|p| p.0 == slot).map_or(x, |p| p.1);
+                if let Some((key, ix)) = self.tray_at(f64::from(x) + 1.0, tray_x) {
+                    self.tray_request(key, crate::tray::Action::Primary, ix);
+                }
+            }
+            Slot::Item(Item::Workspaces) | Slot::Privacy => {}
+        }
+    }
+
+    /// The panel layout keys changed (or were read at start).
+    pub(super) fn panel_layout_changed(&mut self, keys: crate::panel_layout::Keys) {
+        let layout = crate::panel_layout::resolve(&keys);
+        if keys.quick != self.panel_keys.quick {
+            self.panel_keys.quick = keys.quick.clone();
+            self.draw_power_menu();
+        }
+        self.panel_keys = keys;
+        if layout != self.panel_layout {
+            tracing::info!(?layout, "panel layout");
+            self.panel_layout = layout;
+            self.panel_focus = None;
+            self.draw_panel();
+        }
+        self.draw_panel_editor();
     }
 
     fn leave_panel(&mut self) {
@@ -921,15 +1055,10 @@ impl Ui {
             Keysym::Right | Keysym::Tab => self.focus_panel(false),
             Keysym::Left | Keysym::ISO_Left_Tab => self.focus_panel(true),
             Keysym::Return | Keysym::KP_Enter | Keysym::space => {
-                let control = self.panel_focus;
+                let control = self.panel_focus.and_then(|i| panel_controls(&self.panel_placed, self.tray_shown().len()).get(i).copied());
                 self.leave_panel();
-                match control {
-                    Some(0) => self.open_launcher(true),
-                    Some(_) => {
-                        self.toggle_power_menu();
-                        self.draw_panel();
-                    }
-                    None => {}
+                if let Some((slot, x, _)) = control {
+                    self.panel_activate(slot, x);
                 }
             }
             _ => {}
@@ -2129,6 +2258,9 @@ impl Ui {
     fn handle(&mut self, event: UiEvent) {
         match event {
             UiEvent::DesktopIcons(items) => self.desktop_icons_set(items),
+            UiEvent::PanelLayout(keys) => self.panel_layout_changed(keys),
+            UiEvent::Tray(items) => self.tray_changed(items),
+            UiEvent::TrayMenu { key, x, entries } => self.show_tray_menu(key, x, entries),
             UiEvent::ClickTypeWindow(wanted) => {
                 self.click_type.wanted = wanted;
                 self.click_type_sync();
@@ -2694,6 +2826,7 @@ pub fn run(
         dialog: None,
         power_menu: None,
         break_screen: None,
+        panel_editor: None,
         quick: Default::default(),
         quick_list: None,
         bt_discovery: false,
@@ -2719,13 +2852,15 @@ pub fn run(
         sharing: false,
         recording: false,
         status: Default::default(),
-        status_left: i32::MAX,
+        panel_layout: Default::default(),
+        panel_keys: Default::default(),
+        panel_placed: Vec::new(),
+        tray: Vec::new(),
+        tray_menu: None,
         source_label: None,
-        source_left: i32::MAX,
         a11y: crate::a11y_menu::Status::default(),
         ime_props: Vec::new(),
         ime_menu: Vec::new(),
-        a11y_left: i32::MAX,
         search_serial: 0,
         searched_query: None,
         ctrl_held: false,
@@ -2852,6 +2987,8 @@ impl LayerShellHandler for Ui {
             self.power_menu = None;
         } else if self.break_screen.as_ref().is_some_and(|m| &m.layer == layer) {
             self.break_screen = None;
+        } else if self.panel_editor.as_ref().is_some_and(|m| &m.layer == layer) {
+            self.panel_editor = None;
         } else if self.switcher.as_ref().is_some_and(|o| &o.layer == layer) {
             self.switcher = None;
         } else if self.monitor_labels.iter().any(|l| &l.layer == layer) {
@@ -2899,6 +3036,11 @@ impl LayerShellHandler for Ui {
             overlay.height = configure.new_size.1;
             overlay.configured = true;
             self.draw_break();
+        } else if let Some(overlay) = self.panel_editor.as_mut().filter(|o| &o.layer == layer) {
+            overlay.width = configure.new_size.0;
+            overlay.height = configure.new_size.1;
+            overlay.configured = true;
+            self.draw_panel_editor();
         } else if let Some(overlay) = self.power_menu.as_mut().filter(|o| &o.layer == layer) {
             overlay.width = configure.new_size.0;
             overlay.height = configure.new_size.1;
@@ -3009,6 +3151,8 @@ impl KeyboardHandler for Ui {
             self.draw_panel();
         } else if self.break_screen.is_some() {
             self.break_key(&event);
+        } else if self.panel_editor.is_some() {
+            self.panel_editor_key(&event);
         } else {
             self.launcher_key(&event);
         }
@@ -3087,7 +3231,7 @@ impl Ui {
                 }
                 continue;
             }
-            if self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
+            if self.tray_pointer(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
@@ -3122,6 +3266,8 @@ impl Ui {
                 }
             } else if self.break_screen.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
                 self.break_click(x, y);
+            } else if self.panel_editor.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
+                self.panel_editor_click(x, y);
             } else if self.power_menu.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
                 let hit = self.power_menu.as_ref().and_then(|m| m.hits.iter().find(|(r, _)| r.contains(x, y)).copied());
                 tracing::debug!(x, y, hits = self.power_menu.as_ref().map_or(0, |m| m.hits.len()), "quick settings press");
@@ -3133,33 +3279,16 @@ impl Ui {
             } else if self.banner.as_ref().is_some_and(|b| b.layer.wl_surface() == &event.surface) {
                 self.banner_click(x, y);
             } else if &event.surface == self.panel.wl_surface() {
-                // The Power button and the status icons open quick settings.
-                let status_x = f64::from(self.status_left.min(self.panel_width as i32 - POWER_BUTTON_W));
-                let source_x = f64::from(self.source_left.min(self.status_left));
-                if x >= status_x {
-                    self.toggle_power_menu();
-                    self.draw_panel();
-                } else if x >= source_x {
-                    if self.window_menu.is_some() {
-                        self.window_menu = None;
+                let hit = self.panel_placed.iter().copied().find(|&(_, px, pw)| x >= f64::from(px) && x < f64::from(px + pw));
+                if let Some((slot, px, _)) = hit {
+                    if slot == crate::panel_layout::Slot::Privacy {
+                        // "Sharing" comes first; clicking "Recording" stops it.
+                        let recording_x = px + if self.sharing { SHARING_W } else { 0 };
+                        if self.recording && x >= f64::from(recording_x) {
+                            let _ = self.requests.send(UiRequest::StopRecording);
+                        }
                     } else {
-                        self.show_sources_menu(self.source_left);
-                    }
-                } else if self.a11y.shown && x >= f64::from(self.a11y_left) {
-                    if self.window_menu.is_some() {
-                        self.window_menu = None;
-                    } else {
-                        self.show_a11y_menu(self.a11y_left);
-                    }
-                } else if self.recording && x >= f64::from(self.a11y_left - RECORDING_W) {
-                    let _ = self.requests.send(UiRequest::StopRecording);
-                } else if (x - f64::from(self.panel_width) / 2.0).abs() < f64::from(notify::CLOCK_HALF_W) {
-                    self.toggle_notification_list();
-                } else if x < f64::from(APPS_BUTTON_W) {
-                    if self.launcher.is_some() {
-                        self.close_launcher(true);
-                    } else {
-                        self.open_launcher(true);
+                        self.panel_activate(slot, px);
                     }
                 }
             } else if let Some(view) = self.launcher.as_mut().filter(|v| v.layer.wl_surface() == &event.surface) {
@@ -3338,8 +3467,6 @@ enum Internal {
 
 /// Presses this close continue a window cycle.
 const CYCLE_CONTINUE: Duration = Duration::from_millis(1500);
-/// Panel controls reachable with `switch-panels`: Apps, Power.
-const PANEL_CONTROLS: usize = 2;
 
 struct Cycle {
     order: Vec<u32>,

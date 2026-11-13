@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Helix's shell settings (helix-desktop-spec
+     contracts/gsettings/org.helix.shell.md). -->
+<schemalist>
+  <schema id="org.helix.shell" path="/org/helix/shell/">
+    <key name="panel-left" type="as">
+      <default>['helix:apps', 'helix:workspaces']</default>
+      <summary>Items in the left zone of the panel</summary>
+      <description>Item ids, in order from left to right.</description>
+    </key>
+    <key name="panel-center" type="as">
+      <default>['helix:clock']</default>
+      <summary>Items in the center zone of the panel</summary>
+      <description>Item ids, in order from left to right.</description>
+    </key>
+    <key name="panel-right" type="as">
+      <default>['helix:tray', 'helix:accessibility', 'helix:keyboard', 'helix:status', 'helix:power']</default>
+      <summary>Items in the right zone of the panel</summary>
+      <description>Item ids, in order from left to right.</description>
+    </key>
+    <key name="quick-settings" type="as">
+      <default>['helix:wifi', 'helix:bluetooth', 'helix:airplane-mode', 'helix:auto-rotate', 'helix:night-light', 'helix:dark-style', 'helix:do-not-disturb']</default>
+      <summary>Switches in the quick settings menu</summary>
+      <description>Switch ids, in order.</description>
+    </key>
+  </schema>
+</schemalist>

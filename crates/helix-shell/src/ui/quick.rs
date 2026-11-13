@@ -49,6 +49,34 @@ pub(super) enum Switch {
     DoNotDisturb,
 }
 
+impl Switch {
+    /// Its id in `org.helix.shell` `quick-settings`.
+    pub(super) fn id(self) -> &'static str {
+        match self {
+            Switch::Wifi => "helix:wifi",
+            Switch::Bluetooth => "helix:bluetooth",
+            Switch::Airplane => "helix:airplane-mode",
+            Switch::AutoRotate => "helix:auto-rotate",
+            Switch::NightLight => "helix:night-light",
+            Switch::DarkStyle => "helix:dark-style",
+            Switch::DoNotDisturb => "helix:do-not-disturb",
+        }
+    }
+}
+
+/// The switches `order` lists (by id), in its order, of those there are.
+pub(super) fn ordered_switches(available: Vec<(Switch, String)>, order: &[String]) -> Vec<(Switch, String)> {
+    let mut out: Vec<(Switch, String)> = Vec::new();
+    for id in order {
+        if let Some(found) = available.iter().find(|(s, _)| s.id() == id) {
+            if !out.iter().any(|(s, _)| *s == found.0) {
+                out.push(found.clone());
+            }
+        }
+    }
+    out
+}
+
 /// What the menu shows (read when it opens and after changes).
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub(super) struct QuickState {
@@ -242,6 +270,8 @@ impl Ui {
             switches.push((Switch::AutoRotate, "Auto Rotate".into()));
         }
         switches.extend([(Switch::NightLight, "Night Light".into()), (Switch::DarkStyle, "Dark Style".into()), (Switch::DoNotDisturb, "Do Not Disturb".into())]);
+        // In the order of `org.helix.shell` `quick-settings`.
+        let switches = ordered_switches(switches, &self.panel_keys.quick);
         let states: Vec<bool> = switches.iter().map(|(s, _)| self.switch_on(*s)).collect();
         let profiles: Vec<(String, bool)> = self.status.profiles.iter().map(|p| (profile_label(p), self.status.profile.as_deref() == Some(p.as_str()))).collect();
         let switch_rows = switches.len().div_ceil(3) as i32;
@@ -420,6 +450,18 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn switch_order() {
+        let available = vec![(Switch::Wifi, "Wi-Fi".to_owned()), (Switch::NightLight, "Night Light".to_owned()), (Switch::DarkStyle, "Dark Style".to_owned())];
+        let order: Vec<String> = ["helix:dark-style", "helix:bluetooth", "helix:wifi", "helix:dark-style", "x:y"].iter().map(|s| s.to_string()).collect();
+        let got: Vec<Switch> = ordered_switches(available, &order).into_iter().map(|(s, _)| s).collect();
+        assert_eq!(got, [Switch::DarkStyle, Switch::Wifi], "listed, available, once");
+        let all: Vec<String> = crate::panel_layout::QUICK_SWITCHES.iter().map(|s| s.to_string()).collect();
+        for s in [Switch::Wifi, Switch::Bluetooth, Switch::Airplane, Switch::AutoRotate, Switch::NightLight, Switch::DarkStyle, Switch::DoNotDisturb] {
+            assert!(all.contains(&s.id().to_owned()));
+        }
+    }
 
     #[test]
     fn slider_clicks() {

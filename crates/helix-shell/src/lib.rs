@@ -30,6 +30,7 @@ pub mod night_light;
 pub mod bluetooth_agent;
 pub mod obex;
 pub mod osk_words;
+pub mod panel_layout;
 pub mod calendar;
 pub mod click_type;
 pub mod clock;
@@ -67,6 +68,7 @@ pub mod state;
 pub mod status;
 pub mod text;
 pub mod ui;
+pub mod tray;
 pub mod usb_protection;
 pub mod user_switch;
 pub mod wallpaper;
@@ -134,6 +136,12 @@ pub enum UiEvent {
     Overview(bool),
     /// The accessibility switches changed (or were read at start).
     A11y(a11y_menu::Status),
+    /// The panel layout keys (`org.helix.shell`).
+    PanelLayout(panel_layout::Keys),
+    /// Apps' status icons, in the order they registered.
+    Tray(Vec<tray::Item>),
+    /// Show status icon `key`'s menu below it, at `x`.
+    TrayMenu { key: String, x: i32, entries: Vec<tray::MenuEntry> },
     /// Whether the dwell click type window should show.
     ClickTypeWindow(bool),
     /// The compositor's dwell click type.
@@ -259,6 +267,8 @@ pub enum PowerAction {
 /// Reports from the shell UI back to the D-Bus side.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiRequest {
+    /// A click, scroll or menu choice on a status icon.
+    Tray(tray::Request),
     /// Decode a picture for the prompt's preview.
     Preview(String),
     /// The UI opened/closed the launcher itself.
@@ -584,6 +594,7 @@ pub struct ShellService {
     night_light: night_light::Handle,
     ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
     recorder: recording::Recorder,
+    tray: tray::Tray,
 }
 
 impl ShellService {
@@ -605,6 +616,7 @@ impl ShellService {
         let night_light = night_light::Handle::default();
         let recorder = recording::Recorder::new(ui.clone(), Some(center.clone()));
         let prompter = keyring_prompt::Prompter::new(ui.clone());
+        let status_icons = tray::Tray::new(ui.clone());
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone(), lock: lock_status.clone() })?
             .serve_at(OBJECT_PATH, extensions::Extensions)?
@@ -625,6 +637,7 @@ impl ShellService {
             )?
             .serve_at(recording::OBJECT_PATH, recording::Screencast { recorder: recorder.clone() })?
             .serve_at(keyring_prompt::OBJECT_PATH, prompter.clone())?
+            .serve_at(tray::OBJECT_PATH, tray::Watcher { tray: status_icons.clone() })?
             .serve_at(night_light::OBJECT_PATH, night_light::ColorService { handle: night_light.clone() })?
             .serve_at(
                 screencast_chooser::OBJECT_PATH,
@@ -655,7 +668,7 @@ impl ShellService {
             }
             other => tracing::warn!(?other, "cannot own org.gnome.ScreenSaver; screen locking unavailable"),
         }
-        for name in [notifications::FDO_BUS_NAME, notifications::GTK_BUS_NAME, night_light::BUS_NAME, recording::BUS_NAME] {
+        for name in [notifications::FDO_BUS_NAME, notifications::GTK_BUS_NAME, night_light::BUS_NAME, recording::BUS_NAME, tray::BUS_NAME] {
             match conn.request_name_with_flags(name, RequestNameFlags::DoNotQueue.into()).await {
                 Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => {}
                 other => tracing::warn!(name, ?other, "cannot own service name"),
@@ -693,7 +706,7 @@ impl ShellService {
             }
         });
         let ibus = Arc::new(tokio::sync::Mutex::new(ibus::Ibus::new(ui.clone())));
-        Ok((Self { conn, state, watcher, auth, center, ticker, ui, night_light, ibus, recorder }, ui_rx))
+        Ok((Self { conn, state, watcher, auth, center, ticker, ui, night_light, ibus, recorder, tray: status_icons }, ui_rx))
     }
 
     pub fn connection(&self) -> &Connection {
@@ -738,6 +751,7 @@ impl ShellService {
             ui: self.ui.clone(),
             ibus: self.ibus.clone(),
             recorder: self.recorder.clone(),
+            tray: self.tray.clone(),
             search: search::Searcher::default(),
             attention_notices: Default::default(),
         }
@@ -764,6 +778,7 @@ pub struct UiBridge {
     ui: mpsc::UnboundedSender<UiEvent>,
     ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
     recorder: recording::Recorder,
+    tray: tray::Tray,
     search: search::Searcher,
     /// "<window> is ready" notifications, by window id.
     attention_notices: Arc<std::sync::Mutex<std::collections::HashMap<u32, u32>>>,
@@ -929,6 +944,11 @@ impl UiBridge {
             UiRequest::SearchActivate { provider, id, query } => {
                 let (search, conn) = (self.search.clone(), self.conn.clone());
                 tokio::spawn(async move { search.activate(&conn, provider, &id, &query).await });
+                Ok(())
+            }
+            UiRequest::Tray(request) => {
+                let (tray, conn) = (self.tray.clone(), self.conn.clone());
+                tokio::spawn(async move { tray.request(&conn, request).await });
                 Ok(())
             }
             UiRequest::StopRecording => {

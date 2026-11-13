@@ -27,5 +27,6 @@ install -Dm644 "$root/session/helix.portal" "$dest/usr/share/xdg-desktop-portal/
 install -Dm644 "$root/session/helix-portals.conf" "$dest/usr/share/xdg-desktop-portal/helix-portals.conf"
 install -Dm644 "$root/session/helix-session.toml" "$dest/etc/xdg/helix/session.toml"
 install -Dm644 "$pam_file" "$dest/etc/pam.d/helix"
+install -Dm644 "$root/data/org.helix.shell.gschema.xml" "$dest/usr/share/glib-2.0/schemas/org.helix.shell.gschema.xml"
 install -Dm644 "$root/LICENSE" "$dest/usr/share/licenses/helix-desktop/LICENSE"
 install -Dm644 "$root/README.md" "$dest/usr/share/doc/helix-desktop/README.md"
