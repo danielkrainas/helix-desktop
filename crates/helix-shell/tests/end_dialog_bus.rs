@@ -43,7 +43,7 @@ async fn power_menu_logout_through_the_dialog() {
     assert_eq!(dialog.blockers, vec![("org.example.Editor".to_owned(), "Unsaved document".to_owned())]);
 
     // Cancel: the session keeps running.
-    bridge.handle(UiRequest::EndDialogAnswer(Choice::Canceled)).await.unwrap();
+    bridge.handle(UiRequest::EndDialogAnswer(Choice::Canceled, None)).await.unwrap();
     assert_eq!(next_dialog(&mut ui).await, None);
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(sm.is_session_running().await.unwrap());
@@ -51,7 +51,7 @@ async fn power_menu_logout_through_the_dialog() {
     // Again, and "Log Out Anyway".
     bridge.handle(UiRequest::Power(PowerAction::LogOut)).await.unwrap();
     assert!(next_dialog(&mut ui).await.is_some());
-    bridge.handle(UiRequest::EndDialogAnswer(Choice::Confirmed)).await.unwrap();
+    bridge.handle(UiRequest::EndDialogAnswer(Choice::Confirmed, None)).await.unwrap();
     let end = tokio::time::timeout(Duration::from_secs(10), session).await.expect("session ends").unwrap().unwrap();
     assert!(matches!(end, SessionEnd::Requested(_)));
 }

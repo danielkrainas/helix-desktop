@@ -15,6 +15,7 @@ pub mod app_notify;
 pub mod auth;
 pub mod display_change;
 pub mod end_dialog;
+pub mod offline_updates;
 pub mod extra_keys;
 pub mod favorites;
 pub mod font;
@@ -334,7 +335,8 @@ pub enum UiRequest {
     /// A media button in the tray; then read the calendar data again.
     Media { command: shell_keys::Playback, from: i64, to: i64 },
     /// The user answered the end-session dialog.
-    EndDialogAnswer(end_dialog::Choice),
+    /// The answer, and the updates check box.
+    EndDialogAnswer(end_dialog::Choice, Option<bool>),
     /// A power menu entry was chosen.
     Power(PowerAction),
     /// `panel-run-dialog`: ask for a command to run.
@@ -647,7 +649,7 @@ impl ShellService {
             .serve_at(notifications::GTK_PATH, notifications::GtkNotifications { center: center.clone() })?
             .serve_at(
                 end_dialog::OBJECT_PATH,
-                end_dialog::EndSessionDialog { ui: ui.clone(), open_kind: Default::default() },
+                end_dialog::EndSessionDialog { ui: ui.clone(), open_kind: Default::default(), update_triggered: Default::default() },
             )?
             .serve_at(
                 screenshot::OBJECT_PATH,
@@ -891,15 +893,18 @@ impl UiBridge {
                 result
             }
             UiRequest::NotificationActivated { id, action } => self.center.activate(&self.conn, id, action).await,
-            UiRequest::EndDialogAnswer(choice) => {
+            UiRequest::EndDialogAnswer(choice, install) => {
                 let dialog = self
                     .conn
                     .object_server()
                     .interface::<_, end_dialog::EndSessionDialog>(end_dialog::OBJECT_PATH)
                     .await?;
                 let object = dialog.get().await;
-                let result = object.answer(choice, dialog.signal_emitter()).await;
-                result
+                let failed = object.answer(choice, install, dialog.signal_emitter()).await?;
+                if let Some(err) = failed {
+                    self.center.notice("Software", "Updates could not be scheduled", &format!("Nothing was turned off or restarted. {err}"), "software-update-urgent-symbolic", false);
+                }
+                Ok(())
             }
             UiRequest::ShortcutsInhibit { id, app_id } => {
                 let event = match shortcuts_inhibit::lookup(&self.conn, &app_id).await {

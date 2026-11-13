@@ -37,7 +37,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::launcher::{self, Launcher};
 use crate::text::{physical, Canvas, Style, Text};
 use crate::auth::{AuthError, Authenticator, Secret};
-use crate::end_dialog::{Choice, EndDialog, REBOOT, SHUTDOWN};
+use crate::end_dialog::{Choice, EndDialog, REBOOT, SHUTDOWN, UPDATE_REBOOT, UPGRADE_REBOOT};
 use crate::{font, Osd, PowerAction, UiEvent, UiRequest};
 use smithay_client_toolkit::session_lock::{
     SessionLock, SessionLockHandler, SessionLockState, SessionLockSurface, SessionLockSurfaceConfigure,
@@ -346,6 +346,8 @@ enum OverlayHit {
     Monitor(usize),
     /// The prompt dialog's check box.
     Toggle,
+    /// The end-session dialog's "Install pending software updates".
+    EndInstall,
     /// One of the prompt dialog's extra check boxes.
     Check(usize),
     /// A power profile in quick settings, by index.
@@ -1952,7 +1954,7 @@ impl Ui {
         }
         let Some(dialog) = self.dialog.take() else { return };
         let request = match dialog.state.kind {
-            DialogKind::End(_) => UiRequest::EndDialogAnswer(choice),
+            DialogKind::End(d) => UiRequest::EndDialogAnswer(choice, d.install),
             DialogKind::DisplayChange => UiRequest::DisplayChangeAnswer { keep: choice == Choice::Confirmed },
             DialogKind::RemoteControl { reply, .. } => {
                 if let Some(reply) = reply {
@@ -2022,7 +2024,18 @@ impl Ui {
         match event.keysym {
             Keysym::Escape => self.answer_dialog(Choice::Canceled),
             Keysym::Return | Keysym::KP_Enter => self.answer_dialog(Choice::Confirmed),
+            Keysym::space => self.end_toggle_install(),
             _ => {}
+        }
+    }
+
+    /// Tick or untick "Install pending software updates".
+    fn end_toggle_install(&mut self) {
+        let Some(dialog) = self.dialog.as_mut() else { return };
+        if let DialogKind::End(EndDialog { install: Some(on), .. }) = &mut dialog.state.kind {
+            *on = !*on;
+            crate::click_feedback();
+            self.draw_dialog();
         }
     }
 
@@ -2080,10 +2093,16 @@ impl Ui {
                 let (title, verb) = match d.kind {
                     SHUTDOWN => ("Power Off", "Power Off"),
                     REBOOT => ("Restart", "Restart"),
+                    UPDATE_REBOOT => ("Restart & Install Updates", "Restart & Install"),
+                    UPGRADE_REBOOT => ("Restart & Install Upgrade", "Restart & Install"),
                     _ => ("Log Out", "Log Out"),
                 };
                 let confirm = if d.blockers.is_empty() { verb.to_owned() } else { format!("{verb} Anyway") };
-                let message = format!("The session will end automatically in {remaining} seconds.");
+                let message = match (d.kind, &d.upgrade) {
+                    (UPDATE_REBOOT, _) => format!("The computer will restart and install updates in {remaining} seconds. Installing can take a while."),
+                    (UPGRADE_REBOOT, Some(name)) => format!("{name} will be installed after the restart, in {remaining} seconds. Installing can take a long time."),
+                    _ => format!("The session will end automatically in {remaining} seconds."),
+                };
                 (title.to_owned(), message, "Cancel", confirm, &d.blockers)
             }
             DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) => return,
@@ -2120,7 +2139,11 @@ impl Ui {
         let bw = 460.min(w as i32 - 40);
         let rows = blockers.len().min(6) as i32;
         let message_lines = text.map_or(1, |t| t.wrap(&message, 14.0, (bw - 48) as f32, 2).len().max(1)) as i32;
-        let bh = if blocked { 150 + 26 + rows * 40 } else { 160 + (message_lines - 1) * 19 };
+        let install = match &overlay.state.kind {
+            DialogKind::End(d) => d.install,
+            _ => None,
+        };
+        let bh = if blocked { 150 + 26 + rows * 40 } else { 160 + (message_lines - 1) * 19 } + if install.is_some() { 34 } else { 0 };
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
@@ -2144,6 +2167,16 @@ impl Ui {
                 label(text, &mut canvas, line, center(line, 14.0), (y + i as i32 * 19) as f32, 14.0, DIM_FG, inner);
             }
         }
+        let mut extra_hits = Vec::new();
+        if let Some(on) = install {
+            let r = Rect { x: bx + 24, y: by + bh - 56 - 42, w: bw - 48, h: 26 };
+            // Outlined, so an empty box shows.
+            canvas.rect(r.x - 1, r.y + 3, 20, 20, DIM_FG);
+            canvas.rect(r.x, r.y + 4, 18, 18, if on { ACCENT } else { FIELD_BG });
+            let name = "Install pending software updates";
+            label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
+            extra_hits.push((r, OverlayHit::EndInstall));
+        }
         // Buttons: Cancel and the action.
         let by2 = by + bh - 56;
         let half = (bw - 24 * 2 - 12) / 2;
@@ -2157,6 +2190,7 @@ impl Ui {
             label(text, &mut canvas, s, r.x as f32 + (r.w as f32 - lw) / 2.0, base, 15.0, FG, r.w as f32);
         }
         overlay.hits = vec![(cancel, OverlayHit::Cancel), (confirm, OverlayHit::Confirm)];
+        overlay.hits.extend(extra_hits);
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
@@ -3350,6 +3384,7 @@ impl Ui {
                     OverlayHit::Cancel => self.answer_dialog(Choice::Canceled),
                     OverlayHit::Monitor(index) => self.share_monitor(index),
                     OverlayHit::Toggle => self.prompt_toggle(),
+                    OverlayHit::EndInstall => self.end_toggle_install(),
                     OverlayHit::Check(i) => self.prompt_check(i),
                     OverlayHit::Row(i) => self.prompt_pick(i),
                     OverlayHit::Place(i) => self.prompt_place(i),

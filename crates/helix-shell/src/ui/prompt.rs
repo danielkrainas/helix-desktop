@@ -525,6 +525,8 @@ impl Ui {
         }
         if let Some((name, _)) = &p.choice {
             let r = Rect { x: bx + 24, y, w: bw - 48, h: 26 };
+            // Outlined, so an empty box shows.
+            canvas.rect(r.x - 1, r.y + 3, 20, 20, DIM_FG);
             canvas.rect(r.x, r.y + 4, 18, 18, if view.choice { ACCENT } else { FIELD_BG });
             if view.focus == 2 {
                 canvas.rect(r.x, r.y + 23, 18, 2, ACCENT);
@@ -535,6 +537,8 @@ impl Ui {
         }
         for (i, (name, _)) in p.checks.iter().enumerate() {
             let r = Rect { x: bx + 24, y, w: bw - 48, h: 26 };
+            // Outlined, so an empty box shows.
+            canvas.rect(r.x - 1, r.y + 3, 20, 20, DIM_FG);
             canvas.rect(r.x, r.y + 4, 18, 18, if view.checks[i] { ACCENT } else { FIELD_BG });
             if view.focus == CHECK_FOCUS + i {
                 canvas.rect(r.x, r.y + 23, 18, 2, ACCENT);
