@@ -179,6 +179,9 @@ struct Surface {
     underscan: Option<bool>,
     /// Converts frames in the BT.2100 color mode.
     hdr_pass: super::hdr::HdrPass,
+    /// The logical monitor it shows (x, y, scale) when the output is
+    /// placed and scaled otherwise to mirror it at another size.
+    mirrors: Option<(i32, i32, f64)>,
 }
 
 pub struct UdevData {
@@ -546,6 +549,7 @@ impl Helix {
                 color_mode: 0,
                 underscan,
                 hdr_pass: Default::default(),
+                mirrors: None,
             },
         );
         layer_map_for_output(&udev.surfaces[&crtc].output).arrange();
@@ -597,6 +601,8 @@ impl Helix {
             .values()
             .map(|s| {
                 let geo = self.space.output_geometry(&s.output).unwrap_or_default();
+                // A rescaled mirror reports the logical monitor it shows.
+                let (x, y, scale) = s.mirrors.unwrap_or((geo.loc.x, geo.loc.y, s.output.current_scale().fractional_scale()));
                 let name = s.output.name();
                 let mut modes = s.modes.clone();
                 for (i, mode) in modes.iter_mut().enumerate() {
@@ -612,9 +618,9 @@ impl Helix {
                     // A product name, else the connector.
                     display_name: if s.identity.product.starts_with("0x") || s.identity.product == "Unknown" { name } else { s.identity.product.clone() },
                     modes,
-                    x: geo.loc.x,
-                    y: geo.loc.y,
-                    scale: s.output.current_scale().fractional_scale(),
+                    x,
+                    y,
+                    scale,
                     transform: super::monitors::from_transform(s.output.current_transform()),
                     transforms: ALL_TRANSFORMS.to_vec(),
                     hdr: s.hdr.bt2100(),
@@ -926,17 +932,31 @@ impl Helix {
         for surface in udev.surfaces.values_mut() {
             let name = surface.output.name();
             match find(&name) {
-                Some((logical, _)) => {
+                Some((logical, choice)) => {
+                    // A mirrored monitor of another size than the first
+                    // gets its own scale and place to show the same area.
+                    let first = &logical.monitors[0];
+                    let (x, y, scale) = if (choice.width, choice.height) == (first.width, first.height) {
+                        surface.mirrors = None;
+                        (logical.x, logical.y, logical.scale)
+                    } else {
+                        let size = helix_comp::display_config::logical_size(first.width, first.height, logical.scale, logical.transform);
+                        surface.mirrors = Some((logical.x, logical.y, logical.scale));
+                        let placed = helix_comp::display_config::mirror_placement(logical.x, logical.y, size, choice.width, choice.height, logical.transform);
+                        tracing::info!(name, ?placed, "mirrored at another size");
+                        placed
+                    };
                     surface.output.change_current_state(
                         None,
                         Some(super::monitors::to_transform(logical.transform)),
-                        Some(super::monitors::to_scale(logical.scale)),
-                        Some((logical.x, logical.y).into()),
+                        Some(super::monitors::to_scale(scale)),
+                        Some((x, y).into()),
                     );
-                    space.map_output(&surface.output, (logical.x, logical.y));
+                    space.map_output(&surface.output, (x, y));
                 }
                 None if surface.current.is_some() => {
                     tracing::info!(name, "output turned off");
+                    surface.mirrors = None;
                     space.unmap_output(&surface.output);
                     surface.current = None;
                     surface.frame_pending = false;

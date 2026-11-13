@@ -113,7 +113,12 @@ pub fn config_for(mode: SwitchMode, monitors: &[Monitor]) -> Option<MonitorsConf
     match mode {
         SwitchMode::Join => joined(&all),
         SwitchMode::Mirror => {
-            let modes = common_modes(&all)?;
+            // Without a size they all have, each at its preferred mode,
+            // rescaled to show the first one's picture.
+            let modes = match common_modes(&all) {
+                Some(modes) => modes,
+                None => all.iter().map(|m| preferred(m).map(|mode| (*m, mode))).collect::<Option<Vec<_>>>()?,
+            };
             let (lead, lead_mode) = modes[0];
             // Mirrored monitors share one transform: the first one's.
             Some(MonitorsConfig {
@@ -270,10 +275,13 @@ mod tests {
     #[test]
     fn two_external_screens() {
         let ms = vec![monitor("DP-1", false, &[(1920, 1080)], 0), monitor("DP-2", false, &[(1280, 1024)], 1920)];
-        assert_eq!(config_for(SwitchMode::Mirror, &ms), None, "no common size");
+        // No common size: each at its own, rescaled.
+        let mirror = config_for(SwitchMode::Mirror, &ms).unwrap();
+        assert_eq!(mirror.logical[0].monitors.iter().map(|m| (m.width, m.height)).collect::<Vec<_>>(), [(1920, 1080), (1280, 1024)]);
         assert_eq!(config_for(SwitchMode::External, &ms), None);
-        assert_eq!(next(None, &ms), Some(SwitchMode::Join));
-        assert_eq!(next(Some(SwitchMode::Join), &ms), Some(SwitchMode::Join));
+        assert_eq!(next(None, &ms), Some(SwitchMode::Mirror));
+        assert_eq!(next(Some(SwitchMode::Mirror), &ms), Some(SwitchMode::Join));
+        assert_eq!(next(Some(SwitchMode::Join), &ms), Some(SwitchMode::Mirror));
         assert_eq!(next(None, &ms[..1]), None, "one monitor");
     }
 }

@@ -61,6 +61,21 @@ pub fn logical_size(width: i32, height: i32, scale: f64, transform: u32) -> (i32
     }
 }
 
+/// Where a mirrored monitor's output goes and its scale: the monitor
+/// shows the logical monitor at `(x, y)` of `logical` size (in layout
+/// pixels) with its own `width` × `height` mode turned by `transform`.
+/// The scale fits the logical monitor in the mode, keeping its shape;
+/// the output is centred on it, so on a monitor of another shape the
+/// output reaches past the logical monitor on two sides.
+pub fn mirror_placement(x: i32, y: i32, logical: (i32, i32), width: i32, height: i32, transform: u32) -> (i32, i32, f64) {
+    let (w, h) = if transform % 2 == 1 { (height, width) } else { (width, height) };
+    let scale = (f64::from(w) / f64::from(logical.0.max(1))).min(f64::from(h) / f64::from(logical.1.max(1)));
+    let (ow, oh) = (f64::from(w) / scale, f64::from(h) / scale);
+    let dx = ((ow - f64::from(logical.0)) / 2.0).round() as i32;
+    let dy = ((oh - f64::from(logical.1)) / 2.0).round() as i32;
+    (x - dx, y - dy, scale)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mode {
     pub width: i32,
@@ -269,9 +284,6 @@ impl Layout {
                 }
                 if !monitor.modes.iter().any(|m| c.is(m)) {
                     return Err(format!("{} has no {}x{} mode at {} mHz", c.connector, c.width, c.height, c.refresh_mhz));
-                }
-                if (c.width, c.height) != (first.width, first.height) {
-                    return Err("mirrored monitors must use modes of the same size".into());
                 }
                 if !monitor.transforms.contains(&l.transform) {
                     return Err(format!("{} cannot show transform {}", c.connector, l.transform));
@@ -1450,6 +1462,21 @@ mod tests {
     }
 
     #[test]
+    fn mirrored_monitors_of_other_sizes() {
+        // Same shape: an exact fit.
+        assert_eq!(mirror_placement(0, 0, (1920, 1080), 1280, 720, 0), (0, 0, 1280.0 / 1920.0));
+        assert_eq!(mirror_placement(0, 0, (1280, 720), 3840, 2160, 0), (0, 0, 3.0));
+        // 4:3 showing 16:9: bars above and below.
+        let (x, y, scale) = mirror_placement(0, 0, (1920, 1080), 1024, 768, 0);
+        assert_eq!((x, y), (0, -180));
+        assert!((scale - 1024.0 / 1920.0).abs() < 1e-9);
+        // 16:10 showing 4:3 at 100,50: bars left and right.
+        assert_eq!(mirror_placement(100, 50, (1024, 768), 1920, 1200, 0), (100 - 102, 50, 1200.0 / 768.0));
+        // Turned: the mode's sides swap.
+        assert_eq!(mirror_placement(0, 0, (1080, 1920), 1280, 720, 1), (0, 0, 720.0 / 1080.0));
+    }
+
+    #[test]
     fn monitors_modes_mirroring_and_turning_off() {
         let layout = two();
         let mut config = side_by_side(1920, 0);
@@ -1467,7 +1494,7 @@ mod tests {
         assert_eq!(layout.check(&mirror), Ok(()));
         let mut uneven = mirror.clone();
         uneven.logical[0].monitors[0] = choice("DP-1", 1280, 720);
-        assert!(err(&layout, &uneven).contains("same size"));
+        assert_eq!(layout.check(&uneven), Ok(()), "rescaled to fit");
         let mirrored = Layout::new(layout.applied(&mirror));
         let (_, _, logical_monitors, _) = mirrored.current_state();
         assert_eq!(logical_monitors.len(), 1, "one logical monitor shows both");
