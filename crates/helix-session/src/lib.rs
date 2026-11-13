@@ -148,6 +148,10 @@ impl SessionService {
 
     /// Apps to start again at login (one entry per instance to restore).
     pub fn apps_to_restore(&self) -> Vec<String> {
+        if !restore::wanted() {
+            tracing::info!("save-restore is off; no apps are restored");
+            return Vec::new();
+        }
         self.restore.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|r| r.to_relaunch()).unwrap_or_default()
     }
 

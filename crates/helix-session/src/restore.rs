@@ -16,6 +16,18 @@ pub mod reason {
     pub const RESTORED: u32 = 3;
 }
 
+/// `org.gnome.desktop.session` `save-restore`: whether apps are saved at
+/// log-out and restored at login (true without the key).
+pub fn wanted() -> bool {
+    use gio::prelude::*;
+    const SCHEMA: &str = "org.gnome.desktop.session";
+    let Some(source) = gio::SettingsSchemaSource::default() else { return true };
+    match source.lookup(SCHEMA, true) {
+        Some(schema) if schema.has_key("save-restore") => gio::Settings::new(SCHEMA).boolean("save-restore"),
+        _ => true,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum State {
@@ -140,9 +152,13 @@ impl Restore {
             .collect()
     }
 
-    /// `RegisterRestore`: (reason, instance id, cleanup ids).
-    pub fn register(&mut self, app_id: &str, owner: &str) -> (u32, String, Vec<String>) {
+    /// `RegisterRestore`: (reason, instance id, cleanup ids). Without
+    /// `restoring`, instances left from earlier sessions are given up.
+    pub fn register(&mut self, app_id: &str, owner: &str, restoring: bool) -> (u32, String, Vec<String>) {
         let entry = self.file.apps.entry(app_id.to_owned()).or_default();
+        if !restoring {
+            give_up(entry, |s| matches!(s, State::Saved | State::Crashed));
+        }
         let restorable = entry.instances.iter_mut().find(|i| matches!(i.state, State::Saved | State::Crashed));
         let (reason, id) = match restorable {
             Some(instance) => {
@@ -202,26 +218,38 @@ impl Restore {
         self.save();
     }
 
-    /// The session ends cleanly: running instances are saved; instances
-    /// offered for restore but never claimed are given up.
-    pub fn end_session(&mut self) {
+    /// The session ends cleanly: running instances are saved (given up
+    /// without `saving`); instances offered for restore but never claimed
+    /// are given up.
+    pub fn end_session(&mut self, saving: bool) {
         for entry in self.file.apps.values_mut() {
-            let mut given_up = Vec::new();
-            entry.instances.retain(|i| match i.state {
-                State::Running => true,
-                // Not claimed this session (it was offered at login).
-                State::Saved | State::Crashed => {
-                    given_up.push(i.id.clone());
-                    false
-                }
-            });
+            // Not claimed this session (they were offered at login).
+            give_up(entry, |s| matches!(s, State::Saved | State::Crashed) || !saving);
             for i in &mut entry.instances {
                 i.state = State::Saved;
             }
-            entry.cleanup.extend(given_up);
         }
         self.file.session_running = false;
         self.save();
+    }
+}
+
+/// Drops `entry`'s instances in the states `which` picks, keeping their
+/// ids for the app to clean up.
+fn give_up(entry: &mut App, which: impl Fn(State) -> bool) {
+    let mut given_up = Vec::new();
+    entry.instances.retain(|i| {
+        if which(i.state) {
+            given_up.push(i.id.clone());
+            false
+        } else {
+            true
+        }
+    });
+    for id in given_up {
+        if !entry.cleanup.contains(&id) {
+            entry.cleanup.push(id);
+        }
     }
 }
 
@@ -240,20 +268,20 @@ mod tests {
         let path = temp("clean");
         let mut r = Restore::start(path.clone(), File::default(), "s1".into());
         assert!(r.to_relaunch().is_empty());
-        let (reason, id, cleanup) = r.register("org.example.Editor", ":1.5");
+        let (reason, id, cleanup) = r.register("org.example.Editor", ":1.5", true);
         assert_eq!((reason, id.as_str(), cleanup.len()), (reason::LAUNCH, "helix-s1-1", 0));
-        let (_, closed, _) = r.register("org.example.Editor", ":1.5");
+        let (_, closed, _) = r.register("org.example.Editor", ":1.5", true);
         r.unregister("org.example.Editor", &closed);
-        r.end_session();
+        r.end_session(true);
 
         // Next login: the instance that was open comes back.
         let mut r = Restore::open(path.clone());
         assert_eq!(r.to_relaunch(), ["org.example.Editor"]);
-        let (reason, again, cleanup) = r.register("org.example.Editor", ":1.9");
+        let (reason, again, cleanup) = r.register("org.example.Editor", ":1.9", true);
         assert_eq!((reason, again.as_str()), (reason::RESTORED, id.as_str()));
         assert_eq!(cleanup, std::slice::from_ref(&closed), "the closed instance may be deleted");
         r.deleted("org.example.Editor", &[closed]);
-        let (_, _, cleanup) = r.register("org.example.Editor", ":1.9");
+        let (_, _, cleanup) = r.register("org.example.Editor", ":1.9", true);
         assert!(cleanup.is_empty());
         let _ = std::fs::remove_file(path);
     }
@@ -262,17 +290,17 @@ mod tests {
     fn crashes() {
         let path = temp("crash");
         let mut r = Restore::start(path.clone(), File::default(), "s1".into());
-        let (_, id, _) = r.register("org.example.Web", ":1.5");
+        let (_, id, _) = r.register("org.example.Web", ":1.5", true);
         r.owner_left(":1.5");
-        let (_, other, _) = r.register("org.example.Mail", ":1.6");
+        let (_, other, _) = r.register("org.example.Mail", ":1.6", true);
         drop(r); // the session never ended cleanly
 
         let mut r = Restore::open(path.clone());
         let mut relaunch = r.to_relaunch();
         relaunch.sort();
         assert_eq!(relaunch, ["org.example.Mail", "org.example.Web"]);
-        assert_eq!(r.register("org.example.Web", ":2.1"), (reason::CRASHED, id, vec![]));
-        assert_eq!(r.register("org.example.Mail", ":2.2").0, reason::CRASHED, "the session crashed");
+        assert_eq!(r.register("org.example.Web", ":2.1", true), (reason::CRASHED, id, vec![]));
+        assert_eq!(r.register("org.example.Mail", ":2.2", true).0, reason::CRASHED, "the session crashed");
         let _ = other;
         let _ = std::fs::remove_file(path);
     }
@@ -281,14 +309,35 @@ mod tests {
     fn unclaimed_instances_are_given_up() {
         let path = temp("unclaimed");
         let mut r = Restore::start(path.clone(), File::default(), "s1".into());
-        let (_, id, _) = r.register("org.example.Gone", ":1.5");
-        r.end_session();
+        let (_, id, _) = r.register("org.example.Gone", ":1.5", true);
+        r.end_session(true);
         let mut r = Restore::open(path.clone());
         assert_eq!(r.to_relaunch(), ["org.example.Gone"]);
-        r.end_session(); // never registered again
+        r.end_session(true); // never registered again
         let mut r = Restore::open(path.clone());
         assert!(r.to_relaunch().is_empty());
-        assert_eq!(r.register("org.example.Gone", ":3.1").2, [id], "its data can go");
+        assert_eq!(r.register("org.example.Gone", ":3.1", true).2, [id], "its data can go");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn save_restore_off() {
+        let path = temp("off");
+        let mut r = Restore::start(path.clone(), File::default(), "a".into());
+        let (_, id, _) = r.register("org.example.Editor", ":1.5", true);
+        r.end_session(false);
+        let mut r = Restore::open(path.clone());
+        assert!(r.to_relaunch().is_empty(), "nothing saved at log-out");
+        let (reason, _, cleanup) = r.register("org.example.Editor", ":2.1", true);
+        assert_eq!((reason, cleanup), (reason::LAUNCH, vec![id.clone()]));
+
+        // Saved while on, turned off before the app comes back.
+        r.end_session(true);
+        let mut r = Restore::open(path.clone());
+        assert_eq!(r.to_relaunch(), ["org.example.Editor"]);
+        let (reason, _, cleanup) = r.register("org.example.Editor", ":3.1", false);
+        assert_eq!(reason, reason::LAUNCH);
+        assert_eq!(cleanup.len(), 2, "both earlier ids can go");
         let _ = std::fs::remove_file(path);
     }
 }

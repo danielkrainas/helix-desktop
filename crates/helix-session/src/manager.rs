@@ -266,7 +266,8 @@ impl SessionManager {
     /// The sequence completed.
     pub async fn finish_end(&self, action: EndSessionAction, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {
         self.state().commit_end();
-        self.with_restore(|r| r.end_session());
+        let saving = crate::restore::wanted();
+        self.with_restore(|r| r.end_session(saving));
         self.announce_end(action, emitter)
             .await
             .map_err(|e| zbus::Error::Failure(format!("{e:?}")))
@@ -534,7 +535,8 @@ impl SessionManager {
     }
 
     async fn register_restore(&self, app_id: &str, dbus_name: &str) -> Result<(u32, String, Vec<String>)> {
-        let registered = self.with_restore(|r| r.register(app_id, dbus_name));
+        let restoring = crate::restore::wanted();
+        let registered = self.with_restore(|r| r.register(app_id, dbus_name, restoring));
         let (reason, id, cleanup) = registered.ok_or_else(|| ManagerError::General("session restore is not supported".into()))?;
         tracing::info!(app_id, id, reason, "app registered for restore");
         Ok((reason, id, cleanup))
