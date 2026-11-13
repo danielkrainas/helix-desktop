@@ -49,6 +49,7 @@ pub mod privacy;
 pub mod prompt;
 pub mod notify_store;
 pub mod recording;
+pub mod run_dialog;
 pub mod screensaver;
 pub mod search;
 pub mod secret_exchange;
@@ -295,6 +296,8 @@ pub enum UiRequest {
     EndDialogAnswer(end_dialog::Choice),
     /// A power menu entry was chosen.
     Power(PowerAction),
+    /// `panel-run-dialog`: ask for a command to run.
+    RunDialog,
     /// The user kept or reverted a display change (or time ran out).
     DisplayChangeAnswer { keep: bool },
     /// A screenshot, brightness or volume key was pressed.
@@ -1051,6 +1054,10 @@ impl UiBridge {
             }
             UiRequest::RunningApps(apps) => {
                 portal_dialog::set_running(&self.conn, apps).await;
+                Ok(())
+            }
+            UiRequest::RunDialog => {
+                tokio::spawn(run_dialog::run(self.ui.clone()));
                 Ok(())
             }
             UiRequest::WindowAttention { id, wanting, title, app_id } => {

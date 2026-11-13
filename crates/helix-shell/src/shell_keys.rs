@@ -297,6 +297,12 @@ fn strv(schema: &str, key: &str, defaults: &[&str]) -> Vec<String> {
     }
 }
 
+/// An `org.gnome.desktop.wm.keybindings` key's accelerators (empty ones
+/// left out).
+pub fn wm_strv(key: &str, defaults: &[&str]) -> Vec<String> {
+    strv("org.gnome.desktop.wm.keybindings", key, defaults).into_iter().filter(|a| !a.is_empty()).collect()
+}
+
 /// An `org.gnome.shell.keybindings` key's accelerators (empty ones left out).
 pub fn shell_strv(key: &str, defaults: &[&str]) -> Vec<String> {
     strv(SHELL_KEYS, key, defaults).into_iter().filter(|a| !a.is_empty()).collect()

@@ -47,6 +47,11 @@ pub struct Prompt {
     pub icon: Option<std::sync::Arc<helix_draw::Image>>,
     /// Shown in a warning color, e.g. after a wrong password.
     pub warning: String,
+    /// Earlier entries, oldest first: Up and Down in the text field go
+    /// through them.
+    pub history: Vec<String>,
+    /// Tab in the text field completes a command name from `$PATH`.
+    pub complete_commands: bool,
     pub continue_label: String,
     pub cancel_label: String,
 }

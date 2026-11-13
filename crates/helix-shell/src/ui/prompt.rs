@@ -42,6 +42,10 @@ pub(super) struct PromptView {
     shown: [bool; 2],
     /// Whether "Show" is offered (`disable-show-password` off).
     can_show: bool,
+    /// Where Up/Down are in the history (None: the text typed).
+    history_at: Option<usize>,
+    /// Command names for Tab, read at the first Tab.
+    commands: Option<Vec<String>>,
 }
 
 /// The width of a password field's "Show" button.
@@ -62,7 +66,7 @@ impl PromptView {
         };
         let selected = request.prompt.selected.min(request.prompt.list.len().saturating_sub(1));
         let picked = vec![false; request.prompt.list.len()];
-        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, place: None, previews: Default::default(), shown: [false; 2], can_show: !crate::locked_down("disable-show-password") }
+        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, place: None, previews: Default::default(), shown: [false; 2], can_show: !crate::locked_down("disable-show-password"), history_at: None, commands: None }
     }
 
     /// Answer "cancel" if nobody answered yet.
@@ -252,6 +256,26 @@ impl Ui {
             return;
         }
         match event.keysym {
+            Keysym::Tab if view.focus == 3 && view.prompt.complete_commands => {
+                let commands = view.commands.get_or_insert_with(crate::run_dialog::path_commands);
+                view.entry = crate::run_dialog::complete(&view.entry, commands);
+            }
+            Keysym::Up if view.focus == 3 && !view.prompt.history.is_empty() => {
+                let at = view.history_at.map_or(view.prompt.history.len() - 1, |i| i.saturating_sub(1));
+                view.history_at = Some(at);
+                view.entry = view.prompt.history[at].clone();
+            }
+            Keysym::Down if view.focus == 3 && !view.prompt.history.is_empty() => match view.history_at {
+                Some(i) if i + 1 < view.prompt.history.len() => {
+                    view.history_at = Some(i + 1);
+                    view.entry = view.prompt.history[i + 1].clone();
+                }
+                Some(_) => {
+                    view.history_at = None;
+                    view.entry.clear();
+                }
+                None => {}
+            },
             Keysym::Tab | Keysym::ISO_Left_Tab => {
                 let order = view.focusable();
                 if let Some(i) = order.iter().position(|f| *f == view.focus) {

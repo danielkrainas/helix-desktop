@@ -2212,6 +2212,12 @@ impl Ui {
                 next += 1;
             }
         }
+        for text in crate::shell_keys::wm_strv("panel-run-dialog", &["<Alt>F2"]) {
+            let Some(accelerator) = parse(&text, "run dialog") else { continue };
+            self.internal.insert(next, Internal::RunDialog);
+            self.bind(next, &accelerator);
+            next += 1;
+        }
         if self.window_list.is_none() {
             return;
         }
@@ -2296,6 +2302,11 @@ impl Ui {
             Some(Internal::DockApp(n, launch)) => self.switch_to_app(n, launch),
             Some(Internal::DockHotKey(n, which)) => self.dock_hot_key(n, which),
             Some(Internal::DockShortcut) => self.dock_flash(),
+            Some(Internal::RunDialog) => {
+                if !crate::locked_down("disable-command-line") {
+                    let _ = self.requests.send(UiRequest::RunDialog);
+                }
+            }
             Some(Internal::QuickSettings) => {
                 self.toggle_power_menu();
                 self.draw_panel();
@@ -3135,6 +3146,8 @@ enum Internal {
     DockHotKey(usize, crate::dock::HotKey),
     /// Dash to Dock's `shortcut`.
     DockShortcut,
+    /// `panel-run-dialog`.
+    RunDialog,
 }
 
 /// Presses this close continue a window cycle.
