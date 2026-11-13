@@ -75,6 +75,18 @@ pub fn extras_of(flags: u32, user: bool, entry: Option<&str>, checks: &[bool]) -
     Extras { anonymous, hidden_volume, system_volume, pim }
 }
 
+/// Adds a VeraCrypt volume's answers (`flags` has 32) to a password
+/// answer: `hidden_volume` and `system_volume` (`b`) and `pim` (`u`, 0
+/// for none), the keys GTK reads.
+pub fn tcrypt_details(details: &mut Details, flags: u32, extras: &Extras) {
+    if flags & flags::TCRYPT == 0 {
+        return;
+    }
+    details.insert("hidden_volume".into(), value(Value::from(extras.hidden_volume)));
+    details.insert("system_volume".into(), value(Value::from(extras.system_volume)));
+    details.insert("pim".into(), value(Value::from(extras.pim.unwrap_or(0))));
+}
+
 /// `GPasswordSave`.
 pub mod password_save {
     pub const NEVER: u32 = 0;
@@ -325,13 +337,20 @@ impl MountHandler {
             return (result::UNHANDLED, Details::new());
         };
         prompt.icon = icon(&icon_name);
+        // GTK reads no anonymous-login answer, so only VeraCrypt's are offered.
+        let extra_flags = flags & flags::TCRYPT;
+        let has_user = prompt.entry.is_some();
+        add_extras(&mut prompt, extra_flags);
         self.run(sender_of(&header), id, prompt, |answer| match answer {
-            Answer::Continue { entry, password, choice, .. } => {
+            Answer::Continue { entry, password, choice, checks, .. } => {
                 if flags & flags::SAVING_SUPPORTED != 0 {
                     remember_chosen(choice);
                 }
                 let password = password.map(|p| String::from_utf8_lossy(p.bytes()).into_owned());
-                (result::HANDLED, password_details(flags, &default_user, &default_domain, entry.as_deref(), password.as_deref(), choice))
+                let named = if has_user { entry.as_deref() } else { None };
+                let mut details = password_details(flags, &default_user, &default_domain, named, password.as_deref(), choice);
+                tcrypt_details(&mut details, extra_flags, &extras_of(extra_flags, has_user, entry.as_deref(), &checks));
+                (result::HANDLED, details)
             }
             Answer::Cancel => (result::ABORTED, Details::new()),
         })
@@ -397,6 +416,14 @@ mod tests {
         assert_eq!(e, Extras { anonymous: false, hidden_volume: true, system_volume: false, pim: Some(485) });
         let a = extras_of(flags::ANONYMOUS_SUPPORTED, true, Some("bob"), &[true]);
         assert!(a.anonymous && a.pim.is_none());
+        let mut d = Details::new();
+        tcrypt_details(&mut d, flags::TCRYPT, &e);
+        assert_eq!(bool::try_from(d["hidden_volume"].clone()), Ok(true));
+        assert_eq!(bool::try_from(d["system_volume"].clone()), Ok(false));
+        assert_eq!(u32::try_from(d["pim"].clone()), Ok(485));
+        let mut none = Details::new();
+        tcrypt_details(&mut none, flags::NEED_PASSWORD, &e);
+        assert!(none.is_empty());
     }
 
     #[test]
