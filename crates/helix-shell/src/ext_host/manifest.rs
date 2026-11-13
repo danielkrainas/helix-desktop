@@ -230,7 +230,7 @@ pub struct Manifest {
     pub sliders: Vec<QuickDecl>,
     pub dock_items: Vec<DockItemDecl>,
     pub commands: Vec<CommandDecl>,
-    /// By key.
+    /// In the manifest's order.
     pub settings: Vec<SettingDecl>,
 }
 
@@ -483,6 +483,7 @@ id = "toggle"
 title = "Caffeine"
 
 [settings]
+zz-first = { type = "bool", default = true, label = "First" }
 minutes = { type = "int", default = 0, min = 0, max = 480, label = "Minutes" }
 mode = { type = "enum", choices = ["a", "b"], default = "b", label = "Mode" }
 "#;
@@ -494,6 +495,8 @@ mode = { type = "enum", choices = ["a", "b"], default = "b", label = "Mode" }
         assert_eq!(m.activation, [Activation::OnStartup]);
         assert_eq!(m.panel_items[0].zones, [Zone::Right]);
         assert_eq!(m.toggles[0].title, "Caffeine");
+        // In the manifest's order.
+        assert_eq!(m.settings.iter().map(|s| s.key.as_str()).collect::<Vec<_>>(), ["zz-first", "minutes", "mode"]);
         let minutes = m.settings.iter().find(|s| s.key == "minutes").unwrap();
         assert_eq!(minutes.default, SettingValue::Int(0));
         assert!(minutes.check(SettingValue::Int(500)).is_err());
