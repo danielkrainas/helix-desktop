@@ -2,7 +2,9 @@ name: Release
 
 # Pushing a tag vX.Y.Z (matching the workspace version in Cargo.toml) builds
 # .deb, .rpm and tarball packages for x86_64 and aarch64 and an Arch Linux
-# package for x86_64, and publishes them as a GitHub release. Running it by hand builds the same packages as
+# package for x86_64 (helix-desktop), plus the architecture-independent
+# helix-desktop-full meta package in all three formats, and publishes them
+# as a GitHub release. Running it by hand builds the same packages as
 # workflow artifacts without publishing anything.
 
 on:
@@ -137,9 +139,43 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  meta:
+    # helix-desktop-full: no files, so one job builds all three formats.
+    needs: version
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nfpm
+        run: |
+          file=nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz
+          curl -fsSLO "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/${file}"
+          echo "6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750  ${file}" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/nfpm"
+          tar -xzf "$file" -C "$RUNNER_TEMP/nfpm" nfpm
+          rm "$file"
+          echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          sed -e "s/@VERSION@/${VERSION}/g" packaging/nfpm-full.yaml > nfpm-full.yaml
+          for packager in deb rpm archlinux; do
+            nfpm package --config nfpm-full.yaml --packager "$packager" --target dist/
+          done
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-meta
+          path: dist/*
+          if-no-files-found: error
+
   release:
     if: github.ref_type == 'tag'
-    needs: [version, build]
+    needs: [version, build, meta]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

@@ -54,14 +54,20 @@ point it at GCC's headers instead, e.g.
 ## Releases and packages
 
 Pushing a tag `vX.Y.Z` that matches the workspace version in `Cargo.toml`
-runs `.github/workflows/release.yml`. It builds, for x86_64 and aarch64:
+runs `.github/workflows/release.yml`. It builds `helix-desktop`, for x86_64
+and aarch64, as:
 
 - a `.deb` (built on Ubuntu 24.04; also for Debian 13),
 - an `.rpm` (built on Fedora 44),
 - an Arch Linux package (x86_64 only; built on Arch as of the release),
 - a tarball of the installed files (Ubuntu build, Debian-style PAM file),
 
-and publishes them with a `SHA256SUMS` file as a GitHub release (a
+and `helix-desktop-full`, a meta package (no files; one each for Debian,
+RPM and Arch, architecture-independent) that depends on the same version
+of `helix-desktop` and on what that only recommends (Xwayland,
+xdg-desktop-portal, the GNOME schemas, dconf, PipeWire); it will also pull
+in `helix-apps` once that exists (`packaging/nfpm-full.yaml`). All of them
+are published with a `SHA256SUMS` file as a GitHub release (a
 prerelease when the version has a `-` suffix). Running the workflow by hand
 builds the same packages as workflow artifacts without publishing.
 

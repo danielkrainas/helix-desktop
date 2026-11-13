@@ -1,0 +1,50 @@
+# nfpm description of helix-desktop-full: a meta package (no files) for
+# the full Helix experience. It depends on the same version of
+# helix-desktop and makes what that package only recommends required.
+# The release workflow fills in @VERSION@; the package is
+# architecture-independent (all / noarch / any).
+#
+# When the helix-apps package exists, add it to each depends list below.
+name: helix-desktop-full
+version: "@VERSION@"
+arch: all
+platform: linux
+release: "1"
+section: metapackages
+priority: optional
+maintainer: Daniel Krainas
+vendor: Helix
+homepage: https://github.com/danielkrainas/helix-desktop
+license: CC0-1.0
+description: |-
+  Helix desktop session with everything it works with
+  Installs the Helix desktop (helix-desktop) together with Xwayland,
+  xdg-desktop-portal, the GNOME settings schemas, dconf and PipeWire.
+
+overrides:
+  deb:
+    depends:
+      - helix-desktop (= @VERSION@-1)
+      - xwayland
+      - xdg-desktop-portal
+      - gsettings-desktop-schemas
+      - dconf-service
+      - pipewire
+  rpm:
+    depends:
+      - helix-desktop = @VERSION@-1
+      - xorg-x11-server-Xwayland
+      - xdg-desktop-portal
+      - gsettings-desktop-schemas
+      - dconf
+      - pipewire
+  archlinux:
+    depends:
+      - helix-desktop=@VERSION@-1
+      - xorg-xwayland
+      - xdg-desktop-portal
+      - gsettings-desktop-schemas
+      - dconf
+      - pipewire
+archlinux:
+  packager: Helix release workflow
