@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use tokio::process::{Child, Command};
 
@@ -33,7 +34,23 @@ pub struct Entry {
     pub only_show_in: Vec<String>,
     pub not_show_in: Vec<String>,
     pub condition: Condition,
+    /// `X-GNOME-Autostart-Phase` before `Applications` (started first).
+    pub early: bool,
+    /// `X-GNOME-Autostart-Delay`.
+    pub delay: Duration,
+    /// `X-GNOME-AutoRestart`.
+    pub auto_restart: bool,
 }
+
+/// Phases that come before `Applications` (an unknown phase counts as
+/// `Applications`).
+const EARLY_PHASES: [&str; 7] = ["EarlyInitialization", "PreDisplayServer", "DisplayServer", "Initialization", "WindowManager", "Panel", "Desktop"];
+/// How long the early phase gets before the other apps start.
+pub const PHASE_GAP: Duration = Duration::from_secs(1);
+/// Restarts allowed within [`RESTART_WINDOW`], and the wait before one.
+const RESTARTS: usize = 5;
+const RESTART_WINDOW: Duration = Duration::from_secs(60);
+const RESTART_WAIT: Duration = Duration::from_secs(1);
 
 /// The `[Desktop Entry]` group's keys (unlocalized).
 fn desktop_entry(text: &str) -> HashMap<String, String> {
@@ -134,6 +151,9 @@ pub fn parse(id: &str, path: &Path, text: &str) -> Option<Entry> {
         only_show_in: list(keys.get("OnlyShowIn")),
         not_show_in: list(keys.get("NotShowIn")),
         condition: condition(keys.get("AutostartCondition")),
+        early: keys.get("X-GNOME-Autostart-Phase").is_some_and(|p| EARLY_PHASES.contains(&p.as_str())),
+        delay: Duration::from_secs(keys.get("X-GNOME-Autostart-Delay").and_then(|d| d.trim().parse::<u64>().ok()).unwrap_or(0).min(3600)),
+        auto_restart: truthy("X-GNOME-AutoRestart"),
     })
 }
 
@@ -214,11 +234,35 @@ fn gsettings_true(schema: &str, key: &str) -> bool {
     gio::Settings::new(schema).boolean(key)
 }
 
+/// When an entry starts, counted from the start of autostart: the early
+/// phase at once, the others after [`PHASE_GAP`] when there are early
+/// entries; then its delay.
+pub fn start_offset(entry: &Entry, any_early: bool) -> Duration {
+    let phase = if entry.early || !any_early { Duration::ZERO } else { PHASE_GAP };
+    phase + entry.delay
+}
+
+/// Whether an app that exited with `status` is started again (with
+/// `X-GNOME-AutoRestart`): after a failure (non-zero status or a signal),
+/// unless it was restarted [`RESTARTS`] times within [`RESTART_WINDOW`].
+pub fn should_restart(status: &std::process::ExitStatus, recent: &[std::time::Instant], now: std::time::Instant) -> bool {
+    !status.success() && recent.iter().filter(|t| now.duration_since(**t) < RESTART_WINDOW).count() < RESTARTS
+}
+
 /// Runs the session's autostart apps.
 pub struct Autostart {
     entries: Vec<Entry>,
     env: BTreeMap<String, String>,
+    /// Followed children (conditional and restarted apps).
     running: HashMap<String, Child>,
+    /// When each entry may start (start offsets, restart waits).
+    due: HashMap<String, std::time::Instant>,
+    /// Entries started once and not followed.
+    started: HashSet<String>,
+    /// Restart times, by entry.
+    restarts: HashMap<String, Vec<std::time::Instant>>,
+    /// Stopped by a condition: not restarted for exiting.
+    stopped: HashSet<String>,
 }
 
 impl Autostart {
@@ -229,7 +273,15 @@ impl Autostart {
         let path_var = env.get("PATH").cloned().or_else(|| std::env::var("PATH").ok()).unwrap_or_default();
         let config_home = directories().first().and_then(|d| d.parent().map(Path::to_path_buf)).unwrap_or_default();
         let entries = entries(&directories()).into_iter().filter(|e| e.applies(&desktops, &path_var, &config_home)).collect();
-        Self { entries, env, running: HashMap::new() }
+        Self::with_entries(entries, env)
+    }
+
+    /// Autostart for `entries` as they are.
+    pub fn with_entries(entries: Vec<Entry>, env: BTreeMap<String, String>) -> Self {
+        let now = std::time::Instant::now();
+        let any_early = entries.iter().any(|e: &Entry| e.early);
+        let due = entries.iter().map(|e| (e.id.clone(), now + start_offset(e, any_early))).collect();
+        Self { entries, env, running: HashMap::new(), due, started: HashSet::new(), restarts: HashMap::new(), stopped: HashSet::new() }
     }
 
     /// The GSettings schemas conditions depend on.
@@ -247,63 +299,91 @@ impl Autostart {
         out
     }
 
-    /// Start what should run and is not running; stop conditional apps
-    /// whose condition no longer holds.
+    /// Start what is due and should run; stop conditional apps whose
+    /// condition no longer holds; schedule restarts of apps that failed.
     pub fn update(&mut self) {
-        self.running.retain(|_, child| matches!(child.try_wait(), Ok(None)));
+        let now = std::time::Instant::now();
+        // Followed apps that exited.
+        let exited: Vec<(String, std::process::ExitStatus)> = self.running.iter_mut().filter_map(|(id, child)| child.try_wait().ok().flatten().map(|s| (id.clone(), s))).collect();
+        for (id, status) in exited {
+            self.running.remove(&id);
+            let restart = self.entries.iter().any(|e| e.id == id && e.auto_restart) && !self.stopped.contains(&id);
+            let recent = self.restarts.entry(id.clone()).or_default();
+            if restart && should_restart(&status, recent, now) {
+                tracing::info!(id, ?status, "autostarted app exited; restarting");
+                recent.push(now + RESTART_WAIT);
+                self.due.insert(id.clone(), now + RESTART_WAIT);
+                self.started.remove(&id);
+            } else if restart {
+                tracing::warn!(id, ?status, "autostarted app keeps failing (or ended cleanly); not restarting");
+            }
+        }
         for entry in &self.entries {
             let wanted = match &entry.condition {
                 Condition::GSettings { schema, key } => gsettings_true(schema, key),
                 _ => true,
             };
             let conditional = matches!(entry.condition, Condition::GSettings { .. });
-            match (wanted, self.running.get(&entry.id)) {
-                (true, None) => {
-                    let spawned = Command::new(&entry.exec[0]).args(&entry.exec[1..]).envs(&self.env).spawn();
-                    match spawned {
-                        Ok(child) => {
-                            tracing::info!(id = entry.id, pid = child.id(), "autostarted");
-                            // Unconditional apps are not followed.
-                            if conditional {
-                                self.running.insert(entry.id.clone(), child);
-                            }
+            let due = self.due.get(&entry.id).is_none_or(|d| *d <= now);
+            let running = self.running.contains_key(&entry.id);
+            if wanted && due && !running && !self.started.contains(&entry.id) {
+                let spawned = Command::new(&entry.exec[0]).args(&entry.exec[1..]).envs(&self.env).spawn();
+                match spawned {
+                    Ok(child) => {
+                        tracing::info!(id = entry.id, pid = child.id(), "autostarted");
+                        self.stopped.remove(&entry.id);
+                        if conditional || entry.auto_restart {
+                            self.running.insert(entry.id.clone(), child);
+                        } else {
+                            // Started once and not followed.
+                            self.started.insert(entry.id.clone());
                         }
-                        Err(err) => tracing::warn!(id = entry.id, %err, "cannot autostart"),
+                    }
+                    Err(err) => {
+                        tracing::warn!(id = entry.id, %err, "cannot autostart");
+                        self.started.insert(entry.id.clone());
                     }
                 }
-                (false, Some(child)) => {
-                    if let Some(pid) = child.id() {
-                        tracing::info!(id = entry.id, pid, "condition no longer holds; stopping");
-                        // SAFETY: kill(2) on our own child.
-                        unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
-                    }
-                    self.running.remove(&entry.id);
+            } else if !wanted && running {
+                if let Some(pid) = self.running.get(&entry.id).and_then(|c| c.id()) {
+                    tracing::info!(id = entry.id, pid, "condition no longer holds; stopping");
+                    // SAFETY: kill(2) on our own child.
+                    unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
                 }
-                _ => {}
+                self.stopped.insert(entry.id.clone());
+                self.running.remove(&entry.id);
             }
         }
     }
 
-    /// Run once, then follow GSettings conditions until `stop` resolves.
+    /// Whether anything is still to start or to follow.
+    fn busy(&self) -> bool {
+        !self.running.is_empty() || self.entries.iter().any(|e| !self.started.contains(&e.id) && !self.running.contains_key(&e.id) && !matches!(e.condition, Condition::GSettings { .. }))
+    }
+
+    /// Run, following phases, delays, restarts and GSettings conditions,
+    /// until `stop` resolves.
     pub async fn run(mut self, stop: impl std::future::Future<Output = ()>) {
         self.update();
         let schemas = self.schemas();
-        if schemas.is_empty() {
-            return;
-        }
         let names: Vec<&str> = schemas.iter().map(String::as_str).filter(|s| helix_settings::has_schema(s)).collect();
         let settings = helix_settings::GSettings::new(&names);
         let (mut changes, _watch) = settings.watch();
+        let mut tick = tokio::time::interval(Duration::from_millis(250));
         tokio::pin!(stop);
         loop {
+            if !self.busy() && schemas.is_empty() {
+                break;
+            }
             tokio::select! {
                 _ = &mut stop => break,
-                change = changes.recv() => {
+                change = changes.recv(), if !schemas.is_empty() => {
                     if change.is_none() {
                         break;
                     }
                     self.update();
                 }
+                _ = tick.tick() => self.update(),
             }
         }
     }
@@ -343,6 +423,40 @@ mod tests {
         let odd = parse("u.desktop", Path::new("/x"), "[Desktop Entry]\nType=Application\nExec=a\nAutostartCondition=GNOME3 if-session gnome\n").unwrap();
         assert!(!odd.applies(&[], "", home));
         assert!(parse("l.desktop", Path::new("/x"), "[Desktop Entry]\nType=Link\nURL=x\n").is_none());
+    }
+
+    #[test]
+    fn phases_delays_restarts() {
+        let e = |extra: &str| parse("p.desktop", Path::new("/x"), &format!("[Desktop Entry]\nType=Application\nExec=a\n{extra}")).unwrap();
+        let panel = e("X-GNOME-Autostart-Phase=Panel\n");
+        let app = e("X-GNOME-Autostart-Delay=5\n");
+        let odd = e("X-GNOME-Autostart-Phase=Whenever\nX-GNOME-AutoRestart=true\n");
+        assert!(panel.early && !app.early && !odd.early && odd.auto_restart);
+        assert_eq!(start_offset(&panel, true), Duration::ZERO);
+        assert_eq!(start_offset(&app, true), PHASE_GAP + Duration::from_secs(5));
+        assert_eq!(start_offset(&app, false), Duration::from_secs(5), "no early apps: no gap");
+        use std::os::unix::process::ExitStatusExt;
+        let now = std::time::Instant::now();
+        let failed = std::process::ExitStatus::from_raw(1 << 8);
+        assert!(should_restart(&failed, &[], now));
+        assert!(!should_restart(&std::process::ExitStatus::from_raw(0), &[], now), "a clean exit stays");
+        assert!(!should_restart(&failed, &[now; 5], now), "too many");
+    }
+
+    #[tokio::test]
+    async fn a_failing_app_is_restarted() {
+        let dir = std::env::temp_dir().join(format!("helix-restart-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("runs");
+        let entry = parse("r.desktop", Path::new("/x"), &format!("[Desktop Entry]\nType=Application\nExec=sh -c \"echo x >> {}; exit 3\"\nX-GNOME-AutoRestart=true\n", log.display())).unwrap();
+        let mut a = Autostart::with_entries(vec![entry], BTreeMap::new());
+        for _ in 0..40 {
+            a.update();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let runs = std::fs::read_to_string(&log).unwrap_or_default().lines().count();
+        assert!((2..=5).contains(&runs), "restarted after failing: {runs} runs");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
