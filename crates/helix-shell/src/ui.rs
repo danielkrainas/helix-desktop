@@ -424,6 +424,8 @@ struct LockView {
     height: u32,
     /// The media buttons.
     hits: Vec<(Rect, crate::shell_keys::Playback)>,
+    /// "Switch User…", when offered.
+    switch_user: Option<Rect>,
 }
 
 /// Clear a password buffer, overwriting its bytes first.
@@ -1409,6 +1411,16 @@ impl Ui {
             label(text, &mut canvas, message, center(message, 15.0), (fy + 76) as f32, 15.0, DIM_FG, w as f32);
         }
         view.hits = lock_extras::paint_lock_extras(&mut canvas, (text, self.bold.as_ref()), w as i32, fy + 110, self.lock_extras.media.as_ref(), &counts, &icons);
+        // "Switch User…" at the bottom right.
+        view.switch_user = None;
+        if self.user_switch && crate::user_switch::allowed() && crate::user_switch::on_lock_screen() {
+            const SWITCH: &str = "Switch User…";
+            let bw = text.map_or(120.0, |t| t.width(SWITCH, 15.0)).ceil() as i32 + 32;
+            let r = Rect { x: w as i32 - bw - 24, y: h as i32 - 36 - 24, w: bw, h: 36 };
+            canvas.rect(r.x, r.y, r.w, r.h, 0x40FFFFFF);
+            label(text, &mut canvas, SWITCH, (r.x + 16) as f32, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
+            view.switch_user = Some(r);
+        }
 
         let surface = view.surface.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -3044,7 +3056,7 @@ impl SessionLockHandler for Ui {
         for output in self.output_state.outputs() {
             let surface = self.compositor.create_surface(qh);
             let lock_surface = session_lock.create_lock_surface(surface, &output, qh);
-            self.lock.surfaces.push(LockView { surface: lock_surface, width: 0, height: 0, hits: Vec::new() });
+            self.lock.surfaces.push(LockView { surface: lock_surface, width: 0, height: 0, hits: Vec::new(), switch_user: None });
         }
         self.lock_extras_start();
         tracing::info!(surfaces = self.lock.surfaces.len(), "session locked");
