@@ -79,8 +79,10 @@ pub struct SessionSection {
     /// `SessionName`.
     #[serde(default = "default_name")]
     pub name: String,
-    /// Start the XDG autostart apps (see `crate::autostart`).
-    #[serde(default)]
+    /// Start the XDG autostart apps (see `crate::autostart`). On unless a
+    /// config sets `autostart = false` (nested test sessions): apps such as
+    /// the Tour and Clocks alarms rely on it.
+    #[serde(default = "default_true")]
     pub autostart: bool,
 }
 
@@ -88,9 +90,13 @@ impl Default for SessionSection {
     fn default() -> Self {
         Self {
             name: default_name(),
-            autostart: false,
+            autostart: true,
         }
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_name() -> String {
