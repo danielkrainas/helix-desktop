@@ -277,7 +277,7 @@ pub(super) fn paint_calendar(
         let when = if e.all_day {
             "All Day".to_owned()
         } else {
-            DateTime::from_unix_local(e.start).map(|d| fmt(&d, "%H:%M")).unwrap_or_default()
+            DateTime::from_unix_local(e.start).map(|d| crate::clock::time_of_day(crate::clock::current(), &d)).unwrap_or_default()
         };
         label(text, canvas, &when, (x + PAD) as f32, (y + 16) as f32, 13.0, DIM_FG, 56.0);
         label(text, canvas, &e.summary, (x + PAD + 62) as f32, (y + 16) as f32, 13.0, FG, (inner - 62) as f32);
@@ -297,8 +297,8 @@ pub(super) fn paint_calendar(
         for (name, zone) in &data.clocks {
             let there = crate::ical::zone(zone).and_then(|tz| DateTime::now(&tz).ok());
             let time = match &there {
-                Some(t) if t.ymd() != today => fmt(t, "%a %H:%M"),
-                Some(t) => fmt(t, "%H:%M"),
+                Some(t) if t.ymd() != today => format!("{} {}", fmt(t, "%a"), crate::clock::time_of_day(crate::clock::current(), t)),
+                Some(t) => crate::clock::time_of_day(crate::clock::current(), t),
                 None => String::new(),
             };
             let tw = text.map_or(0.0, |t| t.width(&time, 13.0)) as i32;
@@ -325,7 +325,7 @@ pub(super) fn paint_calendar(
                 y += LINE_H + 6;
                 let cw = inner / crate::weather::HOURS as i32;
                 for (i, (time, temp, _)) in f.hours.iter().enumerate() {
-                    let hour = DateTime::from_unix_local(*time).map(|d| fmt(&d, "%H:%M")).unwrap_or_default();
+                    let hour = DateTime::from_unix_local(*time).map(|d| crate::clock::time_of_day(crate::clock::current(), &d)).unwrap_or_default();
                     let cell = format!("{hour} {}", crate::weather::temperature_text(*temp, unit));
                     label(text, canvas, &cell, (x + PAD + i as i32 * cw) as f32, (y + 16) as f32, 12.0, DIM_FG, cw as f32);
                 }

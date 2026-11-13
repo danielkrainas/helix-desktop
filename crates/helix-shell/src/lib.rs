@@ -27,6 +27,7 @@ pub mod obex;
 pub mod osk_words;
 pub mod calendar;
 pub mod click_type;
+pub mod clock;
 pub mod ical;
 pub mod icons;
 pub mod markup;

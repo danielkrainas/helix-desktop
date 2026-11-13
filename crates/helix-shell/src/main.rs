@@ -141,6 +141,8 @@ fn main() -> ExitCode {
             }
         }
     });
+    // The clock's format.
+    runtime.spawn(helix_shell::clock::follow());
     // Desktop icons.
     runtime.spawn(helix_shell::desktop_icons::follow(service.ui_sender()));
     // The dwell click type window.

@@ -154,6 +154,8 @@ struct Ui {
     desktop_icons: desktop_icons::DesktopIconsState,
     osd: Option<(Osd, Instant)>,
     shown_minute: Option<String>,
+    /// The lock screen clock's text when it was drawn.
+    shown_lock_clock: Option<String>,
 
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
@@ -429,15 +431,11 @@ fn wipe(s: &mut String) {
 
 /// Local time as "HH:MM".
 fn clock_text() -> String {
-    // SAFETY: time/localtime_r write only into the provided struct.
-    unsafe {
-        let now = libc::time(std::ptr::null_mut());
-        let mut tm: libc::tm = std::mem::zeroed();
-        if libc::localtime_r(&now, &mut tm).is_null() {
-            return "--:--".into();
-        }
-        format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
-    }
+    crate::clock::now().map(|d| crate::clock::top_bar(crate::clock::current(), &d)).unwrap_or_else(|| "--:--".into())
+}
+
+fn lock_clock_text() -> String {
+    crate::clock::now().map(|d| crate::clock::lock_screen(crate::clock::current(), &d)).unwrap_or_else(|| "--:--".into())
 }
 
 /// Baseline that vertically centers text of size `px` in a box.
@@ -615,7 +613,7 @@ impl Ui {
                 match &self.text {
                     Some(text) => {
                         let cw = text.width(&clock, px);
-                        text.draw(&mut canvas, &clock, (w as f32 - cw) / 2.0, base, Style { px, color: FG, max_width: 100.0 });
+                        text.draw(&mut canvas, &clock, (w as f32 - cw) / 2.0, base, Style { px, color: FG, max_width: 280.0 });
                         // Unseen notifications: a dot after the clock.
                         if unseen_dot {
                             canvas.circle(f64::from((w as f32 + cw) / 2.0 + 9.0), f64::from(h as i32) / 2.0, 3.0, FG);
@@ -1383,7 +1381,8 @@ impl Ui {
         let text = self.text.as_ref();
         let center = |s: &str, px: f32| -> f32 { (w as f32 - text.map_or(0.0, |t| t.width(s, px))) / 2.0 };
 
-        let clock = clock_text();
+        let clock = lock_clock_text();
+        self.shown_lock_clock = Some(clock.clone());
         let top = (h as i32) / 4;
         label(text, &mut canvas, &clock, center(&clock, 64.0), top as f32, 64.0, FG, w as f32);
         label(text, &mut canvas, &self.lock.user, center(&self.lock.user, 18.0), (top + 70) as f32, 18.0, DIM_FG, w as f32);
@@ -2334,6 +2333,9 @@ impl Ui {
         if osd_expired || minute_changed {
             self.draw_panel();
         }
+        if !self.lock.surfaces.is_empty() && self.shown_lock_clock.as_deref() != Some(&lock_clock_text()) {
+            self.draw_lock();
+        }
     }
 }
 
@@ -2411,6 +2413,7 @@ pub fn run(
         desktop_icons: Default::default(),
         osd: None,
         shown_minute: None,
+        shown_lock_clock: None,
         keyboard: None,
         pointer: None,
         relative_state: smithay_client_toolkit::seat::relative_pointer::RelativePointerState::bind(&globals, &qh),
