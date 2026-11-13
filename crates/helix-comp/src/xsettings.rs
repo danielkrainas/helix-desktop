@@ -55,6 +55,9 @@ pub struct Settings {
     pub event_sounds: bool,
     pub sound_theme: String,
     pub double_click: i32,
+    /// `drag-threshold` (pixels) and `input-feedback-sounds`.
+    pub drag_threshold: i32,
+    pub input_feedback: bool,
     /// `remember-recent-files` and `recent-files-max-age` (days; -1: no
     /// limit).
     pub recent_files: bool,
@@ -85,6 +88,8 @@ impl Default for Settings {
             event_sounds: true,
             sound_theme: "freedesktop".into(),
             double_click: 400,
+            drag_threshold: 8,
+            input_feedback: false,
             recent_files: true,
             recent_max_age: -1,
             xwayland_scaling: 0.0,
@@ -127,7 +132,9 @@ pub fn values(s: &Settings, scale: i32) -> Vec<(&'static str, Value)> {
         ("Gtk/RecentFilesMaxAge", Value::Int(s.recent_max_age)),
         ("Net/CursorBlink", int(s.cursor_blink)),
         ("Net/CursorBlinkTime", Value::Int(s.cursor_blink_time)),
+        ("Net/DndDragThreshold", Value::Int(s.drag_threshold * scale)),
         ("Net/DoubleClickTime", Value::Int(s.double_click)),
+        ("Net/EnableInputFeedbackSounds", int(s.input_feedback)),
         ("Net/EnableEventSounds", int(s.event_sounds)),
         ("Net/IconThemeName", text(&s.icon_theme)),
         ("Net/SoundThemeName", text(&s.sound_theme)),
@@ -239,6 +246,8 @@ pub fn read() -> Settings {
         event_sounds: boolean(SOUND, "event-sounds", d.event_sounds),
         sound_theme: string(SOUND, "theme-name", &d.sound_theme),
         double_click: int(MOUSE, "double-click", d.double_click),
+        drag_threshold: int(MOUSE, "drag-threshold", d.drag_threshold),
+        input_feedback: boolean(SOUND, "input-feedback-sounds", d.input_feedback),
         recent_files: boolean(PRIVACY, "remember-recent-files", d.recent_files),
         recent_max_age: int(PRIVACY, "recent-files-max-age", d.recent_max_age),
         xwayland_scaling: with(MUTTER_WAYLAND, "xwayland-scaling-factor").map_or(0.0, |s| s.double("xwayland-scaling-factor")),
@@ -268,6 +277,8 @@ mod tests {
         assert_eq!(get("Gdk/WindowScalingFactor"), Value::Int(2));
         assert_eq!(get("Xft/DPI"), Value::Int(245_760), "96 × 1.25 × 2 × 1024");
         assert_eq!(get("Gdk/UnscaledDPI"), Value::Int(122_880));
+        assert_eq!(get("Net/DndDragThreshold"), Value::Int(16), "8 pixels at scale 2");
+        assert_eq!(get("Net/EnableInputFeedbackSounds"), Value::Int(0));
         assert_eq!(get("Gtk/CursorThemeSize"), Value::Int(48));
         assert_eq!(get("Xft/RGBA"), Value::Text("bgr".into()));
         assert_eq!(get("Xft/HintStyle"), Value::Text("hintslight".into()));

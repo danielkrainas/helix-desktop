@@ -1725,6 +1725,7 @@ impl Ui {
     }
 
     fn answer_dialog(&mut self, choice: Choice) {
+        crate::click_feedback();
         if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::Prompt(_))) {
             self.prompt_answer(choice == Choice::Confirmed);
             return;

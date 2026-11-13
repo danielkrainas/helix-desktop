@@ -1190,6 +1190,30 @@ pub async fn lock_and_wait(conn: &Connection, timeout: std::time::Duration) -> b
     }
 }
 
+/// `org.gnome.desktop.peripherals.mouse drag-threshold`: how far (pixels)
+/// the pointer moves, button down, before a drag starts (8 without it).
+pub fn drag_threshold() -> f64 {
+    use gio::prelude::*;
+    const MOUSE: &str = "org.gnome.desktop.peripherals.mouse";
+    if !helix_settings::has_schema(MOUSE) {
+        return 8.0;
+    }
+    let s = gio::Settings::new(MOUSE);
+    if s.settings_schema().is_some_and(|x| x.has_key("drag-threshold")) {
+        f64::from(s.int("drag-threshold").clamp(1, 400))
+    } else {
+        8.0
+    }
+}
+
+/// A click on one of the shell's own controls: the `button-pressed` sound
+/// with input feedback sounds on.
+pub fn click_feedback() {
+    if sound::input_feedback() {
+        sound::play(&sound::Sound::Name("button-pressed".into()));
+    }
+}
+
 /// A boolean key of `org.gnome.desktop.screensaver` (`default` without it).
 pub fn screensaver_flag(key: &str, default: bool) -> bool {
     use gio::prelude::*;

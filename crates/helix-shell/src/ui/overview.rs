@@ -25,8 +25,6 @@ const THUMB_H: i32 = 90;
 /// Room under each window picture for its title.
 const TITLE_H: i32 = 28;
 const GAP: i32 = 24;
-/// Pointer travel before a press becomes a drag.
-const DRAG_START: f64 = 8.0;
 /// The window list's "on every workspace".
 const ALL_WORKSPACES: u32 = u32::MAX;
 
@@ -467,7 +465,7 @@ impl Ui {
         match event.kind {
             PointerEventKind::Motion { .. } => {
                 if let Some((id, (sx, sy))) = state.press {
-                    if state.drag.is_none() && ((x - sx).powi(2) + (y - sy).powi(2)).sqrt() >= DRAG_START {
+                    if state.drag.is_none() && ((x - sx).powi(2) + (y - sy).powi(2)).sqrt() >= crate::drag_threshold() {
                         state.drag = Some((id, (x, y)));
                     }
                 }

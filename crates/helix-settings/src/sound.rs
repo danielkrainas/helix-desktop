@@ -57,6 +57,16 @@ pub enum Sound {
     Name(String),
 }
 
+/// Whether controls should make sounds when used: `event-sounds` and
+/// `input-feedback-sounds` both on.
+pub fn input_feedback() -> bool {
+    use gio::prelude::*;
+    crate::has_schema(SCHEMA) && {
+        let s = gio::Settings::new(SCHEMA);
+        s.boolean("event-sounds") && s.settings_schema().is_some_and(|x| x.has_key("input-feedback-sounds")) && s.boolean("input-feedback-sounds")
+    }
+}
+
 /// Play `sound` in the background, unless event sounds are off.
 pub fn play(sound: &Sound) {
     use gio::prelude::*;

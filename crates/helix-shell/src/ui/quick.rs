@@ -146,6 +146,7 @@ impl Ui {
 
     /// A click on the menu; false when it should close.
     pub(super) fn quick_click(&mut self, hit: OverlayHit, x: f64, rect: Rect) -> bool {
+        crate::click_feedback();
         tracing::debug!(?hit, x, "quick settings click");
         match hit {
             OverlayHit::Power(action) => {

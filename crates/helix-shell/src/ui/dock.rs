@@ -19,8 +19,6 @@ const BTN_MIDDLE: u32 = 0x112;
 /// Room beside the bar for the tooltip (a name and up to six lines).
 const TOOLTIP_ROOM_H: i32 = 150;
 const TOOLTIP_ROOM_W: i32 = 280;
-/// Pointer travel before a press becomes a drag.
-const DRAG_START: f64 = 8.0;
 /// How far from the bar a dropped favorite is removed.
 const UNPIN_DISTANCE: f64 = 60.0;
 const DOCK_BG: u32 = 0x001E1E24;
@@ -957,7 +955,7 @@ impl Ui {
             PointerEventKind::Motion { .. } => {
                 if let Some((item, start, button)) = self.dock.views[self.dock.cur].press {
                     let moved = (x - start.0).hypot(y - start.1);
-                    if self.dock.views[self.dock.cur].drag.is_none() && button == BTN_LEFT && moved > DRAG_START && matches!(self.dock.views[self.dock.cur].items.get(item), Some(Item::App { .. })) {
+                    if self.dock.views[self.dock.cur].drag.is_none() && button == BTN_LEFT && moved > crate::drag_threshold() && matches!(self.dock.views[self.dock.cur].items.get(item), Some(Item::App { .. })) {
                         self.dock.views[self.dock.cur].drag = Some((item, (x, y)));
                     }
                 }
@@ -1037,6 +1035,7 @@ impl Ui {
 
     /// Click item `index` with `action`.
     fn dock_activate(&mut self, index: usize, action: logic::ClickAction) {
+        crate::click_feedback();
         let Some(item) = self.dock.views[self.dock.cur].items.get(index).cloned() else { return };
         match item {
             Item::ShowApps => {
