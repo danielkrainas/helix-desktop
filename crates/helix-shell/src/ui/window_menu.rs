@@ -433,7 +433,10 @@ impl Ui {
             return;
         }
         if item.choice == Choice::Extensions {
-            self.open_extensions_dialog();
+            // Settings' Extensions panel when it is installed.
+            if !super::extensions_dialog::open_in_settings() {
+                self.open_extensions_dialog();
+            }
             return;
         }
         if let Choice::ExtMenu(i) = item.choice {

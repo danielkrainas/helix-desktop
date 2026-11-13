@@ -2,6 +2,7 @@
 //! finding them, running each in its own process with a private D-Bus
 //! connection, and following the items they show.
 
+pub mod approval;
 pub mod manifest;
 pub mod store;
 pub mod manager;

@@ -186,7 +186,10 @@ async fn mutter_keymaps_and_clipboard() {
     let proxy = zbus::Proxy::new(&conn, MUTTER_RD, session.as_str(), MUTTER_SESSION).await.unwrap();
     let caps: HashMap<String, OwnedValue> = proxy.get_property("KeymapCapabilities").await.unwrap();
     assert_eq!(Vec::<u32>::try_from(caps["supported-keymap-types"].clone()).unwrap(), [0]);
-    assert_eq!(Vec::<u32>::try_from(caps["supported-xkb-keymap-formats"].clone()).unwrap(), [1]);
+    // 1, and 2 where this system's libxkbcommon reads it (1.11 and later).
+    let formats = Vec::<u32>::try_from(caps["supported-xkb-keymap-formats"].clone()).unwrap();
+    assert_eq!(formats, helix_comp::remote_desktop::keymap_formats());
+    assert_eq!(formats[0], 1);
 
     // A keymap by fd, read to its end.
     let (a, mut b) = std::os::unix::net::UnixStream::pair().unwrap();

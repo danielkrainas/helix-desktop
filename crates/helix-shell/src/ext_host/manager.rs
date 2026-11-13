@@ -8,6 +8,7 @@ use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedValue, Value};
 
+use super::manifest::{SettingDecl, SettingType, SettingValue};
 use super::runner::ExtHost;
 
 pub const OBJECT_PATH: &str = "/org/helix/Extensions1";
@@ -22,6 +23,37 @@ fn value<'a>(v: impl Into<Value<'a>>) -> OwnedValue {
 
 fn failed(e: String) -> zbus::fdo::Error {
     zbus::fdo::Error::Failed(e)
+}
+
+/// A `GetSettings` entry: key, type, value, details.
+pub type SettingEntry = (String, String, OwnedValue, HashMap<String, OwnedValue>);
+
+/// A `GetSettings` entry.
+fn setting_entry(decl: &SettingDecl, current: &SettingValue) -> SettingEntry {
+    let ty = match &decl.ty {
+        SettingType::Bool => "bool",
+        SettingType::Int => "int",
+        SettingType::Double => "double",
+        SettingType::String => "string",
+        SettingType::Enum(_) => "enum",
+        SettingType::StringList => "string-list",
+    };
+    let mut details = HashMap::from([
+        ("label".to_owned(), value(decl.label.clone())),
+        ("help".to_owned(), value(decl.help.clone())),
+        ("default".to_owned(), decl.default.to_value()),
+    ]);
+    if matches!(decl.ty, SettingType::Int | SettingType::Double) {
+        for (key, limit) in [("min", decl.min), ("max", decl.max)] {
+            if let Some(limit) = limit {
+                details.insert(key.to_owned(), value(limit));
+            }
+        }
+    }
+    if let SettingType::Enum(choices) = &decl.ty {
+        details.insert("choices".to_owned(), value(choices.clone()));
+    }
+    (decl.key.clone(), ty.to_owned(), current.to_value(), details)
 }
 
 #[zbus::interface(name = "org.helix.Extensions1")]
@@ -50,7 +82,20 @@ impl Manager {
             .collect()
     }
 
-    fn enable(&self, id: String, approve: bool) -> zbus::fdo::Result<()> {
+    /// With `approve`, the user is asked first (the approval prompt).
+    async fn enable(&self, id: String, approve: bool) -> zbus::fdo::Result<()> {
+        if approve {
+            if let Some((answer, asked)) = self.host.ask_approval(&id).map_err(failed)? {
+                let allowed = answer.await.unwrap_or(false);
+                if !allowed {
+                    return Err(zbus::fdo::Error::AccessDenied(format!("{id} was not approved")));
+                }
+                // What was approved must be what it asks for now.
+                if self.host.permissions(&id) != asked {
+                    return Err(zbus::fdo::Error::AccessDenied(format!("{id} changed what it asks for; try again")));
+                }
+            }
+        }
         self.host.enable(&id, approve).map_err(failed)
     }
 
@@ -60,6 +105,12 @@ impl Manager {
 
     fn restart(&self, id: String) -> zbus::fdo::Result<()> {
         self.host.restart(&id).map_err(failed)
+    }
+
+    /// Its settings: key, type, value, details.
+    fn get_settings(&self, id: String) -> zbus::fdo::Result<Vec<SettingEntry>> {
+        let settings = self.host.settings(&id).ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("no extension {id}")))?;
+        Ok(settings.into_iter().map(|(decl, current)| setting_entry(&decl, &current)).collect())
     }
 
     fn get_log(&self, id: String) -> zbus::fdo::Result<Vec<String>> {

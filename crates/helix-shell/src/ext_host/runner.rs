@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use tokio::io::AsyncBufReadExt;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 use zbus::Connection;
@@ -200,6 +200,9 @@ pub struct Info {
     /// (1.2) It runs in a sandbox.
     pub sandboxed: bool,
 }
+
+/// The user's answer to come, and the permissions asked about.
+pub type Approval = (oneshot::Receiver<bool>, Vec<String>);
 
 /// What the user did to an item.
 #[derive(Debug, Clone, PartialEq)]
@@ -1112,6 +1115,38 @@ impl ExtHost {
             .collect();
         out.sort_by_key(|i| (i.kind == Kind::Development, i.name.to_lowercase()));
         out
+    }
+
+    /// For `Enable(id, true)` from another program: when extension `id`
+    /// has permissions not yet approved, ask the user (the approval
+    /// prompt). The answer, and the permissions asked about; `None` when
+    /// there is nothing to approve.
+    pub fn ask_approval(&self, id: &str) -> Result<Option<Approval>, String> {
+        let found = self.lock().exts.get(id).map(|e| e.found.clone()).ok_or_else(|| format!("no extension {id}"))?;
+        let manifest = found.manifest.as_ref().map_err(|e| e.clone())?;
+        if store::Keys::read().is_approved(&found) {
+            return Ok(None);
+        }
+        let (reply, answer) = oneshot::channel();
+        let question = super::approval::ApprovalQuestion {
+            name: manifest.name.clone(),
+            can: manifest.permissions.iter().map(|p| manifest::permission_text(p).to_owned()).collect(),
+            sandboxed: manifest.sandbox,
+            reply,
+        };
+        tracing::info!(id, "asking the user to approve an extension");
+        let _ = self.ui.send(UiEvent::ApproveExtension(super::approval::ApprovalSlot::new(question)));
+        Ok(Some((answer, manifest.permissions.clone())))
+    }
+
+    /// Its permissions as the manifest has them now.
+    pub fn permissions(&self, id: &str) -> Vec<String> {
+        self.lock().exts.get(id).and_then(|e| e.found.manifest.as_ref().ok().map(|m| m.permissions.clone())).unwrap_or_default()
+    }
+
+    /// Its declared settings and their values, in the manifest's order.
+    pub fn settings(&self, id: &str) -> Option<Vec<(manifest::SettingDecl, SettingValue)>> {
+        self.list().into_iter().find(|i| i.id == id).map(|i| i.settings)
     }
 
     pub fn enable(&self, id: &str, approve: bool) -> Result<(), String> {

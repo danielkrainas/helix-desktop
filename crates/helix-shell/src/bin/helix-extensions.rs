@@ -3,7 +3,6 @@
 //! `contracts/extensions/README.md`, "helix-extensions").
 
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -14,7 +13,7 @@ use zbus::Connection;
 const USAGE: &str = "usage: helix-extensions COMMAND
   list                    the extensions and their states
   info ID                 one extension
-  enable [--yes] ID       turn it on, approving what it asks to do
+  enable ID               turn it on (the shell asks you to allow what it asks to do)
   disable ID              turn it off
   restart ID              start it again
   logs ID                 its recent log
@@ -193,23 +192,14 @@ async fn run(args: &[String]) -> Result<(), String> {
             print_entry(&id, e, true);
         }
         Some("enable") => {
-            let yes = args.iter().any(|a| a == "--yes" || a == "-y");
+            // The shell asks the user before approving anything; `--yes`
+            // is accepted for older scripts and ignored.
             let id = args.iter().skip(1).find(|a| !a.starts_with('-')).cloned().ok_or(USAGE)?;
-            let entries = entries().await?;
-            let e = entries.get(&id).ok_or_else(|| format!("no extension {id}"))?;
-            let permissions = list(e, "permissions");
-            if !permissions.is_empty() && !yes {
-                let can: Vec<&str> = permissions.iter().map(|p| helix_shell::ext_host::manifest::permission_text(p)).collect();
-                print!("{} asks to: {}. Allow? [y/N] ", text(e, "name"), can.join(", "));
-                std::io::stdout().flush().ok();
-                let mut answer = String::new();
-                std::io::stdin().read_line(&mut answer).map_err(|e| e.to_string())?;
-                if !matches!(answer.trim(), "y" | "Y" | "yes") {
-                    return Err("not enabled".into());
-                }
+            match call::<_, ()>(&shell().await?, "Enable", &(id.as_str(), true)).await {
+                Ok(()) => println!("{id} enabled"),
+                Err(err) if err.contains("AccessDenied") || err.contains("not approved") => return Err(format!("{id} was not turned on: not allowed")),
+                Err(err) => return Err(err),
             }
-            call::<_, ()>(&shell().await?, "Enable", &(id.as_str(), true)).await?;
-            println!("{id} enabled");
         }
         Some("disable") => call::<_, ()>(&shell().await?, "Disable", &(arg(1)?,)).await?,
         Some("restart") => call::<_, ()>(&shell().await?, "Restart", &(arg(1)?,)).await?,

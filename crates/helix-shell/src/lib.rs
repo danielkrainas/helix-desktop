@@ -146,8 +146,8 @@ pub enum UiEvent {
     Extensions(ext_host::Snapshot),
     /// The extensions, for the Extensions dialog.
     ExtensionList(Vec<ext_host::Info>),
-    /// (1.1) A command's new key was refused (command, why).
-    ExtBindRefused(String, String),
+    /// Ask the user to approve an extension's permissions.
+    ApproveExtension(ext_host::approval::ApprovalSlot),
     /// Show an extension item's menu below it, at `x`.
     ExtMenu { full_id: String, menu: String, x: i32, entries: Vec<ext_host::MenuEntry> },
     /// Show status icon `key`'s menu below it, at `x`.
@@ -287,9 +287,8 @@ pub enum UiRequest {
     ExtSetting(String, String, ext_host::manifest::SettingValue),
     /// Quick settings opened (extensions waiting to be seen start).
     QuickSettingsOpened,
-    /// (1.1) Run an extension command; set its key (`""`: none).
+    /// (1.1) Run an extension command.
     ExtCommand(String),
-    ExtBind(String, String),
     /// Decode a picture for the prompt's preview.
     Preview(String),
     /// The UI opened/closed the launcher itself.
@@ -1011,13 +1010,6 @@ impl UiBridge {
                         tracing::warn!(command, %err, "extension command not run");
                     }
                 });
-                Ok(())
-            }
-            UiRequest::ExtBind(command, accelerator) => {
-                if let Err(err) = self.extensions.bind_command(&command, &accelerator) {
-                    tracing::warn!(command, %err, "extension command key not set");
-                    let _ = self.ui.send(UiEvent::ExtBindRefused(command, err));
-                }
                 Ok(())
             }
             UiRequest::QuickSettingsOpened => {

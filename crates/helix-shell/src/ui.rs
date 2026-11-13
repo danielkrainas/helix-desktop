@@ -394,6 +394,8 @@ enum DialogKind {
     ShortcutsInhibit { id: u32, app_id: String, app: String },
     /// May an app control input (remote desktop)?
     RemoteControl { app: String, devices: Vec<String>, reply: Option<tokio::sync::oneshot::Sender<bool>> },
+    /// May an extension have what it asks for? (the approval prompt)
+    ApproveExtension { name: String, lines: Vec<String>, reply: Option<tokio::sync::oneshot::Sender<bool>> },
     /// Which monitor to share with an app (`org.helix.ScreenCastChooser`).
     ShareScreen {
         app: String,
@@ -1590,7 +1592,7 @@ impl Ui {
         }
         self.finish_pick(crate::screenshot::Picked::Cancelled);
         self.finish_switching(false);
-        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::ShareScreen { .. } | DialogKind::RemoteControl { .. })) {
+        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::ShareScreen { .. } | DialogKind::RemoteControl { .. } | DialogKind::ApproveExtension { .. })) {
             self.answer_dialog(Choice::Canceled);
         }
         self.close_launcher(true);
@@ -1923,7 +1925,7 @@ impl Ui {
                         let _ = reply.send(None);
                     }
                 }
-                if let DialogKind::RemoteControl { reply, .. } = &mut open.state.kind {
+                if let DialogKind::RemoteControl { reply, .. } | DialogKind::ApproveExtension { reply, .. } = &mut open.state.kind {
                     if let Some(reply) = reply.take() {
                         let _ = reply.send(false);
                     }
@@ -1956,7 +1958,7 @@ impl Ui {
         let request = match dialog.state.kind {
             DialogKind::End(d) => UiRequest::EndDialogAnswer(choice, d.install),
             DialogKind::DisplayChange => UiRequest::DisplayChangeAnswer { keep: choice == Choice::Confirmed },
-            DialogKind::RemoteControl { reply, .. } => {
+            DialogKind::RemoteControl { reply, .. } | DialogKind::ApproveExtension { reply, .. } => {
                 if let Some(reply) = reply {
                     let _ = reply.send(choice == Choice::Confirmed);
                 }
@@ -2047,6 +2049,7 @@ impl Ui {
             DialogKind::ShareScreen { .. }
             | DialogKind::NotResponding { .. }
             | DialogKind::RemoteControl { .. }
+            | DialogKind::ApproveExtension { .. }
             | DialogKind::ShortcutsInhibit { .. }
             | DialogKind::Prompt(_) => return,
             DialogKind::End(data) if !data.blockers.is_empty() => return,
@@ -2088,6 +2091,16 @@ impl Ui {
         let text = self.text.as_ref();
         let remaining = overlay.state.remaining;
         let no_blockers = Vec::new();
+        // The approval prompt lists what the extension will be able to do.
+        let approval_rows: Vec<(String, String)> = match &overlay.state.kind {
+            DialogKind::ApproveExtension { lines, .. } => lines.iter().map(|l| (l.clone(), String::new())).collect(),
+            _ => Vec::new(),
+        };
+        let list_header = if matches!(overlay.state.kind, DialogKind::ApproveExtension { .. }) {
+            "It will be able to:"
+        } else {
+            "Some applications are busy or have unsaved work:"
+        };
         let (title, message, cancel_label, confirm_label, blockers): (String, String, &str, String, &Vec<_>) = match &overlay.state.kind {
             DialogKind::End(d) => {
                 let (title, verb) = match d.kind {
@@ -2106,6 +2119,7 @@ impl Ui {
                 (title.to_owned(), message, "Cancel", confirm, &d.blockers)
             }
             DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) => return,
+            DialogKind::ApproveExtension { name, .. } => (format!("Turn on {name}?"), String::new(), "Cancel", "Turn On".to_owned(), &approval_rows),
             DialogKind::RemoteControl { app, devices, .. } => (
                 "Allow remote control?".to_owned(),
                 format!("{app} wants to control your {}.", crate::screencast_chooser::device_list(devices)),
@@ -2143,7 +2157,9 @@ impl Ui {
             DialogKind::End(d) => d.install,
             _ => None,
         };
-        let bh = if blocked { 150 + 26 + rows * 40 } else { 160 + (message_lines - 1) * 19 } + if install.is_some() { 34 } else { 0 };
+        // Rows with a second line (a blocking app's reason) are taller.
+        let row_h = if blockers.iter().any(|(_, r)| !r.is_empty()) { 40 } else { 26 };
+        let bh = if blocked { 150 + 26 + rows * row_h } else { 160 + (message_lines - 1) * 19 } + if install.is_some() { 34 } else { 0 };
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
@@ -2153,13 +2169,12 @@ impl Ui {
         label(text, &mut canvas, &title, center(&title, 20.0), (by + 44) as f32, 20.0, FG, inner);
         let mut y = by + 78;
         if blocked {
-            let msg = "Some applications are busy or have unsaved work:";
-            label(text, &mut canvas, msg, (bx + 24) as f32, y as f32, 14.0, DIM_FG, inner);
+            label(text, &mut canvas, list_header, (bx + 24) as f32, y as f32, 14.0, DIM_FG, inner);
             y += 16;
             for (app, reason) in blockers.iter().take(6) {
                 label(text, &mut canvas, app, (bx + 24) as f32, (y + 18) as f32, 15.0, FG, inner);
                 label(text, &mut canvas, reason, (bx + 24) as f32, (y + 36) as f32, 13.0, DIM_FG, inner);
-                y += 40;
+                y += row_h;
             }
         } else {
             let lines = text.map_or_else(|| vec![message.clone()], |t| t.wrap(&message, 14.0, inner, 2));
@@ -2351,7 +2366,6 @@ impl Ui {
                 self.draw_extensions_dialog();
             }
             UiEvent::ExtMenu { full_id, menu, x, entries } => self.show_ext_menu(full_id, menu, x, entries),
-            UiEvent::ExtBindRefused(command, why) => self.extensions_dialog_refused(command, why),
             UiEvent::TrayMenu { key, x, entries } => self.show_tray_menu(key, x, entries),
             UiEvent::ClickTypeWindow(wanted) => {
                 self.click_type.wanted = wanted;
@@ -2446,6 +2460,18 @@ impl Ui {
             UiEvent::Windows(slot) => {
                 if let Some(reply) = slot.take() {
                     let _ = reply.send(self.windows.mru().iter().map(|w| (w.id, w.app_id.clone(), w.title.clone())).collect());
+                }
+            }
+            UiEvent::ApproveExtension(slot) => {
+                if let Some(q) = slot.take() {
+                    // Not over the lock screen, and one question at a time.
+                    if self.lock.session.is_some() || self.dialog.is_some() {
+                        let _ = q.reply.send(false);
+                    } else {
+                        let lines = crate::ext_host::approval::lines(&q.can, q.sandboxed);
+                        let kind = DialogKind::ApproveExtension { name: q.name, lines, reply: Some(q.reply) };
+                        self.show_dialog(DialogState { kind, remaining: 0 });
+                    }
                 }
             }
             UiEvent::AllowControl(slot) => {
