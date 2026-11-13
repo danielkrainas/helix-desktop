@@ -228,6 +228,44 @@ pub fn search(dir: &Path, query: &str, filter: Option<&Filter>) -> Vec<PathBuf> 
     found
 }
 
+/// Search results from the file index, ordered as `search` orders its
+/// own: files that are still there, not in hidden folders below `dir`,
+/// passing `filter`; those whose names hold `query` first, nearest
+/// first, then by name.
+pub fn rank(dir: &Path, query: &str, found: Vec<PathBuf>, filter: Option<&Filter>) -> Vec<PathBuf> {
+    let q = query.trim().to_lowercase();
+    let mut kept: Vec<(bool, usize, String, PathBuf)> = found
+        .into_iter()
+        .filter_map(|path| {
+            let below = path.strip_prefix(dir).ok()?;
+            if below.iter().any(|part| part.to_string_lossy().starts_with('.')) || !path.is_file() {
+                return None;
+            }
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            if filter.is_some_and(|f| !passes(f, &name)) {
+                return None;
+            }
+            let lower = name.to_lowercase();
+            Some((!lower.contains(&q), below.components().count(), lower, path))
+        })
+        .collect();
+    kept.sort();
+    kept.dedup_by(|a, b| a.3 == b.3);
+    kept.into_iter().map(|k| k.3).take(SEARCH_SHOWN).collect()
+}
+
+/// Search below `dir`: the file index when one runs and finds something,
+/// else `search`.
+pub async fn find(conn: &Connection, dir: &Path, query: &str, filter: Option<&Filter>) -> Vec<PathBuf> {
+    if let Some(found) = crate::file_index::search(conn, dir, query).await {
+        let found = rank(dir, query, found, filter);
+        if !found.is_empty() {
+            return found;
+        }
+    }
+    search(dir, query, filter)
+}
+
 /// The most recently used files shown.
 pub const RECENT_SHOWN: usize = 100;
 
@@ -456,7 +494,7 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             if ask.filters.len() > 1 {
                 list.push(Row::FilterRow);
             }
-            list.extend(search(&ask.folder, query, filter).into_iter().map(Row::Recent));
+            list.extend(find(conn, &ask.folder, query, filter).await.into_iter().map(Row::Recent));
             list
         } else if recent {
             let mut list = Vec::new();
@@ -553,7 +591,7 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             } else if matches!(ask.mode, Mode::Open { directory: false, .. }) && !typed.contains('/') {
                 // Not a place: look for files by that name.
                 let filter = ask.filter.and_then(|i| ask.filters.get(i));
-                if search(&ask.folder, &typed, filter).is_empty() {
+                if find(conn, &ask.folder, &typed, filter).await.is_empty() {
                     warning = format!("No files named like “{}”.", typed.trim());
                 } else {
                     recent = false;
@@ -802,6 +840,12 @@ mod tests {
         std::fs::write(docs.join("photo.png"), "report").unwrap();
         let found: Vec<String> = search(&tmp, "report", None).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
         assert_eq!(found, ["Report.pdf", "report-final.txt", "minutes.txt"]);
+        // The index's answers, ordered alike; gone, hidden and filtered
+        // files left out.
+        let index = vec![docs.join("minutes.txt"), docs.join("2026/report-final.txt"), docs.join("gone-report.txt"), docs.join("2026/.cache/report.tmp"), docs.join("Report.pdf"), docs.join("Report.pdf")];
+        let names = |v: Vec<PathBuf>| v.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
+        assert_eq!(names(rank(&tmp, "report", index.clone(), None)), ["Report.pdf", "report-final.txt", "minutes.txt"]);
+        assert_eq!(names(rank(&tmp, "report", index, Some(&pdf))), ["Report.pdf"]);
         let _ = std::fs::remove_dir_all(&tmp);
         let xbel = r#"<xbel><bookmark href="file:///a/b%20c.txt" added="2026-01-01T10:00:00Z" modified="2026-03-01T10:00:00.5Z" visited="x"><info/></bookmark>
 <bookmark href="file:///x?a&amp;b" added="2026-02-01T00:00:00Z"></bookmark></xbel>"#;
