@@ -57,6 +57,30 @@ pub enum Wanted {
     Pin,
     /// DSL (PPPoE): a user name and password.
     Pppoe,
+    /// 802.1X: the secret NetworkManager's hints name (a PIN, a
+    /// certificate's or private key's password), by its key.
+    EapSecret(&'static str),
+}
+
+/// 802.1X secrets an agent may be asked for by name (`hints`).
+const EAP_SECRETS: [&str; 7] = [
+    "pin",
+    "private-key-password",
+    "phase2-private-key-password",
+    "client-cert-password",
+    "phase2-client-cert-password",
+    "ca-cert-password",
+    "phase2-ca-cert-password",
+];
+
+/// What one of [`EAP_SECRETS`] is called in the dialog: (in the message,
+/// the field).
+fn eap_secret_names(key: &str) -> (&'static str, &'static str) {
+    match key {
+        "pin" => ("the smart card's PIN", "PIN"),
+        k if k.ends_with("private-key-password") => ("the password of your private key", "Private key password"),
+        _ => ("the certificate's password", "Certificate password"),
+    }
 }
 
 impl Wanted {
@@ -67,7 +91,7 @@ impl Wanted {
         match self {
             Wanted::Psk => (8..=63).contains(&chars) || hex(64),
             Wanted::Wep => chars == 5 || chars == 13 || hex(10) || hex(26),
-            Wanted::Leap | Wanted::Eap { .. } | Wanted::Mobile { .. } | Wanted::Pppoe => chars > 0,
+            Wanted::Leap | Wanted::Eap { .. } | Wanted::Mobile { .. } | Wanted::Pppoe | Wanted::EapSecret(_) => chars > 0,
             Wanted::Pin => (4..=8).contains(&password.len()) && password.chars().all(|c| c.is_ascii_digit()),
         }
     }
@@ -88,6 +112,7 @@ impl Wanted {
             Wanted::Mobile { cdma } => (if cdma { CDMA } else { GSM }, vec![("password", password)]),
             Wanted::Pin => (GSM, vec![("pin", password)]),
             Wanted::Pppoe => (PPPOE, vec![("username", user.to_owned()), ("password", password)]),
+            Wanted::EapSecret(key) => (DOT1X, vec![(key, password)]),
         }
     }
 }
@@ -125,6 +150,10 @@ pub fn wanted(settings: &Settings, setting_name: &str, hints: &[String]) -> Opti
             "none" => (Wanted::Wep, String::new()),
             _ => return None,
         },
+        DOT1X if hints.iter().any(|h| EAP_SECRETS.contains(&h.as_str())) => {
+            let key = EAP_SECRETS.iter().copied().find(|k| hints.iter().any(|h| h == k)).expect("checked");
+            (Wanted::EapSecret(key), String::new())
+        }
         DOT1X => {
             let methods: Vec<String> = settings.get(DOT1X).and_then(|g| g.get("eap")).and_then(|v| Vec::<String>::try_from(v.clone()).ok()).unwrap_or_default();
             let tls = methods.first().is_some_and(|m| m == "tls");
@@ -147,6 +176,11 @@ pub fn wanted(settings: &Settings, setting_name: &str, hints: &[String]) -> Opti
     Some(Need { wanted, name, user, wired })
 }
 
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+}
+
 /// The dialog for `need`.
 pub fn prompt_for(need: &Need, user: &str, warning: String) -> Prompt {
     let (message, password) = match need.wanted {
@@ -156,6 +190,10 @@ pub fn prompt_for(need: &Need, user: &str, warning: String) -> Prompt {
         Wanted::Mobile { .. } => (format!("A password is needed to connect to “{}”.", need.name), "Password"),
         Wanted::Pin => (format!("The SIM card's PIN is needed to connect to “{}”.", need.name), "PIN"),
         Wanted::Pppoe => (format!("A user name and password are needed to connect to “{}”.", need.name), "Password"),
+        Wanted::EapSecret(key) => {
+            let (what, field) = eap_secret_names(key);
+            (format!("{} is needed to connect to “{}”.", capitalize(what), need.name), field)
+        }
     };
     let title = match need.wanted {
         Wanted::Mobile { .. } | Wanted::Pin => "Mobile Broadband",
@@ -181,6 +219,43 @@ type Pending = Arc<Mutex<HashMap<(String, String), oneshot::Sender<()>>>>;
 pub struct Agent {
     ui: mpsc::UnboundedSender<UiEvent>,
     pending: Pending,
+    /// The session bus, for agent-owned secrets in the Secret Service.
+    session: Option<Connection>,
+}
+
+/// The Secret Service schema and attributes NetworkManager agents use
+/// (libnm's names).
+const SCHEMA: &str = "org.freedesktop.NetworkManager.Connection";
+const ATTR_UUID: &str = "connection-uuid";
+const ATTR_SETTING: &str = "setting-name";
+const ATTR_KEY: &str = "setting-key";
+/// `<key>-flags` bit: the agent keeps the secret.
+const AGENT_OWNED: u32 = 0x1;
+
+/// The agent-owned secrets in `connection` to keep: (setting, key,
+/// value). VPN secrets live in `vpn` `secrets`, their flags in `data`.
+pub fn agent_owned(connection: &Settings) -> Vec<(String, String, String)> {
+    let mut out = Vec::new();
+    for (group, keys) in connection {
+        if group == VPN {
+            let dict = |k: &str| keys.get(k).and_then(|v| HashMap::<String, String>::try_from(v.clone()).ok()).unwrap_or_default();
+            let (data, secrets) = (dict("data"), dict("secrets"));
+            for (name, value) in secrets {
+                if data.get(&format!("{name}-flags")).and_then(|f| f.parse::<u32>().ok()).is_some_and(|f| f & AGENT_OWNED != 0) {
+                    out.push((group.clone(), name, value));
+                }
+            }
+            continue;
+        }
+        for (key, value) in keys {
+            let owned = keys.get(&format!("{key}-flags")).and_then(|f| u32::try_from(f.clone()).ok()).is_some_and(|f| f & AGENT_OWNED != 0);
+            if let (true, Ok(value)) = (owned, String::try_from(value.clone())) {
+                out.push((group.clone(), key.clone(), value));
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 #[interface(name = "org.freedesktop.NetworkManager.SecretAgent")]
@@ -193,6 +268,13 @@ impl Agent {
         hints: Vec<String>,
         flags: u32,
     ) -> Result<HashMap<String, HashMap<String, OwnedValue>>, AgentError> {
+        // Secrets this agent kept, unless new ones are asked for.
+        if flags & REQUEST_NEW == 0 {
+            if let Some(found) = self.kept(&connection, &setting_name).await {
+                tracing::info!(setting_name, "network secrets from the keyring");
+                return Ok(found);
+            }
+        }
         if setting_name == VPN {
             return self.vpn(&connection, connection_path, hints, flags).await;
         }
@@ -252,9 +334,52 @@ impl Agent {
         }
     }
 
-    async fn save_secrets(&self, _connection: Settings, _connection_path: OwnedObjectPath) {}
+    async fn save_secrets(&self, connection: Settings, _connection_path: OwnedObjectPath) {
+        let (Some(session), Some(uuid)) = (self.session.as_ref(), text(&connection, "connection", "uuid")) else { return };
+        let id = text(&connection, "connection", "id").unwrap_or_default();
+        let Ok(secrets) = crate::secret_service::Secrets::open(session).await else { return };
+        for (setting, key, value) in agent_owned(&connection) {
+            let attrs = HashMap::from([("xdg:schema", SCHEMA), (ATTR_UUID, uuid.as_str()), (ATTR_SETTING, setting.as_str()), (ATTR_KEY, key.as_str())]);
+            if let Err(err) = secrets.store(&format!("Network secret for {id}/{setting}/{key}"), &attrs, value.as_bytes()).await {
+                tracing::warn!(%err, setting, key, "cannot keep a network secret");
+            }
+        }
+    }
 
-    async fn delete_secrets(&self, _connection: Settings, _connection_path: OwnedObjectPath) {}
+    async fn delete_secrets(&self, connection: Settings, _connection_path: OwnedObjectPath) {
+        let (Some(session), Some(uuid)) = (self.session.as_ref(), text(&connection, "connection", "uuid")) else { return };
+        let Ok(secrets) = crate::secret_service::Secrets::open(session).await else { return };
+        let attrs = HashMap::from([("xdg:schema", SCHEMA), (ATTR_UUID, uuid.as_str())]);
+        if let Err(err) = secrets.delete(&attrs).await {
+            tracing::warn!(%err, "cannot delete network secrets");
+        }
+    }
+}
+
+impl Agent {
+    /// Kept secrets of `setting_name` for `connection`, if any, as an
+    /// answer.
+    async fn kept(&self, connection: &Settings, setting_name: &str) -> Option<HashMap<String, HashMap<String, OwnedValue>>> {
+        let session = self.session.as_ref()?;
+        let uuid = text(connection, "connection", "uuid")?;
+        let secrets = crate::secret_service::Secrets::open(session).await.ok()?;
+        let attrs = HashMap::from([("xdg:schema", SCHEMA), (ATTR_UUID, uuid.as_str()), (ATTR_SETTING, setting_name)]);
+        let found = secrets.lookup(&attrs).await.ok()?;
+        let pairs: Vec<(String, String)> = found.into_iter().filter_map(|(a, v)| Some((a.get(ATTR_KEY)?.clone(), String::from_utf8(v).ok()?))).collect();
+        if pairs.is_empty() {
+            return None;
+        }
+        let mut group: HashMap<String, OwnedValue> = HashMap::new();
+        if setting_name == VPN {
+            let dict: HashMap<String, String> = pairs.into_iter().collect();
+            group.insert("secrets".into(), OwnedValue::try_from(Value::from(dict)).ok()?);
+        } else {
+            for (k, v) in pairs {
+                group.insert(k, OwnedValue::try_from(Value::from(v)).ok()?);
+            }
+        }
+        Some(HashMap::from([(setting_name.to_owned(), group)]))
+    }
 }
 
 /// A WireGuard secret to ask for.
@@ -431,9 +556,15 @@ async fn register(system: &Connection) {
     }
 }
 
-/// Serve the agent on `system` for the rest of the session.
+/// Serve the agent on `system` for the rest of the session (without a
+/// keyring for agent-owned secrets).
 pub async fn run(system: Connection, ui: mpsc::UnboundedSender<UiEvent>) -> zbus::Result<()> {
-    system.object_server().at(AGENT_PATH, Agent { ui, pending: Default::default() }).await?;
+    run_with_secrets(system, None, ui).await
+}
+
+/// [`run`], keeping agent-owned secrets in the Secret Service on `session`.
+pub async fn run_with_secrets(system: Connection, session: Option<Connection>, ui: mpsc::UnboundedSender<UiEvent>) -> zbus::Result<()> {
+    system.object_server().at(AGENT_PATH, Agent { ui, pending: Default::default(), session }).await?;
     let dbus = zbus::fdo::DBusProxy::new(&system).await?;
     let mut owners = dbus.receive_name_owner_changed_with_args(&[(0, NM)]).await?;
     if dbus.name_has_owner(zbus::names::BusName::from_static_str(NM)?).await.unwrap_or(false) {
@@ -449,6 +580,26 @@ pub async fn run(system: Connection, ui: mpsc::UnboundedSender<UiEvent>) -> zbus
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn named_eap_secrets_and_agent_owned() {
+        let v = |x: Value<'static>| OwnedValue::try_from(x).unwrap();
+        let conn: Settings = HashMap::from([
+            ("connection".to_owned(), HashMap::from([("id".to_owned(), v(Value::from("Office")))])),
+            (DOT1X.to_owned(), HashMap::from([("eap".to_owned(), v(Value::from(vec!["tls"]))), ("password".to_owned(), v(Value::from("pw"))), ("password-flags".to_owned(), v(Value::from(1u32))), ("pin-flags".to_owned(), v(Value::from(0u32)))])),
+            (VPN.to_owned(), HashMap::from([
+                ("data".to_owned(), v(Value::from(HashMap::from([("password-flags".to_owned(), "1".to_owned()), ("otp-flags".to_owned(), "2".to_owned())])))),
+                ("secrets".to_owned(), v(Value::from(HashMap::from([("password".to_owned(), "vpw".to_owned()), ("otp".to_owned(), "123".to_owned())])))),
+            ])),
+        ]);
+        let n = wanted(&conn, DOT1X, &["pin".into()]).unwrap();
+        assert_eq!(n.wanted, Wanted::EapSecret("pin"));
+        assert!(!n.wanted.needs_user());
+        assert_eq!(prompt_for(&n, "", String::new()).password.as_deref(), Some("PIN"));
+        assert_eq!(Wanted::EapSecret("phase2-private-key-password").secrets("", "k".into()), (DOT1X, vec![("phase2-private-key-password", "k".into())]));
+        assert_eq!(agent_owned(&conn), [(DOT1X.to_owned(), "password".to_owned(), "pw".to_owned()), (VPN.to_owned(), "password".to_owned(), "vpw".to_owned())]);
+    }
+
     use super::*;
 
     fn settings(key_mgmt: &str) -> Settings {

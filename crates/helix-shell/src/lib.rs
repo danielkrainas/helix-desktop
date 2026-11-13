@@ -54,6 +54,7 @@ pub mod run_dialog;
 pub mod screensaver;
 pub mod search;
 pub mod secret_exchange;
+pub mod secret_service;
 /// Event sounds live in `helix-settings`, shared with the compositor.
 pub use helix_settings::sound;
 pub mod screencast_chooser;

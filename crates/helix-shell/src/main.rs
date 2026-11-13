@@ -218,10 +218,11 @@ fn main() -> ExitCode {
     // NetworkManager's secret agent (Wi-Fi passwords).
     if std::env::var_os("HELIX_NO_NETWORK_AGENT").is_none() {
         let ui = service.ui_sender();
+        let session = service.connection().clone();
         runtime.spawn(async move {
             match zbus::Connection::system().await {
                 Ok(system) => {
-                    if let Err(err) = helix_shell::network_agent::run(system, ui).await {
+                    if let Err(err) = helix_shell::network_agent::run_with_secrets(system, Some(session), ui).await {
                         tracing::info!(%err, "no NetworkManager secret agent");
                     }
                 }
