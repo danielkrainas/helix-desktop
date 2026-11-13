@@ -26,6 +26,7 @@ pub mod color_management;
 pub mod colorimetry;
 pub mod cursor_shape;
 pub mod edid;
+pub mod icc;
 pub mod tablet;
 pub mod focus_tracking;
 pub mod input_capture;

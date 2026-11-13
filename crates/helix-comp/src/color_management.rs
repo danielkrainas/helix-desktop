@@ -39,8 +39,8 @@ pub trait ColorManagementHandler: 'static {
 pub const INTENTS: [u32; 2] = [0, 1];
 /// Features offered: icc_v2_v4, parametric, set_primaries,
 /// set_tf_power, set_luminances, set_mastering_display_primaries,
-/// windows_scrgb.
-pub const FEATURES: [u32; 7] = [0, 1, 2, 3, 4, 5, 7];
+/// extended_target_volume, windows_scrgb.
+pub const FEATURES: [u32; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
 /// The largest ICC profile taken (the protocol's limit).
 const ICC_MAX: u32 = 32 * 1024 * 1024;
@@ -555,6 +555,8 @@ fn send_information(info: &WpImageDescriptionInfoV1, c: &Colorimetry) {
             }
         }
         Tf::Power(p) => info.tf_power((p * 10000.0).round() as u32),
+        // ICC descriptions give no information.
+        Tf::Parametric(_) => {}
     }
     let (min, max, reference) = c.luminance;
     info.luminances((min * 10000.0).round() as u32, max.round() as u32, reference.round() as u32);

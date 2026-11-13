@@ -40,6 +40,12 @@ fn program(renderer: &mut GlesRenderer) -> Option<GlesTexProgram> {
             UniformName::new("scale", UniformType::_1f),
             UniformName::new("to_bt709", UniformType::Matrix3x3),
             UniformName::new("luma", UniformType::_3f),
+            UniformName::new("curve_r", UniformType::_4f),
+            UniformName::new("curve_r2", UniformType::_3f),
+            UniformName::new("curve_g", UniformType::_4f),
+            UniformName::new("curve_g2", UniformType::_3f),
+            UniformName::new("curve_b", UniformType::_4f),
+            UniformName::new("curve_b2", UniformType::_3f),
         ];
         match renderer.compile_custom_texture_shader(colorimetry::SHADER, &uniforms) {
             Ok(program) => {
@@ -61,6 +67,12 @@ fn uniforms(c: &Conversion) -> Vec<Uniform<'static>> {
         Uniform::new("scale", UniformValue::_1f(c.scale)),
         Uniform::new("to_bt709", UniformValue::Matrix3x3 { matrices: vec![c.matrix], transpose: true }),
         Uniform::new("luma", UniformValue::_3f(c.luma[0], c.luma[1], c.luma[2])),
+        Uniform::new("curve_r", UniformValue::_4f(c.curves[0].0[0], c.curves[0].0[1], c.curves[0].0[2], c.curves[0].0[3])),
+        Uniform::new("curve_r2", UniformValue::_3f(c.curves[0].1[0], c.curves[0].1[1], c.curves[0].1[2])),
+        Uniform::new("curve_g", UniformValue::_4f(c.curves[1].0[0], c.curves[1].0[1], c.curves[1].0[2], c.curves[1].0[3])),
+        Uniform::new("curve_g2", UniformValue::_3f(c.curves[1].1[0], c.curves[1].1[1], c.curves[1].1[2])),
+        Uniform::new("curve_b", UniformValue::_4f(c.curves[2].0[0], c.curves[2].0[1], c.curves[2].0[2], c.curves[2].0[3])),
+        Uniform::new("curve_b2", UniformValue::_3f(c.curves[2].1[0], c.curves[2].1[1], c.curves[2].1[2])),
     ]
 }
 

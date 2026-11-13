@@ -40,12 +40,14 @@ pub mod tf {
     pub const EXT_LINEAR: u32 = 5;
     pub const SRGB: u32 = 9;
     pub const EXT_SRGB: u32 = 10;
+    pub const LOG_100: u32 = 6;
+    pub const LOG_316: u32 = 7;
     pub const ST2084_PQ: u32 = 11;
     pub const HLG: u32 = 13;
 }
 
 /// Named transfer functions Helix offers.
-pub const NAMED_TFS: [u32; 8] = [tf::BT1886, tf::GAMMA22, tf::GAMMA28, tf::EXT_LINEAR, tf::SRGB, tf::EXT_SRGB, tf::ST2084_PQ, tf::HLG];
+pub const NAMED_TFS: [u32; 10] = [tf::BT1886, tf::GAMMA22, tf::GAMMA28, tf::EXT_LINEAR, tf::LOG_100, tf::LOG_316, tf::SRGB, tf::EXT_SRGB, tf::ST2084_PQ, tf::HLG];
 
 /// A transfer function: named, or a pure power (`set_tf_power`, the
 /// exponent).
@@ -53,6 +55,8 @@ pub const NAMED_TFS: [u32; 8] = [tf::BT1886, tf::GAMMA22, tf::GAMMA28, tf::EXT_L
 pub enum Tf {
     Named(u32),
     Power(f64),
+    /// Per-channel curves (ICC profiles).
+    Parametric([crate::icc::Para; 3]),
 }
 
 /// An image description's colorimetry.
@@ -108,83 +112,13 @@ impl Colorimetry {
     }
 }
 
-/// D50, the ICC profile connection space's white.
-const D50: (f64, f64) = (0.3457, 0.3585);
-
-/// The colorimetry of a matrix/curve RGB ICC profile (v2 or v4): its
-/// colorants (`rXYZ`, `gXYZ`, `bXYZ`, adapted to D50 as ICC keeps them)
-/// as primaries with a D50 white, and the red curve (`rTRC`) as the
-/// transfer function: a pure power, sRGB's curve, or a power fitted to a
-/// table at mid-gray. LUT-based profiles are refused.
+/// The colorimetry of an RGB ICC profile (`crate::icc`): its primaries
+/// and white, and its per-channel curves; SDR luminances.
 pub fn from_icc(icc: &[u8]) -> Result<Colorimetry, String> {
-    let be32 = |at: usize| icc.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
-    let be16 = |at: usize| icc.get(at..at + 2).map(|b| u16::from_be_bytes([b[0], b[1]]));
-    let s15 = |at: usize| be32(at).map(|v| f64::from(v as i32) / 65536.0);
-    if icc.len() < 132 || icc.get(36..40) != Some(b"acsp".as_slice()) {
-        return Err("not an ICC profile".into());
-    }
-    if icc.get(16..20) != Some(b"RGB ".as_slice()) {
-        return Err("not an RGB profile".into());
-    }
-    let count = be32(128).ok_or("no tag table")? as usize;
-    let tag = |sig: &[u8; 4]| -> Option<(usize, usize)> {
-        (0..count.min(1000)).find_map(|i| {
-            let at = 132 + i * 12;
-            (icc.get(at..at + 4)? == sig).then(|| Some((be32(at + 4)? as usize, be32(at + 8)? as usize)))?
-        })
-    };
-    let colorant = |sig: &[u8; 4]| -> Result<(f64, f64), String> {
-        let (at, _) = tag(sig).ok_or("no colorant tags (a LUT-based profile)")?;
-        if icc.get(at..at + 4) != Some(b"XYZ ".as_slice()) {
-            return Err("a colorant tag is not XYZ".into());
-        }
-        let (x, y, z) = (s15(at + 8).ok_or("short tag")?, s15(at + 12).ok_or("short tag")?, s15(at + 16).ok_or("short tag")?);
-        let sum = x + y + z;
-        if sum <= 0.0 {
-            return Err("a colorant is black".into());
-        }
-        Ok((x / sum, y / sum))
-    };
-    let (r, g, b) = (colorant(b"rXYZ")?, colorant(b"gXYZ")?, colorant(b"bXYZ")?);
-    let (at, _) = tag(b"rTRC").ok_or("no tone curve")?;
-    let tf = match icc.get(at..at + 4) {
-        Some(b"curv") => {
-            let n = be32(at + 8).ok_or("short curve")? as usize;
-            match n {
-                0 => Tf::Power(1.0),
-                1 => Tf::Power(f64::from(be16(at + 12).ok_or("short curve")?) / 256.0),
-                _ => {
-                    // The table's value at mid-gray, interpolated.
-                    let pos = 0.5 * (n - 1) as f64;
-                    let (i, f) = (pos.floor() as usize, pos.fract());
-                    let v = |k: usize| be16(at + 12 + 2 * k).map(|v| f64::from(v) / 65535.0);
-                    let mid = v(i).ok_or("short curve")? * (1.0 - f) + v((i + 1).min(n - 1)).ok_or("short curve")? * f;
-                    if mid <= 0.0 || mid >= 1.0 {
-                        return Err("an unusable tone curve".into());
-                    }
-                    Tf::Power((mid.ln() / 0.5f64.ln()).clamp(1.0, 10.0))
-                }
-            }
-        }
-        Some(b"para") => {
-            let kind = be16(at + 8).ok_or("short curve")?;
-            let p = |k: usize| s15(at + 12 + 4 * k).ok_or("short curve");
-            let gamma = p(0)?;
-            // sRGB's curve as a parametric curve (type 3: g, a, b, c, d).
-            let srgb_like = kind == 3 && (gamma - 2.4).abs() < 0.01 && (p(1)? - 1.0 / 1.055).abs() < 0.001 && (p(4)? - 0.04045).abs() < 0.001;
-            if srgb_like {
-                Tf::Named(tf::SRGB)
-            } else if kind <= 4 && gamma >= 1.0 {
-                Tf::Power(gamma.min(10.0))
-            } else {
-                return Err("an unusable parametric curve".into());
-            }
-        }
-        _ => return Err("an unknown tone curve type".into()),
-    };
-    let primaries = [r.0, r.1, g.0, g.1, b.0, b.1, D50.0, D50.1];
+    let p = crate::icc::parse(icc)?;
+    let tf = Tf::Parametric(p.curves);
     Ok(Colorimetry {
-        primaries,
+        primaries: p.primaries,
         primaries_named: None,
         tf,
         luminance: Colorimetry::default_luminance(tf),
@@ -202,6 +136,10 @@ pub mod kind {
     pub const LINEAR: i32 = 3;
     pub const PQ: i32 = 4;
     pub const HLG: i32 = 5;
+    /// Logarithmic, 100:1 and 316:1 (`tf_power` holds 2.0 or 2.5).
+    pub const LOG: i32 = 6;
+    /// Per-channel ICC parametric curves.
+    pub const PARAMETRIC: i32 = 7;
 }
 
 /// What the conversion shader needs: how to decode, by what to scale the
@@ -217,6 +155,8 @@ pub struct Conversion {
     /// The content's luminance weights (the Y row of its RGB to XYZ), for
     /// HLG's OOTF.
     pub luma: [f32; 3],
+    /// With `PARAMETRIC`, each channel's curve: (g, a, b, c) and (d, e, f).
+    pub curves: [([f32; 4], [f32; 3]); 3],
 }
 
 /// HLG's system gamma for a nominal peak of `peak` cd/m² (BT.2100).
@@ -242,8 +182,11 @@ pub fn conversion(c: &Colorimetry) -> Option<Conversion> {
         Tf::Named(tf::ST2084_PQ) => (kind::PQ, 1.0, 1.0),
         // Scene light through the OOTF at the nominal peak (`max`).
         Tf::Named(tf::HLG) => (kind::HLG, hlg_gamma(max), max),
+        Tf::Named(tf::LOG_100) => (kind::LOG, 2.0, max),
+        Tf::Named(tf::LOG_316) => (kind::LOG, 2.5, max),
         Tf::Named(_) => return None,
         Tf::Power(p) => (kind::POWER, p, max),
+        Tf::Parametric(_) => (kind::PARAMETRIC, 1.0, max),
     };
     let scale = if reference > 0.0 { signal_max / reference } else { 1.0 };
     let plain = same_primaries && (scale - 1.0).abs() < 1e-6 && matches!(c.tf, Tf::Named(tf::SRGB) | Tf::Named(tf::EXT_SRGB) | Tf::Named(tf::GAMMA22));
@@ -253,7 +196,11 @@ pub fn conversion(c: &Colorimetry) -> Option<Conversion> {
     let to_xyz = rgb_to_xyz(&c.primaries)?;
     let m = mul(&xyz_to_rgb(&srgb)?, &mul(&adapt(white(&c.primaries), white(&srgb)), &to_xyz));
     let luma = [to_xyz[3] as f32, to_xyz[4] as f32, to_xyz[5] as f32];
-    Some(Conversion { tf_kind, power: power as f32, scale: scale as f32, matrix: m.map(|v| v as f32), luma })
+    let curves = match c.tf {
+        Tf::Parametric(ps) => ps.map(|p| ([p.g as f32, p.a as f32, p.b as f32, p.c as f32], [p.d as f32, p.e as f32, p.f as f32])),
+        _ => [([1.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0]); 3],
+    };
+    Some(Conversion { tf_kind, power: power as f32, scale: scale as f32, matrix: m.map(|v| v as f32), luma, curves })
 }
 
 type M3 = [f64; 9];
@@ -351,6 +298,17 @@ uniform float tf_power;
 uniform float scale;
 uniform mat3 to_bt709;
 uniform vec3 luma;
+uniform vec4 curve_r;
+uniform vec3 curve_r2;
+uniform vec4 curve_g;
+uniform vec3 curve_g2;
+uniform vec4 curve_b;
+uniform vec3 curve_b2;
+
+// ICC's parametric curve: (a v + b)^g + e above d, else c v + f.
+float para(float v, vec4 p, vec3 q) {
+    return v >= q.x ? pow(max(p.y * v + p.z, 0.0), p.x) + q.y : p.w * v + q.z;
+}
 
 float decode(float v) {
     float s = sign(v);
@@ -358,6 +316,7 @@ float decode(float v) {
     if (tf_kind == 1) return s * pow(a, tf_power);
     if (tf_kind == 2) return s * (a <= 0.04045 ? a / 12.92 : pow((a + 0.055) / 1.055, 2.4));
     if (tf_kind == 3) return v;
+    if (tf_kind == 6) return v <= 0.0 ? 0.0 : pow(10.0, tf_power * (min(v, 1.0) - 1.0));
     if (tf_kind == 5) {
         // HLG's inverse OETF: scene light 0-1.
         float x = clamp(v, 0.0, 1.0);
@@ -374,7 +333,11 @@ void main() {
     c.a = 1.0;
 #endif
     vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
-    rgb = vec3(decode(rgb.r), decode(rgb.g), decode(rgb.b));
+    if (tf_kind == 7) {
+        rgb = vec3(para(rgb.r, curve_r, curve_r2), para(rgb.g, curve_g, curve_g2), para(rgb.b, curve_b, curve_b2));
+    } else {
+        rgb = vec3(decode(rgb.r), decode(rgb.g), decode(rgb.b));
+    }
     if (tf_kind == 5) {
         // HLG's OOTF: display light relative to the nominal peak.
         rgb *= pow(max(dot(luma, rgb), 1e-6), tf_power - 1.0);
@@ -434,7 +397,7 @@ mod tests {
         gamma.extend_from_slice(&1u32.to_be_bytes());
         gamma.extend_from_slice(&((2.2 * 256.0) as u16).to_be_bytes());
         let c = from_icc(&icc(srgb, &gamma)).unwrap();
-        assert!(matches!(c.tf, Tf::Power(g) if (g - 2.2).abs() < 0.01));
+        assert!(matches!(c.tf, Tf::Parametric(p) if (p[0].g - 2.2).abs() < 0.01 && p[0].a == 1.0));
         // Back to BT.709 it is (close to) no change of color.
         let m = conversion(&c).unwrap().matrix;
         assert!(close(&m, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], 0.02), "{m:?}");
@@ -442,7 +405,11 @@ mod tests {
         for v in [2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045] {
             para.extend_from_slice(&((v * 65536.0f64).round() as i32).to_be_bytes());
         }
-        assert_eq!(from_icc(&icc(srgb, &para)).unwrap().tf, Tf::Named(tf::SRGB));
+        let Tf::Parametric(p) = from_icc(&icc(srgb, &para)).unwrap().tf else { panic!() };
+        assert!((p[0].eval(0.5) - 0.21404).abs() < 1e-3, "sRGB's curve exactly");
+        // A LUT-based profile.
+        let lut = from_icc(&crate::icc::tests::lut_profile()).unwrap();
+        assert!(conversion(&lut).is_some());
         assert!(from_icc(b"not a profile").is_err());
     }
 
