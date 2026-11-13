@@ -7,6 +7,7 @@
 
 pub mod accel;
 pub mod ambient;
+pub mod app_grid;
 pub mod app_notify;
 pub mod auth;
 pub mod display_change;
@@ -173,6 +174,8 @@ pub enum UiEvent {
     PowerAvailability(logind::Availability),
     /// Activate window `id` (a "<window> is ready" notification).
     ActivateWindow(u32),
+    /// App folders changed (renamed from the app grid).
+    FoldersChanged,
     /// Whether a display manager can switch users (`user_switch`).
     UserSwitch(bool),
     /// Ask whether to keep a display change (countdown seconds), or stop
@@ -299,6 +302,8 @@ pub enum UiRequest {
     Power(PowerAction),
     /// `panel-run-dialog`: ask for a command to run.
     RunDialog,
+    /// Ask for a new name for app folder `id`.
+    RenameFolder { id: String, name: String },
     /// Restart or Power Off confirmed on the lock screen.
     LockPower(PowerAction),
     /// The user kept or reverted a display change (or time ran out).
@@ -1071,6 +1076,29 @@ impl UiBridge {
                     tracing::warn!(%err, member, "cannot end the session from the lock screen");
                     end_dialog::preconfirm_clear();
                 }
+                Ok(())
+            }
+            UiRequest::RenameFolder { id, name } => {
+                let ui = self.ui.clone();
+                tokio::spawn(async move {
+                    let _turn = prompt::turn().await;
+                    let p = prompt::Prompt {
+                        title: "Rename Folder".into(),
+                        entry: Some(("Folder name".into(), name)),
+                        continue_label: "Rename".into(),
+                        cancel_label: "Cancel".into(),
+                        ..Default::default()
+                    };
+                    let answer = prompt::ask(&ui, p).await;
+                    prompt::done(&ui);
+                    if let prompt::Answer::Continue { entry: Some(new), .. } = answer {
+                        let new = new.trim();
+                        if !new.is_empty() {
+                            favorites::rename_folder(&id, new);
+                            let _ = ui.send(UiEvent::FoldersChanged);
+                        }
+                    }
+                });
                 Ok(())
             }
             UiRequest::RunDialog => {

@@ -52,6 +52,7 @@ use helix_protocols::client::helix_screenshot_manager_v1::HelixScreenshotManager
 use crate::windows::{SwitchEntry, SwitchMode, Switcher, WindowAction};
 use std::collections::HashMap;
 
+mod app_grid;
 mod background;
 mod break_screen;
 mod calendar;
@@ -125,6 +126,8 @@ struct LauncherView {
     rows: Vec<(Rect, usize)>,
     /// Search results' icons, decoded once (by provider and id).
     icons: HashMap<(usize, String), Option<helix_draw::Image>>,
+    /// The app grid (shown with an empty search).
+    grid: app_grid::GridView,
 }
 
 struct Ui {
@@ -703,6 +706,7 @@ impl Ui {
             content: Rect { x: 0, y: 0, w: 0, h: 0 },
             rows: Vec::new(),
             icons: HashMap::new(),
+            grid: Default::default(),
         });
         if notify {
             let _ = self.requests.send(UiRequest::Overview(true));
@@ -1262,6 +1266,18 @@ impl Ui {
             canvas.rect(caret_x, field.y + 13, 2, field.h - 26, ACCENT);
         }
 
+        // An empty search: the app grid.
+        if view.model.query.is_empty() {
+            view.rows.clear();
+            view.content = field;
+            app_grid::paint_grid(&mut app_grid::Paint { cache: &mut self.icon_cache, text: self.text.as_ref(), scale }, view, &mut canvas, w as i32, h as i32, by + 72);
+            let surface = view.layer.wl_surface();
+            self.scales.prepare(&self.qh, surface, w as i32, h as i32);
+            if buffer.attach_to(surface).is_ok() {
+                view.layer.commit();
+            }
+            return;
+        }
         // Results.
         let list_top = by + 56;
         let room = ((h as i32 - list_top - 24) / ROW_H).max(1) as usize;
@@ -1336,6 +1352,9 @@ impl Ui {
     }
 
     fn launcher_key(&mut self, event: &KeyEvent) {
+        if self.grid_key(event.keysym) {
+            return;
+        }
         let ctrl = self.ctrl_held;
         let Some(view) = self.launcher.as_mut() else { return };
         match event.keysym {
@@ -2244,6 +2263,7 @@ impl Ui {
             }
             UiEvent::PowerAvailability(power) => self.power = power,
             UiEvent::UserSwitch(available) => self.user_switch = available,
+            UiEvent::FoldersChanged => self.grid_reload(),
             UiEvent::ActivateWindow(id) => self.activate_window(id),
             UiEvent::Lock => self.start_lock(),
             UiEvent::Banner(banner) => self.show_banner(banner),
@@ -3041,7 +3061,7 @@ impl Ui {
                 }
                 continue;
             }
-            if self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
+            if self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {

@@ -132,12 +132,119 @@ pub fn folders(apps: &[App]) -> Vec<Folder> {
         .collect()
 }
 
+fn folder_settings(id: &str) -> Option<gio::Settings> {
+    let schema = gio::SettingsSchemaSource::default()?.lookup(FOLDER, true)?;
+    let path = format!("/org/gnome/desktop/app-folders/folders/{id}/");
+    Some(gio::Settings::new_full(&schema, None::<&gio::SettingsBackend>, Some(path.as_str())))
+}
+
+/// A new folder `name` holding `apps`; its id.
+pub fn create_folder(name: &str, apps: &[String]) -> Option<String> {
+    let parent = settings(FOLDERS)?;
+    let mut children = strv(&parent, "folder-children");
+    let base: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let base = if base.is_empty() { "Folder".to_owned() } else { base };
+    let mut id = base.clone();
+    let mut n = 1;
+    while children.contains(&id) {
+        n += 1;
+        id = format!("{base}{n}");
+    }
+    let s = folder_settings(&id)?;
+    let _ = s.set_string("name", name);
+    let refs: Vec<&str> = apps.iter().map(String::as_str).collect();
+    let _ = s.set_strv("apps", refs.as_slice());
+    children.push(id.clone());
+    let refs: Vec<&str> = children.iter().map(String::as_str).collect();
+    let _ = parent.set_strv("folder-children", refs.as_slice());
+    gio::Settings::sync();
+    Some(id)
+}
+
+/// Put app `app` into folder `id` (also when its categories had left it
+/// out).
+pub fn add_to_folder(id: &str, app: &str) {
+    let Some(s) = folder_settings(id) else { return };
+    let mut apps = strv(&s, "apps");
+    if !apps.iter().any(|a| a == app) {
+        apps.push(app.to_owned());
+    }
+    let excluded: Vec<String> = strv(&s, "excluded-apps").into_iter().filter(|a| a != app).collect();
+    let refs: Vec<&str> = apps.iter().map(String::as_str).collect();
+    let _ = s.set_strv("apps", refs.as_slice());
+    let refs: Vec<&str> = excluded.iter().map(String::as_str).collect();
+    let _ = s.set_strv("excluded-apps", refs.as_slice());
+    gio::Settings::sync();
+}
+
+/// Take app `app` out of folder `id` (excluded when the folder's categories
+/// would bring it back); a folder left without apps (`left` of them
+/// remain) is removed.
+pub fn remove_from_folder(id: &str, app: &str, left: usize) {
+    let Some(s) = folder_settings(id) else { return };
+    if left == 0 {
+        delete_folder(id);
+        return;
+    }
+    let apps: Vec<String> = strv(&s, "apps").into_iter().filter(|a| a != app).collect();
+    let refs: Vec<&str> = apps.iter().map(String::as_str).collect();
+    let _ = s.set_strv("apps", refs.as_slice());
+    let categories = strv(&s, "categories");
+    if categories.iter().any(|c| crate::favorites::categories(app).contains(c)) {
+        let mut excluded = strv(&s, "excluded-apps");
+        if !excluded.iter().any(|a| a == app) {
+            excluded.push(app.to_owned());
+        }
+        let refs: Vec<&str> = excluded.iter().map(String::as_str).collect();
+        let _ = s.set_strv("excluded-apps", refs.as_slice());
+    }
+    gio::Settings::sync();
+}
+
+/// Rename folder `id`.
+pub fn rename_folder(id: &str, name: &str) {
+    if let Some(s) = folder_settings(id) {
+        let _ = s.set_string("name", name);
+        let _ = s.set_boolean("translate", false);
+        gio::Settings::sync();
+    }
+}
+
+/// Remove folder `id` (its settings reset).
+pub fn delete_folder(id: &str) {
+    if let Some(parent) = settings(FOLDERS) {
+        let children: Vec<String> = strv(&parent, "folder-children").into_iter().filter(|c| c != id).collect();
+        let refs: Vec<&str> = children.iter().map(String::as_str).collect();
+        let _ = parent.set_strv("folder-children", refs.as_slice());
+    }
+    if let Some(s) = folder_settings(id) {
+        for key in ["name", "apps", "categories", "excluded-apps", "translate"] {
+            s.reset(key);
+        }
+    }
+    gio::Settings::sync();
+}
+
+/// A name for a folder made of `a` and `b`: a category they share (the
+/// first of `a`'s that is not a generic one), else "Unnamed Folder".
+pub fn folder_name_for(a: &[String], b: &[String]) -> String {
+    const GENERIC: [&str; 4] = ["GTK", "GNOME", "Qt", "KDE"];
+    a.iter().find(|c| b.contains(c) && !GENERIC.contains(&c.as_str())).cloned().unwrap_or_else(|| "Unnamed Folder".to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn app(id: &str, name: &str, categories: &[&str]) -> App {
         App { id: id.into(), name: name.into(), search: String::new(), categories: categories.iter().map(|c| c.to_string()).collect() }
+    }
+
+    #[test]
+    fn new_folder_names() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(folder_name_for(&s(&["GTK", "Utility", "Calculator"]), &s(&["GNOME", "GTK", "Utility"])), "Utility");
+        assert_eq!(folder_name_for(&s(&["Game"]), &s(&["Office"])), "Unnamed Folder");
     }
 
     #[test]

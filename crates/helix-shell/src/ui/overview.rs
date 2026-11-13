@@ -47,8 +47,21 @@ pub(super) struct OverviewState {
     closes: Vec<(Rect, u32)>,
     workspaces: Vec<(Rect, u32)>,
     search: Rect,
-    /// Dash icons: (where, app id, newest window).
-    dash: Vec<(Rect, String, Option<u32>)>,
+    /// Dash icons: (where, app id, newest window, favorite).
+    dash: Vec<(Rect, String, Option<u32>, bool)>,
+    /// A press on a dash icon (app, where, its newest window), and a dash
+    /// icon being dragged (app, pointer).
+    dash_press: Option<(String, (f64, f64), Option<u32>)>,
+    dash_drag: Option<(String, (f64, f64))>,
+}
+
+/// How far above the dash a dropped favorite is unpinned.
+const DASH_UNPIN: f64 = 60.0;
+
+/// Where a dash icon dropped at `x` goes among the favorites `rects`
+/// (left to right): the index of the first one it is left of.
+pub(super) fn dash_insert_index(rects: &[Rect], x: f64) -> usize {
+    rects.iter().position(|r| x < f64::from(r.x + r.w / 2)).unwrap_or(rects.len())
 }
 
 /// Pictures of windows for the overview, shared by its monitors.
@@ -382,15 +395,29 @@ impl Ui {
                     x += 16;
                 }
                 let r = Rect { x, y: dy + 8, w: DASH_ICON, h: DASH_ICON };
+                let dragged = state.dash_drag.as_ref().is_some_and(|(app, _)| *app == entry.app);
                 match &entry.icon {
+                    _ if dragged => {}
                     Some(icon) => canvas.image(f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), icon),
                     None => canvas.rect(r.x + 4, r.y + 4, r.w - 8, r.h - 8, FIELD_BG),
                 }
                 if !entry.windows.is_empty() {
                     canvas.circle(f64::from(r.x + r.w / 2), f64::from(dy + DASH_H - 7), 2.5, FG);
                 }
-                state.dash.push((r, entry.app.clone(), entry.windows.first().copied()));
+                state.dash.push((r, entry.app.clone(), entry.windows.first().copied(), !entry.running_only));
                 x += DASH_ICON + DASH_GAP;
+            }
+            // A dragged icon: where it would go, and the icon itself.
+            if let Some((app, (px, py))) = state.dash_drag.clone() {
+                let favorites: Vec<Rect> = state.dash.iter().filter(|d| d.3 && d.1 != app).map(|d| d.0).collect();
+                if py >= f64::from(dy) - DASH_UNPIN {
+                    let i = dash_insert_index(&favorites, px);
+                    let mx = favorites.get(i).map_or_else(|| favorites.last().map_or(dx + 12, |r| r.x + r.w + DASH_GAP / 2), |r| r.x - DASH_GAP / 2);
+                    canvas.rect(mx - 1, dy + 6, 3, DASH_H - 12, ACCENT);
+                }
+                if let Some(icon) = dash.iter().find(|e| e.app == app).and_then(|e| e.icon.as_ref()) {
+                    canvas.image(px - f64::from(DASH_ICON) / 2.0, py - f64::from(DASH_ICON) / 2.0, f64::from(DASH_ICON), f64::from(DASH_ICON), icon);
+                }
             }
         }
 
@@ -464,6 +491,17 @@ impl Ui {
         let tile_at = |state: &OverviewState| state.tiles.iter().find(|(r, _)| r.contains(x, y)).map(|(_, id)| *id);
         match event.kind {
             PointerEventKind::Motion { .. } => {
+                if let Some((app, (sx, sy), _)) = state.dash_press.clone() {
+                    if ((x - sx).powi(2) + (y - sy).powi(2)).sqrt() >= crate::drag_threshold() {
+                        state.dash_press = None;
+                        state.dash_drag = Some((app, (x, y)));
+                    }
+                }
+                if let Some(drag) = state.dash_drag.as_mut() {
+                    drag.1 = (x, y);
+                    self.draw_overview();
+                    return true;
+                }
                 if let Some((id, (sx, sy))) = state.press {
                     if state.drag.is_none() && ((x - sx).powi(2) + (y - sy).powi(2)).sqrt() >= crate::drag_threshold() {
                         state.drag = Some((id, (x, y)));
@@ -491,8 +529,8 @@ impl Ui {
                     if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 2) {
                         list.switch_workspace(n);
                     }
-                } else if let Some((_, app, window)) = state.dash.iter().find(|(r, _, _)| r.contains(x, y)).cloned() {
-                    self.dash_activate(&app, window);
+                } else if let Some((_, app, window, _)) = state.dash.iter().find(|d| d.0.contains(x, y)).cloned() {
+                    state.dash_press = Some((app, (x, y), window));
                 } else if state.search.contains(x, y) {
                     self.close_overview(false);
                     self.open_launcher(false);
@@ -501,6 +539,37 @@ impl Ui {
                 }
             }
             PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                if let Some((app, _)) = state.dash_drag.take() {
+                    let shown: Vec<(Rect, String)> = state.dash.iter().filter(|d| d.3 && d.1 != app).map(|d| (d.0, d.1.clone())).collect();
+                    let rects: Vec<Rect> = shown.iter().map(|(r, _)| *r).collect();
+                    let dash_top = state.dash.first().map_or(0.0, |d| f64::from(d.0.y - 8));
+                    let unpin = y < dash_top - DASH_UNPIN;
+                    // Before the icon it lands left of (favorites not shown,
+                    // apps not installed, keep their places).
+                    let before = shown.get(dash_insert_index(&rects, x)).map(|(_, a)| format!("{a}.desktop"));
+                    let desktop = format!("{app}.desktop");
+                    let mut list = crate::favorites::favorites();
+                    let was = list.iter().position(|f| f.eq_ignore_ascii_case(&desktop));
+                    let id = was.map_or(desktop, |i| list.remove(i));
+                    if unpin {
+                        tracing::info!(app = id, "unpinned from the dash");
+                    } else {
+                        let index = before.and_then(|b| list.iter().position(|f| f.eq_ignore_ascii_case(&b))).unwrap_or(list.len());
+                        list.insert(index, id.clone());
+                        tracing::info!(app = id, index, "dash reordered");
+                    }
+                    if was.is_some() || !unpin {
+                        crate::favorites::set_favorites(&list);
+                    }
+                    self.draw_overview();
+                    return true;
+                }
+                if let Some((app, _, window)) = state.dash_press.take() {
+                    if state.dash.iter().any(|d| d.1 == app && d.0.contains(x, y)) {
+                        self.dash_activate(&app, window);
+                    }
+                    return true;
+                }
                 let press = state.press.take();
                 if let Some((id, _)) = state.drag.take() {
                     let target = state.workspaces.iter().find(|(r, _)| r.contains(x, y)).map(|(_, n)| *n);
@@ -587,6 +656,20 @@ impl Dispatch<HelixScreenshotFrameV1, ShotData> for Ui {
         if ui.switcher.as_ref().is_some_and(|s| s.state.switcher.entries.iter().any(|e| e.id == data.window)) {
             ui.draw_switcher();
         }
+    }
+}
+
+#[cfg(test)]
+mod dash_tests {
+    use super::*;
+
+    #[test]
+    fn dash_drop_index() {
+        let r = |x| Rect { x, y: 0, w: 48, h: 48 };
+        let rects = [r(0), r(58), r(116)];
+        assert_eq!(dash_insert_index(&rects, 10.0), 0);
+        assert_eq!(dash_insert_index(&rects, 30.0), 1);
+        assert_eq!(dash_insert_index(&rects, 500.0), 3);
     }
 }
 
