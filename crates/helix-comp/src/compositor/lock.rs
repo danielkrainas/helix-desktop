@@ -56,6 +56,7 @@ impl SessionLockHandler for Helix {
             tracing::info!("locking the session");
         }
         self.lock.locked = true;
+        self.close_popovers(None);
         self.lock.current = Some(lock);
         self.lock.surfaces.clear();
         self.lock.pending = Some(confirmation);

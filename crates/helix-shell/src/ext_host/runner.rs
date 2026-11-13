@@ -24,6 +24,9 @@ const IFACE_PANEL: &str = "org.helix.Extension1.PanelItem";
 const IFACE_TOGGLE: &str = "org.helix.Extension1.Toggle";
 const IFACE_SLIDER: &str = "org.helix.Extension1.Slider";
 const IFACE_MENU: &str = "org.helix.Extension1.Menu";
+const IFACE_DOCK: &str = "org.helix.Extension1.DockItem";
+const IFACE_COMMANDS: &str = "org.helix.Extension1.Commands";
+const COMMANDS_PATH: &str = "/org/helix/Extension/commands";
 /// Calls to items wait this long.
 const CALL_TIMEOUT: Duration = Duration::from_millis(250);
 /// From start to `Hello`.
@@ -98,6 +101,35 @@ pub struct PanelItemView {
     pub running: bool,
     /// A development extension's: shown without being in the layout.
     pub development: bool,
+    /// (1.1) A click toggles the extension's popover.
+    pub popover: bool,
+}
+
+/// (1.1) A dock item as the dock draws it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DockItemView {
+    pub full_id: String,
+    pub name: String,
+    pub dir: PathBuf,
+    pub icon: String,
+    pub icon_data: Vec<u8>,
+    pub label: String,
+    /// The running dot.
+    pub dot: bool,
+    pub count: i64,
+    pub progress: f64,
+    pub urgent: bool,
+    pub has_menu: bool,
+    pub accepts_drops: bool,
+    pub running: bool,
+}
+
+/// (1.1) A command, for keys and the run dialog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandView {
+    pub full_id: String,
+    pub title: String,
+    pub accelerator: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,6 +164,8 @@ pub struct Snapshot {
     pub panel: Vec<PanelItemView>,
     pub toggles: Vec<ToggleView>,
     pub sliders: Vec<SliderView>,
+    pub dock: Vec<DockItemView>,
+    pub commands: Vec<CommandView>,
 }
 
 /// A menu entry from `org.helix.Extension1.Menu`.
@@ -161,6 +195,8 @@ pub struct Info {
     /// The reason it is invalid or crashed, else its last log line.
     pub error: String,
     pub settings: Vec<(manifest::SettingDecl, SettingValue)>,
+    /// (1.1) Its commands: id, title, accelerator.
+    pub commands: Vec<(String, String, String)>,
 }
 
 /// What the user did to an item.
@@ -177,6 +213,13 @@ pub enum Action {
     SetValue(f64),
     /// Entry `id` of the menu at `menu` was chosen.
     MenuChosen { menu: String, id: i32 },
+    /// (1.1) A popover item's primary click: its popover at `x`, `y` on
+    /// monitor `output`.
+    Popover { x: i32, y: i32, output: String },
+    /// (1.1) A dock item: clicked; its menu at `x`; files dropped.
+    DockActivate,
+    DockMenu { x: i32, y: i32 },
+    DockDrop(Vec<String>),
 }
 
 /// A running process.
@@ -208,6 +251,8 @@ struct Ext {
     dev_stamp: Option<std::time::SystemTime>,
     /// A start is under way (its process not yet recorded).
     in_flight: bool,
+    /// (1.1) Commands to run once it has said hello.
+    pending: Vec<String>,
     /// The run whose crash was last counted (each counts once).
     counted: u64,
 }
@@ -225,6 +270,8 @@ struct Inner {
     center: Option<crate::notifications::Center>,
     quick_opened: bool,
     flush_pending: bool,
+    /// (1.1) Session bus names that have an owner (for `onDBusName`).
+    names: std::collections::HashSet<String>,
 }
 
 /// The extensions: shared by the shell's services and the UI bridge.
@@ -246,7 +293,7 @@ fn item_path(kind: &str, id: &str) -> String {
 
 impl ExtHost {
     pub fn new(ui: mpsc::UnboundedSender<UiEvent>) -> Self {
-        let inner = Inner { exts: BTreeMap::new(), keys: store::Keys::default(), session: None, center: None, quick_opened: false, flush_pending: false };
+        let inner = Inner { exts: BTreeMap::new(), keys: store::Keys::default(), session: None, center: None, quick_opened: false, flush_pending: false, names: Default::default() };
         Self { inner: Arc::new(Mutex::new(inner)), ui }
     }
 
@@ -263,6 +310,12 @@ impl ExtHost {
             inner.center = Some(center);
         }
         self.rescan();
+        // `onDBusName` (1.1): follow which names have owners.
+        let session = self.lock().session.clone();
+        if let Some(session) = session {
+            let host = self.clone();
+            tokio::spawn(async move { host.follow_names(session).await });
+        }
         let watched = helix_settings::GSettings::new(&[store::SCHEMA, crate::panel_layout::SCHEMA]);
         let (mut changes, _watch) = watched.watch();
         let mut tick = tokio::time::interval(Duration::from_secs(1));
@@ -275,6 +328,35 @@ impl ExtHost {
                     self.reconcile();
                 }
                 _ = tick.tick() => self.check_development(),
+            }
+        }
+    }
+
+    async fn follow_names(&self, session: Connection) {
+        let Ok(dbus) = zbus::fdo::DBusProxy::new(&session).await else { return };
+        let Ok(mut changes) = dbus.receive_name_owner_changed().await else { return };
+        if let Ok(names) = dbus.list_names().await {
+            self.lock().names = names.into_iter().map(|n| n.to_string()).filter(|n| !n.starts_with(':')).collect();
+        }
+        self.reconcile();
+        while let Some(change) = changes.next().await {
+            let Ok(args) = change.args() else { continue };
+            let name = args.name().to_string();
+            if name.starts_with(':') {
+                continue;
+            }
+            let appeared = args.new_owner().is_some();
+            let wanted = {
+                let mut inner = self.lock();
+                if appeared {
+                    inner.names.insert(name.clone());
+                } else {
+                    inner.names.remove(&name);
+                }
+                appeared && inner.exts.values().any(|e| e.manifest().is_some_and(|m| m.activation.contains(&Activation::OnDBusName(name.clone()))))
+            };
+            if wanted {
+                self.reconcile();
             }
         }
     }
@@ -293,7 +375,7 @@ impl ExtHost {
                     Some(_) => {}
                     None => {
                         let settings = f.manifest.as_ref().map(|m| store::read_settings(m, &store::settings_path(&m.id))).unwrap_or_default();
-                        inner.exts.insert(id.clone(), Ext { found: f, state: State::Stopped, log: Log::for_id(&id), run: None, generation: 0, crashes: Vec::new(), settings, props: HashMap::new(), dev_stamp: None, in_flight: false, counted: 0 });
+                        inner.exts.insert(id.clone(), Ext { found: f, state: State::Stopped, log: Log::for_id(&id), run: None, generation: 0, crashes: Vec::new(), settings, props: HashMap::new(), dev_stamp: None, in_flight: false, counted: 0, pending: Vec::new() });
                     }
                 }
             }
@@ -312,6 +394,7 @@ impl ExtHost {
             inner.keys = store::Keys::read();
             let keys = inner.keys.clone();
             let quick_opened = inner.quick_opened;
+            let names = inner.names.clone();
             for (id, ext) in inner.exts.iter_mut() {
                 let manifest = match &ext.found.manifest {
                     Ok(m) => m.clone(),
@@ -329,7 +412,8 @@ impl ExtHost {
                     let full = format!("{id}/{}", p.id);
                     layout.left.contains(&full) || layout.center.contains(&full) || layout.right.contains(&full)
                 }) || (quick_opened && manifest.toggles.iter().chain(&manifest.sliders).any(|q| layout.quick.contains(&format!("{id}/{}", q.id))));
-                let wanted = manifest.activation.contains(&Activation::OnStartup) || (manifest.activation.contains(&Activation::OnVisible) && (visible || ext.found.kind == Kind::Development));
+                let named = manifest.activation.iter().any(|a| matches!(a, Activation::OnDBusName(n) if names.contains(n)));
+                let wanted = manifest.activation.contains(&Activation::OnStartup) || named || !ext.pending.is_empty() || (manifest.activation.contains(&Activation::OnVisible) && (visible || ext.found.kind == Kind::Development));
                 let running = ext.run.is_some();
                 if !enabled {
                     if running {
@@ -365,6 +449,7 @@ impl ExtHost {
 
     /// Add `m`'s items to the layout the first time it is enabled.
     fn place(&self, m: &Manifest) {
+        self.place_commands(m);
         let placed = self.lock().keys.placed.clone();
         let (panel, quick, newly) = store::first_placement(m, &placed);
         if newly.is_empty() {
@@ -393,6 +478,105 @@ impl ExtHost {
         inner.keys.placed.extend(newly);
         inner.keys.write();
         tracing::info!(id = m.id, "extension's items placed");
+    }
+
+    /// (1.1) Give `m`'s commands their suggested keys, once, if free.
+    fn place_commands(&self, m: &Manifest) {
+        let fresh: Vec<&manifest::CommandDecl> = {
+            let inner = self.lock();
+            m.commands.iter().filter(|c| !inner.keys.placed.contains(&format!("{}/{}", m.id, c.id))).collect()
+        };
+        if fresh.is_empty() {
+            return;
+        }
+        let mut taken = crate::shell_keys::taken_accelerators();
+        taken.extend(self.lock().keys.command_keys.values().filter(|a| !a.is_empty()).cloned());
+        let mut refused = Vec::new();
+        {
+            let mut inner = self.lock();
+            for c in fresh {
+                let full = format!("{}/{}", m.id, c.id);
+                inner.keys.placed.push(full.clone());
+                if c.keybinding.is_empty() {
+                    continue;
+                }
+                let valid = crate::accel::Accelerator::parse(&c.keybinding).and_then(|a| a.to_wire()).is_some();
+                if valid && !taken.iter().any(|t| crate::shell_keys::same_keys(t, &c.keybinding)) {
+                    inner.keys.command_keys.insert(full, c.keybinding.clone());
+                    taken.push(c.keybinding.clone());
+                } else {
+                    refused.push(format!("{} ({})", c.title, c.keybinding));
+                }
+            }
+            inner.keys.write();
+        }
+        if !refused.is_empty() {
+            let center = self.lock().center.clone();
+            if let Some(center) = center {
+                center.notice("Extensions", &format!("{}: keys left unset", m.name), &format!("Already in use: {}. Set them in Extensions…", refused.join(", ")), "input-keyboard-symbolic", false);
+            }
+        }
+    }
+
+    /// Run command `full_id` (`<extension id>/<command id>`), starting its
+    /// extension when it is not running.
+    pub async fn run_command(&self, full_id: &str) -> Result<(), String> {
+        let (id, command) = full_id.split_once('/').ok_or("not a command")?;
+        if self.lock().center.as_ref().is_some_and(|c| c.locked()) {
+            return Err("the session is locked".into());
+        }
+        let (target, queue) = {
+            let mut inner = self.lock();
+            let keys = inner.keys.clone();
+            let ext = inner.exts.get_mut(id).ok_or_else(|| format!("no extension {id}"))?;
+            let m = ext.manifest().ok_or("the extension is invalid")?;
+            if !m.commands.iter().any(|c| c.id == command) {
+                return Err(format!("{id} has no command {command}"));
+            }
+            if ext.found.kind != Kind::Development && !(keys.is_enabled(&ext.found) && keys.is_approved(&ext.found)) {
+                return Err(format!("{id} is not turned on"));
+            }
+            match ext.run.as_ref().filter(|r| r.said_hello).and_then(|r| r.conn.clone()) {
+                Some(conn) => (Some((conn, ext.generation)), false),
+                None => {
+                    ext.pending.push(command.to_owned());
+                    (None, true)
+                }
+            }
+        };
+        if let Some((conn, generation)) = target {
+            return self.call(Target { conn: &conn, id, generation }, COMMANDS_PATH, IFACE_COMMANDS, "Run", &(command,)).await;
+        }
+        if queue {
+            self.reconcile();
+        }
+        Ok(())
+    }
+
+    /// Set command `full_id`'s key (`""`: none).
+    pub fn bind_command(&self, full_id: &str, accelerator: &str) -> Result<(), String> {
+        let (id, command) = full_id.split_once('/').ok_or("not a command")?;
+        let known = self.lock().exts.get(id).and_then(|e| e.manifest()).is_some_and(|m| m.commands.iter().any(|c| c.id == command));
+        if !known {
+            return Err(format!("no command {full_id}"));
+        }
+        if !accelerator.is_empty() {
+            if crate::accel::Accelerator::parse(accelerator).and_then(|a| a.to_wire()).is_none() {
+                return Err(format!("{accelerator:?} is not a key combination"));
+            }
+            let mut taken = crate::shell_keys::taken_accelerators();
+            taken.extend(self.lock().keys.command_keys.iter().filter(|(c, a)| *c != full_id && !a.is_empty()).map(|(_, a)| a.clone()));
+            if taken.iter().any(|t| crate::shell_keys::same_keys(t, accelerator)) {
+                return Err(format!("{accelerator} is already in use"));
+            }
+        }
+        let mut keys = store::Keys::read();
+        keys.command_keys.insert(full_id.to_owned(), accelerator.to_owned());
+        keys.write();
+        self.lock().keys = keys;
+        self.publish();
+        self.publish_list();
+        Ok(())
     }
 
     /// Start extension `id`'s process.
@@ -552,7 +736,7 @@ impl ExtHost {
         {
             let mut inner = self.lock();
             let run = Run { pid: 0, conn: None, said_hello: false, granted: Vec::new(), inhibitors: HashMap::new(), next_handle: 1, stopping: false, timeouts: 0 };
-            inner.exts.insert(id.clone(), Ext { found, state: State::Starting, log: Log::default(), run: Some(run), generation, crashes: Vec::new(), settings, props: HashMap::new(), dev_stamp: None, in_flight: false, counted: 0 });
+            inner.exts.insert(id.clone(), Ext { found, state: State::Starting, log: Log::default(), run: Some(run), generation, crashes: Vec::new(), settings, props: HashMap::new(), dev_stamp: None, in_flight: false, counted: 0, pending: Vec::new() });
         }
         stream.set_nonblocking(true)?;
         let stream = tokio::net::UnixStream::from_std(stream)?;
@@ -721,6 +905,7 @@ impl ExtHost {
 
     /// `Hello` came: follow its items.
     fn said_hello(&self, id: &str, generation: u64) -> Option<Vec<String>> {
+        let id_owned = id.to_owned();
         let (granted, conn, paths) = {
             let mut inner = self.lock();
             let keys = inner.keys.clone();
@@ -741,13 +926,25 @@ impl ExtHost {
                 .map(|p| (item_path("panel_item", &p.id), IFACE_PANEL))
                 .chain(m.toggles.iter().map(|t| (item_path("toggle", &t.id), IFACE_TOGGLE)))
                 .chain(m.sliders.iter().map(|s| (item_path("slider", &s.id), IFACE_SLIDER)))
+                .chain(m.dock_items.iter().map(|d| (item_path("dock_item", &d.id), IFACE_DOCK)))
                 .collect();
             (granted, run.conn.clone(), paths)
         };
         if let Some(conn) = conn {
             let host = self.clone();
             let id = id.to_owned();
-            tokio::spawn(async move { host.follow(conn, id, generation, paths).await });
+            let follow_conn = conn.clone();
+            tokio::spawn(async move { host.follow(follow_conn, id, generation, paths).await });
+            // Commands that started it.
+            let pending = self.lock().exts.get_mut(&id_owned).map(|e| std::mem::take(&mut e.pending)).unwrap_or_default();
+            for command in pending {
+                let host = self.clone();
+                let conn = conn.clone();
+                let id = id_owned.clone();
+                tokio::spawn(async move {
+                    let _ = host.call(Target { conn: &conn, id: &id, generation }, COMMANDS_PATH, IFACE_COMMANDS, "Run", &(command.as_str(),)).await;
+                });
+            }
         }
         self.publish_list();
         Some(granted)
@@ -873,6 +1070,9 @@ impl ExtHost {
                     permissions: m.map(|m| m.permissions.clone()).unwrap_or_default(),
                     error,
                     settings: m.map(|m| m.settings.iter().map(|d| (d.clone(), e.settings.get(&d.key).cloned().unwrap_or_else(|| d.default.clone()))).collect()).unwrap_or_default(),
+                    commands: m
+                        .map(|m| m.commands.iter().map(|c| (c.id.clone(), c.title.clone(), inner.keys.command_keys.get(&format!("{}/{}", m.id, c.id)).cloned().unwrap_or_default())).collect())
+                        .unwrap_or_default(),
                 }
             })
             .collect();
@@ -975,7 +1175,7 @@ impl ExtHost {
         {
             let mut inner = self.lock();
             let generation = inner.exts.get(&id).map_or(0, |e| e.generation);
-            inner.exts.insert(id.clone(), Ext { found, state: State::Stopped, log: Log::for_id(&id), run: None, generation, crashes: Vec::new(), settings, props: HashMap::new(), dev_stamp: stamp, in_flight: false, counted: 0 });
+            inner.exts.insert(id.clone(), Ext { found, state: State::Stopped, log: Log::for_id(&id), run: None, generation, crashes: Vec::new(), settings, props: HashMap::new(), dev_stamp: stamp, in_flight: false, counted: 0, pending: Vec::new() });
         }
         // Stop it when its owner leaves the bus.
         let session = self.lock().session.clone();
@@ -1056,6 +1256,7 @@ impl ExtHost {
             let menu = |kind: &str, prop: &str| ext.props.get(&item_path(kind, item)).and_then(|p| p.get(prop)).and_then(|v| OwnedObjectPath::try_from(v.clone()).ok()).filter(|p| p.as_str() != "/");
             let has_menu = match action {
                 Action::Details { .. } => menu("toggle", "Details"),
+                Action::DockMenu { .. } => menu("dock_item", "Menu"),
                 _ => menu("panel_item", "Menu"),
             };
             (conn, ext.generation, has_menu)
@@ -1086,9 +1287,13 @@ impl ExtHost {
             Action::Details { .. } => Err("menu".into()),
             Action::SetValue(v) => self.call(Target { conn: &conn, id, generation }, &item_path("slider", item), IFACE_SLIDER, "SetValue", &(v.clamp(0.0, 1.0),)).await,
             Action::MenuChosen { menu, id: entry } => self.call(Target { conn: &conn, id, generation }, menu, IFACE_MENU, "Activated", &(*entry,)).await,
+            Action::Popover { x, y, output } => self.call(Target { conn: &conn, id, generation }, &panel, IFACE_PANEL, "TogglePopover", &(*x, *y, output.as_str())).await,
+            Action::DockActivate => self.call(Target { conn: &conn, id, generation }, &item_path("dock_item", item), IFACE_DOCK, "Activate", &()).await,
+            Action::DockMenu { .. } => Err("menu".into()),
+            Action::DockDrop(uris) => self.call(Target { conn: &conn, id, generation }, &item_path("dock_item", item), IFACE_DOCK, "Drop", &(uris,)).await,
         };
         let x = match action {
-            Action::Primary { x, .. } | Action::Secondary { x, .. } | Action::Details { x } => Some(x),
+            Action::Primary { x, .. } | Action::Secondary { x, .. } | Action::Details { x } | Action::DockMenu { x, .. } => Some(x),
             _ => None,
         };
         // A failed primary click, a secondary click, or a toggle's "›":
@@ -1241,7 +1446,32 @@ fn snapshot(inner: &Inner) -> Snapshot {
                 has_menu: has_path(&p, "Menu"),
                 running,
                 development,
+                popover: decl.popover,
             });
+        }
+        for decl in &m.dock_items {
+            let p = props("dock_item", &decl.id);
+            let progress = f(&p, "Progress", -1.0);
+            snap.dock.push(DockItemView {
+                full_id: format!("{id}/{}", decl.id),
+                name: decl.name.clone(),
+                dir: dir.clone(),
+                icon: s(&p, "Icon", &decl.icon),
+                icon_data: p.get("IconData").and_then(|v| <Vec<u8>>::try_from(v.clone()).ok()).unwrap_or_default(),
+                label: cut(&s(&p, "Label", ""), LABEL_MAX),
+                dot: b(&p, "Running", false),
+                count: p.get("Count").and_then(|v| i64::try_from(v.clone()).ok()).unwrap_or(0).max(0),
+                progress: if progress < 0.0 { -1.0 } else { progress.min(1.0) },
+                urgent: b(&p, "Urgent", false),
+                has_menu: has_path(&p, "Menu"),
+                accepts_drops: decl.accepts_drops,
+                running,
+            });
+        }
+        for c in &m.commands {
+            let full_id = format!("{id}/{}", c.id);
+            let accelerator = inner.keys.command_keys.get(&full_id).cloned().unwrap_or_default();
+            snap.commands.push(CommandView { full_id, title: c.title.clone(), accelerator });
         }
         for decl in &m.toggles {
             let p = props("toggle", &decl.id);

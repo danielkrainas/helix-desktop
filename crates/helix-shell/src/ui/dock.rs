@@ -361,7 +361,7 @@ impl Ui {
         use gio::prelude::*;
         let installed: Vec<String> = gio::AppInfo::all().into_iter().filter(|a| a.should_show()).filter_map(|a| a.id().map(|i| i.to_string())).collect();
         let running: Vec<String> = self.dock_running().into_iter().map(|a| desktop_id(&a).map_or(a, |d| d.trim_end_matches(".desktop").to_owned())).collect();
-        let items = logic::items(&s, &crate::favorites::favorites(), &installed, &running, self.dock.mounts.len());
+        let items = logic::items(&s, &crate::favorites::favorites(), &installed, &running, self.dock.mounts.len(), if self.lock.session.is_some() { 0 } else { self.ext.dock.len() });
         let room = logic::room(&s, if s.edge.vertical() { area.3 } else { area.2 }, PANEL_HEIGHT as i32);
         let icon = logic::fit_icon_size(s.icon_size, s.icon_size_fixed, items.len(), room);
         let thickness = icon + icon / 3 + 8;
@@ -621,12 +621,27 @@ impl Ui {
         match item {
             Item::App { id, .. } => crate::windows::app_names().get(&id.to_lowercase()).cloned().unwrap_or_else(|| id.clone()),
             Item::Mount(i) => self.dock.mounts.get(*i).map_or_else(String::new, |m| m.name.clone()),
+            Item::Ext(i) => self.ext.dock.get(*i).map_or_else(String::new, |d| if d.label.is_empty() { d.name.clone() } else { d.label.clone() }),
             Item::Trash => "Trash".into(),
             Item::ShowApps => "Show Apps".into(),
         }
     }
 
     fn dock_icon(&mut self, item: &Item, px: u32) -> Option<helix_draw::Image> {
+        if let Item::Ext(i) = item {
+            let d = self.ext.dock.get(*i)?.clone();
+            let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];
+            let image = if d.icon_data.is_empty() { super::ext_items::ext_named_icon(&mut self.icon_cache, &d.icon, &d.dir, px, rgb) } else { crate::icons::decode(&d.icon_data, px) };
+            // Dimmed while its extension is not running.
+            return image.map(|mut im| {
+                if !d.running {
+                    for p in im.rgba.as_chunks_mut::<4>().0 {
+                        p[3] /= 2;
+                    }
+                }
+                im
+            });
+        }
         let (key, source) = match item {
             Item::App { id, .. } => (format!("app:{id}@{px}"), None),
             Item::Mount(i) => {
@@ -637,7 +652,7 @@ impl Ui {
                 let name = if self.dock.trash_full { "user-trash-full" } else { "user-trash" };
                 (format!("named:{name}@{px}"), Some(crate::icons::IconSource::Names(vec![name.into()])))
             }
-            Item::ShowApps => return None,
+            Item::ShowApps | Item::Ext(_) => return None,
         };
         let id = match item {
             Item::App { id, .. } => Some(id.clone()),
@@ -704,6 +719,7 @@ impl Ui {
                     (self.app_windows(id).len().min(4), own.unwrap_or_else(|| if s.counters { self.dock_badge(id) } else { 0 }))
                 }
                 Item::Mount(_) | Item::Trash => (self.location_windows(i).len().min(4), 0),
+                Item::Ext(e) => self.ext.dock.get(*e).map_or((0, 0), |d| (usize::from(d.dot), d.count as usize)),
                 _ => (0, 0),
             })
             .collect();
@@ -711,10 +727,21 @@ impl Ui {
             .iter()
             .map(|i| match i {
                 Item::App { id, .. } => self.dock_entry(id).cloned(),
+                // An extension's item: its progress and urgency as an
+                // app's launcher entry shows them.
+                Item::Ext(e) => self.ext.dock.get(*e).map(|d| crate::launcher_entry::Entry {
+                    count: d.count,
+                    count_visible: d.count > 0,
+                    progress: d.progress.max(0.0),
+                    progress_visible: d.progress >= 0.0,
+                    urgent: d.urgent,
+                    quicklist: None,
+                    quick_items: Vec::new(),
+                }),
                 _ => None,
             })
             .collect();
-        let urgent: Vec<bool> = items.iter().map(|i| matches!(i, Item::App { id, .. } if self.app_urgent(id))).collect();
+        let urgent: Vec<bool> = items.iter().map(|i| matches!(i, Item::App { id, .. } if self.app_urgent(id)) || matches!(i, Item::Ext(e) if self.ext.dock.get(*e).is_some_and(|d| d.urgent))).collect();
         // Urgent apps' wiggles.
         let wiggles: Vec<i32> = items
             .iter()
@@ -943,6 +970,13 @@ impl Ui {
     }
 
     /// Pointer input on the dock or its edge strip; true if it was for them.
+    /// The dock item under `x`, `y` on `surface` (a dock's surface).
+    pub(super) fn dock_item_at(&self, surface: &wl_surface::WlSurface, x: f64, y: f64) -> Option<Item> {
+        let view = self.dock.views.iter().find(|v| v.layer.as_ref().is_some_and(|l| l.wl_surface() == surface))?;
+        let index = view.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, i)| *i)?;
+        view.items.get(index).cloned()
+    }
+
     pub(super) fn dock_pointer(&mut self, event: &PointerEvent) -> bool {
         let Some(i) = self.dock.views.iter().position(|v| v.layer.as_ref().is_some_and(|l| l.wl_surface() == &event.surface) || v.trigger.as_ref().is_some_and(|t| t.wl_surface() == &event.surface)) else { return false };
         self.dock.cur = i;
@@ -1091,6 +1125,11 @@ impl Ui {
                     crate::media::request(m.root.clone(), crate::media::Request::Open);
                 }
             }
+            Item::Ext(i) => {
+                if let Some(d) = self.ext.dock.get(i) {
+                    let _ = self.requests.send(UiRequest::ExtAction(d.full_id.clone(), crate::ext_host::Action::DockActivate));
+                }
+            }
             Item::App { id, .. } => self.app_click(&id, action),
         }
     }
@@ -1235,7 +1274,7 @@ impl Ui {
         items
     }
 
-    fn open_dock_menu(&mut self, x: i32, y: i32, items: Vec<Option<window_menu::Item>>) {
+    pub(super) fn open_dock_menu(&mut self, x: i32, y: i32, items: Vec<Option<window_menu::Item>>) {
         if items.is_empty() {
             return;
         }
@@ -1305,6 +1344,14 @@ impl Ui {
                     let eject = if m.ejectable { "Eject" } else { "Unmount" };
                     items.push(self.dock_menu_item(eject.into(), DockTarget::EjectMount(m.root)));
                 }
+            }
+            Item::Ext(i) => {
+                // Its menu comes from the extension (`show_ext_menu`).
+                if let Some(d) = self.ext.dock.get(i).filter(|d| d.has_menu) {
+                    self.ext_dock_menu_at = Some((lx, ly));
+                    let _ = self.requests.send(UiRequest::ExtAction(d.full_id.clone(), crate::ext_host::Action::DockMenu { x: lx, y: ly }));
+                }
+                return;
             }
             Item::Trash => {
                 items.push(self.dock_menu_item("Open".into(), DockTarget::OpenTrash));
@@ -1410,7 +1457,7 @@ impl Ui {
         let installed: Vec<String> = gio::AppInfo::all().into_iter().filter(|a| a.should_show()).filter_map(|a| a.id().map(|i| i.to_string())).collect();
         let settings = DockSettings { show_mounts: false, show_trash: false, show_apps_button: false, ..self.dock.settings.clone() };
         let running = self.dock_running();
-        logic::items(&settings, &crate::favorites::favorites(), &installed, &running, 0)
+        logic::items(&settings, &crate::favorites::favorites(), &installed, &running, 0, 0)
             .into_iter()
             .filter_map(|i| match i {
                 Item::App { id, .. } => Some(id),
@@ -1532,7 +1579,7 @@ fn separated(a: &Item, b: &Item) -> bool {
         Item::ShowApps => 0,
         Item::App { favorite: true, .. } => 1,
         Item::App { favorite: false, .. } => 2,
-        Item::Mount(_) | Item::Trash => 3,
+        Item::Mount(_) | Item::Ext(_) | Item::Trash => 3,
     };
     group(a) != group(b)
 }

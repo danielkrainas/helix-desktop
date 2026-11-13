@@ -333,6 +333,8 @@ impl Helix {
         }
         if state == ButtonState::Pressed && !pointer.is_grabbed() && !self.lock.locked {
             let pos = pointer.current_location();
+            // Extensions' popovers close on a click outside them.
+            self.popover_press(pos);
             if let Some((window, part)) = self.frame_under(pos) {
                 if self.frame_press(window, part, button, time, pos) {
                     return;

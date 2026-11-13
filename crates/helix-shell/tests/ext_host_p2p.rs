@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use helix_extension::{Event, Extension, MenuEntry, PanelItemState, SliderState, ToggleState};
+use helix_extension::{DockItemState, Event, Extension, MenuEntry, PanelItemState, SliderState, ToggleState};
 use helix_shell::ext_host::store::{Found, Kind};
 use helix_shell::ext_host::{manifest, Action, ExtHost};
 use helix_shell::UiEvent;
@@ -14,7 +14,7 @@ const MANIFEST: &str = r#"
 id = "org.example.Test"
 name = "Test"
 version = "1"
-api = "1.0"
+api = "1.1"
 exec = ["x"]
 permissions = ["launch-apps"]
 [[contributes.panel-item]]
@@ -27,6 +27,13 @@ title = "Toggle"
 [[contributes.quick-slider]]
 id = "level"
 title = "Level"
+[[contributes.dock-item]]
+id = "shelf-item"
+name = "Shelf"
+accepts-drops = true
+[[contributes.command]]
+id = "count"
+title = "Count Up"
 [settings]
 step = { type = "int", default = 2, min = 1, max = 9, label = "Step" }
 "#;
@@ -69,6 +76,7 @@ async fn host_and_sdk() {
     let item = ext.panel_item("count", PanelItemState { label: "0".into(), menu: Some("m".into()), ..Default::default() }).await.unwrap();
     let toggle = ext.toggle("toggle", ToggleState { title: "Toggle".into(), ..Default::default() }).await.unwrap();
     let _slider = ext.slider("level", SliderState::default()).await.unwrap();
+    let dock = ext.dock_item("shelf-item", DockItemState { count: 3, ..Default::default() }).await.unwrap();
     let granted = ext.start().await.unwrap();
     assert_eq!(granted.permissions, ["launch-apps"]);
     let _ = menu;
@@ -127,6 +135,21 @@ async fn host_and_sdk() {
         Some(Event::SettingChanged { key, value }) => assert_eq!((key.as_str(), i64::try_from(value)), ("step", Ok(4))),
         other => panic!("{other:?}"),
     }
+    // 1.1: dock items (ids with "-" in their paths), drops and commands.
+    let snap = next(&mut rx, |e| match e {
+        UiEvent::Extensions(s) if s.dock.first().is_some_and(|d| d.count == 3) => Some(s),
+        _ => None,
+    })
+    .await;
+    assert_eq!((snap.dock[0].full_id.as_str(), snap.dock[0].accepts_drops), ("org.example.Test/shelf-item", true));
+    assert_eq!(snap.commands[0].title, "Count Up");
+    host.act("org.example.Test/shelf-item", Action::DockDrop(vec!["file:///a".into()])).await;
+    assert_eq!(ext.next_event().await, Some(Event::Drop { item: "shelf-item".into(), uris: vec!["file:///a".into()] }));
+    host.run_command("org.example.Test/count").await.unwrap();
+    assert_eq!(ext.next_event().await, Some(Event::Command { id: "count".into() }));
+    assert!(host.run_command("org.example.Test/nope").await.is_err());
+    dock.update(|s| s.urgent = true).await.unwrap();
+
     // Both sides match their contracts.
     async fn introspect(conn: &zbus::Connection, path: &str) -> String {
         let reply = conn.call_method(None::<&str>, path, Some("org.freedesktop.DBus.Introspectable"), "Introspect", &()).await.unwrap();
@@ -142,6 +165,8 @@ async fn host_and_sdk() {
         ("/org/helix/Extension/toggle/toggle", "org.helix.Extension1.Toggle", "Toggle"),
         ("/org/helix/Extension/slider/level", "org.helix.Extension1.Slider", "Slider"),
         ("/org/helix/Extension/menu/m", "org.helix.Extension1.Menu", "Menu"),
+        ("/org/helix/Extension/dock_item/shelf_item", "org.helix.Extension1.DockItem", "DockItem"),
+        ("/org/helix/Extension/commands", "org.helix.Extension1.Commands", "Commands"),
     ] {
         let xml = introspect(&shell, path).await;
         assert_conformant(iface, &check(iface, &load_dbus_contract(&format!("../extensions/org.helix.Extension1.{file}.xml")), &xml, &[]));

@@ -24,7 +24,12 @@ async fn main() -> zbus::Result<()> {
             e = ext.next_event() => match e { Some(e) => e, None => break },
             _ = wait => Event::SetActive { toggle: "toggle".into(), active: false },
         };
-        let Event::SetActive { active, .. } = event else { continue };
+        // The toggle, or its command (1.1): flip it.
+        let active = match event {
+            Event::SetActive { active, .. } => active,
+            Event::Command { id } if id == "toggle" => handle.is_none(),
+            _ => continue,
+        };
         if active && handle.is_none() {
             handle = Some(ext.inhibit_idle("Caffeine is on").await?);
             let minutes = i64::try_from(ext.setting("minutes").await?).unwrap_or(0);

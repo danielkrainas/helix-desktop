@@ -138,8 +138,31 @@ pub fn complete(text: &str, commands: &[String]) -> String {
     out
 }
 
+/// Tab completion of extension command titles (any case, spaces
+/// allowed): the longest prefix the matching titles share, or `None`
+/// when no title starts with `text`.
+pub fn complete_title(text: &str, titles: &[String]) -> Option<String> {
+    if text.is_empty() {
+        return None;
+    }
+    let lower = text.to_lowercase();
+    let matching: Vec<&String> = titles.iter().filter(|t| t.to_lowercase().starts_with(&lower)).collect();
+    let first = matching.first()?;
+    let mut len = first.chars().count();
+    for m in &matching[1..] {
+        len = len.min(first.chars().zip(m.chars()).take_while(|(a, b)| a.to_lowercase().eq(b.to_lowercase())).count());
+    }
+    Some(first.chars().take(len).collect())
+}
+
+/// The extension command whose title `text` is (any case).
+pub fn command_for(text: &str, commands: &[(String, String)]) -> Option<String> {
+    let text = text.trim().to_lowercase();
+    commands.iter().find(|(_, title)| title.to_lowercase() == text).map(|(id, _)| id.clone())
+}
+
 /// Shows the dialog until a command runs or it is cancelled.
-pub async fn run(ui: mpsc::UnboundedSender<UiEvent>) {
+pub async fn run(ui: mpsc::UnboundedSender<UiEvent>, extensions: crate::ext_host::ExtHost) {
     if crate::locked_down("disable-command-line") {
         tracing::info!("the run dialog is locked down");
         return;
@@ -159,7 +182,13 @@ pub async fn run(ui: mpsc::UnboundedSender<UiEvent>) {
             ..Default::default()
         };
         let Answer::Continue { entry: Some(typed), .. } = prompt::ask(&ui, p).await else { break };
-        match execute(&typed) {
+        // An extension command, by its title.
+        let commands: Vec<(String, String)> = extensions.list().into_iter().filter(|i| i.enabled || i.kind == crate::ext_host::store::Kind::Development).flat_map(|i| i.commands.into_iter().map(move |(c, title, _)| (format!("{}/{c}", i.id), title))).collect();
+        let result = match command_for(&typed, &commands) {
+            Some(command) => extensions.run_command(&command).await,
+            None => execute(&typed),
+        };
+        match result {
             Ok(()) => {
                 let typed = typed.trim();
                 if !typed.is_empty() {
@@ -180,6 +209,17 @@ pub async fn run(ui: mpsc::UnboundedSender<UiEvent>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extension_commands() {
+        let titles = vec!["Toggle Caffeine".to_owned(), "Toggle Counter".to_owned()];
+        assert_eq!(complete_title("tog", &titles).as_deref(), Some("Toggle C"));
+        assert_eq!(complete_title("toggle ca", &titles).as_deref(), Some("Toggle Caffeine"));
+        assert_eq!(complete_title("gedit", &titles), None);
+        let commands = vec![("org.x.C/toggle".to_owned(), "Toggle Caffeine".to_owned())];
+        assert_eq!(command_for("  toggle CAFFEINE ", &commands).as_deref(), Some("org.x.C/toggle"));
+        assert_eq!(command_for("toggle", &commands), None);
+    }
 
     #[test]
     fn plans() {

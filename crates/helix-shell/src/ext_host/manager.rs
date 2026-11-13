@@ -42,6 +42,7 @@ impl Manager {
                     ("state".to_owned(), value(i.state.name())),
                     ("error".to_owned(), value(i.error)),
                     ("permissions".to_owned(), value(i.permissions)),
+                    ("commands".to_owned(), value(i.commands)),
                 ]);
                 (i.id, entry)
             })
@@ -82,6 +83,14 @@ impl Manager {
 
     fn stop_development(&self, id: String) -> zbus::fdo::Result<()> {
         self.host.stop_development(&id).map_err(zbus::fdo::Error::InvalidArgs)
+    }
+
+    async fn run_command(&self, command: String) -> zbus::fdo::Result<()> {
+        self.host.run_command(&command).await.map_err(failed)
+    }
+
+    fn bind_command(&self, command: String, accelerator: String) -> zbus::fdo::Result<()> {
+        self.host.bind_command(&command, &accelerator).map_err(zbus::fdo::Error::InvalidArgs)
     }
 
     #[zbus(signal)]

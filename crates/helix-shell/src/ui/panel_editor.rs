@@ -66,7 +66,11 @@ impl Ui {
         self.close_launcher(true);
         self.power_menu = None;
         self.leave_panel();
-        self.panel_editor = Some(self.new_overlay("helix-panel-editor", KeyboardInteractivity::Exclusive, EditorState::default()));
+        let overlay = self.new_overlay("helix-panel-editor", KeyboardInteractivity::Exclusive, EditorState::default());
+        // The panel stays uncovered: its items can be dragged.
+        overlay.layer.set_margin(PANEL_HEIGHT as i32, 0, 0, 0);
+        overlay.layer.commit();
+        self.panel_editor = Some(overlay);
     }
 
     pub(super) fn draw_panel_editor(&mut self) {
@@ -105,7 +109,7 @@ impl Ui {
         // The top stays put while rows come and go (it grows downward), so
         // buttons do not move under the pointer.
         let typical = 56 + 30 + layout::Item::ALL.len() as i32 * ROW_H + 16 + BOTTOM_H + PAD;
-        let (bx, by) = ((w as i32 - bw) / 2, ((h as i32 - typical) / 2).max(PANEL_HEIGHT as i32 + 8).min((h as i32 - bh).max(PANEL_HEIGHT as i32 + 8)));
+        let (bx, by) = ((w as i32 - bw) / 2, ((h as i32 - typical) / 2).max(8).min((h as i32 - bh).max(8)));
         canvas.rect(bx, by, bw, bh, BANNER_BG);
         for (rx, ry, rw, rh) in [(bx, by, bw, 1), (bx, by + bh - 1, bw, 1), (bx, by, 1, bh), (bx + bw - 1, by, 1, bh)] {
             canvas.rect(rx, ry, rw, rh, BANNER_BORDER);
@@ -235,6 +239,12 @@ impl Ui {
     pub(super) fn panel_editor_key(&mut self, event: &KeyEvent) {
         let Some(editor) = self.panel_editor.as_mut() else { return };
         let count = editor.hits.len().max(1);
+        // Escape first cancels a drag.
+        if event.keysym == Keysym::Escape && self.panel_drag.take().is_some() {
+            self.draw_panel();
+            return;
+        }
+        let Some(editor) = self.panel_editor.as_mut() else { return };
         match event.keysym {
             Keysym::Escape => self.panel_editor = None,
             Keysym::Tab | Keysym::Right | Keysym::Down => {
@@ -272,5 +282,119 @@ impl Ui {
         let items = vec![item("Customize Panel…", super::window_menu::Choice::CustomizePanel), item("Extensions…", super::window_menu::Choice::Extensions)];
         self.open_menu(0, event.position.0 as i32, PANEL_HEIGHT as i32, items, Vec::new());
         true
+    }
+}
+
+/// Dragging a panel item while the editor is open.
+#[derive(Debug, Clone, Default)]
+pub(super) struct PanelDrag {
+    /// The item's id and where the press was.
+    pub id: String,
+    pub start_x: f64,
+    pub start_y: f64,
+    /// Picked up (moved far enough).
+    pub moving: bool,
+    /// Where it would go: zone, before which id, and the line's x;
+    /// `None` while off the panel or over a zone it may not go to.
+    pub target: Option<(usize, Option<String>, i32)>,
+    pub off_panel: bool,
+}
+
+impl Ui {
+    /// The id of what is drawn at slot `slot`.
+    fn slot_id(&self, slot: crate::panel_layout::Slot) -> Option<String> {
+        use crate::panel_layout::Slot;
+        match slot {
+            Slot::Item(item) => Some(item.id().to_owned()),
+            Slot::Ext(i) => self.ext.panel.get(i).map(|p| p.full_id.clone()),
+            Slot::Privacy => None,
+        }
+    }
+
+    /// Where a drop at panel `x` would put item `id`.
+    fn drag_target(&self, id: &str, x: f64) -> Option<(usize, Option<String>, i32)> {
+        use crate::panel_layout::Slot;
+        let width = f64::from(self.panel_width);
+        let zone = if x < width / 3.0 {
+            0
+        } else if x < width * 2.0 / 3.0 {
+            1
+        } else {
+            2
+        };
+        // An extension's item only where it may go.
+        if let Some(p) = self.ext.panel.iter().find(|p| p.full_id == id) {
+            if !p.zones.iter().any(|z| z.index() == zone) {
+                return None;
+            }
+        }
+        let in_zone: &[Slot] = match zone {
+            0 => &self.panel_layout.left,
+            1 => &self.panel_layout.center,
+            _ => &self.panel_layout.right,
+        };
+        let placed: Vec<(String, i32, i32)> = self.panel_placed.iter().filter(|(s, _, _)| in_zone.contains(s)).filter_map(|&(s, px, pw)| Some((self.slot_id(s)?, px, pw))).filter(|(i, _, _)| i != id).collect();
+        match placed.iter().find(|(_, px, pw)| x < f64::from(px + pw / 2)) {
+            Some((before, px, _)) => Some((zone, Some(before.clone()), px - 2)),
+            None => {
+                let end = placed.last().map_or(match zone {
+                    0 => 2,
+                    1 => self.panel_width as i32 / 2,
+                    _ => self.panel_width as i32 - 2,
+                }, |(_, px, pw)| px + pw + 2);
+                Some((zone, None, end))
+            }
+        }
+    }
+
+    /// Pointer input on the panel while the editor is open; true if it was
+    /// a drag's.
+    pub(super) fn panel_drag_pointer(&mut self, event: &PointerEvent) -> bool {
+        if self.panel_editor.is_none() || &event.surface != self.panel.wl_surface() {
+            return false;
+        }
+        let (x, y) = event.position;
+        match event.kind {
+            PointerEventKind::Press { button: 0x110, .. } => {
+                let under = self.panel_placed.iter().copied().find(|&(_, px, pw)| x >= f64::from(px) && x < f64::from(px + pw));
+                if let Some(id) = under.and_then(|(slot, _, _)| self.slot_id(slot)) {
+                    self.panel_drag = Some(PanelDrag { id, start_x: x, start_y: y, ..Default::default() });
+                }
+                true
+            }
+            PointerEventKind::Motion { .. } => {
+                let target = match &self.panel_drag {
+                    Some(drag) => {
+                        let moving = drag.moving || (x - drag.start_x).hypot(y - drag.start_y) >= 8.0;
+                        let off = y > f64::from(PANEL_HEIGHT);
+                        (moving, off, if off { None } else { self.drag_target(&drag.id.clone(), x) })
+                    }
+                    None => return false,
+                };
+                if let Some(drag) = self.panel_drag.as_mut() {
+                    (drag.moving, drag.off_panel, drag.target) = target;
+                }
+                self.draw_panel();
+                true
+            }
+            PointerEventKind::Release { button: 0x110, .. } => {
+                let Some(drag) = self.panel_drag.take() else { return false };
+                if drag.moving {
+                    let to = if drag.off_panel { None } else { drag.target.as_ref().map(|(z, before, _)| (*z, before.as_deref())) };
+                    // Over a zone it may not go to: nothing changes.
+                    if drag.off_panel || to.is_some() {
+                        let changed = crate::panel_layout::drag(&self.panel_keys, &drag.id, to);
+                        if changed != self.panel_keys {
+                            tracing::info!(id = drag.id, "panel item dragged");
+                            crate::panel_layout::write(&changed);
+                            self.panel_layout_changed(changed);
+                        }
+                    }
+                }
+                self.draw_panel();
+                true
+            }
+            _ => self.panel_drag.is_some(),
+        }
     }
 }

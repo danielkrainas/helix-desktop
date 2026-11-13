@@ -19,6 +19,8 @@ const USAGE: &str = "usage: helix-extensions COMMAND
   restart ID              start it again
   logs ID                 its recent log
   set ID KEY VALUE        change a setting
+  command EXT/CMD         run a command
+  bind EXT/CMD KEYS|none  set or clear a command's key, e.g. <Super><Shift>c
   install PATH            install a directory or a .tar(.gz/.xz) archive
   remove ID               remove a per-user extension
   run PATH                run a directory as a development extension";
@@ -103,6 +105,11 @@ fn print_entry(id: &str, e: &HashMap<String, OwnedValue>, full: bool) {
         if !permissions.is_empty() {
             let can: Vec<&str> = permissions.iter().map(|p| helix_shell::ext_host::manifest::permission_text(p)).collect();
             println!("  can: {}{}", can.join(", "), if flag(e, "approved") { "" } else { " (not approved)" });
+        }
+        if let Some(commands) = e.get("commands").and_then(|v| <Vec<(String, String, String)>>::try_from(v.clone()).ok()) {
+            for (id, title, keys) in commands {
+                println!("  command {id}: {title} [{}]", if keys.is_empty() { "no key" } else { keys.as_str() });
+            }
         }
         let error = text(e, "error");
         if !error.is_empty() {
@@ -218,6 +225,12 @@ async fn run(args: &[String]) -> Result<(), String> {
             let decl = m.settings.iter().find(|d| d.key == key).ok_or_else(|| format!("{id} has no setting {key}"))?;
             let parsed = decl.from_text(&value)?;
             call::<_, ()>(&shell().await?, "SetSetting", &(id.as_str(), key.as_str(), zbus::zvariant::Value::from(parsed.to_value()))).await?;
+        }
+        Some("command") => call::<_, ()>(&shell().await?, "RunCommand", &(arg(1)?,)).await?,
+        Some("bind") => {
+            let (command, keys) = (arg(1)?, arg(2)?);
+            let keys = if keys == "none" { String::new() } else { keys };
+            call::<_, ()>(&shell().await?, "BindCommand", &(command.as_str(), keys.as_str())).await?;
         }
         Some("install") => {
             let id = install(Path::new(&arg(1)?))?;

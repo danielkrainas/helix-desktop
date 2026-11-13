@@ -2,7 +2,7 @@ id = "org.helix.example.Caffeine"
 name = "Caffeine"
 description = "Keeps the screen on. An example of a quick settings toggle."
 version = "1.0"
-api = "1.0"
+api = "1.1"
 exec = ["../../../../../target/debug/examples/caffeine"]
 permissions = ["inhibit-idle"]
 
@@ -10,6 +10,11 @@ permissions = ["inhibit-idle"]
 id = "toggle"
 title = "Caffeine"
 icon = "weather-clear-night-symbolic"
+
+[[contributes.command]]
+id = "toggle"
+title = "Toggle Caffeine"
+keybinding = "<Super><Shift>c"
 
 [settings]
 minutes = { type = "int", default = 0, min = 0, max = 480, label = "Minutes", help = "0: until turned off" }

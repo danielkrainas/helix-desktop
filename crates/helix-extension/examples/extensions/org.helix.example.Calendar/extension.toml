@@ -1,0 +1,14 @@
+id = "org.helix.example.Calendar"
+name = "Calendar"
+description = "This month in a popover. An example of a panel item with a popover."
+version = "1.0"
+api = "1.1"
+exec = ["../../../../../target/debug/examples/calendar"]
+permissions = ["popover"]
+
+[[contributes.panel-item]]
+id = "calendar"
+name = "Calendar"
+zones = ["right", "center"]
+icon = "x-office-calendar-symbolic"
+popover = true

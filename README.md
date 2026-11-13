@@ -95,8 +95,9 @@ by family: `session/pam.d/helix` (Debian/Ubuntu) or
 
 ## Extensions
 
-Helix extensions add panel items, quick settings toggles and sliders,
-and menus. Each runs as its own program, talking to the shell over a
+Helix extensions add panel items (with popovers they draw themselves),
+quick settings toggles and sliders, dock items (that take dropped files),
+commands with keys, and menus. Each runs as its own program, talking to the shell over a
 private D-Bus connection (the API is in helix-desktop-spec
 `contracts/extensions/`). Write one in Rust with the `helix-extension`
 crate (`crates/helix-extension`), or in any language with D-Bus.
@@ -111,8 +112,11 @@ helix-extensions enable org.example.MyExtension
 helix-extensions list
 ```
 
-The panel's right-click menu has "Extensions…" to turn them on and off
-and change their settings.
+The panel's right-click menu has "Extensions…" to turn them on and off,
+change their settings and their commands' keys. Examples in
+`crates/helix-extension/examples`: a counter, a caffeine toggle with a
+command, a processor graph, a dock shelf for dropped files, and a
+calendar popover.
 
 ## Running the session skeleton
 

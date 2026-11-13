@@ -82,6 +82,8 @@ pub struct Keys {
     pub disable_all: bool,
     pub approved: HashMap<String, Vec<String>>,
     pub placed: Vec<String>,
+    /// (1.1) Command → accelerator.
+    pub command_keys: HashMap<String, String>,
 }
 
 impl Keys {
@@ -93,7 +95,9 @@ impl Keys {
         let s = gio::Settings::new(SCHEMA);
         let strv = |k: &str| s.strv(k).iter().map(|v| v.to_string()).collect();
         let approved = s.value("approved").get::<HashMap<String, Vec<String>>>().unwrap_or_default();
-        Keys { enabled: strv("enabled"), disabled: strv("disabled"), disable_all: s.boolean("disable-all"), approved, placed: strv("placed") }
+        let has = |k: &str| s.settings_schema().is_some_and(|x| x.has_key(k));
+        let command_keys = if has("command-keys") { s.value("command-keys").get::<HashMap<String, String>>().unwrap_or_default() } else { HashMap::new() };
+        Keys { enabled: strv("enabled"), disabled: strv("disabled"), disable_all: s.boolean("disable-all"), approved, placed: strv("placed"), command_keys }
     }
 
     pub fn write(&self) {
@@ -111,6 +115,9 @@ impl Keys {
         let _ = s.set_boolean("disable-all", self.disable_all);
         let _ = s.set_value("approved", &gio::glib::Variant::from(self.approved.clone()));
         let _ = s.set_strv("placed", refs(&self.placed).as_slice());
+        if s.settings_schema().is_some_and(|x| x.has_key("command-keys")) {
+            let _ = s.set_value("command-keys", &gio::glib::Variant::from(self.command_keys.clone()));
+        }
         gio::Settings::sync();
     }
 

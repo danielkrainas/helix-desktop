@@ -435,13 +435,15 @@ pub enum Item {
     App { id: String, favorite: bool },
     /// A mounted drive, by index into the mounts.
     Mount(usize),
+    /// An extension's dock item, by index into the extensions' dock items.
+    Ext(usize),
     Trash,
     ShowApps,
 }
 
 /// The dock's items: favorites, running apps, mounts, trash, and the Show
 /// Apps button (first or last).
-pub fn items(s: &DockSettings, favorites: &[String], installed: &[String], running: &[String], mounts: usize) -> Vec<Item> {
+pub fn items(s: &DockSettings, favorites: &[String], installed: &[String], running: &[String], mounts: usize, ext: usize) -> Vec<Item> {
     let app_of = |d: &str| d.strip_suffix(".desktop").unwrap_or(d).to_owned();
     let mut out: Vec<Item> = Vec::new();
     if s.show_apps_button && s.apps_at_top {
@@ -466,6 +468,8 @@ pub fn items(s: &DockSettings, favorites: &[String], installed: &[String], runni
     if s.show_mounts {
         out.extend((0..mounts).map(Item::Mount));
     }
+    // Extensions' items, whatever show-mounts says.
+    out.extend((0..ext).map(Item::Ext));
     if s.show_trash {
         out.push(Item::Trash);
     }
@@ -729,7 +733,7 @@ mod tests {
     #[test]
     fn items_in_order() {
         let set = DockSettings::default();
-        let got = items(&set, &s(&["a.desktop", "gone.desktop", "b.desktop"]), &s(&["a.desktop", "b.desktop"]), &s(&["c", "A", ""]), 1);
+        let got = items(&set, &s(&["a.desktop", "gone.desktop", "b.desktop"]), &s(&["a.desktop", "b.desktop"]), &s(&["c", "A", ""]), 1, 0);
         assert_eq!(
             got,
             [
@@ -742,7 +746,7 @@ mod tests {
             ]
         );
         let top = DockSettings { apps_at_top: true, show_trash: false, show_mounts: false, show_running: false, ..DockSettings::default() };
-        assert_eq!(items(&top, &s(&["a.desktop"]), &s(&["a.desktop"]), &s(&["c"]), 2), [Item::ShowApps, Item::App { id: "a".into(), favorite: true }]);
+        assert_eq!(items(&top, &s(&["a.desktop"]), &s(&["a.desktop"]), &s(&["c"]), 2, 0), [Item::ShowApps, Item::App { id: "a".into(), favorite: true }]);
     }
 
     #[test]

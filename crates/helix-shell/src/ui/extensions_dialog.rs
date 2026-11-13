@@ -20,6 +20,9 @@ pub(super) struct DialogState {
     expanded: Option<String>,
     /// Entries scrolled past.
     scroll: usize,
+    /// (1.1) The command waiting for its new key, and a refusal to show.
+    capturing: Option<String>,
+    refused: Option<(String, String)>,
 }
 
 /// A button in the dialog.
@@ -34,7 +37,36 @@ pub(super) enum DialogHit {
     Next(usize, usize),
     Down(usize, usize),
     Up(usize, usize),
+    /// Command `c` of extension `n`: wait for a new key; clear it.
+    ChangeKey(usize, usize),
+    ClearKey(usize, usize),
     Done,
+}
+
+/// An accelerator for a key press: at least one of Ctrl, Alt or Super, or
+/// a function key; `None` for a modifier alone or a plain key.
+pub(super) fn accelerator_for(keysym: Keysym, mods: &Modifiers) -> Option<String> {
+    let name = xkbcommon::xkb::keysym_get_name(keysym);
+    if name.is_empty() || ["Shift", "Control", "Alt", "Super", "Meta", "Hyper", "ISO_Level3", "Caps_Lock", "Num_Lock"].iter().any(|m| name.starts_with(m)) {
+        return None;
+    }
+    let function = name.len() > 1 && name.starts_with('F') && name[1..].parse::<u32>().is_ok();
+    if !(mods.ctrl || mods.alt || mods.logo || function) {
+        return None;
+    }
+    let mut out = String::new();
+    for (on, text) in [(mods.logo, "<Super>"), (mods.ctrl, "<Control>"), (mods.alt, "<Alt>"), (mods.shift, "<Shift>")] {
+        if on {
+            out.push_str(text);
+        }
+    }
+    // Letters by their lower-case names, as GNOME writes them.
+    if name.chars().count() == 1 {
+        out.push_str(&name.to_lowercase());
+    } else {
+        out.push_str(&name);
+    }
+    Some(out)
 }
 
 fn state_text(info: &Info) -> String {
@@ -109,7 +141,7 @@ impl Ui {
         let mut more_below = false;
         for (n, info) in list.iter().enumerate().skip(scroll) {
             let expanded = overlay.state.expanded.as_deref() == Some(info.id.as_str());
-            let entry_h = ENTRY_H + if expanded { info.settings.len() as i32 * SETTING_H + 8 } else { 0 };
+            let entry_h = ENTRY_H + if expanded { info.settings.len() as i32 * SETTING_H + 8 } else { 0 } + info.commands.len() as i32 * SETTING_H;
             if y + entry_h > bottom && n > scroll {
                 more_below = true;
                 break;
@@ -136,6 +168,34 @@ impl Ui {
                 canvas.rect(knob, r.y + 2, 18, 18, FG);
                 hits.push((r, DialogHit::Switch(n)));
             }
+            // (1.1) Commands and their keys.
+            let mut cy = y + ENTRY_H - 8;
+            for (c, (cmd, title, keys)) in info.commands.iter().enumerate() {
+                let full = format!("{}/{cmd}", info.id);
+                let capturing = overlay.state.capturing.as_deref() == Some(full.as_str());
+                let refused = overlay.state.refused.as_ref().filter(|(f, _)| *f == full).map(|(_, why)| why.clone());
+                label(text, &mut canvas, title, (tx + 8) as f32, baseline(text, cy, SETTING_H, 13.0), 13.0, FG, 200.0);
+                let shown = if capturing {
+                    "Press keys… (Escape: cancel, Backspace: none)".to_owned()
+                } else if let Some(why) = refused {
+                    why
+                } else if keys.is_empty() {
+                    "None".to_owned()
+                } else {
+                    keys.clone()
+                };
+                label(text, &mut canvas, &shown, (tx + 216) as f32, baseline(text, cy, SETTING_H, 12.0), 12.0, if capturing { ACCENT } else { DIM_FG }, 220.0);
+                let right = bx + bw - PAD - 12;
+                for (k, (name, hit)) in [("Change", DialogHit::ChangeKey(n, c)), ("Clear", DialogHit::ClearKey(n, c))].into_iter().enumerate() {
+                    let r = Rect { x: right - 140 + k as i32 * 74, y: cy + 5, w: 66, h: 26 };
+                    canvas.rect(r.x, r.y, r.w, r.h, BANNER_BORDER);
+                    let tw = text.map_or(0.0, |t| t.width(name, 12.0));
+                    label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, FG, r.w as f32);
+                    hits.push((r, hit));
+                }
+                cy += SETTING_H;
+            }
+            let commands_h = info.commands.len() as i32 * SETTING_H;
             if !info.settings.is_empty() {
                 let name = if expanded { "Hide Settings" } else { "Settings" };
                 let tw = text.map_or(0.0, |t| t.width(name, 12.0)) as i32;
@@ -145,7 +205,7 @@ impl Ui {
                 hits.push((r, DialogHit::Settings(n)));
             }
             if expanded {
-                let mut sy = y + ENTRY_H - 8;
+                let mut sy = y + ENTRY_H - 8 + commands_h;
                 for (s, (decl, value)) in info.settings.iter().enumerate() {
                     label(text, &mut canvas, &decl.label, (tx + 8) as f32, baseline(text, sy, SETTING_H, 13.0), 13.0, FG, 220.0);
                     let right = bx + bw - PAD - 12;
@@ -228,6 +288,18 @@ impl Ui {
                     let _ = self.requests.send(UiRequest::ExtEnable(i.id, on));
                 }
             }
+            DialogHit::ChangeKey(n, c) | DialogHit::ClearKey(n, c) => {
+                let Some(i) = info(n) else { return };
+                let Some((cmd, _, _)) = i.commands.get(c) else { return };
+                let full = format!("{}/{cmd}", i.id);
+                if let Some(d) = self.extensions_dialog.as_mut() {
+                    d.state.refused = None;
+                    d.state.capturing = matches!(hit, DialogHit::ChangeKey(..)).then(|| full.clone());
+                }
+                if matches!(hit, DialogHit::ClearKey(..)) {
+                    let _ = self.requests.send(UiRequest::ExtBind(full, String::new()));
+                }
+            }
             DialogHit::Settings(n) => {
                 if let (Some(i), Some(d)) = (info(n), self.extensions_dialog.as_mut()) {
                     d.state.expanded = if d.state.expanded.as_deref() == Some(i.id.as_str()) { None } else { Some(i.id) };
@@ -275,6 +347,14 @@ impl Ui {
         }
     }
 
+    /// A command's new key was refused: say why on its row.
+    pub(super) fn extensions_dialog_refused(&mut self, command: String, why: String) {
+        if let Some(d) = self.extensions_dialog.as_mut() {
+            d.state.refused = Some((command, why));
+        }
+        self.draw_extensions_dialog();
+    }
+
     /// Scrolling the list.
     pub(super) fn extensions_dialog_scroll(&mut self, down: bool) {
         let len = self.ext_list.len();
@@ -289,6 +369,24 @@ impl Ui {
     /// one, Escape closes.
     pub(super) fn extensions_dialog_key(&mut self, event: &KeyEvent) {
         let Some(dialog) = self.extensions_dialog.as_mut() else { return };
+        // Waiting for a command's new key.
+        if let Some(command) = dialog.state.capturing.clone() {
+            match event.keysym {
+                Keysym::Escape => dialog.state.capturing = None,
+                Keysym::BackSpace => {
+                    dialog.state.capturing = None;
+                    let _ = self.requests.send(UiRequest::ExtBind(command, String::new()));
+                }
+                keysym => {
+                    if let Some(accelerator) = accelerator_for(keysym, &self.mods) {
+                        dialog.state.capturing = None;
+                        let _ = self.requests.send(UiRequest::ExtBind(command, accelerator));
+                    }
+                }
+            }
+            self.draw_extensions_dialog();
+            return;
+        }
         let count = dialog.hits.len().max(1);
         match event.keysym {
             Keysym::Escape => self.extensions_dialog = None,

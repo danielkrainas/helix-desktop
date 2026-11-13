@@ -61,6 +61,7 @@ mod click_type;
 mod dash;
 mod desktop_icons;
 mod dock;
+mod drops;
 mod ext_items;
 mod extensions_dialog;
 mod ime;
@@ -273,6 +274,8 @@ struct Ui {
     searched_query: Option<String>,
     /// Control is held (launcher shortcuts).
     ctrl_held: bool,
+    /// The modifiers held (capturing keys for extension commands).
+    mods: Modifiers,
     /// The panel's layout, and where its items were last drawn
     /// (slot, x, width).
     panel_layout: crate::panel_layout::Layout,
@@ -286,6 +289,15 @@ struct Ui {
     /// entries' ids); the extensions, for the Extensions dialog.
     ext: crate::ext_host::Snapshot,
     ext_menu: Option<(String, String, Vec<i32>)>,
+    /// Drag and drop (files onto extensions' dock items): the device
+    /// manager, the device, and the item a drag is over.
+    data_devices: Option<smithay_client_toolkit::data_device_manager::DataDeviceManagerState>,
+    data_device: Option<drops::Device>,
+    drop_at: Option<usize>,
+    /// Where an extension dock item's menu was asked for (it comes later).
+    ext_dock_menu_at: Option<(i32, i32)>,
+    /// Dragging a panel item while "Customize Panel…" is open.
+    panel_drag: Option<panel_editor::PanelDrag>,
     ext_list: Vec<crate::ext_host::Info>,
     extensions_dialog: Option<Overlay<extensions_dialog::DialogState>>,
     /// What the pointer rests on in the panel, and its tooltip.
@@ -758,6 +770,10 @@ impl Ui {
                     }
                 }
             }
+        }
+        // Dragging in the editor: where the item would go.
+        if let Some((_, _, lx)) = self.panel_drag.as_ref().filter(|d| d.moving && !d.off_panel).and_then(|d| d.target.as_ref()) {
+            canvas.rect(*lx - 1, 3, 3, h as i32 - 6, ACCENT);
         }
         // Keyboard focus ring (switch-panels).
         let controls = panel_controls(&placed, tray_images.len());
@@ -2301,6 +2317,7 @@ impl Ui {
                 self.draw_extensions_dialog();
             }
             UiEvent::ExtMenu { full_id, menu, x, entries } => self.show_ext_menu(full_id, menu, x, entries),
+            UiEvent::ExtBindRefused(command, why) => self.extensions_dialog_refused(command, why),
             UiEvent::TrayMenu { key, x, entries } => self.show_tray_menu(key, x, entries),
             UiEvent::ClickTypeWindow(wanted) => {
                 self.click_type.wanted = wanted;
@@ -2552,6 +2569,17 @@ impl Ui {
             }
             next += 1;
         }
+        // Extensions' commands (taken keys were refused when set).
+        let keys: Vec<String> = self.ext.commands.iter().map(|c| c.accelerator.clone()).collect();
+        for (i, text) in keys.iter().enumerate() {
+            if text.is_empty() {
+                continue;
+            }
+            let Some(accelerator) = parse(text, "extension command") else { continue };
+            self.internal.insert(next, Internal::ExtCommand(i));
+            self.bind(next, &accelerator);
+            next += 1;
+        }
         for (key, defaults, internal) in [
             ("toggle-overview", &[][..], Internal::Overview),
             ("toggle-application-view", &["<Super>a"][..], Internal::Launcher),
@@ -2635,6 +2663,13 @@ impl Ui {
         match self.internal.get(&action).copied() {
             Some(Internal::InputSource { backward, hold }) => self.switch_input_source(backward, hold),
             Some(Internal::SwitchWindows { backward, hold, mode }) => self.switch_windows(backward, hold, mode),
+            Some(Internal::ExtCommand(i)) => {
+                if self.lock.session.is_none() {
+                    if let Some(command) = self.ext.commands.get(i) {
+                        let _ = self.requests.send(UiRequest::ExtCommand(command.full_id.clone()));
+                    }
+                }
+            }
             Some(Internal::ShellKey(key)) => {
                 let _ = self.requests.send(UiRequest::ShellKey(key));
             }
@@ -2785,6 +2820,7 @@ pub fn run(
     let compositor = CompositorState::bind(&globals, &qh)?;
     let layer_shell = LayerShell::bind(&globals, &qh)?;
     let shm = Shm::bind(&globals, &qh)?;
+    let data_devices = smithay_client_toolkit::data_device_manager::DataDeviceManagerState::bind(&globals, &qh).ok();
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
     let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=9, ()).ok();
@@ -2900,6 +2936,11 @@ pub fn run(
         tray_menu: None,
         ext: Default::default(),
         ext_menu: None,
+        ext_dock_menu_at: None,
+        panel_drag: None,
+        data_devices,
+        data_device: None,
+        drop_at: None,
         ext_list: Vec::new(),
         extensions_dialog: None,
         panel_hover: Default::default(),
@@ -2910,6 +2951,7 @@ pub fn run(
         ime_menu: Vec::new(),
         search_serial: 0,
         searched_query: None,
+        mods: Default::default(),
         ctrl_held: false,
         lock: LockScreen {
             state: SessionLockState::new(&globals, &qh),
@@ -3148,6 +3190,10 @@ impl SeatHandler for Ui {
                 Ok(p) => {
                     self.relative_pointer = self.relative_state.get_relative_pointer(&p, qh).ok();
                     self.pointer = Some(p);
+                    // Drops come through the seat's data device.
+                    if self.data_device.is_none() {
+                        self.data_device = self.data_devices.as_ref().map(|m| m.get_data_device(qh, &seat));
+                    }
                 }
                 Err(err) => tracing::warn!(%err, "no pointer"),
             }
@@ -3225,6 +3271,7 @@ impl KeyboardHandler for Ui {
     fn release_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent) {}
     fn update_modifiers(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, modifiers: Modifiers, _: RawModifiers, _: u32) {
         self.ctrl_held = modifiers.ctrl;
+        self.mods = modifiers;
         if self.switcher.is_some() {
             self.switcher_modifiers(&modifiers);
         }
@@ -3289,7 +3336,7 @@ impl Ui {
                 }
                 continue;
             }
-            if self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
+            if self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
@@ -3500,6 +3547,8 @@ enum Internal {
     SwitchWindows { backward: bool, hold: u32, mode: SwitchMode },
     /// Screenshot, brightness and volume keys (run on the D-Bus side).
     ShellKey(crate::shell_keys::KeyAction),
+    /// An extension's command (index into the extensions' commands).
+    ExtCommand(usize),
     Workspace(crate::windows::WorkspaceKey),
     Wm(crate::windows::WmKey),
     /// `toggle-overview`

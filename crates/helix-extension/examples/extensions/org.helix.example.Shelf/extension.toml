@@ -1,0 +1,12 @@
+id = "org.helix.example.Shelf"
+name = "Shelf"
+description = "Keeps files dropped on it. An example of a dock item."
+version = "1.0"
+api = "1.1"
+exec = ["../../../../../target/debug/examples/shelf"]
+
+[[contributes.dock-item]]
+id = "shelf"
+name = "Shelf"
+icon = "folder-symbolic"
+accepts-drops = true

@@ -39,12 +39,17 @@ impl Ui {
         if snapshot == self.ext {
             return;
         }
+        let rebind = snapshot.commands != self.ext.commands;
         self.ext = snapshot;
+        if rebind {
+            self.rebind_internal();
+        }
         let layout = crate::panel_layout::resolve(&self.panel_keys, &self.ext_panels());
         self.panel_layout = layout;
         self.draw_panel();
         self.draw_power_menu();
         self.draw_panel_editor();
+        self.dock_update();
         if self.panel_tooltip.is_some() {
             self.show_panel_tooltip();
         }
@@ -141,7 +146,7 @@ impl Ui {
                 let action = match button {
                     BTN_RIGHT => Action::Secondary { x: px, y },
                     BTN_MIDDLE => Action::Middle { x: px, y },
-                    _ => Action::Primary { x: px, y },
+                    _ => self.primary_action(i, px),
                 };
                 let _ = self.requests.send(UiRequest::ExtAction(full_id, action));
             }
@@ -168,8 +173,32 @@ impl Ui {
     pub(super) fn ext_activate(&mut self, i: usize, x: i32) {
         if let Some(full_id) = self.ext.panel.get(i).map(|p| p.full_id.clone()) {
             crate::click_feedback();
-            let _ = self.requests.send(UiRequest::ExtAction(full_id, Action::Primary { x, y: PANEL_HEIGHT as i32 }));
+            let action = self.primary_action(i, x);
+            let _ = self.requests.send(UiRequest::ExtAction(full_id, action));
         }
+    }
+
+    /// A primary click on panel item `i` at `x`: its popover (under it,
+    /// moved left so 480 pixels fit), else `Activate`.
+    fn primary_action(&self, i: usize, x: i32) -> Action {
+        if !self.ext.panel.get(i).is_some_and(|p| p.popover) {
+            return Action::Primary { x, y: PANEL_HEIGHT as i32 };
+        }
+        let width = self.panel_width as i32;
+        let px = x.min(width - 480 - 4).max(4);
+        Action::Popover { x: px, y: PANEL_HEIGHT as i32 + 4, output: self.panel_output_name() }
+    }
+
+    /// The connector of the monitor the panel is on (the primary one).
+    pub(super) fn panel_output_name(&self) -> String {
+        let (x, y, _, _) = self.primary_area;
+        self.output_state
+            .outputs()
+            .filter_map(|o| self.output_state.info(&o))
+            .find(|i| i.logical_position == Some((x, y)))
+            .or_else(|| self.output_state.outputs().next().and_then(|o| self.output_state.info(&o)))
+            .and_then(|i| i.name.clone())
+            .unwrap_or_default()
     }
 
     /// The tooltip lines of extension item `key`.
@@ -185,7 +214,11 @@ impl Ui {
         if items.is_empty() {
             return;
         }
-        self.open_menu(0, x, PANEL_HEIGHT as i32, items, Vec::new());
+        // A dock item's menu opens as dock menus do.
+        match self.ext_dock_menu_at.take().filter(|_| self.ext.dock.iter().any(|d| d.full_id == full_id)) {
+            Some((lx, ly)) => self.open_dock_menu(lx, ly, items),
+            None => self.open_menu(0, x, PANEL_HEIGHT as i32, items, Vec::new()),
+        }
         self.ext_menu = Some((full_id, menu, ids));
     }
 

@@ -21,3 +21,15 @@ name = "caffeine"
 
 [[example]]
 name = "cpu"
+
+[[example]]
+name = "shelf"
+
+[[example]]
+name = "calendar"
+
+[dev-dependencies]
+# The calendar example draws its popover itself.
+smithay-client-toolkit.workspace = true
+helix-draw.workspace = true
+libc.workspace = true

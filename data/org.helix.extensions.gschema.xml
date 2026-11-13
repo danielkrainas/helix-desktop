@@ -28,5 +28,10 @@
       <summary>Items already placed</summary>
       <description>Extension items (extension id/item id) once added to the layout.</description>
     </key>
+    <key name="command-keys" type="a{ss}">
+      <default>{}</default>
+      <summary>Extension command keys</summary>
+      <description>By extension id/command id, the command's accelerator (empty: none).</description>
+    </key>
   </schema>
 </schemalist>

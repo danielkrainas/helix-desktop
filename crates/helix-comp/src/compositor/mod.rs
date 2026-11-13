@@ -34,6 +34,7 @@ mod wm_behavior;
 mod input_config;
 mod keybindings;
 mod lock;
+mod ext_popover;
 pub mod pipewire;
 mod screencast;
 pub mod monitors;

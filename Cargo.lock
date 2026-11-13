@@ -1170,7 +1170,10 @@ name = "helix-extension"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "helix-draw",
+ "libc",
  "serde",
+ "smithay-client-toolkit 0.21.1",
  "tokio",
  "zbus",
 ]

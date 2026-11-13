@@ -30,7 +30,7 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 use zbus::Connection;
 
 /// The API version this crate speaks.
-pub const API_VERSION: &str = "1.0";
+pub const API_VERSION: &str = "1.1";
 const HOST_PATH: &str = "/org/helix/Extension1/Host";
 const HOST: &str = "org.helix.Extension1.Host";
 
@@ -51,7 +51,22 @@ pub enum Event {
     MenuActivated { menu: String, id: i32 },
     /// A setting changed (from the extension, the user, or a tool).
     SettingChanged { key: String, value: OwnedValue },
+    /// (1.1) Show the popover of panel item `item` with its top-left
+    /// corner at `x`, `y` on monitor `output` (a layer surface, namespace
+    /// `helix-extension-popover`), or close it if it is open.
+    TogglePopover { item: String, x: i32, y: i32, output: String },
+    /// (1.1) A click on dock item `item`.
+    DockActivate { item: String },
+    /// (1.1) Files dropped on dock item `item`.
+    Drop { item: String, uris: Vec<String> },
+    /// (1.1) Command `id` was run.
+    Command { id: String },
 }
+
+/// (1.1) The namespace a popover's layer surface must have.
+pub const POPOVER_NAMESPACE: &str = "helix-extension-popover";
+/// (1.1) A popover's largest size.
+pub const POPOVER_MAX: (u32, u32) = (480, 640);
 
 /// A panel item's state (`org.helix.Extension1.PanelItem`).
 #[derive(Debug, Clone, PartialEq)]
@@ -255,6 +270,132 @@ impl PanelItemIface {
     }
     fn scroll(&self, delta: i32, orientation: String) {
         let _ = self.events.send(Event::Scroll { item: self.id.clone(), delta, horizontal: orientation == "horizontal" });
+    }
+    fn toggle_popover(&self, x: i32, y: i32, output: String) {
+        let _ = self.events.send(Event::TogglePopover { item: self.id.clone(), x, y, output });
+    }
+}
+
+/// (1.1) A dock item's state (`org.helix.Extension1.DockItem`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DockItemState {
+    pub icon: String,
+    pub icon_data: Vec<u8>,
+    pub label: String,
+    pub running: bool,
+    /// A badge when above 0.
+    pub count: i64,
+    /// 0–1; below 0, none.
+    pub progress: f64,
+    pub urgent: bool,
+    pub menu: Option<String>,
+}
+
+impl Default for DockItemState {
+    fn default() -> Self {
+        Self { icon: String::new(), icon_data: Vec::new(), label: String::new(), running: false, count: 0, progress: -1.0, urgent: false, menu: None }
+    }
+}
+
+struct DockItemIface {
+    id: String,
+    state: DockItemState,
+    events: Events,
+}
+
+#[zbus::interface(name = "org.helix.Extension1.DockItem")]
+impl DockItemIface {
+    #[zbus(property)]
+    fn icon(&self) -> String {
+        self.state.icon.clone()
+    }
+    #[zbus(property)]
+    fn icon_data(&self) -> Vec<u8> {
+        self.state.icon_data.clone()
+    }
+    #[zbus(property)]
+    fn label(&self) -> String {
+        self.state.label.clone()
+    }
+    #[zbus(property)]
+    fn running(&self) -> bool {
+        self.state.running
+    }
+    #[zbus(property)]
+    fn count(&self) -> i64 {
+        self.state.count
+    }
+    #[zbus(property)]
+    fn progress(&self) -> f64 {
+        self.state.progress
+    }
+    #[zbus(property)]
+    fn urgent(&self) -> bool {
+        self.state.urgent
+    }
+    #[zbus(property)]
+    fn menu(&self) -> OwnedObjectPath {
+        optional_path(&self.state.menu)
+    }
+    fn activate(&self) {
+        let _ = self.events.send(Event::DockActivate { item: self.id.clone() });
+    }
+    fn drop(&self, uris: Vec<String>) {
+        let _ = self.events.send(Event::Drop { item: self.id.clone(), uris });
+    }
+}
+
+struct CommandsIface {
+    events: Events,
+}
+
+#[zbus::interface(name = "org.helix.Extension1.Commands")]
+impl CommandsIface {
+    fn run(&self, id: String) {
+        let _ = self.events.send(Event::Command { id });
+    }
+}
+
+/// (1.1) A dock item.
+#[derive(Clone)]
+pub struct DockItem {
+    conn: Connection,
+    path: OwnedObjectPath,
+}
+
+impl DockItem {
+    pub async fn update(&self, change: impl FnOnce(&mut DockItemState)) -> zbus::Result<()> {
+        let iface = self.conn.object_server().interface::<_, DockItemIface>(&self.path).await?;
+        let mut guard = iface.get_mut().await;
+        let old = guard.state.clone();
+        change(&mut guard.state);
+        let new = guard.state.clone();
+        let e = iface.signal_emitter();
+        if old.icon != new.icon {
+            guard.icon_changed(e).await?;
+        }
+        if old.icon_data != new.icon_data {
+            guard.icon_data_changed(e).await?;
+        }
+        if old.label != new.label {
+            guard.label_changed(e).await?;
+        }
+        if old.running != new.running {
+            guard.running_changed(e).await?;
+        }
+        if old.count != new.count {
+            guard.count_changed(e).await?;
+        }
+        if old.progress != new.progress {
+            guard.progress_changed(e).await?;
+        }
+        if old.urgent != new.urgent {
+            guard.urgent_changed(e).await?;
+        }
+        if old.menu != new.menu {
+            guard.menu_changed(e).await?;
+        }
+        Ok(())
     }
 }
 
@@ -530,6 +671,8 @@ impl Extension {
                 }
             }
         });
+        // Commands (1.1) come to one object.
+        conn.object_server().at("/org/helix/Extension/commands", CommandsIface { events: events_tx.clone() }).await?;
         Ok(Self { conn, id, events_tx, events, granted: Default::default() })
     }
 
@@ -557,6 +700,13 @@ impl Extension {
         let path = item_path("slider", id)?;
         self.conn.object_server().at(&path, SliderIface { id: id.to_owned(), state, events: self.events_tx.clone() }).await?;
         Ok(Slider { conn: self.conn.clone(), path })
+    }
+
+    /// (1.1) Export dock item `id`.
+    pub async fn dock_item(&self, id: &str, state: DockItemState) -> zbus::Result<DockItem> {
+        let path = item_path("dock_item", id)?;
+        self.conn.object_server().at(&path, DockItemIface { id: id.to_owned(), state, events: self.events_tx.clone() }).await?;
+        Ok(DockItem { conn: self.conn.clone(), path })
     }
 
     /// Export a menu named `name` (use the name in `menu` / `details`).

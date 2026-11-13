@@ -365,6 +365,25 @@ pub fn edit(keys: &Keys, edit: Edit, names: &Names) -> Keys {
     keys
 }
 
+/// `keys` with item `id` dragged into zone `zone`, before item `before`
+/// (or at the zone's end); `None` drops it off the panel (not Power).
+/// Ids Helix does not know stay where they are.
+pub fn drag(keys: &Keys, id: &str, to: Option<(usize, Option<&str>)>) -> Keys {
+    let mut keys = keys.normalized();
+    if to.is_none() && id == Item::Power.id() {
+        return keys;
+    }
+    for z in 0..QUICK {
+        keys.column_mut(z).retain(|i| i != id);
+    }
+    if let Some((zone, before)) = to {
+        let list = keys.column_mut(zone.min(QUICK - 1));
+        let at = before.and_then(|b| list.iter().position(|i| i == b)).unwrap_or(list.len());
+        list.insert(at, id.to_owned());
+    }
+    keys.normalized()
+}
+
 /// The keys as they are now (the defaults without the schema).
 pub fn read() -> Keys {
     use gio::prelude::*;
@@ -472,6 +491,16 @@ mod tests {
         assert!(hidden(&gone, &names).contains(&(1, "org.x.A/clock".into(), "World Clock".into())), "back to its first zone");
         assert!(hidden(&k, &names).iter().any(|(c, id, _)| *c == QUICK && id == "org.x.A/t"));
         assert!(!hidden(&k, &names).iter().any(|(_, id, _)| id == "org.x.Dev/p"), "development items are not listed");
+    }
+
+    #[test]
+    fn dragging() {
+        let k = keys(&["helix:apps", "org.x/y", "helix:workspaces"], &["helix:clock"], &["helix:status", "helix:power"]);
+        let moved = drag(&k, "helix:clock", Some((0, Some("helix:workspaces"))));
+        assert_eq!((moved.left.as_slice(), moved.center.len()), (["helix:apps", "org.x/y", "helix:clock", "helix:workspaces"].map(String::from).as_slice(), 0));
+        assert_eq!(drag(&k, "helix:apps", Some((2, None))).right, ["helix:status", "helix:power", "helix:apps"]);
+        assert!(!drag(&k, "helix:status", None).right.contains(&"helix:status".to_owned()), "dropped off");
+        assert_eq!(drag(&k, "helix:power", None), k.normalized(), "Power stays");
     }
 
     #[test]

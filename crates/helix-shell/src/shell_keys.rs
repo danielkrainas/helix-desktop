@@ -593,6 +593,43 @@ pub async fn change_volume(action: Volume) -> Option<Osd> {
     })
 }
 
+/// Every accelerator the shell and window manager bind (to tell whether
+/// a new key is free), as written in the settings.
+pub fn taken_accelerators() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    out.extend(crate::input_sources::accelerators().into_iter().map(|(a, _)| a));
+    out.extend(accelerators().into_iter().map(|(a, _)| a));
+    for (key, defaults) in [
+        ("toggle-overview", &[][..]),
+        ("toggle-application-view", &["<Super>a"][..]),
+        ("shift-overview-up", &["<Super><Alt>Up"][..]),
+        ("shift-overview-down", &["<Super><Alt>Down"][..]),
+        ("toggle-message-tray", &["<Super>v", "<Super>m"][..]),
+        ("focus-active-notification", &["<Super>n"][..]),
+        ("toggle-quick-settings", &["<Super>s"][..]),
+    ] {
+        out.extend(shell_strv(key, defaults));
+    }
+    out.extend(wm_strv("panel-run-dialog", &["<Alt>F2"]));
+    for n in 1..=9usize {
+        out.extend(shell_strv(&format!("switch-to-application-{n}"), &[format!("<Super>{n}").as_str()]));
+        out.extend(shell_strv(&format!("open-new-window-application-{n}"), &[format!("<Super><Control>{n}").as_str()]));
+    }
+    out.extend(crate::windows::accelerators().into_iter().map(|(a, _, _)| a));
+    out.extend(crate::windows::wm_key_accelerators().into_iter().map(|(a, _)| a));
+    out.extend(crate::windows::workspace_accelerators().into_iter().map(|(a, _)| a));
+    out
+}
+
+/// Whether two accelerators are the same keys.
+pub fn same_keys(a: &str, b: &str) -> bool {
+    match (crate::accel::Accelerator::parse(a).and_then(|x| x.to_wire()), crate::accel::Accelerator::parse(b).and_then(|x| x.to_wire())) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

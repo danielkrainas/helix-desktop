@@ -269,14 +269,21 @@ impl Ui {
             Keysym::Return | Keysym::KP_Enter => return self.prompt_answer(true),
             _ => {}
         }
+        let titles: Vec<String> = self.ext.commands.iter().map(|c| c.title.clone()).collect();
         let Some(view) = self.prompt_view() else { return };
         if view.busy {
             return;
         }
         match event.keysym {
             Keysym::Tab if view.focus == 3 && view.prompt.complete_commands => {
-                let commands = view.commands.get_or_insert_with(crate::run_dialog::path_commands);
-                view.entry = crate::run_dialog::complete(&view.entry, commands);
+                // Extension commands' titles first, then programs.
+                match crate::run_dialog::complete_title(&view.entry, &titles) {
+                    Some(done) => view.entry = done,
+                    None => {
+                        let commands = view.commands.get_or_insert_with(crate::run_dialog::path_commands);
+                        view.entry = crate::run_dialog::complete(&view.entry, commands);
+                    }
+                }
             }
             Keysym::Up if view.focus == 3 && !view.prompt.history.is_empty() => {
                 let at = view.history_at.map_or(view.prompt.history.len() - 1, |i| i.saturating_sub(1));

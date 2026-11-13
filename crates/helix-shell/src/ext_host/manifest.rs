@@ -4,10 +4,10 @@
 use zbus::zvariant::{OwnedValue, Value};
 
 /// The API 1 minor version this Helix supports.
-pub const API_MINOR: u32 = 0;
+pub const API_MINOR: u32 = 1;
 
 /// Permissions, with how the user sees them.
-pub const PERMISSIONS: [(&str, &str); 3] = [("notifications", "show notifications"), ("inhibit-idle", "keep the screen on"), ("launch-apps", "start apps")];
+pub const PERMISSIONS: [(&str, &str); 4] = [("notifications", "show notifications"), ("inhibit-idle", "keep the screen on"), ("launch-apps", "start apps"), ("popover", "show its own panels")];
 
 pub fn permission_text(name: &str) -> &str {
     PERMISSIONS.iter().find(|(n, _)| *n == name).map_or(name, |(_, t)| t)
@@ -32,10 +32,12 @@ impl Zone {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Activation {
     OnStartup,
     OnVisible,
+    /// (1.1) When this bus name gets an owner.
+    OnDBusName(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +47,26 @@ pub struct PanelItemDecl {
     pub zones: Vec<Zone>,
     pub icon: String,
     pub label: String,
+    /// (1.1) A click toggles the extension's popover.
+    pub popover: bool,
+}
+
+/// (1.1) A dock item.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DockItemDecl {
+    pub id: String,
+    pub name: String,
+    pub icon: String,
+    pub accepts_drops: bool,
+}
+
+/// (1.1) A command.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandDecl {
+    pub id: String,
+    pub title: String,
+    /// A suggested accelerator.
+    pub keybinding: String,
 }
 
 /// A quick settings toggle or slider.
@@ -206,6 +228,8 @@ pub struct Manifest {
     pub panel_items: Vec<PanelItemDecl>,
     pub toggles: Vec<QuickDecl>,
     pub sliders: Vec<QuickDecl>,
+    pub dock_items: Vec<DockItemDecl>,
+    pub commands: Vec<CommandDecl>,
     /// By key.
     pub settings: Vec<SettingDecl>,
 }
@@ -266,14 +290,24 @@ pub fn parse(source: &str, dir_name: Option<&str>) -> Result<Manifest, String> {
         None => vec![Activation::OnStartup],
         Some(_) => texts(&table, "activation")?
             .iter()
-            .map(|a| match a.as_str() {
-                "onStartup" => Ok(Activation::OnStartup),
-                "onVisible" => Ok(Activation::OnVisible),
-                other => Err(format!("unknown activation {other:?}")),
+            .filter_map(|a| match a.as_str() {
+                "onStartup" => Some(Ok(Activation::OnStartup)),
+                "onVisible" => Some(Ok(Activation::OnVisible)),
+                other => match other.strip_prefix("onDBusName:") {
+                    // 1.1 only.
+                    Some(_) if api_minor < 1 => None,
+                    Some(name) if zbus::names::WellKnownName::try_from(name).is_ok() => Some(Ok(Activation::OnDBusName(name.to_owned()))),
+                    Some(name) => Some(Err(format!("{name:?} is not a bus name"))),
+                    None => Some(Err(format!("unknown activation {other:?}"))),
+                },
             })
             .collect::<Result<_, _>>()?,
     };
-    let permissions = texts(&table, "permissions")?;
+    let mut permissions = texts(&table, "permissions")?;
+    // `popover` is 1.1.
+    if api_minor < 1 {
+        permissions.retain(|p| p != "popover");
+    }
     if let Some(bad) = permissions.iter().find(|p| !PERMISSIONS.iter().any(|(n, _)| n == p)) {
         return Err(format!("unknown permission {bad:?}"));
     }
@@ -325,7 +359,11 @@ pub fn parse(source: &str, dir_name: Option<&str>) -> Result<Manifest, String> {
         if zones.is_empty() {
             return Err(format!("panel item {id} has no zones"));
         }
-        panel_items.push(PanelItemDecl { name: text(&t, "name", 64, true)?, zones, icon: text(&t, "icon", 256, false)?, label: text(&t, "label", 64, false)?, id });
+        let popover = api_minor >= 1 && matches!(t.get("popover"), Some(toml::Value::Boolean(true)));
+        if popover && !permissions.iter().any(|p| p == "popover") {
+            return Err(format!("panel item {id} has a popover but the manifest does not ask for the popover permission"));
+        }
+        panel_items.push(PanelItemDecl { name: text(&t, "name", 64, true)?, zones, icon: text(&t, "icon", 256, false)?, label: text(&t, "label", 64, false)?, id, popover });
     }
     let mut quick = |kind: &str| -> Result<Vec<QuickDecl>, String> {
         let mut out = Vec::new();
@@ -337,6 +375,26 @@ pub fn parse(source: &str, dir_name: Option<&str>) -> Result<Manifest, String> {
     };
     let toggles = quick("quick-toggle")?;
     let sliders = quick("quick-slider")?;
+    // 1.1: dock items and commands.
+    let mut dock_items = Vec::new();
+    let mut commands = Vec::new();
+    if api_minor >= 1 {
+        for t in entries("dock-item")? {
+            let id = take_id(&t, "dock-item")?;
+            let accepts_drops = matches!(t.get("accepts-drops"), Some(toml::Value::Boolean(true)));
+            dock_items.push(DockItemDecl { name: text(&t, "name", 64, true)?, icon: text(&t, "icon", 256, false)?, accepts_drops, id });
+        }
+        // Commands have ids of their own (they are not items).
+        let mut command_ids: Vec<String> = Vec::new();
+        for t in entries("command")? {
+            let id = text(&t, "id", 32, true).map_err(|e| format!("contributes.command: {e}"))?;
+            if !valid_item_id(&id) || command_ids.contains(&id) {
+                return Err(format!("contributes.command: {id:?} is not a valid command id, or is used twice"));
+            }
+            command_ids.push(id.clone());
+            commands.push(CommandDecl { title: text(&t, "title", 64, true)?, keybinding: text(&t, "keybinding", 64, false)?, id });
+        }
+    }
 
     let mut settings = Vec::new();
     if let Some(value) = table.get("settings") {
@@ -395,6 +453,8 @@ pub fn parse(source: &str, dir_name: Option<&str>) -> Result<Manifest, String> {
         panel_items,
         toggles,
         sliders,
+        dock_items,
+        commands,
         settings,
     })
 }
@@ -456,5 +516,21 @@ mode = { type = "enum", choices = ["a", "b"], default = "b", label = "Mode" }
         assert!(with("default = 0,", "default = \"x\",").is_err());
         assert!(with("exec = [\"bin/caffeine\", \"--quiet\"]", "exec = []").is_err());
         assert!(!valid_id("nodots") && !valid_id("a..b") && valid_id("org.example.A-b_1"));
+    }
+
+    #[test]
+    fn api_1_1() {
+        let extra = "\nactivation = [\"onDBusName:org.mpris.MediaPlayer2.x\"]\n[[contributes.dock-item]]\nid = \"stack\"\nname = \"Stack\"\naccepts-drops = true\n[[contributes.command]]\nid = \"stack\"\ntitle = \"Go\"\nkeybinding = \"<Super>g\"\n";
+        let base = "id = \"org.x.A\"\nname = \"A\"\nversion = \"1\"\nexec = [\"x\"]\npermissions = [\"popover\"]\n";
+        let m = parse(&format!("{base}api = \"1.1\"{extra}"), None).unwrap();
+        assert_eq!(m.activation, [Activation::OnDBusName("org.mpris.MediaPlayer2.x".into())]);
+        assert!(m.dock_items[0].accepts_drops);
+        assert_eq!(m.commands[0].keybinding, "<Super>g");
+        assert_eq!(m.permissions, ["popover"]);
+        // Under 1.0 they are ignored.
+        let old = parse(&format!("{base}api = \"1.0\"{extra}"), None).unwrap();
+        assert!(old.activation.is_empty() && old.dock_items.is_empty() && old.commands.is_empty() && old.permissions.is_empty());
+        let popover = parse("id = \"org.x.A\"\nname = \"A\"\nversion = \"1\"\nexec = [\"x\"]\napi = \"1.1\"\n[[contributes.panel-item]]\nid = \"p\"\nname = \"P\"\npopover = true\n", None);
+        assert!(popover.unwrap_err().contains("popover permission"));
     }
 }

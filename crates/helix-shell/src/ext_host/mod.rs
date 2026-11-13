@@ -7,4 +7,4 @@ pub mod store;
 pub mod manager;
 pub mod runner;
 
-pub use runner::{Action, ExtHost, Info, MenuEntry, PanelItemView, SliderView, Snapshot, State, ToggleView};
+pub use runner::{Action, CommandView, DockItemView, ExtHost, Info, MenuEntry, PanelItemView, SliderView, Snapshot, State, ToggleView};

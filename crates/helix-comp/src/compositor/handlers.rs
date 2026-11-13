@@ -481,6 +481,10 @@ impl WlrLayerShellHandler for Helix {
             return;
         };
         tracing::info!(namespace, "new layer surface");
+        if !self.popover_opened(&namespace, surface.wl_surface()) {
+            surface.send_close();
+            return;
+        }
         // The shell's always-there surfaces appear without fading.
         if helix_comp::animation::layer_animates(&namespace) {
             self.animations.layer_opened(self.wm_settings.motion, surface.wl_surface());
@@ -538,6 +542,7 @@ impl Helix {
                 .map(|data| data.lock().unwrap().initial_configure_sent)
                 .unwrap_or(true)
         });
+        self.popover_commit(surface);
         let wants_keyboard = {
             let mut map = layer_map_for_output(&output);
             map.arrange();
