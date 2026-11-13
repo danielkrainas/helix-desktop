@@ -586,6 +586,9 @@ impl Dispatch<HelixScreenshotFrameV1, ShotData> for Ui {
         if ui.window_menu.as_ref().is_some_and(|m| m.previews.contains(&data.window)) {
             ui.draw_window_menu();
         }
+        if ui.switcher.as_ref().is_some_and(|s| s.state.switcher.entries.iter().any(|e| e.id == data.window)) {
+            ui.draw_switcher();
+        }
     }
 }
 

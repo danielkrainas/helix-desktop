@@ -212,6 +212,27 @@ pub fn current_workspace_only() -> (bool, bool) {
     (read("org.gnome.shell.app-switcher", false), read("org.gnome.shell.window-switcher", true))
 }
 
+/// `org.gnome.shell.window-switcher app-icon-mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IconMode {
+    ThumbnailOnly,
+    AppIconOnly,
+    Both,
+}
+
+pub fn icon_mode() -> IconMode {
+    const SCHEMA: &str = "org.gnome.shell.window-switcher";
+    let value = gio::SettingsSchemaSource::default()
+        .and_then(|s| s.lookup(SCHEMA, true))
+        .filter(|s| s.has_key("app-icon-mode"))
+        .map(|_| gio::Settings::new(SCHEMA).string("app-icon-mode").to_string());
+    match value.as_deref() {
+        Some("thumbnail-only") => IconMode::ThumbnailOnly,
+        Some("app-icon-only") => IconMode::AppIconOnly,
+        _ => IconMode::Both,
+    }
+}
+
 /// Installed applications' names by app id (desktop file id without
 /// `.desktop`, lowercased).
 pub fn app_names() -> std::collections::HashMap<String, String> {

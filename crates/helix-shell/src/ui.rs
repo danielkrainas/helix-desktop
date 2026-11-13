@@ -954,7 +954,15 @@ impl Ui {
         }
         self.close_launcher(true);
         self.power_menu = None;
-        let overlay = self.new_overlay("helix-switcher", KeyboardInteractivity::Exclusive, SwitcherState { switcher, hold, kind });
+        // Window pictures for the window switcher (not for applications).
+        let windows = matches!(kind, SwitchKind::Windows { .. }) && self.switcher_mode != Some(SwitchMode::Apps);
+        let mode = crate::windows::icon_mode();
+        let thumbnails = (windows && mode != crate::windows::IconMode::AppIconOnly).then_some(mode);
+        if thumbnails.is_some() {
+            let ids: Vec<u32> = switcher.entries.iter().map(|e| e.id).collect();
+            self.capture_shots(&ids);
+        }
+        let overlay = self.new_overlay("helix-switcher", KeyboardInteractivity::Exclusive, SwitcherState { switcher, hold, kind, thumbnails });
         self.switcher = Some(overlay);
     }
 
@@ -1044,6 +1052,17 @@ impl Ui {
     }
 
     fn paint_switcher(&mut self, overlay: &mut Overlay<SwitcherState>) {
+        // Drilled into an application's windows: tiles too.
+        let drilled = matches!(&overlay.state.kind, SwitchKind::Windows { apps: Some(_) });
+        let tiles = overlay.state.thumbnails.or_else(|| {
+            let mode = crate::windows::icon_mode();
+            (drilled && mode != crate::windows::IconMode::AppIconOnly).then_some(mode)
+        });
+        if let Some(mode) = tiles {
+            if self.switcher_mode != Some(SwitchMode::Apps) || drilled {
+                return self.paint_switcher_tiles(overlay, mode);
+            }
+        }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
         let (shown, first) = {
@@ -1095,6 +1114,80 @@ impl Ui {
             let detail_color = if index == switcher.selected { FG } else { DIM_FG };
             label(text, &mut canvas, &entry.detail, r.x as f32 + r.w as f32 - 12.0 - detail_w, base, 13.0, detail_color, 160.0);
             overlay.hits.push((r, OverlayHit::Window(entry.id)));
+        }
+        let surface = overlay.layer.wl_surface();
+        self.scales.prepare(&self.qh, surface, w as i32, h as i32);
+        if buffer.attach_to(surface).is_ok() {
+            overlay.layer.commit();
+        }
+    }
+
+    /// The window switcher as a row of window pictures.
+    fn paint_switcher_tiles(&mut self, overlay: &mut Overlay<SwitcherState>, mode: crate::windows::IconMode) {
+        let (w, h) = (overlay.width as usize, overlay.height as usize);
+        let scale = self.scales.of(overlay.layer.wl_surface());
+        let fits = ((w as i32 - 40 - THUMB_GAP) / (THUMB_W + THUMB_GAP)).max(1) as usize;
+        let switcher = &overlay.state.switcher;
+        let shown = switcher.entries.len().clamp(1, THUMB_MAX.min(fits));
+        let first = switcher.selected.saturating_sub(shown - 1);
+        let ids: Vec<u32> = switcher.entries.iter().map(|e| e.id).collect();
+        // Pictures not asked for yet (e.g. after drilling in).
+        let missing: Vec<u32> = ids.iter().copied().filter(|id| self.overview_shots.picture(*id).is_none()).collect();
+        self.capture_shots(&missing);
+        let icon_px = (32.0 * scale).ceil() as u32;
+        let big_px = (64.0 * scale).ceil() as u32;
+        let icons: Vec<(Option<helix_draw::Image>, Option<helix_draw::Image>)> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                if !(first..first + shown).contains(&i) {
+                    return (None, None);
+                }
+                let has_picture = self.overview_shots.picture(*id).is_some();
+                let small = (mode == crate::windows::IconMode::Both && has_picture).then(|| self.window_icon(*id, icon_px)).flatten();
+                let big = (!has_picture).then(|| self.window_icon(*id, big_px)).flatten();
+                (small, big)
+            })
+            .collect();
+        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+            return;
+        };
+        let mut canvas = Canvas::scaled(data, w, h, scale);
+        canvas.fill(0x00000000);
+        let text = self.text.as_ref();
+        let switcher = &overlay.state.switcher;
+        let bw = shown as i32 * (THUMB_W + THUMB_GAP) + THUMB_GAP;
+        let bh = THUMB_H + THUMB_TITLE_H + 2 * THUMB_GAP;
+        let bx = (w as i32 - bw) / 2;
+        let by = (h as i32 - bh) / 2;
+        canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
+        canvas.rect(bx, by, bw, bh, BANNER_BG);
+        overlay.hits.clear();
+        for (slot, index) in (first..switcher.entries.len()).take(shown).enumerate() {
+            let entry = &switcher.entries[index];
+            let tile = Rect { x: bx + THUMB_GAP + slot as i32 * (THUMB_W + THUMB_GAP), y: by + THUMB_GAP, w: THUMB_W, h: THUMB_H + THUMB_TITLE_H };
+            if index == switcher.selected {
+                canvas.round_rect(f64::from(tile.x - 4), f64::from(tile.y - 4), f64::from(tile.w + 8), f64::from(tile.h + 4), 8.0, ACCENT);
+            }
+            let pic = Rect { x: tile.x + 4, y: tile.y + 4, w: tile.w - 8, h: THUMB_H - 8 };
+            match self.overview_shots.picture(entry.id) {
+                Some(image) if image.width > 0 && image.height > 0 => {
+                    let s = (f64::from(pic.w) / image.width as f64).min(f64::from(pic.h) / image.height as f64).min(1.0);
+                    let (iw, ih) = (image.width as f64 * s, image.height as f64 * s);
+                    let (ix, iy) = (f64::from(pic.x) + (f64::from(pic.w) - iw) / 2.0, f64::from(pic.y) + (f64::from(pic.h) - ih) / 2.0);
+                    canvas.image(ix, iy, iw, ih, image);
+                    if let Some(icon) = &icons[index].0 {
+                        canvas.image(ix + iw - 28.0, iy + ih - 28.0, 32.0, 32.0, icon);
+                    }
+                }
+                _ => match &icons[index].1 {
+                    Some(icon) => canvas.image(f64::from(pic.x + (pic.w - 64) / 2), f64::from(pic.y + (pic.h - 64) / 2), 64.0, 64.0, icon),
+                    None => canvas.rect(pic.x, pic.y, pic.w, pic.h, 0xFF55555F),
+                },
+            }
+            let tw = text.map_or(0.0, |t| t.width(&entry.label, 13.0)).min((tile.w - 8) as f32);
+            label(text, &mut canvas, &entry.label, tile.x as f32 + (tile.w as f32 - tw) / 2.0, baseline(text, tile.y + THUMB_H, THUMB_TITLE_H, 13.0), 13.0, FG, (tile.w - 8) as f32);
+            overlay.hits.push((tile, OverlayHit::Window(entry.id)));
         }
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -3220,7 +3313,17 @@ struct SwitcherState {
     switcher: Switcher,
     hold: u32,
     kind: SwitchKind,
+    /// Window pictures in tiles (`app-icon-mode` not `app-icon-only`), with
+    /// the app's icon too (`both`).
+    thumbnails: Option<crate::windows::IconMode>,
 }
+
+/// Window switcher tiles: the picture area and the title below.
+const THUMB_W: i32 = 168;
+const THUMB_H: i32 = 108;
+const THUMB_TITLE_H: i32 = 30;
+const THUMB_GAP: i32 = 12;
+const THUMB_MAX: usize = 8;
 
 const SWITCHER_ROWS: usize = 10;
 /// Icon size in switcher rows (logical pixels).
