@@ -6,6 +6,7 @@
 //!   the shell UI.
 
 pub mod accel;
+pub mod ambient;
 pub mod app_notify;
 pub mod auth;
 pub mod display_change;

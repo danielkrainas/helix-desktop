@@ -237,6 +237,7 @@ pub async fn run_idle(conn: Connection) {
                     if let Some(level) = dimmed_from.take() {
                         crate::shell_keys::set_brightness_percent(&conn, level).await;
                     }
+                    crate::ambient::DIMMED.store(false, std::sync::atomic::Ordering::SeqCst);
                     if blanked {
                         blanked = false;
                         set_power_save(&conn, false).await;
@@ -255,6 +256,7 @@ pub async fn run_idle(conn: Connection) {
                     if let Some(current) = crate::shell_keys::brightness_percent(&conn).await {
                         if let Some(target) = dim_target(current, s.idle_brightness) {
                             tracing::info!(target, "dimming the screen");
+                            crate::ambient::DIMMED.store(true, std::sync::atomic::Ordering::SeqCst);
                             crate::shell_keys::set_brightness_percent(&conn, target).await;
                             dimmed_from = Some(current);
                         }
