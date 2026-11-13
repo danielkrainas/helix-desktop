@@ -1,0 +1,76 @@
+# nfpm (https://nfpm.goreleaser.com) package description for .deb and
+# .rpm. The release workflow (.github/workflows/release.yml) stages the
+# files with packaging/stage.sh into ./stage and fills in @VERSION@ and
+# @ARCH@ (amd64 or arm64; nfpm names them as each format expects).
+name: helix-desktop
+version: "@VERSION@"
+arch: "@ARCH@"
+platform: linux
+release: "1"
+section: x11
+priority: optional
+maintainer: Daniel Krainas
+vendor: Helix
+homepage: https://github.com/danielkrainas/helix-desktop
+license: CC0-1.0
+description: |-
+  Helix desktop session
+  A Wayland desktop written in Rust that is compatible with GNOME 51:
+  compositor, shell, session launcher and xdg-desktop-portal backends.
+
+contents:
+  - src: ./stage/usr/
+    dst: /usr/
+    type: tree
+  - src: ./stage/etc/xdg/helix/session.toml
+    dst: /etc/xdg/helix/session.toml
+    type: config|noreplace
+  - src: ./stage/etc/pam.d/helix
+    dst: /etc/pam.d/helix
+    type: config|noreplace
+
+overrides:
+  deb:
+    # Ubuntu 24.04 / Debian 13 names; the t64 ones fall back to the older
+    # names.
+    depends:
+      - libc6
+      - libgcc-s1
+      - libglib2.0-0t64 | libglib2.0-0
+      - libxkbcommon0
+      - libinput10
+      - libseat1
+      - libudev1
+      - libgbm1
+      - libdrm2
+      - libegl1
+      - libpipewire-0.3-0t64 | libpipewire-0.3-0
+      - libpam0g
+      - dbus
+    recommends:
+      - xwayland
+      - xdg-desktop-portal
+      - gsettings-desktop-schemas
+      - dconf-service
+      - pipewire
+  rpm:
+    depends:
+      - glibc
+      - libgcc
+      - glib2
+      - libxkbcommon
+      - libinput
+      - libseat
+      - systemd-libs
+      - mesa-libgbm
+      - libdrm
+      - libglvnd-egl
+      - pipewire-libs
+      - pam
+      - dbus
+    recommends:
+      - xorg-x11-server-Xwayland
+      - xdg-desktop-portal
+      - gsettings-desktop-schemas
+      - dconf
+      - pipewire

@@ -51,6 +51,26 @@ PipeWire bindings are generated with libclang; without the `clang` package,
 point it at GCC's headers instead, e.g.
 `BINDGEN_EXTRA_CLANG_ARGS=-I/usr/lib/gcc/x86_64-linux-gnu/13/include`.
 
+## Releases and packages
+
+Pushing a tag `vX.Y.Z` that matches the workspace version in `Cargo.toml`
+runs `.github/workflows/release.yml`. It builds, for x86_64 and aarch64:
+
+- a `.deb` (built on Ubuntu 24.04; also for Debian 13),
+- an `.rpm` (built on Fedora 44),
+- a tarball of the installed files (Ubuntu build, Debian-style PAM file),
+
+and publishes them with a `SHA256SUMS` file as a GitHub release (a
+prerelease when the version has a `-` suffix). Running the workflow by hand
+builds the same packages as workflow artifacts without publishing.
+
+The packages are made with [nfpm](https://nfpm.goreleaser.com) from
+`packaging/nfpm.yaml`. `packaging/stage.sh DESTDIR [debian|redhat]` lays
+out the installed files (binaries in `/usr/bin`, the session, portal and
+PAM files) and can also be used to install by hand. The PAM file differs
+by family: `session/pam.d/helix` (Debian/Ubuntu) or
+`packaging/pam.d/helix-redhat` (Fedora/RHEL).
+
 ## Running the session skeleton
 
 `helix-session` owns `org.gnome.SessionManager` on the session bus. Run it on a

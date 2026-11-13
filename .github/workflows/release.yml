@@ -1,0 +1,151 @@
+name: Release
+
+# Pushing a tag vX.Y.Z (matching the workspace version in Cargo.toml) builds
+# .deb, .rpm and tarball packages for x86_64 and aarch64 and publishes them
+# as a GitHub release. Running it by hand builds the same packages as
+# workflow artifacts without publishing anything.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_PROFILE_RELEASE_STRIP: "true"
+  NFPM_VERSION: "2.48.0"
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Check the tag against Cargo.toml
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "no workspace version in Cargo.toml" >&2; exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        family: [debian, redhat]
+    runs-on: ${{ matrix.runner }}
+    # Each family builds in its own distribution so the binaries link
+    # against that family's libraries: Ubuntu 24.04 (also fine for Debian
+    # 13) and Fedora 44.
+    container: ${{ matrix.family == 'redhat' && 'fedora:44' || 'ubuntu:24.04' }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Install build packages (Ubuntu)
+        if: matrix.family == 'debian'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential git curl ca-certificates \
+            pkg-config libglib2.0-dev libwayland-dev libxkbcommon-dev \
+            libseat-dev libinput-dev libudev-dev libgbm-dev libdrm-dev libegl-dev \
+            libpipewire-0.3-dev libspa-0.2-dev clang
+
+      - name: Install build packages (Fedora)
+        if: matrix.family == 'redhat'
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            gcc clang pkgconf-pkg-config git curl tar gzip \
+            glib2-devel wayland-devel libxkbcommon-devel libseat-devel \
+            libinput-devel systemd-devel mesa-libgbm-devel libdrm-devel \
+            mesa-libEGL-devel pipewire-devel
+
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.family }}
+
+      - name: Build
+        run: cargo build --release --locked --workspace --bins
+
+      - name: Stage files
+        run: packaging/stage.sh stage ${{ matrix.family }}
+
+      - name: Install nfpm
+        run: |
+          case $(uname -m) in
+            x86_64) asset=Linux_x86_64; sum=6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750 ;;
+            aarch64) asset=Linux_arm64; sum=a9a75213763783b7669719e505474c748c5ad7dc66591a195619deb50f85c2f4 ;;
+            *) echo "unsupported machine $(uname -m)" >&2; exit 1 ;;
+          esac
+          file=nfpm_${NFPM_VERSION}_${asset}.tar.gz
+          curl -fsSLO "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/${file}"
+          echo "${sum}  ${file}" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/nfpm"
+          tar -xzf "$file" -C "$RUNNER_TEMP/nfpm" nfpm
+          rm "$file"
+          echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
+
+      - name: Package
+        run: |
+          case $(uname -m) in
+            x86_64) arch=amd64 ;;
+            aarch64) arch=arm64 ;;
+          esac
+          mkdir -p dist
+          sed -e "s/@VERSION@/${VERSION}/" -e "s/@ARCH@/${arch}/" packaging/nfpm.yaml > nfpm.yaml
+          if [ "${{ matrix.family }}" = debian ]; then
+            nfpm package --config nfpm.yaml --packager deb --target dist/
+            # The tarball (Debian-style PAM file; see README.md for others).
+            tar -czf "dist/helix-desktop-${VERSION}-$(uname -m).tar.gz" \
+              --owner=0 --group=0 -C stage .
+          else
+            nfpm package --config nfpm.yaml --packager rpm --target dist/
+          fi
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.family }}-${{ matrix.runner }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          prerelease=
+          case $VERSION in *-*) prerelease=--prerelease ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --title "Helix $VERSION" \
+            --generate-notes $prerelease
