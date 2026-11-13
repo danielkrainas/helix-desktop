@@ -43,6 +43,7 @@ impl Manager {
                     ("error".to_owned(), value(i.error)),
                     ("permissions".to_owned(), value(i.permissions)),
                     ("commands".to_owned(), value(i.commands)),
+                    ("sandboxed".to_owned(), value(i.sandboxed)),
                 ]);
                 (i.id, entry)
             })

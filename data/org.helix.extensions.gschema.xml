@@ -33,5 +33,10 @@
       <summary>Extension command keys</summary>
       <description>By extension id/command id, the command's accelerator (empty: none).</description>
     </key>
+    <key name="require-sandbox" type="b">
+      <default>false</default>
+      <summary>Run only sandboxed extensions</summary>
+      <description>When true, extensions without sandbox = true do not run.</description>
+    </key>
   </schema>
 </schemalist>

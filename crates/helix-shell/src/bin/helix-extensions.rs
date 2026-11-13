@@ -101,6 +101,7 @@ fn print_entry(id: &str, e: &HashMap<String, OwnedValue>, full: bool) {
             println!("  {description}");
         }
         println!("  type: {}, path: {}", text(e, "type"), text(e, "path"));
+        println!("  {}", if flag(e, "sandboxed") { "sandboxed" } else { "full access (not sandboxed)" });
         let permissions = list(e, "permissions");
         if !permissions.is_empty() {
             let can: Vec<&str> = permissions.iter().map(|p| helix_shell::ext_host::manifest::permission_text(p)).collect();

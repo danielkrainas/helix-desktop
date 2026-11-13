@@ -4,10 +4,32 @@
 use zbus::zvariant::{OwnedValue, Value};
 
 /// The API 1 minor version this Helix supports.
-pub const API_MINOR: u32 = 1;
+pub const API_MINOR: u32 = 2;
 
 /// Permissions, with how the user sees them.
-pub const PERMISSIONS: [(&str, &str); 4] = [("notifications", "show notifications"), ("inhibit-idle", "keep the screen on"), ("launch-apps", "start apps"), ("popover", "show its own panels")];
+pub const PERMISSIONS: [(&str, &str); 14] = [
+    ("notifications", "show notifications"),
+    ("inhibit-idle", "keep the screen on"),
+    ("launch-apps", "start apps"),
+    // 1.1
+    ("popover", "show its own panels"),
+    // 1.2: what a sandbox may reach.
+    ("network", "use the network"),
+    ("files:home", "read and change all your files"),
+    ("files:documents", "read and change your Documents"),
+    ("files:downloads", "read and change your Downloads"),
+    ("files:music", "read and change your Music"),
+    ("files:pictures", "read and change your Pictures"),
+    ("files:videos", "read and change your Videos"),
+    ("files:desktop", "read and change your Desktop"),
+    ("session-bus", "talk to your other programs"),
+    ("system-bus", "talk to system services"),
+];
+
+/// The system permissions (1.2): meaningful in a sandbox only.
+pub fn is_system_permission(name: &str) -> bool {
+    PERMISSIONS[4..].iter().any(|(n, _)| *n == name)
+}
 
 pub fn permission_text(name: &str) -> &str {
     PERMISSIONS.iter().find(|(n, _)| *n == name).map_or(name, |(_, t)| t)
@@ -225,6 +247,8 @@ pub struct Manifest {
     pub activation: Vec<Activation>,
     pub permissions: Vec<String>,
     pub enabled_by_default: bool,
+    /// (1.2) Run in a bubblewrap sandbox.
+    pub sandbox: bool,
     pub panel_items: Vec<PanelItemDecl>,
     pub toggles: Vec<QuickDecl>,
     pub sliders: Vec<QuickDecl>,
@@ -304,10 +328,14 @@ pub fn parse(source: &str, dir_name: Option<&str>) -> Result<Manifest, String> {
             .collect::<Result<_, _>>()?,
     };
     let mut permissions = texts(&table, "permissions")?;
-    // `popover` is 1.1.
+    // `popover` is 1.1, the system permissions 1.2.
     if api_minor < 1 {
         permissions.retain(|p| p != "popover");
     }
+    if api_minor < 2 {
+        permissions.retain(|p| !is_system_permission(p));
+    }
+    let sandbox = api_minor >= 2 && matches!(table.get("sandbox"), Some(toml::Value::Boolean(true)));
     if let Some(bad) = permissions.iter().find(|p| !PERMISSIONS.iter().any(|(n, _)| n == p)) {
         return Err(format!("unknown permission {bad:?}"));
     }
@@ -450,6 +478,7 @@ pub fn parse(source: &str, dir_name: Option<&str>) -> Result<Manifest, String> {
         activation,
         permissions,
         enabled_by_default,
+        sandbox,
         panel_items,
         toggles,
         sliders,
@@ -535,5 +564,17 @@ mode = { type = "enum", choices = ["a", "b"], default = "b", label = "Mode" }
         assert!(old.activation.is_empty() && old.dock_items.is_empty() && old.commands.is_empty() && old.permissions.is_empty());
         let popover = parse("id = \"org.x.A\"\nname = \"A\"\nversion = \"1\"\nexec = [\"x\"]\napi = \"1.1\"\n[[contributes.panel-item]]\nid = \"p\"\nname = \"P\"\npopover = true\n", None);
         assert!(popover.unwrap_err().contains("popover permission"));
+    }
+
+    #[test]
+    fn api_1_2() {
+        let base = "id = \"org.x.A\"\nname = \"A\"\nversion = \"1\"\nexec = [\"x\"]\nsandbox = true\npermissions = [\"network\", \"files:downloads\", \"notifications\"]\n";
+        let m = parse(&format!("{base}api = \"1.2\"\n"), None).unwrap();
+        assert!(m.sandbox);
+        assert_eq!(m.permissions, ["network", "files:downloads", "notifications"]);
+        let old = parse(&format!("{base}api = \"1.1\"\n"), None).unwrap();
+        assert!(!old.sandbox, "1.2 only");
+        assert_eq!(old.permissions, ["notifications"]);
+        assert!(parse(&base.replace("files:downloads", "files:root").replace("sandbox = true\n", "api = \"1.2\"\n"), None).unwrap_err().contains("permission"));
     }
 }

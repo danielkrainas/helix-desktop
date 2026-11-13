@@ -156,10 +156,14 @@ impl Ui {
             let state = state_text(info);
             let state_color = if matches!(info.state, State::Invalid(_) | State::Crashed(_) | State::NeedsApproval) { 0xFFE0_8040 } else { DIM_FG };
             label(text, &mut canvas, &state, tx as f32, (y + 62) as f32, 12.0, state_color, room);
-            if !info.permissions.is_empty() {
-                let can = format!("Can: {}", info.permissions.iter().map(|p| permission_text(p)).collect::<Vec<_>>().join(", "));
-                label(text, &mut canvas, &can, tx as f32, (y + 78) as f32, 12.0, DIM_FG, room);
-            }
+            // What it can do: sandboxed, with its permissions, or anything.
+            let can = if info.sandboxed {
+                let what: Vec<&str> = info.permissions.iter().map(|p| permission_text(p)).collect();
+                if what.is_empty() { "Sandboxed".to_owned() } else { format!("Sandboxed. Can: {}", what.join(", ")) }
+            } else {
+                "Full access: it can do anything you can".to_owned()
+            };
+            label(text, &mut canvas, &can, tx as f32, (y + 78) as f32, 12.0, if info.sandboxed { DIM_FG } else { 0xFFE0_8040 }, room);
             // The on/off switch (development extensions run regardless).
             if info.kind != crate::ext_host::store::Kind::Development && !matches!(info.state, State::Invalid(_)) {
                 let on = info.enabled && info.approved;

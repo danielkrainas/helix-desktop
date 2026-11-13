@@ -197,6 +197,8 @@ pub struct Info {
     pub settings: Vec<(manifest::SettingDecl, SettingValue)>,
     /// (1.1) Its commands: id, title, accelerator.
     pub commands: Vec<(String, String, String)>,
+    /// (1.2) It runs in a sandbox.
+    pub sandboxed: bool,
 }
 
 /// What the user did to an item.
@@ -414,8 +416,16 @@ impl ExtHost {
                         continue;
                     }
                 };
-                let enabled = keys.is_enabled(&ext.found) && !session_off;
+                // (1.2) Only sandboxed ones, when an administrator says so.
+                let unsandboxed_refused = keys.require_sandbox && !manifest.sandbox;
+                let enabled = keys.is_enabled(&ext.found) && !session_off && !unsandboxed_refused;
                 let approved = keys.is_approved(&ext.found);
+                if manifest.sandbox && !super::sandbox::available() {
+                    if ext.run.is_none() {
+                        ext.state = State::Invalid("needs bubblewrap (bwrap), which is not installed".into());
+                    }
+                    continue;
+                }
                 if enabled && approved && ext.found.kind != Kind::Development {
                     placements.push(manifest.clone());
                 }
@@ -599,8 +609,17 @@ impl ExtHost {
             if ext.run.is_some() || ext.in_flight {
                 return;
             }
-            let Some(m) = ext.manifest() else { return };
-            let exec = m.exec.clone();
+            let Some(m) = ext.manifest().cloned() else { return };
+            let dir = ext.found.dir.clone();
+            let program = if Path::new(&m.exec[0]).is_absolute() { PathBuf::from(&m.exec[0]) } else { dir.join(&m.exec[0]) };
+            // (1.2) In a sandbox: bubblewrap runs the program.
+            let exec: Vec<String> = if m.sandbox {
+                let host = super::sandbox::Host::current();
+                let _ = std::fs::create_dir_all(super::sandbox::data_dir(&host, &m.id));
+                std::iter::once("bwrap".to_owned()).chain(super::sandbox::bwrap_args(&m, &dir, &host, &program, &m.exec[1..])).collect()
+            } else {
+                std::iter::once(program.to_string_lossy().into_owned()).chain(m.exec[1..].iter().cloned()).collect()
+            };
             ext.in_flight = true;
             ext.generation += 1;
             ext.state = State::Starting;
@@ -622,7 +641,8 @@ impl ExtHost {
 
     async fn spawn(&self, id: &str, dir: &Path, exec: &[String], generation: u64) -> std::io::Result<()> {
         use std::os::fd::AsRawFd;
-        let program = if Path::new(&exec[0]).is_absolute() { PathBuf::from(&exec[0]) } else { dir.join(&exec[0]) };
+        // `exec` is the full command line: the program (or bwrap) first.
+        let program = PathBuf::from(&exec[0]);
         let (ours, theirs) = std::os::unix::net::UnixStream::pair()?;
         let mut cmd = if systemd_user() {
             let mut c = tokio::process::Command::new("systemd-run");
@@ -1067,6 +1087,7 @@ impl ExtHost {
                 let error = match &e.state {
                     State::Invalid(r) | State::Crashed(r) => r.clone(),
                     State::Disabled if inner.session_off => "Off for this session".to_owned(),
+                    State::Disabled if inner.keys.require_sandbox && !m.is_some_and(|m| m.sandbox) => "Only sandboxed extensions may run".to_owned(),
                     _ => e.log.lines.back().cloned().unwrap_or_default(),
                 };
                 Info {
@@ -1082,6 +1103,7 @@ impl ExtHost {
                     permissions: m.map(|m| m.permissions.clone()).unwrap_or_default(),
                     error,
                     settings: m.map(|m| m.settings.iter().map(|d| (d.clone(), e.settings.get(&d.key).cloned().unwrap_or_else(|| d.default.clone()))).collect()).unwrap_or_default(),
+                    sandboxed: m.is_some_and(|m| m.sandbox),
                     commands: m
                         .map(|m| m.commands.iter().map(|c| (c.id.clone(), c.title.clone(), inner.keys.command_keys.get(&format!("{}/{}", m.id, c.id)).cloned().unwrap_or_default())).collect())
                         .unwrap_or_default(),

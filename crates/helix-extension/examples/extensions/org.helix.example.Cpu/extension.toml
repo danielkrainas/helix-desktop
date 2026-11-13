@@ -2,7 +2,9 @@ id = "org.helix.example.Cpu"
 name = "Processor"
 description = "A graph of the processor's use. An example of a panel item with a graph."
 version = "1.0"
-api = "1.0"
+api = "1.2"
+# Reads /proc/stat only: no network, no files of yours.
+sandbox = true
 exec = ["../../../../../target/debug/examples/cpu"]
 activation = ["onVisible"]
 

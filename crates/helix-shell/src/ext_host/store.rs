@@ -84,6 +84,8 @@ pub struct Keys {
     pub placed: Vec<String>,
     /// (1.1) Command → accelerator.
     pub command_keys: HashMap<String, String>,
+    /// (1.2) Only sandboxed extensions run.
+    pub require_sandbox: bool,
 }
 
 impl Keys {
@@ -97,7 +99,8 @@ impl Keys {
         let approved = s.value("approved").get::<HashMap<String, Vec<String>>>().unwrap_or_default();
         let has = |k: &str| s.settings_schema().is_some_and(|x| x.has_key(k));
         let command_keys = if has("command-keys") { s.value("command-keys").get::<HashMap<String, String>>().unwrap_or_default() } else { HashMap::new() };
-        Keys { enabled: strv("enabled"), disabled: strv("disabled"), disable_all: s.boolean("disable-all"), approved, placed: strv("placed"), command_keys }
+        let require_sandbox = has("require-sandbox") && s.boolean("require-sandbox");
+        Keys { enabled: strv("enabled"), disabled: strv("disabled"), disable_all: s.boolean("disable-all"), approved, placed: strv("placed"), command_keys, require_sandbox }
     }
 
     pub fn write(&self) {

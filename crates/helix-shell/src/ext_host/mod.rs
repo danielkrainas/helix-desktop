@@ -6,5 +6,6 @@ pub mod manifest;
 pub mod store;
 pub mod manager;
 pub mod runner;
+pub mod sandbox;
 
 pub use runner::{Action, CommandView, DockItemView, ExtHost, Info, MenuEntry, PanelItemView, SliderView, Snapshot, State, ToggleView};
