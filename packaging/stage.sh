@@ -2,20 +2,20 @@
 # Lay out an installed Helix under DESTDIR, as packages and the release
 # tarball ship it.
 #
-#   packaging/stage.sh DESTDIR [debian|redhat]
+#   packaging/stage.sh DESTDIR [debian|redhat|arch]
 #
 # Binaries come from $BIN_DIR (default target/release). The PAM service
 # file differs by distribution family (default debian).
 set -eu
 
-dest=${1:?usage: packaging/stage.sh DESTDIR [debian|redhat]}
+dest=${1:?usage: packaging/stage.sh DESTDIR [debian|redhat|arch]}
 pam=${2:-debian}
 bin=${BIN_DIR:-target/release}
 root=$(cd "$(dirname "$0")/.." && pwd)
 
 case $pam in
     debian) pam_file=$root/session/pam.d/helix ;;
-    redhat) pam_file=$root/packaging/pam.d/helix-redhat ;;
+    redhat|arch) pam_file=$root/packaging/pam.d/helix-redhat ;;
     *) echo "unknown PAM variant: $pam" >&2; exit 2 ;;
 esac
 

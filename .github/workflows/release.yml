@@ -1,8 +1,8 @@
 name: Release
 
 # Pushing a tag vX.Y.Z (matching the workspace version in Cargo.toml) builds
-# .deb, .rpm and tarball packages for x86_64 and aarch64 and publishes them
-# as a GitHub release. Running it by hand builds the same packages as
+# .deb, .rpm and tarball packages for x86_64 and aarch64 and an Arch Linux
+# package for x86_64, and publishes them as a GitHub release. Running it by hand builds the same packages as
 # workflow artifacts without publishing anything.
 
 on:
@@ -40,12 +40,16 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
-        family: [debian, redhat]
+        family: [debian, redhat, arch]
+        exclude:
+          # The official Arch Linux image is x86_64 only.
+          - runner: ubuntu-24.04-arm
+            family: arch
     runs-on: ${{ matrix.runner }}
     # Each family builds in its own distribution so the binaries link
     # against that family's libraries: Ubuntu 24.04 (also fine for Debian
-    # 13) and Fedora 44.
-    container: ${{ matrix.family == 'redhat' && 'fedora:44' || 'ubuntu:24.04' }}
+    # 13), Fedora 44, and Arch Linux as of the build (it is rolling).
+    container: ${{ matrix.family == 'redhat' && 'fedora:44' || matrix.family == 'arch' && 'archlinux:latest' || 'ubuntu:24.04' }}
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -69,6 +73,14 @@ jobs:
             glib2-devel wayland-devel libxkbcommon-devel libseat-devel \
             libinput-devel systemd-devel mesa-libgbm-devel libdrm-devel \
             mesa-libEGL-devel pipewire-devel
+
+      - name: Install build packages (Arch Linux)
+        if: matrix.family == 'arch'
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel clang git curl \
+            glib2 wayland libxkbcommon seatd libinput systemd mesa libdrm \
+            libglvnd pipewire
 
       - uses: actions/checkout@v4
 
@@ -107,14 +119,16 @@ jobs:
           esac
           mkdir -p dist
           sed -e "s/@VERSION@/${VERSION}/" -e "s/@ARCH@/${arch}/" packaging/nfpm.yaml > nfpm.yaml
-          if [ "${{ matrix.family }}" = debian ]; then
-            nfpm package --config nfpm.yaml --packager deb --target dist/
-            # The tarball (Debian-style PAM file; see README.md for others).
-            tar -czf "dist/helix-desktop-${VERSION}-$(uname -m).tar.gz" \
-              --owner=0 --group=0 -C stage .
-          else
-            nfpm package --config nfpm.yaml --packager rpm --target dist/
-          fi
+          case "${{ matrix.family }}" in
+            debian)
+              nfpm package --config nfpm.yaml --packager deb --target dist/
+              # The tarball (Debian-style PAM file; see README.md for others).
+              tar -czf "dist/helix-desktop-${VERSION}-$(uname -m).tar.gz" \
+                --owner=0 --group=0 -C stage .
+              ;;
+            redhat) nfpm package --config nfpm.yaml --packager rpm --target dist/ ;;
+            arch) nfpm package --config nfpm.yaml --packager archlinux --target dist/ ;;
+          esac
           ls -l dist
 
       - uses: actions/upload-artifact@v4

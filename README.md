@@ -58,6 +58,7 @@ runs `.github/workflows/release.yml`. It builds, for x86_64 and aarch64:
 
 - a `.deb` (built on Ubuntu 24.04; also for Debian 13),
 - an `.rpm` (built on Fedora 44),
+- an Arch Linux package (x86_64 only; built on Arch as of the release),
 - a tarball of the installed files (Ubuntu build, Debian-style PAM file),
 
 and publishes them with a `SHA256SUMS` file as a GitHub release (a
@@ -65,11 +66,11 @@ prerelease when the version has a `-` suffix). Running the workflow by hand
 builds the same packages as workflow artifacts without publishing.
 
 The packages are made with [nfpm](https://nfpm.goreleaser.com) from
-`packaging/nfpm.yaml`. `packaging/stage.sh DESTDIR [debian|redhat]` lays
+`packaging/nfpm.yaml`. `packaging/stage.sh DESTDIR [debian|redhat|arch]` lays
 out the installed files (binaries in `/usr/bin`, the session, portal and
 PAM files) and can also be used to install by hand. The PAM file differs
 by family: `session/pam.d/helix` (Debian/Ubuntu) or
-`packaging/pam.d/helix-redhat` (Fedora/RHEL).
+`packaging/pam.d/helix-redhat` (Fedora/RHEL and Arch Linux).
 
 ## Running the session skeleton
 

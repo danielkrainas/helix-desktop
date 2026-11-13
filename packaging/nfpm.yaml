@@ -1,7 +1,8 @@
-# nfpm (https://nfpm.goreleaser.com) package description for .deb and
-# .rpm. The release workflow (.github/workflows/release.yml) stages the
-# files with packaging/stage.sh into ./stage and fills in @VERSION@ and
-# @ARCH@ (amd64 or arm64; nfpm names them as each format expects).
+# nfpm (https://nfpm.goreleaser.com) package description for .deb, .rpm
+# and Arch Linux packages. The release workflow
+# (.github/workflows/release.yml) stages the files with packaging/stage.sh
+# into ./stage and fills in @VERSION@ and @ARCH@ (amd64 or arm64; nfpm
+# names them as each format expects).
 name: helix-desktop
 version: "@VERSION@"
 arch: "@ARCH@"
@@ -94,3 +95,26 @@ overrides:
       - gsettings-desktop-schemas
       - dconf
       - pipewire
+  archlinux:
+    depends:
+      - glibc
+      - gcc-libs
+      - glib2
+      - libxkbcommon
+      - libinput
+      - seatd
+      - systemd-libs
+      - mesa
+      - libdrm
+      - libglvnd
+      - libpipewire
+      - pam
+      - dbus
+    recommends:
+      - xorg-xwayland
+      - xdg-desktop-portal
+      - gsettings-desktop-schemas
+      - dconf
+      - pipewire
+archlinux:
+  packager: Helix release workflow

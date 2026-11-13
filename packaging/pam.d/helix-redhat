@@ -1,5 +1,6 @@
-# PAM service for the Helix lock screen, for Fedora, RHEL and similar
-# distributions (installed as /etc/pam.d/helix by the RPM package).
+# PAM service for the Helix lock screen, for Fedora, RHEL, Arch Linux and
+# other distributions with a system-auth service (installed as
+# /etc/pam.d/helix by the RPM and Arch packages).
 # Helix refuses to lock the screen until this file exists.
 auth       include      system-auth
 auth       optional     pam_gnome_keyring.so
