@@ -205,7 +205,7 @@ impl Ui {
     /// Banner height for its content.
     pub(super) fn banner_height(&self, banner: &Banner) -> u32 {
         let text_w = (BANNER_W as i32 - 2 * BANNER_PAD - ICON - 12) as f32;
-        let body = self.body_lines(banner, text_w, 2) as i32;
+        let body = self.body_lines(banner, text_w, banner_lines(banner)) as i32;
         let buttons = if banner.buttons.is_empty() { 0 } else { 44 };
         let content = (16 + 26 + body * BODY_LINE).max(ICON + 4);
         (BANNER_PAD + content + buttons + BANNER_PAD) as u32
@@ -232,7 +232,7 @@ impl Ui {
         let close = Rect { x: w as i32 - BANNER_PAD - 18, y: BANNER_PAD - 4, w: 22, h: 22 };
         let text = self.text.as_ref();
         let (links, mut y) =
-            paint_notification(&mut canvas, (text, self.bold.as_ref()), icon.as_ref(), &view.data, (BANNER_PAD, BANNER_PAD), inner - 24, 2);
+            paint_notification(&mut canvas, (text, self.bold.as_ref()), icon.as_ref(), &view.data, (BANNER_PAD, BANNER_PAD), inner - 24, banner_lines(&view.data));
         label(text, &mut canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
         view.hits.push((close, BannerHit::Close));
         for (rect, uri) in links {
@@ -587,12 +587,21 @@ impl Ui {
     }
 }
 
+/// Body lines a banner shows: 2, or 8 for apps with `force-expanded`.
+fn banner_lines(banner: &Banner) -> usize {
+    if banner.expanded {
+        8
+    } else {
+        2
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn note(id: u32, app: &str, app_id: &str) -> Banner {
-        Banner { id, app_name: app.into(), app_id: app_id.into(), summary: String::new(), body: String::new(), buttons: Vec::new(), icon: None, markup: false }
+        Banner { id, app_name: app.into(), app_id: app_id.into(), summary: String::new(), body: String::new(), buttons: Vec::new(), icon: None, markup: false, expanded: false }
     }
 
     #[test]
@@ -607,3 +616,4 @@ mod tests {
         assert_eq!(open.len(), 7);
     }
 }
+

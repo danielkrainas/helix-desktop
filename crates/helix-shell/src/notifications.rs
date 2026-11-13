@@ -38,6 +38,8 @@ pub struct Banner {
     pub icon: Option<IconSource>,
     /// `body` uses notification markup.
     pub markup: bool,
+    /// The app's banners show their whole text (`force-expanded`).
+    pub expanded: bool,
 }
 
 impl From<&Notification> for Banner {
@@ -51,6 +53,7 @@ impl From<&Notification> for Banner {
             buttons: n.actions.iter().filter(|(k, _)| k != "default").cloned().collect(),
             icon: n.icon.clone(),
             markup: n.markup,
+            expanded: crate::app_notify::force_expanded(&n.app_id),
         }
     }
 }

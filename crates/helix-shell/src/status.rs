@@ -422,7 +422,9 @@ pub async fn apply(system: &Connection, toggle: Toggle) -> zbus::Result<()> {
         }
         Toggle::Profile(profile) => {
             let (name, iface) = profiles_service(system).await.ok_or_else(|| zbus::Error::Failure("no power profiles".into()))?;
-            set_prop(system, name, PROFILES_PATH, iface, "ActiveProfile", Value::from(profile.as_str())).await
+            set_prop(system, name, PROFILES_PATH, iface, "ActiveProfile", Value::from(profile.as_str())).await?;
+            remember_profile(&profile);
+            Ok(())
         }
         Toggle::ConnectWifi(ssid) => connect_wifi(system, &ssid).await,
         Toggle::BluetoothDiscovery(on) => {
@@ -499,6 +501,19 @@ pub async fn follow(ui: mpsc::UnboundedSender<UiEvent>) {
     }
 }
 
+/// `org.gnome.shell last-selected-power-profile`: the last profile other
+/// than `balanced` the user picked.
+pub fn remember_profile(profile: &str) {
+    use gio::prelude::*;
+    if profile == "balanced" || !helix_settings::has_schema("org.gnome.shell") {
+        return;
+    }
+    let s = gio::Settings::new("org.gnome.shell");
+    if s.settings_schema().is_some_and(|x| x.has_key("last-selected-power-profile")) && s.string("last-selected-power-profile") != profile {
+        let _ = s.set_string("last-selected-power-profile", profile);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -533,3 +548,4 @@ mod tests {
         assert!(!airplane(None, Some(true)));
     }
 }
+

@@ -210,7 +210,7 @@ mod tests {
     use super::*;
 
     fn note(id: u32, app: &str) -> Banner {
-        Banner { id, app_name: app.into(), app_id: app.to_lowercase(), summary: format!("secret {id}"), body: "<b>line</b>\nmore".into(), buttons: Vec::new(), icon: None, markup: true }
+        Banner { id, app_name: app.into(), app_id: app.to_lowercase(), summary: format!("secret {id}"), body: "<b>line</b>\nmore".into(), buttons: Vec::new(), icon: None, markup: true, expanded: false }
     }
 
     #[test]

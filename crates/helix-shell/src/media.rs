@@ -314,6 +314,9 @@ fn mount_operation(name: &str) -> (gio::MountOperation, u64) {
         let (user, domain) = (user.to_owned(), domain.to_owned());
         ask(id, prompt, move |answer| match answer {
             Answer::Continue { entry, password, choice, .. } => {
+                if flags.contains(gio::AskPasswordFlags::SAVING_SUPPORTED) {
+                    crate::mount_handler::remember_chosen(choice);
+                }
                 let details = crate::mount_handler::password_details(bits, &user, &domain, entry.as_deref(), None, choice);
                 let get = |k: &str| details.get(k).and_then(|v| String::try_from(v.clone()).ok());
                 Reply::Password {

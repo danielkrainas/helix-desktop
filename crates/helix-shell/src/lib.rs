@@ -67,6 +67,7 @@ pub mod user_switch;
 pub mod wallpaper;
 pub mod weather;
 pub mod wellbeing;
+pub mod welcome;
 pub mod windows;
 
 use std::collections::HashMap;

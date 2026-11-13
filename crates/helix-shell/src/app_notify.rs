@@ -63,6 +63,20 @@ pub fn policy(app_id: &str) -> AppPolicy {
     }
 }
 
+/// `force-expanded`: `app_id`'s banners show their whole text (read only;
+/// false without settings).
+pub fn force_expanded(app_id: &str) -> bool {
+    let source = gio::SettingsSchemaSource::default();
+    let Some(app_schema) = source.as_ref().and_then(|s| s.lookup(APPLICATION, true)).filter(|_| !app_id.is_empty()) else {
+        return false;
+    };
+    if !app_schema.has_key("force-expanded") {
+        return false;
+    }
+    let settings = gio::Settings::new_full(&app_schema, None::<&gio::SettingsBackend>, Some(format!("{BASE}{}/", child(app_id)).as_str()));
+    settings.boolean("force-expanded")
+}
+
 /// Whether `app_id`'s notifications show on the lock screen, and with
 /// their text: (`show-in-lock-screen`, `details-in-lock-screen`). Read
 /// only; apps without settings get (true, false).

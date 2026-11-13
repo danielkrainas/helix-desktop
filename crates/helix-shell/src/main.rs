@@ -141,6 +141,8 @@ fn main() -> ExitCode {
             }
         }
     });
+    // The welcome dialog, once per version.
+    runtime.spawn(helix_shell::welcome::run(service.ui_sender()));
     // Old Trash and temporary files.
     runtime.spawn(helix_shell::housekeeping::run());
     // The clock's format.

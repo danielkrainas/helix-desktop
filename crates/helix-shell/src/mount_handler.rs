@@ -112,11 +112,32 @@ pub fn password_prompt(message: &str, default_user: &str, default_domain: &str, 
         message: rest,
         entry,
         password: need(flags::NEED_PASSWORD).then(|| "Password".to_owned()),
-        choice: need(flags::SAVING_SUPPORTED).then(|| ("Remember Password".to_owned(), false)),
+        choice: need(flags::SAVING_SUPPORTED).then(|| ("Remember Password".to_owned(), remember_default())),
         continue_label: "Connect".into(),
         cancel_label: "Cancel".into(),
         ..Prompt::default()
     })
+}
+
+/// `org.gnome.shell remember-mount-password`: the "Remember Password"
+/// box's first state.
+pub fn remember_default() -> bool {
+    use gio::prelude::*;
+    helix_settings::has_schema("org.gnome.shell") && {
+        let s = gio::Settings::new("org.gnome.shell");
+        s.settings_schema().is_some_and(|x| x.has_key("remember-mount-password")) && s.boolean("remember-mount-password")
+    }
+}
+
+/// Keeps the user's last "Remember Password" choice as the next default.
+pub fn remember_chosen(on: bool) {
+    use gio::prelude::*;
+    if helix_settings::has_schema("org.gnome.shell") {
+        let s = gio::Settings::new("org.gnome.shell");
+        if s.settings_schema().is_some_and(|x| x.has_key("remember-mount-password")) && s.boolean("remember-mount-password") != on {
+            let _ = s.set_boolean("remember-mount-password", on);
+        }
+    }
 }
 
 /// The `response_details` of an answered password dialog.
@@ -263,6 +284,9 @@ impl MountHandler {
         prompt.icon = icon(&icon_name);
         self.run(sender_of(&header), id, prompt, |answer| match answer {
             Answer::Continue { entry, password, choice, .. } => {
+                if flags & flags::SAVING_SUPPORTED != 0 {
+                    remember_chosen(choice);
+                }
                 let password = password.map(|p| String::from_utf8_lossy(p.bytes()).into_owned());
                 (result::HANDLED, password_details(flags, &default_user, &default_domain, entry.as_deref(), password.as_deref(), choice))
             }
