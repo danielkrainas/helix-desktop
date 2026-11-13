@@ -99,25 +99,27 @@ pub(super) fn items(state: MenuState, workspace: Option<u32>, count: u32) -> Vec
 }
 
 /// The menu entries for engine properties (`None`: a separator): visible
-/// and sensitive ones, a menu's entries in its place, separators only
-/// between entries.
-pub(super) fn property_entries(props: &[crate::ibus::Prop]) -> Vec<Option<&crate::ibus::Prop>> {
+/// ones; a menu property is a submenu of its entries (one without any is
+/// left out); insensitive ones are left out; separators only between
+/// entries. `leaf` makes the entry of a property that is not a menu.
+pub(super) fn property_items(props: &[crate::ibus::Prop], leaf: &mut dyn FnMut(&crate::ibus::Prop) -> Item) -> Vec<Option<Item>> {
     use crate::ibus::PropKind;
-    let mut out: Vec<Option<&crate::ibus::Prop>> = Vec::new();
+    let mut out: Vec<Option<Item>> = Vec::new();
     for p in props.iter().filter(|p| p.visible) {
         match p.kind {
             PropKind::Separator => out.push(None),
-            PropKind::Menu => {
-                out.push(None);
-                out.extend(p.sub.iter().filter(|s| s.visible && s.sensitive && s.kind != PropKind::Separator && s.kind != PropKind::Menu).map(Some));
-                out.push(None);
+            PropKind::Menu if p.sensitive => {
+                let sub = property_items(&p.sub, leaf);
+                if !sub.is_empty() {
+                    out.push(Some(Item { label: p.label.clone(), choice: Choice::Submenu, checked: None, active: false, sub }));
+                }
             }
-            _ if p.sensitive => out.push(Some(p)),
+            _ if p.sensitive => out.push(Some(leaf(p))),
             _ => {}
         }
     }
     // No separator first, last or twice.
-    let mut clean: Vec<Option<&crate::ibus::Prop>> = Vec::new();
+    let mut clean: Vec<Option<Item>> = Vec::new();
     for e in out {
         if e.is_none() && clean.last().is_none_or(|l| l.is_none()) {
             continue;
@@ -188,22 +190,19 @@ impl Ui {
         // The IBus engine's properties, below its source.
         self.ime_menu.clear();
         if sources.first().is_some_and(|s| s.0 == "ibus") {
-            let props = property_entries(&self.ime_props);
+            let ime_menu = &mut self.ime_menu;
+            let mut leaf = |p: &crate::ibus::Prop| {
+                let index = ime_menu.len();
+                ime_menu.push((p.key.clone(), p.kind, p.state));
+                let checked = (p.kind == crate::ibus::PropKind::Toggle).then_some(p.state == 1);
+                let active = p.kind == crate::ibus::PropKind::Radio && p.state == 1;
+                Item { label: p.label.clone(), choice: Choice::ImProperty(index), checked, active, sub: Vec::new() }
+            };
+            let props = property_items(&self.ime_props, &mut leaf);
             if !props.is_empty() {
                 items.push(None);
             }
-            for entry in props {
-                match entry {
-                    None => items.push(None),
-                    Some(p) => {
-                        let index = self.ime_menu.len();
-                        self.ime_menu.push((p.key.clone(), p.kind, p.state));
-                        let checked = (p.kind == crate::ibus::PropKind::Toggle).then_some(p.state == 1);
-                        let active = p.kind == crate::ibus::PropKind::Radio && p.state == 1;
-                        items.push(Some(Item { label: p.label.clone(), choice: Choice::ImProperty(index), checked, active, sub: Vec::new() }));
-                    }
-                }
-            }
+            items.extend(props);
         }
         self.open_menu(0, x, PANEL_HEIGHT as i32, items, sources);
     }
@@ -574,13 +573,19 @@ mod tests {
         use crate::ibus::PropKind::*;
         let props = vec![
             p("sep", Separator, true, vec![]),
-            p("InputMode", Menu, true, vec![p("Hira", Radio, true, vec![]), p("Kata", Radio, true, vec![]), p("hidden", Radio, false, vec![])]),
+            p("InputMode", Menu, true, vec![p("Hira", Radio, true, vec![]), p("Kata", Radio, true, vec![]), p("hidden", Radio, false, vec![]), p("More", Menu, true, vec![p("Half", Radio, true, vec![])])]),
             p("Wide", Toggle, true, vec![]),
             p("Gone", Normal, false, vec![]),
+            p("Empty", Menu, true, vec![p("x", Radio, false, vec![])]),
             p("sep2", Separator, true, vec![]),
         ];
-        let keys: Vec<&str> = property_entries(&props).iter().map(|e| e.map_or("-", |p| p.key.as_str())).collect();
-        assert_eq!(keys, ["Hira", "Kata", "-", "Wide"]);
+        let mut leaf = |p: &crate::ibus::Prop| Item { label: p.key.clone(), choice: Choice::Back, checked: None, active: false, sub: Vec::new() };
+        let items = property_items(&props, &mut leaf);
+        assert_eq!(labels(&items), ["InputMode", "Wide"]);
+        let menu = items[0].as_ref().unwrap();
+        assert_eq!(menu.choice, Choice::Submenu);
+        assert_eq!(labels(&menu.sub), ["Hira", "Kata", "More"]);
+        assert_eq!(labels(&menu.sub[2].as_ref().unwrap().sub), ["Half"], "menus in menus");
     }
 
     #[test]
