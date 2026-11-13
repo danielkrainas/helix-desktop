@@ -22,6 +22,8 @@ pub struct Host {
     /// `/bin`, `/sbin`, `/lib`… as they are: (path, where it links to, or
     /// `None` for a directory). Missing ones are left out.
     pub root_entries: Vec<(PathBuf, Option<PathBuf>)>,
+    /// Bubblewrap can turn user namespaces off inside the sandbox.
+    pub disable_userns: bool,
 }
 
 impl Host {
@@ -59,6 +61,7 @@ impl Host {
             system_bus: PathBuf::from("/run/dbus/system_bus_socket"),
             xdg_dirs,
             root_entries,
+            disable_userns: can_disable_userns(),
         }
     }
 }
@@ -78,6 +81,74 @@ pub fn available() -> bool {
     std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join("bwrap").is_file()))
 }
 
+const LAUNCHER: &str = "helix-extension-sandbox";
+
+/// What starts bubblewrap: `helix-extension-sandbox` (installed in
+/// `../libexec/helix/` from the shell, or beside it), which AppArmor may
+/// allow user namespaces; else `bwrap` itself.
+pub fn launcher() -> PathBuf {
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+    exe_dir
+        .into_iter()
+        .flat_map(|d| [d.join("../libexec/helix").join(LAUNCHER), d.join(LAUNCHER)])
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from("bwrap"))
+}
+
+/// Whether this bubblewrap can turn off user namespaces inside the
+/// sandbox (`--disable-userns`, bubblewrap 0.8).
+fn can_disable_userns() -> bool {
+    static CAN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CAN.get_or_init(|| {
+        let out = std::process::Command::new("bwrap").arg("--version").output().ok();
+        let version = out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+        version_at_least(&version, (0, 8))
+    })
+}
+
+/// Whether `bubblewrap X.Y.Z` is at least `min`.
+fn version_at_least(text: &str, min: (u32, u32)) -> bool {
+    let Some(v) = text.split_whitespace().nth(1) else { return false };
+    let mut parts = v.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    (parts.next().unwrap_or(0), parts.next().unwrap_or(0)) >= min
+}
+
+/// Why sandboxes can't start here, from bubblewrap's complaint.
+pub fn explain(stderr: &str, restricted: bool) -> String {
+    let line = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("it failed").trim();
+    let denied = line.contains("Operation not permitted") || line.contains("Permission denied");
+    if denied && restricted {
+        format!("the sandbox can't start: this system restricts user namespaces (AppArmor) and the helix-extension-sandbox profile is not loaded ({line})")
+    } else {
+        format!("the sandbox can't start: {line}")
+    }
+}
+
+/// Whether a sandbox starts on this system (tried once): `Err` says why not.
+pub fn works() -> Result<(), String> {
+    static WORKS: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+    WORKS
+        .get_or_init(|| {
+            let host = Host::current();
+            let mut args: Vec<String> = ["--die-with-parent", "--unshare-all", "--ro-bind", "/usr", "/usr"].map(String::from).to_vec();
+            for (path, target) in &host.root_entries {
+                let (p, t) = (path.to_string_lossy().into_owned(), target.as_ref().map(|t| t.to_string_lossy().into_owned()));
+                match t {
+                    Some(t) => args.extend(["--symlink".into(), t, p]),
+                    None => args.extend(["--ro-bind".into(), p.clone(), p]),
+                }
+            }
+            args.extend(["--proc", "/proc", "--dev", "/dev", "--", "true"].map(String::from));
+            let out = std::process::Command::new(launcher()).args(&args).stdin(std::process::Stdio::null()).output().map_err(|e| format!("the sandbox can't start: {e}"))?;
+            if out.status.success() {
+                return Ok(());
+            }
+            let restricted = std::fs::read_to_string("/proc/sys/kernel/apparmor_restrict_unprivileged_userns").is_ok_and(|v| v.trim() == "1");
+            Err(explain(&String::from_utf8_lossy(&out.stderr), restricted))
+        })
+        .clone()
+}
+
 /// The arguments to `bwrap` for running `program` (with `args`) of `m`,
 /// whose directory is `dir`.
 pub fn bwrap_args(m: &Manifest, dir: &Path, host: &Host, program: &Path, args: &[String]) -> Vec<String> {
@@ -86,6 +157,10 @@ pub fn bwrap_args(m: &Manifest, dir: &Path, host: &Host, program: &Path, args: &
     let mut out: Vec<String> = Vec::new();
     let mut push = |items: &[&str]| out.extend(items.iter().map(|i| i.to_string()));
     push(&["--die-with-parent", "--new-session", "--unshare-all"]);
+    // No user namespaces of its own inside.
+    if host.disable_userns {
+        push(&["--unshare-user", "--disable-userns"]);
+    }
     if has("network") {
         push(&["--share-net"]);
     }
@@ -99,6 +174,10 @@ pub fn bwrap_args(m: &Manifest, dir: &Path, host: &Host, program: &Path, args: &
     push(&["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]);
     // Its own directory, read-only, and its own home.
     push(&["--ro-bind", &s(dir), &s(dir)]);
+    // A program outside it (an absolute `exec`), read-only too.
+    if !program.starts_with(dir) {
+        push(&["--ro-bind", &s(program), &s(program)]);
+    }
     let data = data_dir(host, &m.id);
     let full_home = has("files:home");
     if full_home {
@@ -158,6 +237,7 @@ mod tests {
             system_bus: "/run/dbus/system_bus_socket".into(),
             xdg_dirs: vec![("downloads".into(), "/home/u/Downloads".into())],
             root_entries: vec![("/bin".into(), Some("usr/bin".into())), ("/lib64".into(), None)],
+            disable_userns: true,
         }
     }
 
@@ -169,7 +249,10 @@ mod tests {
     #[test]
     fn closed_by_default() {
         let a = bwrap_args(&manifest(&[]), Path::new("/ext/org.x.S"), &host(), Path::new("/ext/org.x.S/bin/s"), &["--x".into()]);
-        assert!(has_seq(&a, &["--die-with-parent", "--new-session", "--unshare-all"]));
+        assert!(has_seq(&a, &["--die-with-parent", "--new-session", "--unshare-all", "--unshare-user", "--disable-userns"]));
+        let old = Host { disable_userns: false, ..host() };
+        let b = bwrap_args(&manifest(&[]), Path::new("/e"), &old, Path::new("/e/s"), &[]);
+        assert!(!b.iter().any(|x| x == "--disable-userns"), "bubblewrap before 0.8");
         assert!(!a.contains(&"--share-net".to_owned()), "no network");
         assert!(has_seq(&a, &["--symlink", "usr/bin", "/bin"]) && has_seq(&a, &["--ro-bind", "/lib64", "/lib64"]));
         assert!(has_seq(&a, &["--ro-bind", "/ext/org.x.S", "/ext/org.x.S"]));
@@ -188,7 +271,22 @@ mod tests {
         assert!(has_seq(&a, &["--ro-bind", "/run/user/1000/bus", "/run/user/1000/bus"]));
         assert!(has_seq(&a, &["--ro-bind", "/run/dbus/system_bus_socket", "/run/dbus/system_bus_socket"]));
         let home = bwrap_args(&manifest(&["files:home"]), Path::new("/e"), &host(), Path::new("/e/s"), &[]);
+        assert!(!home.windows(2).any(|w| w[0] == "--ro-bind" && w[1] == "/e/s"), "its own program comes with its directory");
+        let outside = bwrap_args(&manifest(&[]), Path::new("/e"), &host(), Path::new("/opt/tool/bin/s"), &[]);
+        assert!(has_seq(&outside, &["--ro-bind", "/opt/tool/bin/s", "/opt/tool/bin/s"]));
         assert!(has_seq(&home, &["--bind", "/home/u", "/home/u", "--setenv", "HOME", "/home/u"]));
+    }
+
+    #[test]
+    fn versions_and_reasons() {
+        assert!(version_at_least("bubblewrap 0.9.0\n", (0, 8)));
+        assert!(version_at_least("bubblewrap 1.0", (0, 8)));
+        assert!(!version_at_least("bubblewrap 0.6.2", (0, 8)));
+        assert!(!version_at_least("", (0, 8)));
+        let ubuntu = "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\n";
+        assert!(explain(ubuntu, true).contains("restricts user namespaces (AppArmor)"));
+        assert!(!explain(ubuntu, false).contains("AppArmor"));
+        assert_eq!(explain("", false), "the sandbox can't start: it failed");
     }
 
     #[test]

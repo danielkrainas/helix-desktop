@@ -1,0 +1,14 @@
+# Helix extension sandboxes: lets bubblewrap, started through
+# helix-extension-sandbox, use unprivileged user namespaces where AppArmor
+# restricts them (kernel.apparmor_restrict_unprivileged_userns=1, as on
+# Ubuntu 24.04 and later). Only programs started by this helper are
+# affected; the sandbox itself turns further user namespaces off.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile helix-extension-sandbox /usr/libexec/helix/helix-extension-sandbox flags=(unconfined) {
+  userns,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/helix-extension-sandbox>
+}

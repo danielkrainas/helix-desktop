@@ -22,6 +22,9 @@ esac
 for b in helix-comp helix-shell helix-session helix-portals helix-bluetooth-sendto helix-extensions; do
     install -Dm755 "$bin/$b" "$dest/usr/bin/$b"
 done
+# The extension sandbox's launcher and its AppArmor profile.
+install -Dm755 "$bin/helix-extension-sandbox" "$dest/usr/libexec/helix/helix-extension-sandbox"
+install -Dm644 "$root/packaging/apparmor/helix-extension-sandbox" "$dest/etc/apparmor.d/helix-extension-sandbox"
 install -Dm644 "$root/session/helix.desktop" "$dest/usr/share/wayland-sessions/helix.desktop"
 install -Dm644 "$root/session/helix.portal" "$dest/usr/share/xdg-desktop-portal/portals/helix.portal"
 install -Dm644 "$root/session/helix-portals.conf" "$dest/usr/share/xdg-desktop-portal/helix-portals.conf"

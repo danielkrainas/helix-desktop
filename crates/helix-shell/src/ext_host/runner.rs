@@ -429,6 +429,15 @@ impl ExtHost {
                     }
                     continue;
                 }
+                // Tried once: no use starting sandboxes that can't start.
+                if manifest.sandbox && enabled {
+                    if let Err(reason) = super::sandbox::works() {
+                        if ext.run.is_none() {
+                            ext.state = State::Invalid(reason);
+                        }
+                        continue;
+                    }
+                }
                 if enabled && approved && ext.found.kind != Kind::Development {
                     placements.push(manifest.clone());
                 }
@@ -619,7 +628,8 @@ impl ExtHost {
             let exec: Vec<String> = if m.sandbox {
                 let host = super::sandbox::Host::current();
                 let _ = std::fs::create_dir_all(super::sandbox::data_dir(&host, &m.id));
-                std::iter::once("bwrap".to_owned()).chain(super::sandbox::bwrap_args(&m, &dir, &host, &program, &m.exec[1..])).collect()
+                let launcher = super::sandbox::launcher().to_string_lossy().into_owned();
+                std::iter::once(launcher).chain(super::sandbox::bwrap_args(&m, &dir, &host, &program, &m.exec[1..])).collect()
             } else {
                 std::iter::once(program.to_string_lossy().into_owned()).chain(m.exec[1..].iter().cloned()).collect()
             };

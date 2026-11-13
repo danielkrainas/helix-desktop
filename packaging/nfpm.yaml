@@ -35,6 +35,18 @@ contents:
     dst: /usr/bin/helix-bluetooth-sendto
   - src: ./stage/usr/bin/helix-extensions
     dst: /usr/bin/helix-extensions
+  - src: ./stage/usr/libexec/helix/helix-extension-sandbox
+    dst: /usr/libexec/helix/helix-extension-sandbox
+  # AppArmor (Debian/Ubuntu, Arch): lets extension sandboxes start where
+  # unprivileged user namespaces are restricted. Fedora has no AppArmor.
+  - src: ./stage/etc/apparmor.d/helix-extension-sandbox
+    dst: /etc/apparmor.d/helix-extension-sandbox
+    type: config|noreplace
+    packager: deb
+  - src: ./stage/etc/apparmor.d/helix-extension-sandbox
+    dst: /etc/apparmor.d/helix-extension-sandbox
+    type: config|noreplace
+    packager: archlinux
   - src: ./stage/usr/share/wayland-sessions/helix.desktop
     dst: /usr/share/wayland-sessions/helix.desktop
   - src: ./stage/usr/share/xdg-desktop-portal/portals/helix.portal
@@ -58,6 +70,8 @@ contents:
 
 overrides:
   deb:
+    scripts:
+      postinstall: ./packaging/postinstall.sh
     # Ubuntu 24.04 / Debian 13 names; the t64 ones fall back to the older
     # names.
     depends:
@@ -80,6 +94,8 @@ overrides:
       - gsettings-desktop-schemas
       - dconf-service
       - pipewire
+      # Extension sandboxes.
+      - bubblewrap
   rpm:
     depends:
       - glibc
@@ -101,7 +117,11 @@ overrides:
       - gsettings-desktop-schemas
       - dconf
       - pipewire
+      # Extension sandboxes.
+      - bubblewrap
   archlinux:
+    scripts:
+      postinstall: ./packaging/postinstall.sh
     depends:
       - glibc
       - gcc-libs
@@ -122,5 +142,7 @@ overrides:
       - gsettings-desktop-schemas
       - dconf
       - pipewire
+      # Extension sandboxes.
+      - bubblewrap
 archlinux:
   packager: Helix release workflow
