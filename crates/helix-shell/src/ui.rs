@@ -249,6 +249,8 @@ struct Ui {
     power: crate::logind::Availability,
     /// A display manager can switch users.
     user_switch: bool,
+    /// Windows that want attention.
+    attention: std::collections::HashSet<u32>,
     /// The screen is being shared (panel indicator).
     sharing: bool,
     /// The screen is being recorded (panel indicator).
@@ -2104,6 +2106,7 @@ impl Ui {
             }
             UiEvent::PowerAvailability(power) => self.power = power,
             UiEvent::UserSwitch(available) => self.user_switch = available,
+            UiEvent::ActivateWindow(id) => self.activate_window(id),
             UiEvent::Lock => self.start_lock(),
             UiEvent::Banner(banner) => self.show_banner(banner),
             UiEvent::Osd(osd) => {
@@ -2417,7 +2420,7 @@ pub fn run(
     let shm = Shm::bind(&globals, &qh)?;
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=8, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=9, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=6, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
@@ -2518,6 +2521,7 @@ pub fn run(
         monitor_labels: Vec::new(),
         power: Default::default(),
         user_switch: false,
+        attention: Default::default(),
         sharing: false,
         recording: false,
         status: Default::default(),
@@ -3243,6 +3247,9 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                 }
                 ui.draw_overview();
                 ui.close_not_responding(id);
+                if ui.attention.contains(&id) {
+                    ui.window_attention(id, false);
+                }
                 ui.windows.close(id);
                 ui.window_sources.remove(&id);
                 ui.dock_update();
@@ -3282,6 +3289,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                     ui.show_dialog(DialogState { kind: DialogKind::NotResponding { id, title }, remaining: 0 });
                 }
             }
+            helix_window_list_v1::Event::Attention { id, wanting } => ui.window_attention(id, wanting != 0),
             helix_window_list_v1::Event::ShortcutsInhibit { id } => ui.shortcuts_inhibit(id),
             helix_window_list_v1::Event::Workspaces { count, active } => {
                 let switched = active != ui.windows.active;

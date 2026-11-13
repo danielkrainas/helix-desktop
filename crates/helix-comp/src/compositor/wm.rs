@@ -113,6 +113,7 @@ impl Helix {
         }
         let keyboard = self.seat.get_keyboard().unwrap();
         keyboard.set_focus(self, super::focus::focus_target(window), SERIAL_COUNTER.next_serial());
+        self.set_attention(window, false);
         self.check_alive(window);
         let managed: Vec<Window> = self.managed().cloned().collect();
         for w in &managed {

@@ -6,6 +6,7 @@ mod a11y;
 mod actions;
 mod zoom;
 mod alive;
+mod attention;
 mod capture;
 mod color;
 mod cursor;
@@ -196,6 +197,8 @@ pub struct Helix {
     /// Num Lock as last remembered for the next session (None until the
     /// settings were first applied).
     pub saved_numlock: Option<bool>,
+    /// Windows that want attention.
+    pub attention: Vec<Window>,
     /// Touchscreen and tablet mapping state.
     pub tablet: tablet_input::TabletInput,
     /// The tablet protocol's objects.
@@ -255,7 +258,7 @@ impl Helix {
 
         // Private protocol for the shell (visible to privileged clients only).
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
-        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(8, ());
+        dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(9, ());
         helix_comp::tablet_v2::TabletV2::global::<Self>(&dh);
         dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(6, ());
         let socket_name = Self::listen(display, event_loop)?;
@@ -334,6 +337,7 @@ impl Helix {
             input_settings: None,
             input_devices: Vec::new(),
             saved_numlock: None,
+            attention: Vec::new(),
             tablet: Default::default(),
             tablet_v2: Default::default(),
             touch_gestures: Default::default(),

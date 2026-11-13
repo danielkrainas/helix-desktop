@@ -90,6 +90,7 @@ impl Helix {
                                             smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::Pong(id)) => state.x11_pong(id),
                                             smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::IconChanged(id)) => state.x11_icon_changed(id),
                                             smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::Bell(id)) => state.x11_bell(id),
+                                            smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::Attention(id, action)) => state.x11_demands_attention(id, action),
                                             smithay::reexports::calloop::channel::Event::Msg(super::x11ping::X11Note::MayGrab(id, on)) => {
                                                 tracing::debug!(id, on, "an X11 window asks to be allowed keyboard grabs");
                                                 state.protocols.x11_may_grab.retain(|w| *w != id);
@@ -181,6 +182,12 @@ impl XwmHandler for Helix {
     }
 
     fn new_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
+
+    fn property_notify(&mut self, _xwm: XwmId, window: X11Surface, property: smithay::xwayland::xwm::WmWindowProperty) {
+        if matches!(property, smithay::xwayland::xwm::WmWindowProperty::Hints) {
+            self.x11_hints_changed(&window);
+        }
+    }
     fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
 
     fn map_window_request(&mut self, _xwm: XwmId, surface: X11Surface) {

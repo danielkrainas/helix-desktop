@@ -51,6 +51,8 @@ pub enum Origin {
     /// The shell's own: removable media; `open`/`eject` buttons act on
     /// the mount at `root` (a URI), when there is one.
     Media { root: Option<String> },
+    /// The shell's own: window `id` wants attention; clicking activates it.
+    Window { id: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq)]

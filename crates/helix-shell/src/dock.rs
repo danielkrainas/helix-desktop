@@ -188,6 +188,9 @@ pub struct DockSettings {
     /// `show-dock-urgent-notify`, `dance-urgent-applications`.
     pub urgent_shows: bool,
     pub urgent_dance: bool,
+    /// `workspace-agnostic-urgent-windows`: windows wanting attention
+    /// count on every workspace.
+    pub urgent_any_workspace: bool,
 }
 
 impl Default for DockSettings {
@@ -238,6 +241,7 @@ impl Default for DockSettings {
             single_window: true,
             urgent_shows: true,
             urgent_dance: true,
+            urgent_any_workspace: true,
         }
     }
 }
@@ -333,6 +337,7 @@ pub fn read() -> DockSettings {
         single_window: b("activate-single-window", d.single_window),
         urgent_shows: b("show-dock-urgent-notify", d.urgent_shows),
         urgent_dance: b("dance-urgent-applications", d.urgent_dance),
+        urgent_any_workspace: b("workspace-agnostic-urgent-windows", d.urgent_any_workspace),
         hot_keys: b("hot-keys", true).then(|| {
             let strv = |k: &str| if key(k) { s.strv(k).iter().map(|a| a.to_string()).collect() } else { Vec::new() };
             let mut apps = Vec::new();

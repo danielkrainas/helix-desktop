@@ -232,6 +232,35 @@ impl Center {
         }, None)
     }
 
+    /// "<title> is ready": window `id` of app `app_id` wants attention.
+    pub fn window_ready(&self, id: u32, title: &str, app_id: &str) -> u32 {
+        use gio::prelude::*;
+        let wanted = format!("{app_id}.desktop");
+        let info = gio::AppInfo::all().into_iter().find(|a| a.id().is_some_and(|i| i.eq_ignore_ascii_case(&wanted)));
+        let app_name = info.as_ref().map_or_else(|| app_id.to_owned(), |i| i.name().to_string());
+        let icon = info.as_ref().and_then(|i| i.icon()).and_then(|i| i.downcast::<gio::ThemedIcon>().ok()).map(|t| t.names().iter().map(|n| n.to_string()).collect::<Vec<_>>());
+        let title = if title.is_empty() { app_name.clone() } else { title.to_owned() };
+        self.post_for(
+            Notification {
+                id: 0,
+                app_name,
+                summary: format!("{title} is ready"),
+                body: String::new(),
+                actions: Vec::new(),
+                has_default: true,
+                urgency: Urgency::Normal,
+                timeout: Notification::timeout_from(-1, Urgency::Normal),
+                icon: Some(IconSource::Names(icon.unwrap_or_else(|| vec!["dialog-information-symbolic".into()]))),
+                origin: Origin::Window { id },
+                markup: false,
+                transient: false,
+                app_id: String::new(),
+            },
+            None,
+            info.is_some().then_some(app_id),
+        )
+    }
+
     /// "Screencast recorded", naming the file.
     pub fn screencast_recorded(&self, path: std::path::PathBuf) -> u32 {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -415,6 +444,10 @@ impl Center {
                     ("eject", Some(root)) => crate::media::request(root.clone(), crate::media::Request::Eject),
                     _ => {}
                 }
+                self.remove(id);
+            }
+            Origin::Window { id: window } => {
+                let _ = self.ui.send(UiEvent::ActivateWindow(*window));
                 self.remove(id);
             }
             Origin::Screenshot { path } => {

@@ -438,9 +438,12 @@ impl XdgActivationHandler for Helix {
     ) {
         // Honor fresh tokens (e.g. an app launched from the shell, or a
         // notification click); ignore stale ones rather than steal focus.
-        if token_data.timestamp.elapsed() < ACTIVATION_TOKEN_TTL {
-            if let Some(window) = self.window_for_surface(&surface) {
+        if let Some(window) = self.window_for_surface(&surface) {
+            if token_data.timestamp.elapsed() < ACTIVATION_TOKEN_TTL {
                 self.focus_window(&window);
+            } else {
+                // Not granted: it wants attention instead.
+                self.set_attention(&window, true);
             }
         }
         self.activation_state.remove_token(&token);

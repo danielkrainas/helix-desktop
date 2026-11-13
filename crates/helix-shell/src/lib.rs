@@ -169,6 +169,8 @@ pub enum UiEvent {
     EndDialog(Option<end_dialog::EndDialog>),
     /// Which power actions the Power menu may offer.
     PowerAvailability(logind::Availability),
+    /// Activate window `id` (a "<window> is ready" notification).
+    ActivateWindow(u32),
     /// Whether a display manager can switch users (`user_switch`).
     UserSwitch(bool),
     /// Ask whether to keep a display change (countdown seconds), or stop
@@ -281,6 +283,8 @@ pub enum UiRequest {
     BreakAnswer(wellbeing::Answer),
     /// The lock screen wants the player (after pressing a button).
     LockMedia(Option<shell_keys::Playback>),
+    /// Window `id` (titled, of app) wants attention, or no longer does.
+    WindowAttention { id: u32, wanting: bool, title: String, app_id: String },
     /// The apps with windows (app id → 1 running, 2 focused).
     RunningApps(HashMap<String, u32>),
     /// The tray's calendar shows `[from, to)`: read its data.
@@ -714,6 +718,7 @@ impl ShellService {
             ibus: self.ibus.clone(),
             recorder: self.recorder.clone(),
             search: search::Searcher::default(),
+            attention_notices: Default::default(),
         }
     }
 
@@ -739,6 +744,8 @@ pub struct UiBridge {
     ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
     recorder: recording::Recorder,
     search: search::Searcher,
+    /// "<window> is ready" notifications, by window id.
+    attention_notices: Arc<std::sync::Mutex<std::collections::HashMap<u32, u32>>>,
 }
 
 /// Largest file previewed.
@@ -1044,6 +1051,16 @@ impl UiBridge {
             }
             UiRequest::RunningApps(apps) => {
                 portal_dialog::set_running(&self.conn, apps).await;
+                Ok(())
+            }
+            UiRequest::WindowAttention { id, wanting, title, app_id } => {
+                let mut shown = self.attention_notices.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(notice) = shown.remove(&id) {
+                    self.center.withdraw(notice);
+                }
+                if wanting {
+                    shown.insert(id, self.center.window_ready(id, &title, &app_id));
+                }
                 Ok(())
             }
             UiRequest::LockMedia(command) => {

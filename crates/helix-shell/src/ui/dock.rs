@@ -249,7 +249,7 @@ impl Ui {
             .windows
             .mru()
             .iter()
-            .filter(|e| !self.dock.settings.isolate_workspaces || e.workspace == self.windows.active || e.workspace == ALL_WORKSPACES)
+            .filter(|e| self.counts_urgent(e.id) || !self.dock.settings.isolate_workspaces || e.workspace == self.windows.active || e.workspace == ALL_WORKSPACES)
             .filter(|e| !self.dock.settings.isolate_monitors || self.on_view_monitor(e.id))
             .collect();
         entries.sort_by_key(|e| e.id);
@@ -263,10 +263,41 @@ impl Ui {
             .mru()
             .iter()
             .filter(|e| e.app_id.eq_ignore_ascii_case(app) || desktop_matches(&e.app_id, app))
-            .filter(|e| !isolate || e.workspace == self.windows.active || e.workspace == ALL_WORKSPACES)
+            .filter(|e| self.counts_urgent(e.id) || !isolate || e.workspace == self.windows.active || e.workspace == ALL_WORKSPACES)
             .filter(|e| !self.dock.settings.isolate_monitors || self.on_view_monitor(e.id))
             .map(|e| e.id)
             .collect()
+    }
+
+    /// Window `id` wants attention and counts on every workspace.
+    fn counts_urgent(&self, id: u32) -> bool {
+        self.dock.settings.urgent_any_workspace && self.attention.contains(&id)
+    }
+
+    /// Whether app `app` is urgent: its launcher entry says so, or one of
+    /// its windows wants attention.
+    pub(super) fn app_urgent(&self, app: &str) -> bool {
+        self.dock_entry(app).is_some_and(|e| e.urgent) || self.app_windows(app).iter().any(|w| self.attention.contains(w))
+    }
+
+    /// Window `id` wants attention (or no longer does): the dock marks its
+    /// app, and a notification says it is ready.
+    pub(super) fn window_attention(&mut self, id: u32, wanting: bool) {
+        let entry = self.windows.mru().iter().find(|e| e.id == id).cloned();
+        let app = entry.as_ref().map(|e| e.app_id.clone()).unwrap_or_default();
+        let app_key = desktop_id(&app).map_or_else(|| app.clone(), |d| d.trim_end_matches(".desktop").to_owned());
+        let was = self.app_urgent(&app_key);
+        let changed = if wanting { self.attention.insert(id) } else { self.attention.remove(&id) };
+        if !changed {
+            return;
+        }
+        tracing::info!(id, wanting, app, "window attention");
+        let _ = self.requests.send(UiRequest::WindowAttention { id, wanting, title: entry.map(|e| e.title).unwrap_or_default(), app_id: app_key.clone() });
+        if wanting && !was {
+            self.dock_urgent(&app_key);
+        }
+        self.dock_update();
+        self.dock_draw();
     }
 
     /// The dock's along-the-edge length for `items` at `icon` size.
@@ -655,6 +686,7 @@ impl Ui {
                 _ => None,
             })
             .collect();
+        let urgent: Vec<bool> = items.iter().map(|i| matches!(i, Item::App { id, .. } if self.app_urgent(id))).collect();
         // Urgent apps' wiggles.
         let wiggles: Vec<i32> = items
             .iter()
@@ -724,7 +756,7 @@ impl Ui {
             }
             let wiggle = wiggles[i];
             let (ix, iy) = (cell.x + (cell.w - icon) / 2 + if vertical { 0 } else { wiggle }, cell.y + (cell.h - icon) / 2 + if vertical { wiggle } else { 0 });
-            if entries[i].as_ref().is_some_and(|e| e.urgent) {
+            if urgent[i] {
                 canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, URGENT);
             } else if hover == Some(i) || focused_item == Some(i) {
                 let tint = if hover == Some(i) { 0x40FFFFFF } else { 0x26FFFFFF };

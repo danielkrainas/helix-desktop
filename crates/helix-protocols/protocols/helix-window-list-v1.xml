@@ -10,7 +10,7 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="8">
+  <interface name="helix_window_list_v1" version="9">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
       open window, topmost first, then a focused event (and, since version
@@ -142,6 +142,17 @@
       </description>
       <arg name="id" type="uint"/>
       <arg name="responding" type="uint"/>
+    </event>
+    <event name="attention" since="9">
+      <description summary="a window wants (or no longer wants) attention">
+        Window id asked to be activated and was not (an activation request
+        without a fresh token, an X11 urgency hint or
+        _NET_WM_STATE_DEMANDS_ATTENTION): wanting 1. It stops (wanting 0)
+        when it gets focus, closes or withdraws the request. Sent for
+        each window that wants attention right after binding too.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="wanting" type="uint"/>
     </event>
     <event name="shortcuts_inhibit" since="6">
       <description summary="an app asks for all keyboard shortcuts">

@@ -144,6 +144,7 @@ impl Helix {
             return;
         }
         let listed = self.listed_windows();
+        self.prune_attention();
         let workspaces: Vec<(u32, u32)> = listed.iter().map(|(id, w)| (*id, self.wire_workspace(w))).collect();
         let now: Vec<(u32, (String, String))> = listed.into_iter().map(|(id, w)| (id, describe(&w))).collect();
         let focus = self.focused_window_id();
@@ -277,6 +278,13 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
                 listener.geometry(*id, g.0, g.1, g.2, g.3, g.4);
             }
             geometry.insert(*id, g);
+        }
+        if listener.version() >= 9 {
+            for (id, window) in &windows {
+                if state.attention.contains(window) {
+                    listener.attention(*id, 1);
+                }
+            }
         }
         let mut icons = HashMap::new();
         for (id, window) in &windows {
