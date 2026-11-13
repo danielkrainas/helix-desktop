@@ -24,6 +24,8 @@ pub struct Prompt {
     pub confirm: Option<String>,
     /// A check box: its label and state.
     pub choice: Option<(String, bool)>,
+    /// More check boxes below it (labels and states).
+    pub checks: Vec<(String, bool)>,
     /// Rows to pick one of, and the one picked at first.
     pub list: Vec<String>,
     pub selected: usize,
@@ -60,7 +62,7 @@ pub struct Prompt {
 pub enum Answer {
     /// `picked`: with `multiple`, the rows picked (else none); `place`: the
     /// place clicked (it answered the dialog).
-    Continue { entry: Option<String>, password: Option<Secret>, confirm: Option<Secret>, choice: bool, selected: usize, picked: Vec<usize>, place: Option<usize> },
+    Continue { entry: Option<String>, password: Option<Secret>, confirm: Option<Secret>, choice: bool, checks: Vec<bool>, selected: usize, picked: Vec<usize>, place: Option<usize> },
     Cancel,
 }
 

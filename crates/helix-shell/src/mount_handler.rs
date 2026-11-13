@@ -30,6 +30,49 @@ pub mod flags {
     pub const NEED_USERNAME: u32 = 2;
     pub const NEED_DOMAIN: u32 = 4;
     pub const SAVING_SUPPORTED: u32 = 8;
+    pub const ANONYMOUS_SUPPORTED: u32 = 16;
+    pub const TCRYPT: u32 = 32;
+}
+
+/// The extra answers of Helix's own mount password dialogs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Extras {
+    pub anonymous: bool,
+    pub hidden_volume: bool,
+    pub system_volume: bool,
+    pub pim: Option<u32>,
+}
+
+/// Adds what `flags` offer beyond a password: "Connect Anonymously"
+/// (16); for VeraCrypt volumes (32) a "PIM" field (when there is no user
+/// name field) and "Hidden Volume" / "Windows System Volume" boxes.
+pub fn add_extras(prompt: &mut Prompt, flags: u32) {
+    if flags & flags::ANONYMOUS_SUPPORTED != 0 {
+        prompt.checks.push(("Connect Anonymously".into(), false));
+    }
+    if flags & flags::TCRYPT != 0 {
+        if prompt.entry.is_none() {
+            prompt.entry = Some(("PIM (optional)".into(), String::new()));
+        }
+        prompt.checks.push(("Hidden Volume".into(), false));
+        prompt.checks.push(("Windows System Volume".into(), false));
+    }
+}
+
+/// The extras answered, for a prompt made with [`add_extras`] (`user`:
+/// whether the prompt had a user name or domain field of its own).
+pub fn extras_of(flags: u32, user: bool, entry: Option<&str>, checks: &[bool]) -> Extras {
+    let mut at = 0;
+    let mut next = || {
+        let v = checks.get(at).copied().unwrap_or(false);
+        at += 1;
+        v
+    };
+    let anonymous = flags & flags::ANONYMOUS_SUPPORTED != 0 && next();
+    let tcrypt = flags & flags::TCRYPT != 0;
+    let (hidden_volume, system_volume) = if tcrypt { (next(), next()) } else { (false, false) };
+    let pim = if tcrypt && !user { entry.and_then(|e| e.trim().parse::<u32>().ok()) } else { None };
+    Extras { anonymous, hidden_volume, system_volume, pim }
 }
 
 /// `GPasswordSave`.
@@ -345,6 +388,18 @@ mod tests {
     }
 
     #[test]
+    fn extras() {
+        let mut p = password_prompt("Unlock", "", "", flags::NEED_PASSWORD | flags::TCRYPT).unwrap();
+        add_extras(&mut p, flags::NEED_PASSWORD | flags::TCRYPT);
+        assert_eq!(p.entry.as_ref().map(|e| e.0.as_str()), Some("PIM (optional)"));
+        assert_eq!(p.checks.len(), 2);
+        let e = extras_of(flags::TCRYPT, false, Some(" 485 "), &[true, false]);
+        assert_eq!(e, Extras { anonymous: false, hidden_volume: true, system_volume: false, pim: Some(485) });
+        let a = extras_of(flags::ANONYMOUS_SUPPORTED, true, Some("bob"), &[true]);
+        assert!(a.anonymous && a.pim.is_none());
+    }
+
+    #[test]
     fn password_dialogs() {
         assert!(password_prompt("x", "", "", flags::SAVING_SUPPORTED).is_none());
         let p = password_prompt("Enter password for share\non server", "bob", "WORK", flags::NEED_PASSWORD | flags::NEED_USERNAME | flags::NEED_DOMAIN | flags::SAVING_SUPPORTED).unwrap();
@@ -362,7 +417,7 @@ mod tests {
     }
 
     fn cont(selected: usize) -> Answer {
-        Answer::Continue { entry: None, password: None, confirm: None, choice: false, selected, picked: Vec::new(), place: None }
+        Answer::Continue { entry: None, password: None, confirm: None, choice: false, checks: Vec::new(), selected, picked: Vec::new(), place: None }
     }
 
     #[test]

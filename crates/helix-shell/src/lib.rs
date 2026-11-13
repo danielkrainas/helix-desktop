@@ -176,6 +176,9 @@ pub enum UiEvent {
     ActivateWindow(u32),
     /// App folders changed (renamed from the app grid).
     FoldersChanged,
+    /// Apps holding up logout (name, reason), for the lock screen's
+    /// Restart / Power Off question.
+    LockBlockers(Vec<(String, String)>),
     /// Whether a display manager can switch users (`user_switch`).
     UserSwitch(bool),
     /// Ask whether to keep a display change (countdown seconds), or stop
@@ -306,6 +309,8 @@ pub enum UiRequest {
     RenameFolder { id: String, name: String },
     /// Restart or Power Off confirmed on the lock screen.
     LockPower(PowerAction),
+    /// The lock screen asks which apps hold up logout.
+    LockBlockers,
     /// The user kept or reverted a display change (or time ran out).
     DisplayChangeAnswer { keep: bool },
     /// A screenshot, brightness or volume key was pressed.
@@ -1062,6 +1067,11 @@ impl UiBridge {
             }
             UiRequest::RunningApps(apps) => {
                 portal_dialog::set_running(&self.conn, apps).await;
+                Ok(())
+            }
+            UiRequest::LockBlockers => {
+                let blockers = end_dialog::logout_blockers(&self.conn).await;
+                let _ = self.ui.send(UiEvent::LockBlockers(blockers));
                 Ok(())
             }
             UiRequest::LockPower(action) => {

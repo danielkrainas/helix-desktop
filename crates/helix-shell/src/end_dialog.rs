@@ -89,6 +89,30 @@ async fn describe(conn: &Connection, path: &OwnedObjectPath) -> Option<(String, 
     Some((app_name(&app_id), reason))
 }
 
+/// The apps holding up logout now: (name, reason), from the session
+/// manager's inhibitors with the logout flag (1).
+pub async fn logout_blockers(conn: &Connection) -> Vec<(String, String)> {
+    let Ok(reply) = conn.call_method(Some("org.gnome.SessionManager"), "/org/gnome/SessionManager", Some("org.gnome.SessionManager"), "GetInhibitors", &()).await else {
+        return Vec::new();
+    };
+    let Ok(paths) = reply.body().deserialize::<Vec<OwnedObjectPath>>() else { return Vec::new() };
+    let mut out = Vec::new();
+    for path in &paths {
+        let flags = conn
+            .call_method(Some("org.gnome.SessionManager"), path.as_str(), Some("org.gnome.SessionManager.Inhibitor"), "GetFlags", &())
+            .await
+            .ok()
+            .and_then(|r| r.body().deserialize::<u32>().ok())
+            .unwrap_or(0);
+        if flags & 1 != 0 {
+            if let Some(b) = describe(conn, path).await {
+                out.push(b);
+            }
+        }
+    }
+    out
+}
+
 impl EndSessionDialog {
     /// Report the user's answer: the matching signal, then `Closed`.
     pub async fn answer(&self, choice: Choice, emitter: &SignalEmitter<'_>) -> zbus::Result<()> {

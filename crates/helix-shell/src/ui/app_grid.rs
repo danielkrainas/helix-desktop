@@ -50,7 +50,20 @@ pub(super) struct GridView {
     folder_title: Option<Rect>,
     folder_cells: Vec<(Rect, String)>,
     area: Rect,
+    /// The open folder's page, and its page dots.
+    folder_page: usize,
+    folder_dots: Vec<(Rect, usize)>,
+    folder_pages: usize,
+    /// A dragged icon held beyond the grid's left (false) or right (true)
+    /// side turns the page after a moment.
+    edge: Option<bool>,
+    edge_timer: Option<smithay_client_toolkit::reexports::calloop::RegistrationToken>,
 }
+
+/// How long a dragged icon is held at the side before the page turns,
+/// and then between turns.
+const EDGE_WAIT: std::time::Duration = std::time::Duration::from_millis(700);
+const EDGE_REPEAT: std::time::Duration = std::time::Duration::from_millis(900);
 
 impl GridView {
     fn page_items(&self) -> &[String] {
@@ -61,7 +74,7 @@ impl GridView {
 /// Where `drag` would land now.
 fn drop_at(view: &LauncherView, drag: &Drag) -> Option<Drop> {
     let g = &view.grid;
-        let (x, y) = drag.at;
+    let (x, y) = drag.at;
     if let Some(b) = g.folder_box {
         if drag.from_folder.is_some() && b.contains(x, y) {
             return Some(Drop::Stay);
@@ -186,6 +199,7 @@ impl Ui {
         if let Some(i) = view.model.folders.iter().position(|f| f.id == id) {
             view.model.enter_folder(i);
             view.grid.selected = None;
+            view.grid.folder_page = 0;
             self.draw_launcher();
             return;
         }
@@ -214,6 +228,12 @@ impl Ui {
                     }
                     return true;
                 }
+                if let Some(&(_, q)) = g.folder_dots.iter().find(|(r, _)| r.contains(x, y)).filter(|_| g.folder_box.is_some()) {
+                    view.grid.folder_page = q;
+                    view.grid.selected = None;
+                    self.draw_launcher();
+                    return true;
+                }
                 let in_folder = g.folder_box.is_some();
                 let from_folder = view.model.open_folder.and_then(|i| view.model.folders.get(i)).map(|f| f.id.clone());
                 let hit = if in_folder { g.folder_cells.iter().find(|(r, _)| r.contains(x, y)) } else { g.cells.iter().find(|(r, _)| r.contains(x, y)) };
@@ -240,6 +260,17 @@ impl Ui {
                     if drag.from_folder.is_some() && outside {
                         view.model.open_folder = None;
                     }
+                    let area = view.grid.area;
+                    let edge = if view.model.open_folder.is_some() {
+                        None
+                    } else if x < f64::from(area.x - 8) {
+                        Some(false)
+                    } else if x > f64::from(area.x + area.w + 8) {
+                        Some(true)
+                    } else {
+                        None
+                    };
+                    self.grid_edge(edge);
                     self.draw_launcher();
                 } else if let Some((id, (sx, sy), from)) = view.grid.press.clone() {
                     if ((x - sx).powi(2) + (y - sy).powi(2)).sqrt() >= threshold {
@@ -252,6 +283,7 @@ impl Ui {
             PointerEventKind::Release { button: BTN_LEFT, .. } => {
                 let Some(view) = self.launcher.as_mut() else { return true };
                 if let Some(drag) = view.grid.drag.take() {
+                    self.grid_edge(None);
                     let drop = self.launcher.as_ref().and_then(|v| drop_at(v, &drag));
                     tracing::info!(id = drag.id, ?drop, "app grid drop");
                     match drop {
@@ -274,10 +306,46 @@ impl Ui {
         true
     }
 
+    /// A dragged icon is now at the grid's side `edge` (or not): after
+    /// [`EDGE_WAIT`] the page turns that way, again every [`EDGE_REPEAT`].
+    fn grid_edge(&mut self, edge: Option<bool>) {
+        let Some(view) = self.launcher.as_mut() else { return };
+        if view.grid.edge == edge {
+            return;
+        }
+        view.grid.edge = edge;
+        if let (Some(handle), Some(token)) = (self.loop_handle.as_ref(), view.grid.edge_timer.take()) {
+            handle.remove(token);
+        }
+        let (Some(forward), Some(handle)) = (edge, self.loop_handle.as_ref()) else { return };
+        use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
+        let token = handle.insert_source(Timer::from_duration(EDGE_WAIT), move |_, _, ui: &mut Ui| {
+            let still = ui.launcher.as_ref().is_some_and(|v| v.grid.drag.is_some() && v.grid.edge == Some(forward));
+            if !still {
+                if let Some(v) = ui.launcher.as_mut() {
+                    v.grid.edge_timer = None;
+                }
+                return TimeoutAction::Drop;
+            }
+            ui.grid_turn(forward);
+            TimeoutAction::ToDuration(EDGE_REPEAT)
+        });
+        if let Some(view) = self.launcher.as_mut() {
+            view.grid.edge_timer = token.ok();
+        }
+    }
+
     /// The next (or previous) page.
     fn grid_turn(&mut self, forward: bool) {
         let Some(view) = self.launcher.as_mut() else { return };
         if view.model.open_folder.is_some() {
+            let last = view.grid.folder_pages.saturating_sub(1);
+            let page = if forward { (view.grid.folder_page + 1).min(last) } else { view.grid.folder_page.saturating_sub(1) };
+            if page != view.grid.folder_page {
+                view.grid.folder_page = page;
+                view.grid.selected = None;
+                self.draw_launcher();
+            }
             return;
         }
         let last = view.grid.pages.len().saturating_sub(1);
@@ -447,25 +515,45 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
     if let Some(folder) = open_folder.and_then(|i| view.model.folders.get(i).cloned()) {
         canvas.rect(0, top - 8, w, h - top + 8, 0x80000000);
         let fcols = folder.apps.len().clamp(1, 6) as i32;
-        let frows = (folder.apps.len() as i32 + fcols - 1) / fcols;
+        let n = folder.apps.len() as i32;
+        let rows_fit = ((h - top - 16 - 52 - 40) / CELL_H).max(1);
+        let frows = ((n + fcols - 1) / fcols).min(rows_fit);
+        let per = (fcols * rows_fit).max(1) as usize;
+        let fpages = folder.apps.len().div_ceil(per).max(1);
+        if let Some(i) = selected {
+            view.grid.folder_page = i / per;
+        }
+        let fpage = view.grid.folder_page.min(fpages - 1);
+        view.grid.folder_page = fpage;
+        view.grid.folder_pages = fpages;
+        let dots_h = if fpages > 1 { 30 } else { 0 };
         let bw = fcols * CELL_W + 32;
-        let bh = (frows * CELL_H + 72).min(h - top - 16);
+        let bh = frows * CELL_H + 72 + dots_h;
         let b = Rect { x: (w - bw) / 2, y: top + 8, w: bw, h: bh };
         canvas.round_rect(f64::from(b.x), f64::from(b.y), f64::from(b.w), f64::from(b.h), 14.0, BOX_BG);
         let tw = text.map_or(0.0, |t| t.width(&folder.name, 17.0));
         let title = Rect { x: b.x + (b.w - tw as i32) / 2 - 8, y: b.y + 10, w: tw as i32 + 16, h: 34 };
         label(text, canvas, &folder.name, (title.x + 8) as f32, baseline(text, title.y, title.h, 17.0), 17.0, FG, (b.w - 32) as f32);
-        for (i, id) in folder.apps.iter().enumerate() {
+        for (k, id) in folder.apps.iter().enumerate().skip(fpage * per).take(per) {
+            let i = k - fpage * per;
             let cell = Rect { x: b.x + 16 + (i as i32 % fcols) * CELL_W, y: b.y + 52 + (i as i32 / fcols) * CELL_H, w: CELL_W, h: CELL_H };
-            if cell.y + cell.h > b.y + b.h {
-                break;
-            }
             folder_cells.push((cell, id.clone()));
             if drag.as_ref().is_some_and(|d| d.id == *id) {
                 continue;
             }
-            paint_cell(p, &view.model, canvas, cell, id, selected == Some(i));
+            paint_cell(p, &view.model, canvas, cell, id, selected == Some(k));
         }
+        let mut fdots = Vec::new();
+        if fpages > 1 {
+            let dy = b.y + b.h - 18;
+            let dx = b.x + (b.w - fpages as i32 * (DOT + 10)) / 2;
+            for q in 0..fpages {
+                let r = Rect { x: dx + q as i32 * (DOT + 10) - 5, y: dy - 10, w: DOT + 10, h: DOT + 20 };
+                canvas.circle(f64::from(r.x + 5 + DOT / 2), f64::from(dy), f64::from(DOT) / 2.0, if q == fpage { FG } else { 0x80FFFFFF });
+                fdots.push((r, q));
+            }
+        }
+        view.grid.folder_dots = fdots;
         folder_box = Some(b);
         folder_title = Some(title);
     }

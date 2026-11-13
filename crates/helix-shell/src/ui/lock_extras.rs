@@ -134,7 +134,11 @@ impl Ui {
         let Some(view) = self.lock.surfaces.iter().find(|v| v.surface.wl_surface() == surface) else { return };
         if let Some(&(_, hit)) = view.power_hits.iter().find(|(r, _)| r.contains(x, y)) {
             match hit {
-                LockPowerHit::Ask(action) => self.lock.confirming = Some(action),
+                LockPowerHit::Ask(action) => {
+                    self.lock.confirming = Some(action);
+                    self.lock.blockers.clear();
+                    let _ = self.requests.send(UiRequest::LockBlockers);
+                }
                 LockPowerHit::Cancel => self.lock.confirming = None,
                 LockPowerHit::Confirm => {
                     if let Some(action) = self.lock.confirming.take() {

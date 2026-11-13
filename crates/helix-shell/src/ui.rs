@@ -311,6 +311,8 @@ enum OverlayHit {
     Monitor(usize),
     /// The prompt dialog's check box.
     Toggle,
+    /// One of the prompt dialog's extra check boxes.
+    Check(usize),
     /// A power profile in quick settings, by index.
     Profile(usize),
     /// Quick settings: a switch's "›" (its list), a network, a device.
@@ -423,6 +425,8 @@ struct LockScreen {
     results: channel::Sender<Result<(), AuthError>>,
     /// Restart or Power Off asked on the lock screen, to be confirmed.
     confirming: Option<PowerAction>,
+    /// Apps holding up logout while confirming.
+    blockers: Vec<(String, String)>,
 }
 
 /// The lock screen's Restart and Power Off buttons.
@@ -1550,7 +1554,24 @@ impl Ui {
             };
             match self.lock.confirming {
                 Some(action) => {
-                    let (question, verb) = if action == PowerAction::Restart { ("Restart this computer?", "Restart") } else { ("Power off this computer?", "Power Off") };
+                    let anyway = !self.lock.blockers.is_empty();
+                    let (question, verb) = match (action == PowerAction::Restart, anyway) {
+                        (true, false) => ("Restart this computer?", "Restart"),
+                        (true, true) => ("Restart anyway?", "Restart"),
+                        (false, false) => ("Power off this computer?", "Power Off"),
+                        (false, true) => ("Power off anyway?", "Power Off"),
+                    };
+                    // Apps holding up logout, above the question.
+                    let shown: Vec<String> = self.lock.blockers.iter().take(4).map(|(app, reason)| if reason.is_empty() { app.clone() } else { format!("{app}: {reason}") }).collect();
+                    let mut ly = h as i32 - 36 - 24 - 14 - 22 * shown.len() as i32 - if anyway { 22 } else { 0 };
+                    if anyway {
+                        label(text, &mut canvas, "Some apps are busy:", 24.0, ly as f32, 15.0, FG, w as f32 / 2.0);
+                        ly += 22;
+                    }
+                    for line in &shown {
+                        label(text, &mut canvas, line, 36.0, ly as f32, 14.0, DIM_FG, w as f32 / 2.0);
+                        ly += 22;
+                    }
                     label(text, &mut canvas, question, 24.0, (h as i32 - 36 - 24 - 14) as f32, 15.0, FG, w as f32 / 2.0);
                     let cancel = button(&mut canvas, 24, "Cancel", false);
                     view.power_hits.push((cancel, LockPowerHit::Cancel));
@@ -2264,6 +2285,10 @@ impl Ui {
             UiEvent::PowerAvailability(power) => self.power = power,
             UiEvent::UserSwitch(available) => self.user_switch = available,
             UiEvent::FoldersChanged => self.grid_reload(),
+            UiEvent::LockBlockers(blockers) => {
+                self.lock.blockers = blockers;
+                self.draw_lock();
+            }
             UiEvent::ActivateWindow(id) => self.activate_window(id),
             UiEvent::Lock => self.start_lock(),
             UiEvent::Banner(banner) => self.show_banner(banner),
@@ -2715,6 +2740,7 @@ pub fn run(
             user: crate::auth::current_user(),
             results: auth_tx,
             confirming: None,
+            blockers: Vec::new(),
         },
         exit: false,
     };
@@ -3075,6 +3101,7 @@ impl Ui {
                     OverlayHit::Cancel => self.answer_dialog(Choice::Canceled),
                     OverlayHit::Monitor(index) => self.share_monitor(index),
                     OverlayHit::Toggle => self.prompt_toggle(),
+                    OverlayHit::Check(i) => self.prompt_check(i),
                     OverlayHit::Row(i) => self.prompt_pick(i),
                     OverlayHit::Place(i) => self.prompt_place(i),
                     OverlayHit::Field(f) => self.prompt_focus(f),

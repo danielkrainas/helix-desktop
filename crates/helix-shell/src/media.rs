@@ -206,7 +206,7 @@ static ASKER: OnceLock<Asker> = OnceLock::new();
 
 /// An answer for a mount operation.
 enum Reply {
-    Password { username: Option<String>, domain: Option<String>, password: Option<String>, save: bool },
+    Password { username: Option<String>, domain: Option<String>, password: Option<String>, save: bool, extras: crate::mount_handler::Extras },
     Choice(i32),
     Abort,
 }
@@ -233,7 +233,13 @@ fn answer_op(id: u64, reply: Reply) {
     ASKING.with(|a| a.borrow_mut().remove(&id));
     let Some(op) = OPS.with(|o| o.borrow().get(&id).cloned()) else { return };
     match reply {
-        Reply::Password { username, domain, password, save } => {
+        Reply::Password { username, domain, password, save, extras } => {
+            op.set_anonymous(extras.anonymous);
+            op.set_is_tcrypt_hidden_volume(extras.hidden_volume);
+            op.set_is_tcrypt_system_volume(extras.system_volume);
+            if let Some(pim) = extras.pim {
+                op.set_pim(pim);
+            }
             if let Some(username) = username {
                 op.set_username(Some(&username));
             }
@@ -308,22 +314,28 @@ fn mount_operation(name: &str) -> (gio::MountOperation, u64) {
             answer_op(id, Reply::Abort);
             return;
         };
+        let has_user = prompt.entry.is_some();
+        crate::mount_handler::add_extras(&mut prompt, bits);
         prompt.title = format!("Unlock {title}");
         prompt.message = message.to_owned();
         prompt.continue_label = "Unlock".into();
         let (user, domain) = (user.to_owned(), domain.to_owned());
         ask(id, prompt, move |answer| match answer {
-            Answer::Continue { entry, password, choice, .. } => {
+            Answer::Continue { entry, password, choice, checks, .. } => {
                 if flags.contains(gio::AskPasswordFlags::SAVING_SUPPORTED) {
                     crate::mount_handler::remember_chosen(choice);
                 }
-                let details = crate::mount_handler::password_details(bits, &user, &domain, entry.as_deref(), None, choice);
+                let extras = crate::mount_handler::extras_of(bits, has_user, entry.as_deref(), &checks);
+                // The PIM field is not a user name.
+                let named = if has_user { entry.as_deref() } else { None };
+                let details = crate::mount_handler::password_details(bits, &user, &domain, named, None, choice);
                 let get = |k: &str| details.get(k).and_then(|v| String::try_from(v.clone()).ok());
                 Reply::Password {
                     username: get("username"),
                     domain: get("domain"),
                     password: password.map(|p| String::from_utf8_lossy(p.bytes()).into_owned()),
                     save: choice && flags.contains(gio::AskPasswordFlags::SAVING_SUPPORTED),
+                    extras,
                 }
             }
             Answer::Cancel => Reply::Abort,

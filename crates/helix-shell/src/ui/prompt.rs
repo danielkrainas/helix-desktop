@@ -46,7 +46,12 @@ pub(super) struct PromptView {
     history_at: Option<usize>,
     /// Command names for Tab, read at the first Tab.
     commands: Option<Vec<String>>,
+    /// The extra check boxes' states.
+    checks: Vec<bool>,
 }
+
+/// Focus numbers of the extra check boxes (from here up).
+const CHECK_FOCUS: usize = 10;
 
 /// The width of a password field's "Show" button.
 const SHOW_W: i32 = 56;
@@ -66,7 +71,8 @@ impl PromptView {
         };
         let selected = request.prompt.selected.min(request.prompt.list.len().saturating_sub(1));
         let picked = vec![false; request.prompt.list.len()];
-        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, place: None, previews: Default::default(), shown: [false; 2], can_show: !crate::locked_down("disable-show-password"), history_at: None, commands: None }
+        let checks = request.prompt.checks.iter().map(|(_, on)| *on).collect();
+        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, place: None, previews: Default::default(), shown: [false; 2], can_show: !crate::locked_down("disable-show-password"), history_at: None, commands: None, checks }
     }
 
     /// Answer "cancel" if nobody answered yet.
@@ -90,6 +96,7 @@ impl PromptView {
         if self.prompt.choice.is_some() {
             out.push(2);
         }
+        out.extend((0..self.prompt.checks.len()).map(|i| CHECK_FOCUS + i));
         out
     }
 }
@@ -179,7 +186,7 @@ impl Ui {
         let confirm = view.prompt.confirm.is_some().then(|| take(&mut view.fields[1]));
         let entry = view.prompt.entry.is_some().then(|| view.entry.clone());
         let picked = view.picked.iter().enumerate().filter(|(_, p)| **p).map(|(i, _)| i).collect();
-        let answer = Answer::Continue { entry, password, confirm, choice: view.choice, selected: view.selected, picked, place: view.place };
+        let answer = Answer::Continue { entry, password, confirm, choice: view.choice, checks: view.checks.clone(), selected: view.selected, picked, place: view.place };
         if let Some(reply) = view.reply.take() {
             let _ = reply.send(answer);
         }
@@ -233,6 +240,17 @@ impl Ui {
             return;
         }
         view.shown[index] = !view.shown[index];
+        self.draw_dialog();
+    }
+
+    /// Extra check box `i` clicked.
+    pub(super) fn prompt_check(&mut self, i: usize) {
+        let Some(view) = self.prompt_view() else { return };
+        if view.busy || i >= view.checks.len() {
+            return;
+        }
+        view.checks[i] = !view.checks[i];
+        view.focus = CHECK_FOCUS + i;
         self.draw_dialog();
     }
 
@@ -294,6 +312,10 @@ impl Ui {
             }
             Keysym::space if view.focus == 2 => {
                 view.choice = !view.choice;
+            }
+            Keysym::space if view.focus >= CHECK_FOCUS && view.focus - CHECK_FOCUS < view.checks.len() => {
+                let i = view.focus - CHECK_FOCUS;
+                view.checks[i] = !view.checks[i];
             }
             Keysym::BackSpace if view.focus < 2 => {
                 view.fields[view.focus].pop();
@@ -360,7 +382,7 @@ impl Ui {
         let icon = p.icon.as_deref().filter(|i| i.width > 0 && i.height > 0);
         let top = if icon.is_some() { 60 } else { 0 };
         let preview_h = if p.previews.iter().any(|f| !f.is_empty()) { PREVIEW_H + 12 } else { 0 };
-        let bh = preview_h + top + 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + picture_h + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + 26 + 64;
+        let bh = preview_h + top + 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + picture_h + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + p.checks.len() as i32 * 34 + 26 + 64;
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
@@ -493,6 +515,16 @@ impl Ui {
             }
             label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
             hits.push((r, OverlayHit::Toggle));
+            y += 34;
+        }
+        for (i, (name, _)) in p.checks.iter().enumerate() {
+            let r = Rect { x: bx + 24, y, w: bw - 48, h: 26 };
+            canvas.rect(r.x, r.y + 4, 18, 18, if view.checks[i] { ACCENT } else { FIELD_BG });
+            if view.focus == CHECK_FOCUS + i {
+                canvas.rect(r.x, r.y + 23, 18, 2, ACCENT);
+            }
+            label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
+            hits.push((r, OverlayHit::Check(i)));
             y += 34;
         }
         let status = if view.busy { "Authenticating…" } else { p.warning.as_str() };

@@ -79,6 +79,8 @@ struct Event {
     rrule: Option<String>,
     rdates: Vec<Time>,
     exdates: Vec<Time>,
+    /// `EXRULE`s (RFC 2445): their occurrences are left out.
+    exrules: Vec<String>,
     recurrence_id: Option<Time>,
     cancelled: bool,
 }
@@ -203,6 +205,7 @@ fn parse_events(text: &str) -> Vec<Event> {
                     "DTEND" => e.end = parse_time(&params, &value),
                     "DURATION" => e.duration = parse_duration(&value),
                     "RRULE" => e.rrule = Some(value),
+                    "EXRULE" => e.exrules.push(value),
                     "EXDATE" => e.exdates.extend(value.split(',').filter_map(|v| parse_time(&params, v))),
                     // A PERIOD value counts by its start.
                     "RDATE" => e.rdates.extend(value.split(',').filter_map(|v| parse_time(&params, v.split('/').next().unwrap_or(v)))),
@@ -554,8 +557,12 @@ fn expand(start: &DateTime, rule: &Rule, from: i64, to: i64) -> Vec<DateTime> {
         true
     };
     match rule.freq.as_str() {
-        "HOURLY" | "MINUTELY" => {
-            let unit = if rule.freq == "HOURLY" { 3600 } else { 60 };
+        "HOURLY" | "MINUTELY" | "SECONDLY" => {
+            let unit = match rule.freq.as_str() {
+                "HOURLY" => 3600,
+                "MINUTELY" => 60,
+                _ => 1,
+            };
             for k in 1..PERIODS {
                 let t = first + k * i64::from(rule.interval) * unit;
                 let Ok(dt) = start.add_seconds((t - first) as f64) else { break };
@@ -636,7 +643,10 @@ pub fn occurrences(ics: &[String], from: i64, to: i64) -> Vec<Occurrence> {
             starts.sort_by_key(|d| d.to_unix());
             starts.dedup_by_key(|d| d.to_unix());
         }
-        let excluded: HashSet<i64> = e.exdates.iter().filter_map(|t| t.datetime()).map(|d| d.to_unix()).collect();
+        let mut excluded: HashSet<i64> = e.exdates.iter().filter_map(|t| t.datetime()).map(|d| d.to_unix()).collect();
+        for rule in &e.exrules {
+            excluded.extend(expand(&begin, &parse_rule(rule), from, to).iter().map(|d| d.to_unix()));
+        }
         for s in starts {
             let unix = s.to_unix();
             if recurring && (excluded.contains(&unix) || detached.contains(&(e.uid.clone(), unix))) {
@@ -746,8 +756,13 @@ mod tests {
         assert_eq!(starts("19971229T090000Z", "FREQ=YEARLY;BYWEEKNO=1;BYDAY=MO;COUNT=2"), days(&[(1997, 12, 29), (1999, 1, 4)], 9));
         // The last week of the year.
         assert_eq!(starts("19971222T090000Z", "FREQ=YEARLY;BYWEEKNO=-1;BYDAY=MO;COUNT=2"), days(&[(1997, 12, 22), (1998, 12, 28)], 9));
-        // Seconds-frequency rules are not expanded: just the start.
-        assert_eq!(starts("19970902T090000Z", "FREQ=SECONDLY;COUNT=4"), days(&[(1997, 9, 2)], 9));
+        // Every 20 seconds, four times.
+        let at = utc(1997, 9, 2, 9, 0);
+        assert_eq!(starts("19970902T090000Z", "FREQ=SECONDLY;INTERVAL=20;COUNT=4"), [at, at + 20, at + 40, at + 60]);
+        // EXRULE takes out what it matches (here every other day).
+        let ics = cal("BEGIN:VEVENT\r\nUID:x\r\nDTSTART:20261102T080000Z\r\nRRULE:FREQ=DAILY;COUNT=6\r\nEXRULE:FREQ=DAILY;INTERVAL=2;COUNT=3\r\nSUMMARY:x\r\nEND:VEVENT\r\n");
+        let o = occurrences(&ics, utc(2026, 11, 1, 0, 0), utc(2026, 11, 30, 0, 0));
+        assert_eq!(o.iter().map(|o| o.start).collect::<Vec<_>>(), [utc(2026, 11, 3, 8, 0), utc(2026, 11, 5, 8, 0), utc(2026, 11, 7, 8, 0)]);
         // A daily event from long ago still reaches the range.
         let ics = cal("BEGIN:VEVENT\r\nUID:old\r\nDTSTART:20000101T070000Z\r\nRRULE:FREQ=DAILY\r\nSUMMARY:x\r\nEND:VEVENT\r\n");
         let o = occurrences(&ics, utc(2026, 11, 12, 0, 0), utc(2026, 11, 13, 0, 0));

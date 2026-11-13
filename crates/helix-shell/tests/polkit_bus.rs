@@ -33,7 +33,7 @@ async fn prompt(ui: &mut UnboundedReceiver<UiEvent>) -> Request {
 }
 
 fn answer(request: Request, password: &str) {
-    let _ = request.reply.send(Answer::Continue { entry: None, password: Some(Secret::new(password.into())), confirm: None, choice: false, selected: 0, picked: Vec::new(), place: None });
+    let _ = request.reply.send(Answer::Continue { entry: None, password: Some(Secret::new(password.into())), confirm: None, choice: false, checks: Vec::new(), selected: 0, picked: Vec::new(), place: None });
 }
 
 async fn begin(conn: &zbus::Connection, cookie: &str) -> zbus::Result<zbus::Message> {
@@ -138,7 +138,7 @@ async fn authenticates_through_the_helper() {
         assert_eq!(choose.prompt.list.len(), 2);
         assert!(choose.prompt.list[1].contains("root"));
         assert!(choose.prompt.password.is_none());
-        let _ = choose.reply.send(Answer::Continue { entry: None, password: None, confirm: None, choice: false, selected: 0, picked: Vec::new(), place: None });
+        let _ = choose.reply.send(Answer::Continue { entry: None, password: None, confirm: None, choice: false, checks: Vec::new(), selected: 0, picked: Vec::new(), place: None });
         answer(prompt(&mut ui).await, "right");
         assert!(call.await.unwrap().is_ok());
         let call = tokio::spawn({
