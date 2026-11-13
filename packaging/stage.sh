@@ -19,7 +19,7 @@ case $pam in
     *) echo "unknown PAM variant: $pam" >&2; exit 2 ;;
 esac
 
-for b in helix-comp helix-shell helix-session helix-portals helix-bluetooth-sendto; do
+for b in helix-comp helix-shell helix-session helix-portals helix-bluetooth-sendto helix-extensions; do
     install -Dm755 "$bin/$b" "$dest/usr/bin/$b"
 done
 install -Dm644 "$root/session/helix.desktop" "$dest/usr/share/wayland-sessions/helix.desktop"
@@ -27,6 +27,8 @@ install -Dm644 "$root/session/helix.portal" "$dest/usr/share/xdg-desktop-portal/
 install -Dm644 "$root/session/helix-portals.conf" "$dest/usr/share/xdg-desktop-portal/helix-portals.conf"
 install -Dm644 "$root/session/helix-session.toml" "$dest/etc/xdg/helix/session.toml"
 install -Dm644 "$pam_file" "$dest/etc/pam.d/helix"
-install -Dm644 "$root/data/org.helix.shell.gschema.xml" "$dest/usr/share/glib-2.0/schemas/org.helix.shell.gschema.xml"
+for schema in "$root"/data/*.gschema.xml; do
+    install -Dm644 "$schema" "$dest/usr/share/glib-2.0/schemas/$(basename "$schema")"
+done
 install -Dm644 "$root/LICENSE" "$dest/usr/share/licenses/helix-desktop/LICENSE"
 install -Dm644 "$root/README.md" "$dest/usr/share/doc/helix-desktop/README.md"

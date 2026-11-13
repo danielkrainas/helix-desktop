@@ -26,6 +26,7 @@ resvg.workspace = true
 gio.workspace = true
 png.workspace = true
 serde.workspace = true
+toml.workspace = true
 wayland-protocols-misc = { version = "0.3", features = ["client"] }
 xkbcommon = { version = "0.8", default-features = false }
 helix-protocols = { workspace = true, features = ["client"] }
@@ -53,6 +54,7 @@ name = "helix-shell"
 path = "src/main.rs"
 
 [dev-dependencies]
+helix-extension.workspace = true
 helix-test-support.workspace = true
 helix-session.workspace = true
 serde.workspace = true

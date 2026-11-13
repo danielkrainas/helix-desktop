@@ -61,6 +61,8 @@ mod click_type;
 mod dash;
 mod desktop_icons;
 mod dock;
+mod ext_items;
+mod extensions_dialog;
 mod ime;
 mod notify;
 mod osk;
@@ -280,6 +282,12 @@ struct Ui {
     /// and its entries' ids).
     tray: Vec<crate::tray::Item>,
     tray_menu: Option<(String, Vec<i32>)>,
+    /// What extensions show; the open extension menu (item, menu path,
+    /// entries' ids); the extensions, for the Extensions dialog.
+    ext: crate::ext_host::Snapshot,
+    ext_menu: Option<(String, String, Vec<i32>)>,
+    ext_list: Vec<crate::ext_host::Info>,
+    extensions_dialog: Option<Overlay<extensions_dialog::DialogState>>,
     /// What the pointer rests on in the panel, and its tooltip.
     panel_hover: panel_tooltip::Hover,
     panel_tooltip: Option<panel_tooltip::PanelTooltip>,
@@ -308,6 +316,8 @@ struct Overlay<T> {
 enum OverlayHit {
     /// A button of "Customize Panel…".
     PanelEditor(panel_editor::EditorHit),
+    /// A button of "Extensions…".
+    ExtDialog(extensions_dialog::DialogHit),
     Confirm,
     Cancel,
     /// A window in the switcher.
@@ -330,6 +340,9 @@ enum OverlayHit {
     Profile(usize),
     /// Quick settings: a switch's "›" (its list), a network, a device.
     Expand(quick::Switch),
+    /// An extension's slider, and an extension toggle's "›".
+    ExtSlider(usize),
+    ExtDetails(usize),
     Network(usize),
     BtDevice(usize),
     /// A row of the prompt dialog's list.
@@ -580,6 +593,10 @@ impl Ui {
         let status_items = self.status_items(scale);
         let tray_images = self.tray_images(scale);
         let tray_w = self.tray_width();
+        let ext_icons: Vec<Option<helix_draw::Image>> = (0..self.ext.panel.len()).map(|i| self.ext_icon(i, scale)).collect();
+        let ext_widths: Vec<i32> = ext_icons.iter().enumerate().map(|(i, icon)| self.ext_width(i, icon.is_some())).collect();
+        let locked = self.lock.session.is_some();
+        let ext_items = self.ext.panel.clone();
         let Ok((buffer, data)) =
             self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
@@ -624,6 +641,9 @@ impl Ui {
             Slot::Item(Item::Status) => status_w,
             Slot::Item(Item::Power) => POWER_BUTTON_W,
             Slot::Privacy => (if self.sharing { SHARING_W } else { 0 }) + if self.recording { RECORDING_W } else { 0 },
+            // Nothing from extensions while locked.
+            Slot::Ext(_) if locked => 0,
+            Slot::Ext(i) => ext_widths.get(i).copied().unwrap_or(0),
         };
         let placed = crate::panel_layout::place(&self.panel_layout, w as i32, size);
         for &(slot, x, iw) in &placed {
@@ -718,6 +738,11 @@ impl Ui {
                     if let Some(text) = &self.text {
                         let pw = text.width(POWER_LABEL, px);
                         text.draw(&mut canvas, POWER_LABEL, x as f32 + (iw as f32 - pw) / 2.0, base, Style { px, color: FG, max_width: 72.0 });
+                    }
+                }
+                Slot::Ext(i) => {
+                    if let Some(item) = ext_items.get(i) {
+                        ext_items::draw_ext_item(self.text.as_ref(), &mut canvas, item, ext_icons.get(i).and_then(Option::as_ref), x, iw, h as i32);
                     }
                 }
                 Slot::Privacy => {
@@ -1029,13 +1054,14 @@ impl Ui {
                     self.tray_request(key, crate::tray::Action::Primary, ix);
                 }
             }
+            Slot::Ext(i) => self.ext_activate(i, x),
             Slot::Item(Item::Workspaces) | Slot::Privacy => {}
         }
     }
 
     /// The panel layout keys changed (or were read at start).
     pub(super) fn panel_layout_changed(&mut self, keys: crate::panel_layout::Keys) {
-        let layout = crate::panel_layout::resolve(&keys);
+        let layout = crate::panel_layout::resolve(&keys, &self.ext_panels());
         if keys.quick != self.panel_keys.quick {
             self.panel_keys.quick = keys.quick.clone();
             self.draw_power_menu();
@@ -2269,6 +2295,12 @@ impl Ui {
             UiEvent::DesktopIcons(items) => self.desktop_icons_set(items),
             UiEvent::PanelLayout(keys) => self.panel_layout_changed(keys),
             UiEvent::Tray(items) => self.tray_changed(items),
+            UiEvent::Extensions(snapshot) => self.extensions_changed(snapshot),
+            UiEvent::ExtensionList(list) => {
+                self.ext_list = list;
+                self.draw_extensions_dialog();
+            }
+            UiEvent::ExtMenu { full_id, menu, x, entries } => self.show_ext_menu(full_id, menu, x, entries),
             UiEvent::TrayMenu { key, x, entries } => self.show_tray_menu(key, x, entries),
             UiEvent::ClickTypeWindow(wanted) => {
                 self.click_type.wanted = wanted;
@@ -2866,6 +2898,10 @@ pub fn run(
         panel_placed: Vec::new(),
         tray: Vec::new(),
         tray_menu: None,
+        ext: Default::default(),
+        ext_menu: None,
+        ext_list: Vec::new(),
+        extensions_dialog: None,
         panel_hover: Default::default(),
         panel_tooltip: None,
         source_label: None,
@@ -3001,6 +3037,8 @@ impl LayerShellHandler for Ui {
             self.break_screen = None;
         } else if self.panel_editor.as_ref().is_some_and(|m| &m.layer == layer) {
             self.panel_editor = None;
+        } else if self.extensions_dialog.as_ref().is_some_and(|m| &m.layer == layer) {
+            self.extensions_dialog = None;
         } else if self.switcher.as_ref().is_some_and(|o| &o.layer == layer) {
             self.switcher = None;
         } else if self.monitor_labels.iter().any(|l| &l.layer == layer) {
@@ -3054,6 +3092,11 @@ impl LayerShellHandler for Ui {
             overlay.height = configure.new_size.1;
             overlay.configured = true;
             self.draw_panel_editor();
+        } else if let Some(overlay) = self.extensions_dialog.as_mut().filter(|o| &o.layer == layer) {
+            overlay.width = configure.new_size.0;
+            overlay.height = configure.new_size.1;
+            overlay.configured = true;
+            self.draw_extensions_dialog();
         } else if let Some(overlay) = self.power_menu.as_mut().filter(|o| &o.layer == layer) {
             overlay.width = configure.new_size.0;
             overlay.height = configure.new_size.1;
@@ -3166,6 +3209,8 @@ impl KeyboardHandler for Ui {
             self.break_key(&event);
         } else if self.panel_editor.is_some() {
             self.panel_editor_key(&event);
+        } else if self.extensions_dialog.is_some() {
+            self.extensions_dialog_key(&event);
         } else {
             self.launcher_key(&event);
         }
@@ -3244,7 +3289,7 @@ impl Ui {
                 }
                 continue;
             }
-            if self.tray_pointer(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
+            if self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
@@ -3281,6 +3326,8 @@ impl Ui {
                 self.break_click(x, y);
             } else if self.panel_editor.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
                 self.panel_editor_click(x, y);
+            } else if self.extensions_dialog.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
+                self.extensions_dialog_click(x, y);
             } else if self.power_menu.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
                 let hit = self.power_menu.as_ref().and_then(|m| m.hits.iter().find(|(r, _)| r.contains(x, y)).copied());
                 tracing::debug!(x, y, hits = self.power_menu.as_ref().map_or(0, |m| m.hits.len()), "quick settings press");

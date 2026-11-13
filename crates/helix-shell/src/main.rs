@@ -151,6 +151,8 @@ fn main() -> ExitCode {
     runtime.spawn(helix_shell::clock::follow());
     // Desktop icons.
     runtime.spawn(helix_shell::desktop_icons::follow(service.ui_sender()));
+    // Extensions.
+    runtime.spawn(service.run_extensions());
     // The panel's layout.
     runtime.spawn(helix_shell::panel_layout::follow(service.ui_sender()));
     // The dwell click type window.
@@ -325,6 +327,7 @@ fn main() -> ExitCode {
             }
         });
     }
+    service.stop_extensions();
     let _ = runtime.block_on(service.shutdown());
     ExitCode::SUCCESS
 }

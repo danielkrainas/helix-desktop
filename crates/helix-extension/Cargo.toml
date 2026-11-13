@@ -1,0 +1,23 @@
+[package]
+name = "helix-extension"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Write Helix extensions: panel items, quick settings toggles and sliders, menus (API 1)"
+
+[dependencies]
+zbus.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+
+[[example]]
+name = "counter"
+
+[[example]]
+name = "caffeine"
+
+[[example]]
+name = "cpu"

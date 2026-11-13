@@ -2,6 +2,7 @@
 members = [
     "crates/helix-comp",
     "crates/helix-draw",
+    "crates/helix-extension",
     "crates/helix-shell",
     "crates/helix-session",
     "crates/helix-settings",
@@ -20,7 +21,7 @@ authors = ["Daniel Krainas"]
 repository = "https://github.com/danielkrainas/helix-desktop"
 
 [workspace.dependencies]
-zbus = { version = "5.19", default-features = false, features = ["tokio"] }
+zbus = { version = "5.19", default-features = false, features = ["tokio", "p2p"] }
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "process", "io-util"] }
 futures-util = { version = "0.3", default-features = false }
 tracing = "0.1"
@@ -58,6 +59,7 @@ smithay = { version = "0.7", default-features = false, features = [
 smithay-drm-extras = { version = "0.1", default-features = false }
 helix-settings = { path = "crates/helix-settings" }
 helix-draw = { path = "crates/helix-draw" }
+helix-extension = { path = "crates/helix-extension" }
 helix-test-support = { path = "crates/helix-test-support" }
 helix-session = { path = "crates/helix-session" }
 helix-portals = { path = "crates/helix-portals" }

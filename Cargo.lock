@@ -1166,6 +1166,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "helix-extension"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "serde",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
 name = "helix-portals"
 version = "0.1.0"
 dependencies = [
@@ -1232,6 +1242,7 @@ dependencies = [
  "getrandom 0.3.4",
  "gio",
  "helix-draw",
+ "helix-extension",
  "helix-protocols",
  "helix-session",
  "helix-settings",
@@ -1251,6 +1262,7 @@ dependencies = [
  "sha2",
  "smithay-client-toolkit 0.21.1",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "ureq",
@@ -3535,6 +3547,7 @@ version = "1.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bed99139f7dac9b5cfe5f17be4d66dc7079a34dee1d74bcc77217119240e267c"
 dependencies = [
+ "getrandom 0.4.3",
  "js-sys",
  "serde_core",
  "wasm-bindgen",

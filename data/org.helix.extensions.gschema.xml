@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Helix's extension settings (helix-desktop-spec
+     contracts/gsettings/org.helix.extensions.md). -->
+<schemalist>
+  <schema id="org.helix.extensions" path="/org/helix/extensions/">
+    <key name="enabled" type="as">
+      <default>[]</default>
+      <summary>Extensions turned on</summary>
+      <description>Extension ids.</description>
+    </key>
+    <key name="disabled" type="as">
+      <default>[]</default>
+      <summary>Default extensions turned off</summary>
+      <description>Ids of system extensions that are on by default but were turned off.</description>
+    </key>
+    <key name="disable-all" type="b">
+      <default>false</default>
+      <summary>Run no extensions</summary>
+      <description>When true, no extension runs.</description>
+    </key>
+    <key name="approved" type="a{sas}">
+      <default>{}</default>
+      <summary>Approved permissions</summary>
+      <description>By extension id, the permissions the user approved.</description>
+    </key>
+    <key name="placed" type="as">
+      <default>[]</default>
+      <summary>Items already placed</summary>
+      <description>Extension items (extension id/item id) once added to the layout.</description>
+    </key>
+  </schema>
+</schemalist>

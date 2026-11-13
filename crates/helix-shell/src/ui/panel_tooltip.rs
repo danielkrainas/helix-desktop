@@ -57,7 +57,7 @@ impl Ui {
     /// The lines for what the pointer rests on now.
     fn hover_lines(&self) -> Vec<String> {
         let Some(key) = &self.panel_hover.key else { return Vec::new() };
-        self.tray.iter().find(|i| &i.key == key).map(|i| i.tooltip_lines()).unwrap_or_default()
+        self.tray.iter().find(|i| &i.key == key).map(|i| i.tooltip_lines()).or_else(|| self.ext_tooltip_lines(key)).unwrap_or_default()
     }
 
     fn tooltip_size(&self, lines: &[String]) -> (u32, u32) {

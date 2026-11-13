@@ -80,6 +80,7 @@ impl Ui {
     fn paint_panel_editor(&mut self, overlay: &mut Overlay<EditorState>) {
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
+        let names = self.ext_names();
         let Ok((buffer, data)) =
             self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
@@ -89,8 +90,8 @@ impl Ui {
         canvas.fill(0x9900_0000);
         let (text, bold) = (self.text.as_ref(), self.bold.as_ref());
         let keys = self.panel_keys.normalized();
-        let columns: Vec<Vec<layout::Row>> = (0..COLUMNS.len()).map(|c| layout::rows(&keys, c)).collect();
-        let hidden = layout::hidden(&keys);
+        let columns: Vec<Vec<layout::Row>> = (0..COLUMNS.len()).map(|c| layout::rows(&keys, c, &names)).collect();
+        let hidden = layout::hidden(&keys, &names);
         let hidden_in = |col: usize| hidden.iter().enumerate().filter(move |(_, (c, _, _))| *c == col).collect::<Vec<_>>();
         let saved = helix_settings::has_schema(layout::SCHEMA);
 
@@ -148,7 +149,7 @@ impl Ui {
                     x += BUTTON;
                 }
                 let x = label_end;
-                label(text, &mut canvas, row.name, (col_x(c) + 10) as f32, baseline(text, ry, ROW_H, 14.0), 14.0, FG, (x - col_x(c) - 14) as f32);
+                label(text, &mut canvas, &row.name, (col_x(c) + 10) as f32, baseline(text, ry, ROW_H, 14.0), 14.0, FG, (x - col_x(c) - 14) as f32);
             }
         }
         y = rows_y + rows_max * ROW_H + 16;
@@ -199,7 +200,7 @@ impl Ui {
             EditorHit::Left(c, r) => Edit::Move(c, r, c - 1),
             EditorHit::Right(c, r) => Edit::Move(c, r, c + 1),
             EditorHit::Remove(c, r) => Edit::Remove(c, r),
-            EditorHit::Add(n) => match layout::hidden(keys).get(n) {
+            EditorHit::Add(n) => match layout::hidden(keys, &self.ext_names()).get(n) {
                 Some((_, id, _)) => Edit::Add(id.clone()),
                 None => return,
             },
@@ -209,7 +210,7 @@ impl Ui {
                 return;
             }
         };
-        let changed = layout::edit(keys, change);
+        let changed = layout::edit(keys, change, &self.ext_names());
         if changed != *keys {
             tracing::info!(?changed, "panel layout edited");
             layout::write(&changed);
@@ -267,14 +268,9 @@ impl Ui {
             return false;
         }
         let PointerEventKind::Press { button: 0x111, .. } = event.kind else { return false };
-        let item = super::window_menu::Item {
-            label: "Customize Panel…".into(),
-            choice: super::window_menu::Choice::CustomizePanel,
-            checked: None,
-            active: false,
-            sub: Vec::new(),
-        };
-        self.open_menu(0, event.position.0 as i32, PANEL_HEIGHT as i32, vec![Some(item)], Vec::new());
+        let item = |label: &str, choice| Some(super::window_menu::Item { label: label.into(), choice, checked: None, active: false, sub: Vec::new() });
+        let items = vec![item("Customize Panel…", super::window_menu::Choice::CustomizePanel), item("Extensions…", super::window_menu::Choice::Extensions)];
+        self.open_menu(0, event.position.0 as i32, PANEL_HEIGHT as i32, items, Vec::new());
         true
     }
 }

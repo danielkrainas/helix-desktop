@@ -36,8 +36,11 @@ pub(super) enum Choice {
     Tray(usize),
     /// An entry that does nothing (shown dimmed).
     Disabled,
-    /// The panel's "Customize Panel…".
+    /// The panel's "Customize Panel…" and "Extensions…".
     CustomizePanel,
+    Extensions,
+    /// An extension menu's entry (index into the open menu's ids).
+    ExtMenu(usize),
     /// Show the item's submenu.
     Submenu,
     /// Back to the menu a submenu came from.
@@ -227,6 +230,7 @@ impl Ui {
     pub(super) fn open_menu(&mut self, id: u32, x: i32, y: i32, items: Vec<Option<Item>>, sources: Vec<crate::input_sources::Source>) {
         self.close_launcher(true);
         self.tray_menu = None;
+        self.ext_menu = None;
         self.power_menu = None;
         // The monitor the point is on.
         let output = self.output_state.outputs().find(|o| {
@@ -426,6 +430,14 @@ impl Ui {
         }
         if item.choice == Choice::CustomizePanel {
             self.open_panel_editor();
+            return;
+        }
+        if item.choice == Choice::Extensions {
+            self.open_extensions_dialog();
+            return;
+        }
+        if let Choice::ExtMenu(i) = item.choice {
+            self.ext_menu_choice(i);
             return;
         }
         if let Choice::Tray(i) = item.choice {

@@ -51,8 +51,9 @@ PipeWire bindings are generated with libclang; without the `clang` package,
 point it at GCC's headers instead, e.g.
 `BINDGEN_EXTRA_CLANG_ARGS=-I/usr/lib/gcc/x86_64-linux-gnu/13/include`.
 
-Helix has its own GSettings schema, `data/org.helix.shell.gschema.xml`
-(the panel layout and quick settings switches). Packages install it, and
+Helix has its own GSettings schemas in `data/`: `org.helix.shell` (the
+panel layout and quick settings switches) and `org.helix.extensions`
+(which extensions are on). Packages install it, and
 the distribution compiles it. To run from the source tree, compile it
 somewhere and point GSettings at it; without it the shell uses the
 defaults and cannot save layout changes:
@@ -91,6 +92,27 @@ out the installed files (binaries in `/usr/bin`, the session, portal and
 PAM files) and can also be used to install by hand. The PAM file differs
 by family: `session/pam.d/helix` (Debian/Ubuntu) or
 `packaging/pam.d/helix-redhat` (Fedora/RHEL and Arch Linux).
+
+## Extensions
+
+Helix extensions add panel items, quick settings toggles and sliders,
+and menus. Each runs as its own program, talking to the shell over a
+private D-Bus connection (the API is in helix-desktop-spec
+`contracts/extensions/`). Write one in Rust with the `helix-extension`
+crate (`crates/helix-extension`), or in any language with D-Bus.
+
+```sh
+cargo build --examples
+# Run an example without installing it (Ctrl+C stops it):
+helix-extensions run crates/helix-extension/examples/extensions/org.helix.example.Counter
+# Install and turn on an extension:
+helix-extensions install ./my-extension
+helix-extensions enable org.example.MyExtension
+helix-extensions list
+```
+
+The panel's right-click menu has "Extensions…" to turn them on and off
+and change their settings.
 
 ## Running the session skeleton
 

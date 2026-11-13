@@ -9,6 +9,7 @@ pub mod accel;
 pub mod ambient;
 pub mod app_grid;
 pub mod app_usage;
+pub mod ext_host;
 pub mod extensions;
 pub mod app_notify;
 pub mod auth;
@@ -140,6 +141,12 @@ pub enum UiEvent {
     PanelLayout(panel_layout::Keys),
     /// Apps' status icons, in the order they registered.
     Tray(Vec<tray::Item>),
+    /// What extensions show (panel items, toggles, sliders).
+    Extensions(ext_host::Snapshot),
+    /// The extensions, for the Extensions dialog.
+    ExtensionList(Vec<ext_host::Info>),
+    /// Show an extension item's menu below it, at `x`.
+    ExtMenu { full_id: String, menu: String, x: i32, entries: Vec<ext_host::MenuEntry> },
     /// Show status icon `key`'s menu below it, at `x`.
     TrayMenu { key: String, x: i32, entries: Vec<tray::MenuEntry> },
     /// Whether the dwell click type window should show.
@@ -269,6 +276,14 @@ pub enum PowerAction {
 pub enum UiRequest {
     /// A click, scroll or menu choice on a status icon.
     Tray(tray::Request),
+    /// Something done to an extension's item (`<extension id>/<item id>`).
+    ExtAction(String, ext_host::Action),
+    /// The Extensions dialog: turn one on (approving its permissions) or
+    /// off, or change a setting.
+    ExtEnable(String, bool),
+    ExtSetting(String, String, ext_host::manifest::SettingValue),
+    /// Quick settings opened (extensions waiting to be seen start).
+    QuickSettingsOpened,
     /// Decode a picture for the prompt's preview.
     Preview(String),
     /// The UI opened/closed the launcher itself.
@@ -595,6 +610,7 @@ pub struct ShellService {
     ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
     recorder: recording::Recorder,
     tray: tray::Tray,
+    extensions: ext_host::ExtHost,
 }
 
 impl ShellService {
@@ -617,6 +633,7 @@ impl ShellService {
         let recorder = recording::Recorder::new(ui.clone(), Some(center.clone()));
         let prompter = keyring_prompt::Prompter::new(ui.clone());
         let status_icons = tray::Tray::new(ui.clone());
+        let extensions = ext_host::ExtHost::new(ui.clone());
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone(), lock: lock_status.clone() })?
             .serve_at(OBJECT_PATH, extensions::Extensions)?
@@ -638,6 +655,7 @@ impl ShellService {
             .serve_at(recording::OBJECT_PATH, recording::Screencast { recorder: recorder.clone() })?
             .serve_at(keyring_prompt::OBJECT_PATH, prompter.clone())?
             .serve_at(tray::OBJECT_PATH, tray::Watcher { tray: status_icons.clone() })?
+            .serve_at(ext_host::manager::OBJECT_PATH, ext_host::manager::Manager { host: extensions.clone() })?
             .serve_at(night_light::OBJECT_PATH, night_light::ColorService { handle: night_light.clone() })?
             .serve_at(
                 screencast_chooser::OBJECT_PATH,
@@ -706,7 +724,7 @@ impl ShellService {
             }
         });
         let ibus = Arc::new(tokio::sync::Mutex::new(ibus::Ibus::new(ui.clone())));
-        Ok((Self { conn, state, watcher, auth, center, ticker, ui, night_light, ibus, recorder, tray: status_icons }, ui_rx))
+        Ok((Self { conn, state, watcher, auth, center, ticker, ui, night_light, ibus, recorder, tray: status_icons, extensions }, ui_rx))
     }
 
     pub fn connection(&self) -> &Connection {
@@ -752,9 +770,20 @@ impl ShellService {
             ibus: self.ibus.clone(),
             recorder: self.recorder.clone(),
             tray: self.tray.clone(),
+            extensions: self.extensions.clone(),
             search: search::Searcher::default(),
             attention_notices: Default::default(),
         }
+    }
+
+    /// Run the extensions for the rest of the session.
+    pub fn run_extensions(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        self.extensions.clone().run(self.conn.clone(), self.center.clone())
+    }
+
+    /// Stop the extensions' processes (the session ends).
+    pub fn stop_extensions(&self) {
+        self.extensions.stop_all();
     }
 
     /// The notification center (e.g. to follow settings).
@@ -779,6 +808,7 @@ pub struct UiBridge {
     ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
     recorder: recording::Recorder,
     tray: tray::Tray,
+    extensions: ext_host::ExtHost,
     search: search::Searcher,
     /// "<window> is ready" notifications, by window id.
     attention_notices: Arc<std::sync::Mutex<std::collections::HashMap<u32, u32>>>,
@@ -944,6 +974,28 @@ impl UiBridge {
             UiRequest::SearchActivate { provider, id, query } => {
                 let (search, conn) = (self.search.clone(), self.conn.clone());
                 tokio::spawn(async move { search.activate(&conn, provider, &id, &query).await });
+                Ok(())
+            }
+            UiRequest::ExtAction(full_id, action) => {
+                let host = self.extensions.clone();
+                tokio::spawn(async move { host.act(&full_id, action).await });
+                Ok(())
+            }
+            UiRequest::ExtEnable(id, on) => {
+                let result = if on { self.extensions.enable(&id, true) } else { self.extensions.disable(&id) };
+                if let Err(err) = result {
+                    tracing::warn!(id, %err, "cannot change the extension");
+                }
+                Ok(())
+            }
+            UiRequest::ExtSetting(id, key, value) => {
+                if let Err(err) = self.extensions.set_setting(&id, &key, value) {
+                    tracing::warn!(id, key, %err, "cannot change the extension's setting");
+                }
+                Ok(())
+            }
+            UiRequest::QuickSettingsOpened => {
+                self.extensions.quick_settings_opened();
                 Ok(())
             }
             UiRequest::Tray(request) => {

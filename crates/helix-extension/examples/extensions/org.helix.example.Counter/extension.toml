@@ -1,0 +1,15 @@
+# Build with `cargo build --examples`, then try it with
+# `helix-extensions run crates/helix-extension/examples/extensions/org.helix.example.Counter`.
+id = "org.helix.example.Counter"
+name = "Counter"
+description = "Counts clicks. An example of a panel item with a menu."
+version = "1.0"
+api = "1.0"
+exec = ["../../../../../target/debug/examples/counter"]
+
+[[contributes.panel-item]]
+id = "count"
+name = "Counter"
+zones = ["right"]
+icon = "starred-symbolic"
+label = "0"

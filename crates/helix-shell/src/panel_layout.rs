@@ -80,48 +80,77 @@ impl Default for Keys {
     }
 }
 
+/// An enabled extension's panel item, as the layout needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtPanel {
+    /// `<extension id>/<item id>`.
+    pub id: String,
+    pub name: String,
+    /// Allowed in left, center, right.
+    pub zones: [bool; 3],
+    /// Shown without being in the keys (development extensions).
+    pub development: bool,
+}
+
 /// The items shown in each zone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Layout {
-    pub left: Vec<Item>,
-    pub center: Vec<Item>,
-    pub right: Vec<Item>,
+    pub left: Vec<Slot>,
+    pub center: Vec<Slot>,
+    pub right: Vec<Slot>,
 }
 
 impl Default for Layout {
     fn default() -> Self {
-        resolve(&Keys::default())
+        resolve(&Keys::default(), &[])
     }
 }
 
 /// The items to show: unknown ids are skipped, an item is shown at its
-/// first place only, and Power always somewhere (at the right end).
-pub fn resolve(keys: &Keys) -> Layout {
-    let mut seen = Vec::new();
-    let mut zone = |ids: &[String]| -> Vec<Item> {
-        ids.iter()
-            .filter_map(|id| Item::from_id(id))
-            .filter(|item| {
-                let first = !seen.contains(item);
-                seen.push(*item);
-                first
-            })
-            .collect()
+/// first place only, an extension's item only in a zone it allows, and
+/// Power always somewhere (at the right end). Development extensions'
+/// items not in the keys go at the end of the first zone they allow.
+pub fn resolve(keys: &Keys, ext: &[ExtPanel]) -> Layout {
+    let mut seen: Vec<String> = Vec::new();
+    let mut zone = |ids: &[String], z: usize| -> Vec<Slot> {
+        let mut out = Vec::new();
+        for id in ids {
+            if seen.contains(id) {
+                continue;
+            }
+            let slot = match Item::from_id(id) {
+                Some(item) => Some(Slot::Item(item)),
+                None => ext.iter().position(|e| e.id == *id && e.zones[z]).map(Slot::Ext),
+            };
+            if let Some(slot) = slot {
+                seen.push(id.clone());
+                out.push(slot);
+            }
+        }
+        out
     };
-    let left = zone(&keys.left);
-    let center = zone(&keys.center);
-    let mut right = zone(&keys.right);
-    if !seen.contains(&Item::Power) {
-        right.push(Item::Power);
+    let mut zones = [zone(&keys.left, 0), zone(&keys.center, 1), zone(&keys.right, 2)];
+    for (i, e) in ext.iter().enumerate() {
+        if e.development && !seen.contains(&e.id) {
+            if let Some(z) = e.zones.iter().position(|ok| *ok) {
+                zones[z].push(Slot::Ext(i));
+            }
+        }
+    }
+    let [left, center, mut right] = zones;
+    if !seen.iter().any(|s| s == Item::Power.id()) {
+        right.push(Slot::Item(Item::Power));
     }
     Layout { left, center, right }
 }
 
-/// Something placed on the panel: a layout item, or the privacy
-/// indicators ("Recording", "Sharing"), which are not layout items.
+/// Something placed on the panel: a layout item, an extension's item (by
+/// index into the extensions' panel items), or the privacy indicators
+/// ("Recording", "Sharing"), which are not layout items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
     Item(Item),
+    Ext(usize),
     Privacy,
 }
 
@@ -135,17 +164,17 @@ pub const GAP: i32 = 4;
 pub fn place(layout: &Layout, width: i32, size: impl Fn(Slot) -> i32) -> Vec<(Slot, i32, i32)> {
     let mut placed = Vec::new();
     let mut x = 0;
-    for item in &layout.left {
-        let w = size(Slot::Item(*item));
+    for slot in &layout.left {
+        let w = size(*slot);
         if w > 0 {
-            placed.push((Slot::Item(*item), x, w));
+            placed.push((*slot, x, w));
             x += w + GAP;
         }
     }
     let left_end = x;
     let mut right: Vec<(Slot, i32)> = Vec::new();
     let mut slots: Vec<Slot> = vec![Slot::Privacy];
-    slots.extend(layout.right.iter().map(|i| Slot::Item(*i)));
+    slots.extend(layout.right.iter().copied());
     let mut rx = width;
     for slot in slots.into_iter().rev() {
         let w = size(slot);
@@ -156,13 +185,13 @@ pub fn place(layout: &Layout, width: i32, size: impl Fn(Slot) -> i32) -> Vec<(Sl
         }
     }
     let right_start = rx + GAP;
-    let centers: Vec<(Item, i32)> = layout.center.iter().map(|i| (*i, size(Slot::Item(*i)))).filter(|(_, w)| *w > 0).collect();
+    let centers: Vec<(Slot, i32)> = layout.center.iter().map(|s| (*s, size(*s))).filter(|(_, w)| *w > 0).collect();
     let total: i32 = centers.iter().map(|(_, w)| w).sum::<i32>() + GAP * (centers.len() as i32 - 1).max(0);
     let mut cx = (width - total) / 2;
     cx = cx.max(left_end).min(right_start - GAP - total);
-    for (item, w) in centers {
+    for (slot, w) in centers {
         if cx >= left_end && cx + w <= right_start - GAP {
-            placed.push((Slot::Item(item), cx, w));
+            placed.push((slot, cx, w));
         }
         cx += w + GAP;
     }
@@ -219,25 +248,46 @@ impl Keys {
     }
 }
 
+/// Extensions' items, for the editor: panel items (with the zones they
+/// allow) and quick settings toggles and sliders.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Names {
+    pub panel: Vec<ExtPanel>,
+    pub quick: Vec<(String, String)>,
+}
+
+impl Names {
+    /// An item's name in column `col`, if it may be shown there.
+    fn name(&self, id: &str, col: usize) -> Option<String> {
+        if col == QUICK {
+            return switch_name(id).map(str::to_owned).or_else(|| self.quick.iter().find(|(i, _)| i == id).map(|(_, n)| n.clone()));
+        }
+        Item::from_id(id).map(|i| i.name().to_owned()).or_else(|| self.panel.iter().find(|e| e.id == id && e.zones[col]).map(|e| e.name.clone()))
+    }
+
+    fn allowed(&self, id: &str, col: usize) -> bool {
+        Item::from_id(id).is_some() || self.panel.iter().any(|e| e.id == id && e.zones[col])
+    }
+}
+
 /// A row of the editor: where its id is in the column's key, and its name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
     pub index: usize,
     pub id: String,
-    pub name: &'static str,
+    pub name: String,
 }
 
 /// The rows of column `col`: the items it shows (what Helix does not know,
 /// and items shown elsewhere first, are left out).
-pub fn rows(keys: &Keys, col: usize) -> Vec<Row> {
+pub fn rows(keys: &Keys, col: usize, names: &Names) -> Vec<Row> {
     let keys = keys.normalized();
     let mut seen: Vec<&str> = Vec::new();
     let first = if col == QUICK { QUICK } else { 0 };
     for c in first..=col {
         let mut rows = Vec::new();
         for (index, id) in keys.column(c).iter().enumerate() {
-            let name = if col == QUICK { switch_name(id) } else { Item::from_id(id).map(Item::name) };
-            let Some(name) = name else { continue };
+            let Some(name) = names.name(id, c) else { continue };
             if seen.contains(&id.as_str()) {
                 continue;
             }
@@ -252,11 +302,13 @@ pub fn rows(keys: &Keys, col: usize) -> Vec<Row> {
 }
 
 /// What is shown nowhere: (column it is added to, id, name).
-pub fn hidden(keys: &Keys) -> Vec<(usize, String, &'static str)> {
-    let shown: Vec<String> = (0..3).flat_map(|c| rows(keys, c)).map(|r| r.id).collect();
-    let mut out: Vec<(usize, String, &'static str)> = Item::ALL.iter().filter(|i| !shown.iter().any(|s| s == i.id())).map(|i| (2, i.id().to_owned(), i.name())).collect();
-    let switches: Vec<String> = rows(keys, QUICK).into_iter().map(|r| r.id).collect();
-    out.extend(QUICK_SWITCHES.iter().filter(|id| !switches.iter().any(|s| s == *id)).filter_map(|id| Some((QUICK, id.to_string(), switch_name(id)?))));
+pub fn hidden(keys: &Keys, names: &Names) -> Vec<(usize, String, String)> {
+    let shown: Vec<String> = (0..3).flat_map(|c| rows(keys, c, names)).map(|r| r.id).collect();
+    let mut out: Vec<(usize, String, String)> = Item::ALL.iter().filter(|i| !shown.iter().any(|s| s == i.id())).map(|i| (2, i.id().to_owned(), i.name().to_owned())).collect();
+    out.extend(names.panel.iter().filter(|e| !e.development && !shown.contains(&e.id)).filter_map(|e| Some((e.zones.iter().position(|z| *z)?, e.id.clone(), e.name.clone()))));
+    let switches: Vec<String> = rows(keys, QUICK, names).into_iter().map(|r| r.id).collect();
+    out.extend(QUICK_SWITCHES.iter().filter(|id| !switches.iter().any(|s| s == *id)).filter_map(|id| Some((QUICK, id.to_string(), switch_name(id)?.to_owned()))));
+    out.extend(names.quick.iter().filter(|(id, _)| !switches.contains(id)).map(|(id, name)| (QUICK, id.clone(), name.clone())));
     out
 }
 
@@ -266,7 +318,7 @@ pub enum Edit {
     /// Row `row` of column `col` up or down.
     Up(usize, usize),
     Down(usize, usize),
-    /// Row `row` of zone `col` to the end of zone `to`.
+    /// Row `row` of zone `col` to the end of zone `to` (if it may go there).
     Move(usize, usize, usize),
     /// Row `row` of column `col` out (not Power).
     Remove(usize, usize),
@@ -276,18 +328,18 @@ pub enum Edit {
 }
 
 /// `keys` after `edit`. Ids Helix does not know stay where they are.
-pub fn edit(keys: &Keys, edit: Edit) -> Keys {
+pub fn edit(keys: &Keys, edit: Edit, names: &Names) -> Keys {
     let mut keys = keys.normalized();
     match edit {
         Edit::Up(col, row) | Edit::Down(col, row) => {
-            let rows = rows(&keys, col);
+            let rows = rows(&keys, col, names);
             let other = if matches!(edit, Edit::Up(..)) { row.checked_sub(1) } else { Some(row + 1) };
             if let (Some(a), Some(b)) = (rows.get(row), other.and_then(|o| rows.get(o))) {
                 keys.column_mut(col).swap(a.index, b.index);
             }
         }
         Edit::Move(col, row, to) if col < QUICK && to < QUICK && col != to => {
-            if let Some(r) = rows(&keys, col).get(row) {
+            if let Some(r) = rows(&keys, col, names).get(row).filter(|r| names.allowed(&r.id, to)) {
                 for z in 0..QUICK {
                     keys.column_mut(z).retain(|i| *i != r.id);
                 }
@@ -296,7 +348,7 @@ pub fn edit(keys: &Keys, edit: Edit) -> Keys {
         }
         Edit::Move(..) => {}
         Edit::Remove(col, row) => {
-            if let Some(r) = rows(&keys, col).get(row).filter(|r| r.id != Item::Power.id()) {
+            if let Some(r) = rows(&keys, col, names).get(row).filter(|r| r.id != Item::Power.id()) {
                 let zones = if col == QUICK { QUICK..QUICK + 1 } else { 0..QUICK };
                 for z in zones {
                     keys.column_mut(z).retain(|i| *i != r.id);
@@ -304,7 +356,7 @@ pub fn edit(keys: &Keys, edit: Edit) -> Keys {
             }
         }
         Edit::Add(id) => {
-            if let Some((col, id, _)) = hidden(&keys).into_iter().find(|(_, i, _)| *i == id) {
+            if let Some((col, id, _)) = hidden(&keys, names).into_iter().find(|(_, i, _)| *i == id) {
                 keys.column_mut(col).push(id);
             }
         }
@@ -365,38 +417,61 @@ mod tests {
 
     #[test]
     fn resolving() {
-        assert_eq!(Layout::default().right, [Item::Tray, Item::Accessibility, Item::Keyboard, Item::Status, Item::Power]);
-        let l = resolve(&keys(&["helix:clock", "org.example.X/item", "helix:apps"], &["helix:clock"], &["helix:status"]));
-        assert_eq!(l.left, [Item::Clock, Item::Apps], "unknown ids skipped");
+        assert_eq!(Layout::default().right, [Item::Tray, Item::Accessibility, Item::Keyboard, Item::Status, Item::Power].map(Slot::Item));
+        let l = resolve(&keys(&["helix:clock", "org.example.X/item", "helix:apps"], &["helix:clock"], &["helix:status"]), &[]);
+        assert_eq!(l.left, [Slot::Item(Item::Clock), Slot::Item(Item::Apps)], "unknown ids skipped");
         assert!(l.center.is_empty(), "first place wins");
-        assert_eq!(l.right, [Item::Status, Item::Power], "Power always shown");
-        let l = resolve(&keys(&["helix:power"], &[], &[]));
-        assert_eq!((l.left.as_slice(), l.right.as_slice()), ([Item::Power].as_slice(), [].as_slice()));
+        assert_eq!(l.right, [Slot::Item(Item::Status), Slot::Item(Item::Power)], "Power always shown");
+        let l = resolve(&keys(&["helix:power"], &[], &[]), &[]);
+        assert_eq!((l.left.as_slice(), l.right.as_slice()), ([Slot::Item(Item::Power)].as_slice(), [].as_slice()));
     }
 
     #[test]
     fn editing() {
         let mut k = keys(&["helix:apps", "org.x/y", "helix:workspaces"], &["helix:clock"], &["helix:status"]);
         k.quick = vec!["helix:wifi".into(), "helix:dark-style".into()];
+        let n = Names::default();
         // Power is listed (it is always shown), the unknown id is not.
-        assert_eq!(rows(&k, 2).iter().map(|r| r.name).collect::<Vec<_>>(), ["System Status", "Power"]);
-        assert_eq!(rows(&k, 0).iter().map(|r| r.index).collect::<Vec<_>>(), [0, 2]);
+        assert_eq!(rows(&k, 2, &n).iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["System Status", "Power"]);
+        assert_eq!(rows(&k, 0, &n).iter().map(|r| r.index).collect::<Vec<_>>(), [0, 2]);
         // Moving past the unknown id keeps it in place.
-        let up = edit(&k, Edit::Up(0, 1));
+        let up = edit(&k, Edit::Up(0, 1), &n);
         assert_eq!(up.left, ["helix:workspaces", "org.x/y", "helix:apps"]);
-        assert_eq!(edit(&k, Edit::Up(0, 0)).left, k.left, "first row stays");
-        let moved = edit(&k, Edit::Move(1, 0, 0));
+        assert_eq!(edit(&k, Edit::Up(0, 0), &n).left, k.left, "first row stays");
+        let moved = edit(&k, Edit::Move(1, 0, 0), &n);
         assert_eq!((moved.left.last().map(String::as_str), moved.center.len()), (Some("helix:clock"), 0));
-        let removed = edit(&k, Edit::Remove(2, 0));
+        let removed = edit(&k, Edit::Remove(2, 0), &n);
         assert_eq!(removed.right, ["helix:power"]);
-        assert_eq!(edit(&k, Edit::Remove(2, 1)).right, ["helix:status", "helix:power"], "Power stays");
-        assert!(hidden(&removed).iter().any(|(c, id, _)| *c == 2 && id == "helix:status"));
-        assert_eq!(edit(&removed, Edit::Add("helix:status".into())).right, ["helix:power", "helix:status"]);
-        let fewer = edit(&k, Edit::Remove(QUICK, 0));
+        assert_eq!(edit(&k, Edit::Remove(2, 1), &n).right, ["helix:status", "helix:power"], "Power stays");
+        assert!(hidden(&removed, &n).iter().any(|(c, id, _)| *c == 2 && id == "helix:status"));
+        assert_eq!(edit(&removed, Edit::Add("helix:status".into()), &n).right, ["helix:power", "helix:status"]);
+        let fewer = edit(&k, Edit::Remove(QUICK, 0), &n);
         assert_eq!(fewer.quick, ["helix:dark-style"]);
-        assert!(hidden(&fewer).iter().any(|(c, id, _)| *c == QUICK && id == "helix:wifi"));
-        assert_eq!(edit(&fewer, Edit::Add("helix:wifi".into())).quick, ["helix:dark-style", "helix:wifi"]);
-        assert_eq!(edit(&k, Edit::Reset), Keys::default());
+        assert!(hidden(&fewer, &n).iter().any(|(c, id, _)| *c == QUICK && id == "helix:wifi"));
+        assert_eq!(edit(&fewer, Edit::Add("helix:wifi".into()), &n).quick, ["helix:dark-style", "helix:wifi"]);
+        assert_eq!(edit(&k, Edit::Reset, &n), Keys::default());
+    }
+
+    #[test]
+    fn extension_items() {
+        let ext = vec![
+            ExtPanel { id: "org.x.A/clock".into(), name: "World Clock".into(), zones: [false, true, true], development: false },
+            ExtPanel { id: "org.x.Dev/p".into(), name: "Dev".into(), zones: [true, true, true], development: true },
+        ];
+        let k = keys(&["org.x.A/clock", "helix:apps"], &["helix:clock"], &["org.x.A/clock", "helix:power"]);
+        let l = resolve(&k, &ext);
+        assert_eq!(l.left, [Slot::Item(Item::Apps), Slot::Ext(1)], "not allowed on the left; development item added");
+        assert_eq!(l.right, [Slot::Ext(0), Slot::Item(Item::Power)]);
+        let names = Names { panel: ext.clone(), quick: vec![("org.x.A/t".into(), "Toggle".into())] };
+        assert_eq!(rows(&k, 2, &names)[0].name, "World Clock");
+        assert!(rows(&k, 0, &names).iter().all(|r| r.id != "org.x.A/clock"));
+        assert_eq!(edit(&k, Edit::Move(2, 0, 0), &names), k.normalized(), "not to a zone it does not allow");
+        let moved = edit(&k, Edit::Move(2, 0, 1), &names);
+        assert_eq!(moved.center, ["helix:clock", "org.x.A/clock"]);
+        let gone = edit(&k, Edit::Remove(2, 0), &names);
+        assert!(hidden(&gone, &names).contains(&(1, "org.x.A/clock".into(), "World Clock".into())), "back to its first zone");
+        assert!(hidden(&k, &names).iter().any(|(c, id, _)| *c == QUICK && id == "org.x.A/t"));
+        assert!(!hidden(&k, &names).iter().any(|(_, id, _)| id == "org.x.Dev/p"), "development items are not listed");
     }
 
     #[test]

@@ -47,12 +47,15 @@ pub(super) enum Switch {
     NightLight,
     DarkStyle,
     DoNotDisturb,
+    /// An extension's toggle (index into the extensions' toggles).
+    Ext(usize),
 }
 
 impl Switch {
-    /// Its id in `org.helix.shell` `quick-settings`.
+    /// Its id in `org.helix.shell` `quick-settings` (built-in ones).
     pub(super) fn id(self) -> &'static str {
         match self {
+            Switch::Ext(_) => "",
             Switch::Wifi => "helix:wifi",
             Switch::Bluetooth => "helix:bluetooth",
             Switch::Airplane => "helix:airplane-mode",
@@ -64,13 +67,14 @@ impl Switch {
     }
 }
 
-/// The switches `order` lists (by id), in its order, of those there are.
-pub(super) fn ordered_switches(available: Vec<(Switch, String)>, order: &[String]) -> Vec<(Switch, String)> {
+/// The switches `order` lists (by id), in its order, of those there are
+/// (switch, label, id).
+pub(super) fn ordered_switches(available: Vec<(Switch, String, String)>, order: &[String]) -> Vec<(Switch, String)> {
     let mut out: Vec<(Switch, String)> = Vec::new();
     for id in order {
-        if let Some(found) = available.iter().find(|(s, _)| s.id() == id) {
+        if let Some(found) = available.iter().find(|(_, _, i)| i == id) {
             if !out.iter().any(|(s, _)| *s == found.0) {
-                out.push(found.clone());
+                out.push((found.0, found.1.clone()));
             }
         }
     }
@@ -110,6 +114,7 @@ impl Ui {
             Switch::NightLight => settings(COLOR, "night-light-enabled").is_some_and(|s| s.boolean("night-light-enabled")),
             Switch::DarkStyle => settings(INTERFACE, "color-scheme").is_some_and(|s| s.string("color-scheme") == "prefer-dark"),
             Switch::DoNotDisturb => self.notify.do_not_disturb,
+            Switch::Ext(i) => self.ext.toggles.get(i).is_some_and(|t| t.active),
         }
     }
 
@@ -142,6 +147,12 @@ impl Ui {
                 self.notify.do_not_disturb = on;
                 let _ = self.requests.send(UiRequest::SetDoNotDisturb(on));
             }
+            // Shown once the extension says so.
+            Switch::Ext(i) => {
+                if let Some(t) = self.ext.toggles.get(i).filter(|t| t.sensitive) {
+                    let _ = self.requests.send(UiRequest::ExtAction(t.full_id.clone(), crate::ext_host::Action::Toggle));
+                }
+            }
         }
         gio::Settings::sync();
     }
@@ -156,6 +167,7 @@ impl Ui {
         self.power_menu = Some(overlay);
         self.quick_list = None;
         let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Refresh));
+        let _ = self.requests.send(UiRequest::QuickSettingsOpened);
     }
 
     /// Stop the discovery "Pair New Device…" started once the Bluetooth
@@ -203,6 +215,20 @@ impl Ui {
             OverlayHit::Profile(index) => {
                 if let Some(name) = self.status.profiles.get(index).cloned() {
                     let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Toggle(Toggle::Profile(name))));
+                }
+                true
+            }
+            OverlayHit::ExtSlider(i) => {
+                if let Some(s) = self.ext.sliders.get(i) {
+                    let value = f64::from(slider_value(rect, x, 1000)) / 1000.0;
+                    let _ = self.requests.send(UiRequest::ExtAction(s.full_id.clone(), crate::ext_host::Action::SetValue(value)));
+                }
+                true
+            }
+            OverlayHit::ExtDetails(i) => {
+                // The details menu takes the place of quick settings.
+                if let Some(t) = self.ext.toggles.get(i) {
+                    let _ = self.requests.send(UiRequest::ExtAction(t.full_id.clone(), crate::ext_host::Action::Details { x: rect.x }));
                 }
                 true
             }
@@ -270,8 +296,30 @@ impl Ui {
             switches.push((Switch::AutoRotate, "Auto Rotate".into()));
         }
         switches.extend([(Switch::NightLight, "Night Light".into()), (Switch::DarkStyle, "Dark Style".into()), (Switch::DoNotDisturb, "Do Not Disturb".into())]);
+        let mut available: Vec<(Switch, String, String)> = switches.into_iter().map(|(s, name)| (s, name, s.id().to_owned())).collect();
+        // Nothing from extensions while locked.
+        let locked = self.lock.session.is_some();
+        if !locked {
+            available.extend(self.ext.toggles.iter().enumerate().map(|(i, t)| (Switch::Ext(i), t.title.clone(), t.full_id.clone())));
+        }
         // In the order of `org.helix.shell` `quick-settings`.
-        let switches = ordered_switches(switches, &self.panel_keys.quick);
+        let switches = ordered_switches(available, &self.panel_keys.quick);
+        // Extensions' sliders, in that order too.
+        let ext_sliders: Vec<usize> = if locked {
+            Vec::new()
+        } else {
+            let mut order: Vec<usize> = Vec::new();
+            for id in &self.panel_keys.quick {
+                if let Some(i) = self.ext.sliders.iter().position(|s| s.full_id == *id || (s.development && !self.panel_keys.quick.contains(&s.full_id))) {
+                    if !order.contains(&i) {
+                        order.push(i);
+                    }
+                }
+            }
+            let extra: Vec<usize> = (0..self.ext.sliders.len()).filter(|i| self.ext.sliders[*i].development && !order.contains(i)).collect();
+            order.extend(extra);
+            order
+        };
         let states: Vec<bool> = switches.iter().map(|(s, _)| self.switch_on(*s)).collect();
         let profiles: Vec<(String, bool)> = self.status.profiles.iter().map(|p| (profile_label(p), self.status.profile.as_deref() == Some(p.as_str()))).collect();
         let switch_rows = switches.len().div_ceil(3) as i32;
@@ -316,7 +364,7 @@ impl Ui {
         canvas.fill(0x00000000);
         let text = self.text.as_ref();
         let items = power_menu_items(self.power, !crate::locked_down("disable-lock-screen"), !crate::locked_down("disable-log-out"), self.user_switch && crate::user_switch::allowed());
-        let sliders = usize::from(self.quick.volume.is_some()) + usize::from(self.quick.brightness.is_some());
+        let sliders = usize::from(self.quick.volume.is_some()) + usize::from(self.quick.brightness.is_some()) + ext_sliders.len();
         let mh = PAD + sliders as i32 * ROW_H + switch_rows * 48 + list_h + profile_h + PAD + 1 + items.len() as i32 * 36 + 8;
         let mx = w as i32 - MENU_W - 6;
         let my = PANEL_HEIGHT as i32 + 4;
@@ -348,6 +396,15 @@ impl Ui {
             slider(&mut canvas, &mut overlay.hits, y, "Brightness", percent, 100, false, OverlayHit::BrightnessSlider, None);
             y += ROW_H;
         }
+        for &i in &ext_sliders {
+            let Some(s) = self.ext.sliders.get(i) else { continue };
+            let percent = (s.value * 100.0).round() as u32;
+            slider(&mut canvas, &mut overlay.hits, y, &s.title, percent, 100, !s.sensitive, OverlayHit::ExtSlider(i), None);
+            if !s.sensitive {
+                overlay.hits.retain(|(_, h)| *h != OverlayHit::ExtSlider(i));
+            }
+            y += ROW_H;
+        }
         // Switches, three to a row.
         let sw = (MENU_W - 2 * PAD - 2 * 8) / 3;
         for (i, (switch, name)) in switches.iter().enumerate() {
@@ -355,8 +412,10 @@ impl Ui {
             let r = Rect { x: mx + PAD + col * (sw + 8), y: y + 2 + row * 48, w: sw, h: 40 };
             let on = states[i];
             canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT } else { FIELD_BG });
-            // Wi-Fi and Bluetooth: a "›" for their list.
-            let expandable = matches!(switch, Switch::Wifi | Switch::Bluetooth);
+            // Wi-Fi and Bluetooth: a "›" for their list; an extension's
+            // toggle for its details menu.
+            let ext_toggle = if let Switch::Ext(i) = switch { self.ext.toggles.get(*i) } else { None };
+            let expandable = matches!(switch, Switch::Wifi | Switch::Bluetooth) || ext_toggle.is_some_and(|t| t.has_details && t.sensitive);
             let arrow_w = if expandable { 20 } else { 0 };
             // `show-status-shapes`: a bar for on, a ring for off.
             let shape_w = if helix_draw::status_shapes() {
@@ -367,13 +426,27 @@ impl Ui {
             };
             let room = r.w - 8 - arrow_w - shape_w;
             let tw = text.map_or(0.0, |t| t.width(name, 12.0)).min(room as f32);
-            label(text, &mut canvas, name, (r.x + shape_w) as f32 + (r.w - arrow_w - shape_w) as f32 / 2.0 - tw / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, FG, room as f32);
+            let fg = if ext_toggle.is_some_and(|t| !t.sensitive) { DIM_FG } else { FG };
+            let mid = (r.x + shape_w) as f32 + (r.w - arrow_w - shape_w) as f32 / 2.0;
+            match ext_toggle.filter(|t| !t.subtitle.is_empty()) {
+                // The subtitle under the title.
+                Some(t) => {
+                    label(text, &mut canvas, name, mid - tw / 2.0, (r.y + 17) as f32, 12.0, fg, room as f32);
+                    let sw2 = text.map_or(0.0, |x| x.width(&t.subtitle, 10.0)).min(room as f32);
+                    label(text, &mut canvas, &t.subtitle, mid - sw2 / 2.0, (r.y + 31) as f32, 10.0, if on { FG } else { DIM_FG }, room as f32);
+                }
+                None => label(text, &mut canvas, name, mid - tw / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, fg, room as f32),
+            }
             if expandable {
                 let a = Rect { x: r.x + r.w - arrow_w, y: r.y, w: arrow_w, h: r.h };
                 canvas.rect(a.x, a.y + 8, 1, a.h - 16, if on { FG } else { DIM_FG });
                 let glyph = if list_open == Some(*switch) { "‹" } else { "›" };
                 label(text, &mut canvas, glyph, (a.x + 6) as f32, baseline(text, a.y, a.h, 16.0), 16.0, FG, 12.0);
-                overlay.hits.push((a, OverlayHit::Expand(*switch)));
+                let hit = match switch {
+                    Switch::Ext(i) => OverlayHit::ExtDetails(*i),
+                    _ => OverlayHit::Expand(*switch),
+                };
+                overlay.hits.push((a, hit));
             }
             overlay.hits.push((r, OverlayHit::Switch(*switch)));
         }
@@ -453,10 +526,12 @@ mod tests {
 
     #[test]
     fn switch_order() {
-        let available = vec![(Switch::Wifi, "Wi-Fi".to_owned()), (Switch::NightLight, "Night Light".to_owned()), (Switch::DarkStyle, "Dark Style".to_owned())];
-        let order: Vec<String> = ["helix:dark-style", "helix:bluetooth", "helix:wifi", "helix:dark-style", "x:y"].iter().map(|s| s.to_string()).collect();
+        let sw = |s: Switch, name: &str| (s, name.to_owned(), s.id().to_owned());
+        let mut available = vec![sw(Switch::Wifi, "Wi-Fi"), sw(Switch::NightLight, "Night Light"), sw(Switch::DarkStyle, "Dark Style")];
+        available.push((Switch::Ext(0), "Caffeine".into(), "org.x.C/toggle".into()));
+        let order: Vec<String> = ["helix:dark-style", "org.x.C/toggle", "helix:bluetooth", "helix:wifi", "helix:dark-style", "x:y"].iter().map(|s| s.to_string()).collect();
         let got: Vec<Switch> = ordered_switches(available, &order).into_iter().map(|(s, _)| s).collect();
-        assert_eq!(got, [Switch::DarkStyle, Switch::Wifi], "listed, available, once");
+        assert_eq!(got, [Switch::DarkStyle, Switch::Ext(0), Switch::Wifi], "listed, available, once");
         let all: Vec<String> = crate::panel_layout::QUICK_SWITCHES.iter().map(|s| s.to_string()).collect();
         for s in [Switch::Wifi, Switch::Bluetooth, Switch::Airplane, Switch::AutoRotate, Switch::NightLight, Switch::DarkStyle, Switch::DoNotDisturb] {
             assert!(all.contains(&s.id().to_owned()));

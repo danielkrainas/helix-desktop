@@ -1,0 +1,13 @@
+id = "org.helix.example.Cpu"
+name = "Processor"
+description = "A graph of the processor's use. An example of a panel item with a graph."
+version = "1.0"
+api = "1.0"
+exec = ["../../../../../target/debug/examples/cpu"]
+activation = ["onVisible"]
+
+[[contributes.panel-item]]
+id = "graph"
+name = "Processor Graph"
+zones = ["right", "center"]
+icon = "utilities-system-monitor-symbolic"
