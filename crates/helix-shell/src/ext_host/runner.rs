@@ -272,6 +272,8 @@ struct Inner {
     flush_pending: bool,
     /// (1.1) Session bus names that have an owner (for `onDBusName`).
     names: std::collections::HashSet<String>,
+    /// Shift was held at login: no extensions this session.
+    session_off: bool,
 }
 
 /// The extensions: shared by the shell's services and the UI bridge.
@@ -293,7 +295,7 @@ fn item_path(kind: &str, id: &str) -> String {
 
 impl ExtHost {
     pub fn new(ui: mpsc::UnboundedSender<UiEvent>) -> Self {
-        let inner = Inner { exts: BTreeMap::new(), keys: store::Keys::default(), session: None, center: None, quick_opened: false, flush_pending: false, names: Default::default() };
+        let inner = Inner { exts: BTreeMap::new(), keys: store::Keys::default(), session: None, center: None, quick_opened: false, flush_pending: false, names: Default::default(), session_off: std::env::var("HELIX_EXTENSIONS_OFF").as_deref() == Ok("1") };
         Self { inner: Arc::new(Mutex::new(inner)), ui }
     }
 
@@ -304,12 +306,20 @@ impl ExtHost {
     /// Find the extensions, start those that should run, and follow the
     /// settings for the rest of the session.
     pub async fn run(self, session: Connection, center: crate::notifications::Center) {
-        {
+        let session_off = {
             let mut inner = self.lock();
             inner.session = Some(session);
-            inner.center = Some(center);
-        }
+            inner.center = Some(center.clone());
+            inner.session_off
+        };
         self.rescan();
+        if session_off {
+            tracing::info!("Shift was held at login: extensions are off for this session");
+            let any = self.list().iter().any(|i| i.enabled);
+            if any {
+                center.notice("Extensions", "Extensions are off for this session", "Shift was held at login.", "dialog-information-symbolic", false);
+            }
+        }
         // `onDBusName` (1.1): follow which names have owners.
         let session = self.lock().session.clone();
         if let Some(session) = session {
@@ -395,6 +405,7 @@ impl ExtHost {
             let keys = inner.keys.clone();
             let quick_opened = inner.quick_opened;
             let names = inner.names.clone();
+            let session_off = inner.session_off;
             for (id, ext) in inner.exts.iter_mut() {
                 let manifest = match &ext.found.manifest {
                     Ok(m) => m.clone(),
@@ -403,7 +414,7 @@ impl ExtHost {
                         continue;
                     }
                 };
-                let enabled = keys.is_enabled(&ext.found);
+                let enabled = keys.is_enabled(&ext.found) && !session_off;
                 let approved = keys.is_approved(&ext.found);
                 if enabled && approved && ext.found.kind != Kind::Development {
                     placements.push(manifest.clone());
@@ -1055,6 +1066,7 @@ impl ExtHost {
                 let m = e.manifest();
                 let error = match &e.state {
                     State::Invalid(r) | State::Crashed(r) => r.clone(),
+                    State::Disabled if inner.session_off => "Off for this session".to_owned(),
                     _ => e.log.lines.back().cloned().unwrap_or_default(),
                 };
                 Info {
@@ -1408,6 +1420,9 @@ pub fn menu_entries(value: OwnedValue) -> Vec<MenuEntry> {
 
 fn snapshot(inner: &Inner) -> Snapshot {
     let mut snap = Snapshot::default();
+    if inner.session_off {
+        return snap;
+    }
     for (id, ext) in &inner.exts {
         let Ok(m) = &ext.found.manifest else { continue };
         let development = ext.found.kind == Kind::Development;

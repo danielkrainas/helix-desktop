@@ -74,6 +74,7 @@ fn state_text(info: &Info) -> String {
         State::Running => "Running".into(),
         State::Starting => "Starting".into(),
         State::Stopped => "Not running".into(),
+        State::Disabled if info.error == "Off for this session" => "Off for this session (Shift was held at login)".into(),
         State::Disabled => "Off".into(),
         State::NeedsApproval => "Needs approval: turn it on to allow what it asks".into(),
         State::Invalid(reason) => format!("Cannot run: {reason}"),

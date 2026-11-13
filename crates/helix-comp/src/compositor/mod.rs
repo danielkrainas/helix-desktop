@@ -34,6 +34,7 @@ mod wm_behavior;
 mod input_config;
 mod keybindings;
 mod lock;
+mod safe_mode;
 mod ext_popover;
 pub mod pipewire;
 mod screencast;
@@ -148,6 +149,9 @@ pub struct Helix {
     pub keybindings: keybindings::Keybindings,
     /// The shell we launched and keep running, if any.
     pub shell: Option<supervise::Shell>,
+    /// Shift was held when the shell first started: extensions are off
+    /// for the session (`None` until checked).
+    pub extensions_off: Option<bool>,
     /// Shell process exits, reported by waiter threads.
     shell_exits: Option<smithay::reexports::calloop::channel::Sender<std::process::ExitStatus>>,
     /// What the host window's pointer was last set to (nested): a named
@@ -309,6 +313,7 @@ impl Helix {
             shortcuts: shortcuts::Shortcuts::default(),
             keybindings: keybindings::Keybindings::default(),
             shell: None,
+            extensions_off: None,
             shell_exits: None,
             host_cursor: None,
             cursors: cursor::Cursors::new("Adwaita", 24),
@@ -414,6 +419,12 @@ impl Helix {
         let fd = theirs.as_raw_fd();
         let mut cmd = std::process::Command::new(program);
         cmd.env("WAYLAND_SOCKET", fd.to_string());
+        // Shift held at login: no extensions this session.
+        if self.extensions_off == Some(true) {
+            cmd.env("HELIX_EXTENSIONS_OFF", "1");
+        } else {
+            cmd.env_remove("HELIX_EXTENSIONS_OFF");
+        }
         // A shell (re)started while locked must lock again straight away.
         if self.lock.locked {
             cmd.env("HELIX_LOCKED", "1");
@@ -455,6 +466,10 @@ impl Helix {
 
     fn start_shell(&mut self) {
         let Some(program) = self.shell.as_ref().map(|s| s.program.clone()) else { return };
+        if self.extensions_off.is_none() {
+            let held = self.shift_held_now();
+            self.extensions_off = Some(held);
+        }
         match self.spawn_privileged(&program) {
             Ok(mut child) => {
                 let pid = child.id();
