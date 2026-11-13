@@ -39,6 +39,7 @@ fn program(renderer: &mut GlesRenderer) -> Option<GlesTexProgram> {
             UniformName::new("tf_power", UniformType::_1f),
             UniformName::new("scale", UniformType::_1f),
             UniformName::new("to_bt709", UniformType::Matrix3x3),
+            UniformName::new("luma", UniformType::_3f),
         ];
         match renderer.compile_custom_texture_shader(colorimetry::SHADER, &uniforms) {
             Ok(program) => {
@@ -59,6 +60,7 @@ fn uniforms(c: &Conversion) -> Vec<Uniform<'static>> {
         Uniform::new("tf_power", UniformValue::_1f(c.power)),
         Uniform::new("scale", UniformValue::_1f(c.scale)),
         Uniform::new("to_bt709", UniformValue::Matrix3x3 { matrices: vec![c.matrix], transpose: true }),
+        Uniform::new("luma", UniformValue::_3f(c.luma[0], c.luma[1], c.luma[2])),
     ]
 }
 

@@ -41,10 +41,11 @@ pub mod tf {
     pub const SRGB: u32 = 9;
     pub const EXT_SRGB: u32 = 10;
     pub const ST2084_PQ: u32 = 11;
+    pub const HLG: u32 = 13;
 }
 
 /// Named transfer functions Helix offers.
-pub const NAMED_TFS: [u32; 7] = [tf::BT1886, tf::GAMMA22, tf::GAMMA28, tf::EXT_LINEAR, tf::SRGB, tf::EXT_SRGB, tf::ST2084_PQ];
+pub const NAMED_TFS: [u32; 8] = [tf::BT1886, tf::GAMMA22, tf::GAMMA28, tf::EXT_LINEAR, tf::SRGB, tf::EXT_SRGB, tf::ST2084_PQ, tf::HLG];
 
 /// A transfer function: named, or a pure power (`set_tf_power`, the
 /// exponent).
@@ -75,6 +76,7 @@ impl Colorimetry {
     pub fn default_luminance(tf: Tf) -> (f64, f64, f64) {
         match tf {
             Tf::Named(tf::ST2084_PQ) => (0.005, 10000.0, 203.0),
+            Tf::Named(tf::HLG) => (0.005, 1000.0, 203.0),
             _ => (0.2, 80.0, 80.0),
         }
     }
@@ -106,12 +108,100 @@ impl Colorimetry {
     }
 }
 
+/// D50, the ICC profile connection space's white.
+const D50: (f64, f64) = (0.3457, 0.3585);
+
+/// The colorimetry of a matrix/curve RGB ICC profile (v2 or v4): its
+/// colorants (`rXYZ`, `gXYZ`, `bXYZ`, adapted to D50 as ICC keeps them)
+/// as primaries with a D50 white, and the red curve (`rTRC`) as the
+/// transfer function: a pure power, sRGB's curve, or a power fitted to a
+/// table at mid-gray. LUT-based profiles are refused.
+pub fn from_icc(icc: &[u8]) -> Result<Colorimetry, String> {
+    let be32 = |at: usize| icc.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+    let be16 = |at: usize| icc.get(at..at + 2).map(|b| u16::from_be_bytes([b[0], b[1]]));
+    let s15 = |at: usize| be32(at).map(|v| f64::from(v as i32) / 65536.0);
+    if icc.len() < 132 || icc.get(36..40) != Some(b"acsp".as_slice()) {
+        return Err("not an ICC profile".into());
+    }
+    if icc.get(16..20) != Some(b"RGB ".as_slice()) {
+        return Err("not an RGB profile".into());
+    }
+    let count = be32(128).ok_or("no tag table")? as usize;
+    let tag = |sig: &[u8; 4]| -> Option<(usize, usize)> {
+        (0..count.min(1000)).find_map(|i| {
+            let at = 132 + i * 12;
+            (icc.get(at..at + 4)? == sig).then(|| Some((be32(at + 4)? as usize, be32(at + 8)? as usize)))?
+        })
+    };
+    let colorant = |sig: &[u8; 4]| -> Result<(f64, f64), String> {
+        let (at, _) = tag(sig).ok_or("no colorant tags (a LUT-based profile)")?;
+        if icc.get(at..at + 4) != Some(b"XYZ ".as_slice()) {
+            return Err("a colorant tag is not XYZ".into());
+        }
+        let (x, y, z) = (s15(at + 8).ok_or("short tag")?, s15(at + 12).ok_or("short tag")?, s15(at + 16).ok_or("short tag")?);
+        let sum = x + y + z;
+        if sum <= 0.0 {
+            return Err("a colorant is black".into());
+        }
+        Ok((x / sum, y / sum))
+    };
+    let (r, g, b) = (colorant(b"rXYZ")?, colorant(b"gXYZ")?, colorant(b"bXYZ")?);
+    let (at, _) = tag(b"rTRC").ok_or("no tone curve")?;
+    let tf = match icc.get(at..at + 4) {
+        Some(b"curv") => {
+            let n = be32(at + 8).ok_or("short curve")? as usize;
+            match n {
+                0 => Tf::Power(1.0),
+                1 => Tf::Power(f64::from(be16(at + 12).ok_or("short curve")?) / 256.0),
+                _ => {
+                    // The table's value at mid-gray, interpolated.
+                    let pos = 0.5 * (n - 1) as f64;
+                    let (i, f) = (pos.floor() as usize, pos.fract());
+                    let v = |k: usize| be16(at + 12 + 2 * k).map(|v| f64::from(v) / 65535.0);
+                    let mid = v(i).ok_or("short curve")? * (1.0 - f) + v((i + 1).min(n - 1)).ok_or("short curve")? * f;
+                    if mid <= 0.0 || mid >= 1.0 {
+                        return Err("an unusable tone curve".into());
+                    }
+                    Tf::Power((mid.ln() / 0.5f64.ln()).clamp(1.0, 10.0))
+                }
+            }
+        }
+        Some(b"para") => {
+            let kind = be16(at + 8).ok_or("short curve")?;
+            let p = |k: usize| s15(at + 12 + 4 * k).ok_or("short curve");
+            let gamma = p(0)?;
+            // sRGB's curve as a parametric curve (type 3: g, a, b, c, d).
+            let srgb_like = kind == 3 && (gamma - 2.4).abs() < 0.01 && (p(1)? - 1.0 / 1.055).abs() < 0.001 && (p(4)? - 0.04045).abs() < 0.001;
+            if srgb_like {
+                Tf::Named(tf::SRGB)
+            } else if kind <= 4 && gamma >= 1.0 {
+                Tf::Power(gamma.min(10.0))
+            } else {
+                return Err("an unusable parametric curve".into());
+            }
+        }
+        _ => return Err("an unknown tone curve type".into()),
+    };
+    let primaries = [r.0, r.1, g.0, g.1, b.0, b.1, D50.0, D50.1];
+    Ok(Colorimetry {
+        primaries,
+        primaries_named: None,
+        tf,
+        luminance: Colorimetry::default_luminance(tf),
+        target_primaries: None,
+        target_luminance: None,
+        max_cll: None,
+        max_fall: None,
+    })
+}
+
 /// How the shader decodes a transfer function (its `tf_kind` uniform).
 pub mod kind {
     pub const POWER: i32 = 1;
     pub const SRGB: i32 = 2;
     pub const LINEAR: i32 = 3;
     pub const PQ: i32 = 4;
+    pub const HLG: i32 = 5;
 }
 
 /// What the conversion shader needs: how to decode, by what to scale the
@@ -120,9 +210,18 @@ pub mod kind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Conversion {
     pub tf_kind: i32,
+    /// The power of `POWER`; for `HLG`, the OOTF's system gamma.
     pub power: f32,
     pub scale: f32,
     pub matrix: [f32; 9],
+    /// The content's luminance weights (the Y row of its RGB to XYZ), for
+    /// HLG's OOTF.
+    pub luma: [f32; 3],
+}
+
+/// HLG's system gamma for a nominal peak of `peak` cd/m² (BT.2100).
+pub fn hlg_gamma(peak: f64) -> f64 {
+    1.2 + 0.42 * (peak.max(1.0) / 1000.0).log10()
 }
 
 /// The conversion of `c` into the composition space; `None` when its
@@ -141,6 +240,8 @@ pub fn conversion(c: &Colorimetry) -> Option<Conversion> {
         Tf::Named(tf::EXT_LINEAR) => (kind::LINEAR, 1.0, 80.0),
         // Decoded to cd/m².
         Tf::Named(tf::ST2084_PQ) => (kind::PQ, 1.0, 1.0),
+        // Scene light through the OOTF at the nominal peak (`max`).
+        Tf::Named(tf::HLG) => (kind::HLG, hlg_gamma(max), max),
         Tf::Named(_) => return None,
         Tf::Power(p) => (kind::POWER, p, max),
     };
@@ -149,8 +250,10 @@ pub fn conversion(c: &Colorimetry) -> Option<Conversion> {
     if plain {
         return None;
     }
-    let m = mul(&xyz_to_rgb(&srgb)?, &mul(&adapt(white(&c.primaries), white(&srgb)), &rgb_to_xyz(&c.primaries)?));
-    Some(Conversion { tf_kind, power: power as f32, scale: scale as f32, matrix: m.map(|v| v as f32) })
+    let to_xyz = rgb_to_xyz(&c.primaries)?;
+    let m = mul(&xyz_to_rgb(&srgb)?, &mul(&adapt(white(&c.primaries), white(&srgb)), &to_xyz));
+    let luma = [to_xyz[3] as f32, to_xyz[4] as f32, to_xyz[5] as f32];
+    Some(Conversion { tf_kind, power: power as f32, scale: scale as f32, matrix: m.map(|v| v as f32), luma })
 }
 
 type M3 = [f64; 9];
@@ -247,6 +350,7 @@ uniform int tf_kind;
 uniform float tf_power;
 uniform float scale;
 uniform mat3 to_bt709;
+uniform vec3 luma;
 
 float decode(float v) {
     float s = sign(v);
@@ -254,6 +358,11 @@ float decode(float v) {
     if (tf_kind == 1) return s * pow(a, tf_power);
     if (tf_kind == 2) return s * (a <= 0.04045 ? a / 12.92 : pow((a + 0.055) / 1.055, 2.4));
     if (tf_kind == 3) return v;
+    if (tf_kind == 5) {
+        // HLG's inverse OETF: scene light 0-1.
+        float x = clamp(v, 0.0, 1.0);
+        return x <= 0.5 ? x * x / 3.0 : (exp((x - 0.55991073) / 0.17883277) + 0.28466892) / 12.0;
+    }
     // PQ, to cd/m².
     float p = pow(clamp(v, 0.0, 1.0), 1.0 / 78.84375);
     return 10000.0 * pow(max(p - 0.8359375, 0.0) / (18.8515625 - 18.6875 * p), 1.0 / 0.1593017578125);
@@ -265,8 +374,15 @@ void main() {
     c.a = 1.0;
 #endif
     vec3 rgb = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
-    rgb = vec3(decode(rgb.r), decode(rgb.g), decode(rgb.b)) * scale;
-    rgb = clamp(to_bt709 * rgb, 0.0, 1.0);
+    rgb = vec3(decode(rgb.r), decode(rgb.g), decode(rgb.b));
+    if (tf_kind == 5) {
+        // HLG's OOTF: display light relative to the nominal peak.
+        rgb *= pow(max(dot(luma, rgb), 1e-6), tf_power - 1.0);
+    }
+    rgb *= scale;
+    // Above reference white is kept (an HDR monitor's frame holds it; an
+    // 8-bit frame clips it).
+    rgb = max(to_bt709 * rgb, 0.0);
     rgb = pow(rgb, vec3(1.0 / 2.2));
     gl_FragColor = vec4(rgb * c.a, c.a) * alpha;
 #if defined(DEBUG_FLAGS)
@@ -278,6 +394,67 @@ void main() {
 
 #[cfg(test)]
 mod tests {
+
+    /// A matrix/curve ICC profile with these D50 colorants and curve.
+    fn icc(colorants: [[f64; 3]; 3], curve: &[u8]) -> Vec<u8> {
+        let tags: Vec<(&[u8; 4], Vec<u8>)> = vec![
+            (b"rXYZ", xyz_tag(colorants[0])),
+            (b"gXYZ", xyz_tag(colorants[1])),
+            (b"bXYZ", xyz_tag(colorants[2])),
+            (b"rTRC", curve.to_vec()),
+        ];
+        let mut out = vec![0u8; 132 + 12 * tags.len()];
+        out[16..20].copy_from_slice(b"RGB ");
+        out[36..40].copy_from_slice(b"acsp");
+        out[128..132].copy_from_slice(&(tags.len() as u32).to_be_bytes());
+        for (i, (sig, data)) in tags.iter().enumerate() {
+            let at = 132 + 12 * i;
+            let offset = out.len() as u32;
+            out[at..at + 4].copy_from_slice(*sig);
+            out[at + 4..at + 8].copy_from_slice(&offset.to_be_bytes());
+            out[at + 8..at + 12].copy_from_slice(&(data.len() as u32).to_be_bytes());
+            out.extend_from_slice(data);
+        }
+        out
+    }
+
+    fn xyz_tag(v: [f64; 3]) -> Vec<u8> {
+        let mut t = b"XYZ \0\0\0\0".to_vec();
+        for c in v {
+            t.extend_from_slice(&((c * 65536.0).round() as i32).to_be_bytes());
+        }
+        t
+    }
+
+    #[test]
+    fn icc_profiles() {
+        // sRGB's colorants adapted to D50 (as sRGB profiles carry them).
+        let srgb = [[0.4361, 0.2225, 0.0139], [0.3851, 0.7169, 0.0971], [0.1431, 0.0606, 0.7141]];
+        let mut gamma = b"curv\0\0\0\0".to_vec();
+        gamma.extend_from_slice(&1u32.to_be_bytes());
+        gamma.extend_from_slice(&((2.2 * 256.0) as u16).to_be_bytes());
+        let c = from_icc(&icc(srgb, &gamma)).unwrap();
+        assert!(matches!(c.tf, Tf::Power(g) if (g - 2.2).abs() < 0.01));
+        // Back to BT.709 it is (close to) no change of color.
+        let m = conversion(&c).unwrap().matrix;
+        assert!(close(&m, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], 0.02), "{m:?}");
+        let mut para = b"para\0\0\0\0\0\x03\0\0".to_vec();
+        for v in [2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045] {
+            para.extend_from_slice(&((v * 65536.0f64).round() as i32).to_be_bytes());
+        }
+        assert_eq!(from_icc(&icc(srgb, &para)).unwrap().tf, Tf::Named(tf::SRGB));
+        assert!(from_icc(b"not a profile").is_err());
+    }
+
+    #[test]
+    fn hlg() {
+        let c = conversion(&Colorimetry::named(BT2020_PRIMARIES, Tf::Named(tf::HLG))).unwrap();
+        assert_eq!(c.tf_kind, kind::HLG);
+        assert!((c.power - 1.2).abs() < 1e-6, "system gamma at 1000 cd/m²");
+        assert!((c.scale - 1000.0 / 203.0).abs() < 1e-4);
+        assert!((c.luma[1] - 0.678).abs() < 1e-3, "BT.2020 green's luminance share");
+    }
+
     use super::*;
 
     fn close(a: &[f32], b: &[f32], eps: f32) -> bool {

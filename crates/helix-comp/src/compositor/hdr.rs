@@ -1,8 +1,9 @@
 //! HDR monitors (helix-desktop-spec `org.gnome.Mutter.DisplayConfig.md`,
 //! "Color modes"): a monitor in the BT.2100 color mode is drawn as usual
-//! into an offscreen texture, which is then drawn through a shader that
-//! converts it to PQ with BT.2020 primaries, SDR white at the monitor's
-//! `output-luminance`.
+//! into an offscreen half-float texture (which keeps what is brighter than
+//! SDR white), then drawn through a shader that converts it to PQ with
+//! BT.2020 primaries, SDR white at the monitor's `output-luminance`,
+//! highlights tone mapped to the monitor's peak.
 //!
 //! Not yet tried on an HDR monitor; the pass itself can be seen in a
 //! nested session with `HELIX_TEST_HDR=1` (the window then shows the PQ
@@ -34,7 +35,7 @@ impl std::fmt::Debug for HdrPass {
 impl HdrPass {
     /// Draw `elements` (as they would go to `output`) offscreen, and give
     /// the element that shows them converted, SDR white at `white`
-    /// cd/m².
+    /// cd/m², for a monitor reaching `peak` cd/m².
     pub fn convert<E: RenderElement<GlesRenderer>>(
         &mut self,
         renderer: &mut GlesRenderer,
@@ -42,6 +43,7 @@ impl HdrPass {
         elements: &[E],
         clear: [f32; 4],
         white: f64,
+        peak: f64,
     ) -> Result<TextureShaderElement, String> {
         let program = match &self.program {
             Some(program) => program.clone(),
@@ -49,13 +51,13 @@ impl HdrPass {
                 let mut source = helix_comp::colorspace::hdr_shader();
                 if std::env::var("HELIX_TEST_HDR").as_deref() == Ok("raw") {
                     // Debugging: the frame as drawn, without converting it.
-                    source = source.replace("color = vec4(pq_encode(linear * sdr_white), 1.0);", "color = vec4(rgb, 1.0);");
+                    source = source.replace("color = vec4(clamp(encoded, 0.0, 1.0), 1.0);", "color = vec4(rgb, 1.0);");
                 }
                 if std::env::var("HELIX_TEST_HDR").as_deref() == Ok("red") {
-                    source = source.replace("color = vec4(pq_encode(linear * sdr_white), 1.0);", "color = vec4(1.0, 0.0, 0.0, 1.0);");
+                    source = source.replace("color = vec4(clamp(encoded, 0.0, 1.0), 1.0);", "color = vec4(1.0, 0.0, 0.0, 1.0);");
                 }
                 let program = renderer
-                    .compile_custom_texture_shader(source, &[UniformName::new("sdr_white", UniformType::_1f)])
+                    .compile_custom_texture_shader(source, &[UniformName::new("white_nits", UniformType::_1f), UniformName::new("peak_nits", UniformType::_1f)])
                     .map_err(|e| format!("HDR shader: {e:?}"))?;
                 self.program = Some(program.clone());
                 program
@@ -65,9 +67,16 @@ impl HdrPass {
         // Elements are laid out before the monitor's transform.
         let size = output.current_transform().transform_size(mode.size);
         if self.target.as_ref().map(|t| t.1) != Some(size) {
-            let texture: GlesTexture = renderer
-                .create_buffer(Fourcc::Abgr8888, size.to_logical(1).to_buffer(1, Transform::Normal))
-                .map_err(|e| format!("HDR texture: {e:?}"))?;
+            // Half floats keep what is brighter than SDR white; 8 bits
+            // where the GPU cannot draw into them.
+            let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
+            let texture: GlesTexture = match renderer.create_buffer(Fourcc::Abgr16161616f, buffer_size) {
+                Ok(t) => t,
+                Err(err) => {
+                    tracing::info!(?err, "no half-float HDR texture; highlights are clipped");
+                    renderer.create_buffer(Fourcc::Abgr8888, buffer_size).map_err(|e| format!("HDR texture: {e:?}"))?
+                }
+            };
             let scale = output.current_scale().fractional_scale();
             self.target = Some((texture, size, OutputDamageTracker::new(size, scale, Transform::Normal)));
         }
@@ -93,7 +102,7 @@ impl HdrPass {
             None,
             Kind::Unspecified,
         );
-        let white = (white / helix_comp::colorspace::PQ_PEAK) as f32;
-        Ok(TextureShaderElement::new(element, program, vec![Uniform::new("sdr_white", white)]))
+        let peak = peak.max(white) as f32;
+        Ok(TextureShaderElement::new(element, program, vec![Uniform::new("white_nits", white as f32), Uniform::new("peak_nits", peak)]))
     }
 }

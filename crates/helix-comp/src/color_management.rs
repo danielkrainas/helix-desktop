@@ -11,7 +11,7 @@ use smithay::reexports::wayland_protocols::wp::color_management::v1::server::{
     wp_color_management_surface_feedback_v1::{self, WpColorManagementSurfaceFeedbackV1},
     wp_color_management_surface_v1::{self, WpColorManagementSurfaceV1},
     wp_color_manager_v1::{self, WpColorManagerV1},
-    wp_image_description_creator_icc_v1::WpImageDescriptionCreatorIccV1,
+    wp_image_description_creator_icc_v1::{self, WpImageDescriptionCreatorIccV1},
     wp_image_description_creator_params_v1::{self, WpImageDescriptionCreatorParamsV1},
     wp_image_description_info_v1::WpImageDescriptionInfoV1,
     wp_image_description_v1::{self, WpImageDescriptionV1},
@@ -37,9 +37,22 @@ pub trait ColorManagementHandler: 'static {
 
 /// Rendering intents taken: perceptual and relative (both drawn the same).
 pub const INTENTS: [u32; 2] = [0, 1];
-/// Features offered: parametric, set_primaries, set_tf_power,
-/// set_luminances, set_mastering_display_primaries, windows_scrgb.
-pub const FEATURES: [u32; 6] = [1, 2, 3, 4, 5, 7];
+/// Features offered: icc_v2_v4, parametric, set_primaries,
+/// set_tf_power, set_luminances, set_mastering_display_primaries,
+/// windows_scrgb.
+pub const FEATURES: [u32; 7] = [0, 1, 2, 3, 4, 5, 7];
+
+/// The largest ICC profile taken (the protocol's limit).
+const ICC_MAX: u32 = 32 * 1024 * 1024;
+
+/// An ICC creator's profile: read, or why reading failed (not the
+/// client's fault).
+#[derive(Debug, Default)]
+pub struct IccState {
+    profile: Option<Result<Vec<u8>, String>>,
+}
+
+pub type IccData = Mutex<IccState>;
 
 /// The global and the objects told about output changes.
 #[derive(Debug, Default)]
@@ -236,7 +249,7 @@ where
         + Dispatch<WpColorManagementSurfaceV1, Weak<WlSurface>>
         + Dispatch<WpColorManagementSurfaceFeedbackV1, Weak<WlSurface>>
         + Dispatch<WpImageDescriptionCreatorParamsV1, ParamsData>
-        + Dispatch<WpImageDescriptionCreatorIccV1, ()>
+        + Dispatch<WpImageDescriptionCreatorIccV1, IccData>
         + Dispatch<WpImageDescriptionV1, Description>
         + 'static,
 {
@@ -262,7 +275,9 @@ where
             }
             // On protocol errors the new object is left uninitialized: the
             // client is gone anyway.
-            R::CreateIccCreator { .. } => resource.post_error(wp_color_manager_v1::Error::UnsupportedFeature, "ICC profiles are not supported"),
+            R::CreateIccCreator { obj } => {
+                init.init(obj, IccData::default());
+            }
             R::CreateParametricCreator { obj } => {
                 init.init(obj, ParamsData::default());
             }
@@ -348,11 +363,56 @@ where
     }
 }
 
-impl<D> Dispatch<WpImageDescriptionCreatorIccV1, (), D> for ColorManager
+impl<D> Dispatch<WpImageDescriptionCreatorIccV1, IccData, D> for ColorManager
 where
-    D: 'static,
+    D: Dispatch<WpImageDescriptionV1, Description> + 'static,
 {
-    fn request(_: &mut D, _: &Client, _: &WpImageDescriptionCreatorIccV1, _: <WpImageDescriptionCreatorIccV1 as Resource>::Request, _: &(), _: &DisplayHandle, _: &mut DataInit<'_, D>) {}
+    fn request(_: &mut D, _: &Client, resource: &WpImageDescriptionCreatorIccV1, request: wp_image_description_creator_icc_v1::Request, data: &IccData, _: &DisplayHandle, init: &mut DataInit<'_, D>) {
+        use wp_image_description_creator_icc_v1::{Error as E, Request as R};
+        let mut state = data.lock().unwrap_or_else(|e| e.into_inner());
+        match request {
+            R::SetIccFile { icc_profile, offset, length } => {
+                if state.profile.is_some() {
+                    return resource.post_error(E::AlreadySet, "the ICC file is already set");
+                }
+                if length == 0 || length > ICC_MAX {
+                    return resource.post_error(E::BadSize, "an ICC profile is 1 byte to 32 MB");
+                }
+                let file = std::fs::File::from(icc_profile);
+                let size = match file.metadata() {
+                    Ok(m) if m.is_file() => m.len(),
+                    _ => return resource.post_error(E::BadFd, "the ICC fd is not a seekable file"),
+                };
+                if u64::from(offset) + u64::from(length) > size {
+                    return resource.post_error(E::OutOfFile, "the ICC profile runs past the end of the file");
+                }
+                let mut buf = vec![0u8; length as usize];
+                use std::os::unix::fs::FileExt;
+                state.profile = Some(file.read_exact_at(&mut buf, u64::from(offset)).map(|()| buf).map_err(|e| e.to_string()));
+            }
+            R::Create { image_description } => {
+                let Some(profile) = state.profile.take() else {
+                    let _ = image_description;
+                    return resource.post_error(E::IncompleteSet, "no ICC file was set");
+                };
+                match profile {
+                    Ok(bytes) => match crate::colorimetry::from_icc(&bytes) {
+                        Ok(c) => init_description(init, image_description, c, false),
+                        Err(err) => {
+                            tracing::info!(err, "ICC profile not usable");
+                            let res = init.init(image_description, Description { colorimetry: Arc::new(Colorimetry::srgb()), info: false });
+                            res.failed(wp_image_description_v1::Cause::Unsupported, err);
+                        }
+                    },
+                    Err(err) => {
+                        let res = init.init(image_description, Description { colorimetry: Arc::new(Colorimetry::srgb()), info: false });
+                        res.failed(wp_image_description_v1::Cause::OperatingSystem, err);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Chromaticities from the protocol's millionths.

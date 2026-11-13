@@ -752,7 +752,8 @@ impl Helix {
                 .iter()
                 .find(|(c, v, p, s, mode, _)| (c, v, p, s) == (&output.name(), &id.vendor, &id.product, &id.serial) && *mode == helix_comp::display_config::COLOR_MODE_BT2100)
                 .map(|e| e.5);
-            match surface.hdr_pass.convert(renderer, &output, &elements, clear, helix_comp::colorspace::sdr_white(percent)) {
+            let peak = surface.hdr.max_luminance.unwrap_or(1000.0);
+            match surface.hdr_pass.convert(renderer, &output, &elements, clear, helix_comp::colorspace::sdr_white(percent), peak) {
                 Ok(converted) => vec![super::zoom::ScreenElement::Hdr(converted)],
                 Err(err) => {
                     tracing::warn!(err, "HDR pass failed");

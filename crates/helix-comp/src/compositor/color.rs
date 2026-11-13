@@ -62,6 +62,6 @@ delegate_dispatch!(Helix: [cm::wp_color_management_output_v1::WpColorManagementO
 delegate_dispatch!(Helix: [cm::wp_color_management_surface_v1::WpColorManagementSurfaceV1: Weak<WlSurface>] => ColorManager);
 delegate_dispatch!(Helix: [cm::wp_color_management_surface_feedback_v1::WpColorManagementSurfaceFeedbackV1: Weak<WlSurface>] => ColorManager);
 delegate_dispatch!(Helix: [cm::wp_image_description_creator_params_v1::WpImageDescriptionCreatorParamsV1: ParamsData] => ColorManager);
-delegate_dispatch!(Helix: [cm::wp_image_description_creator_icc_v1::WpImageDescriptionCreatorIccV1: ()] => ColorManager);
+delegate_dispatch!(Helix: [cm::wp_image_description_creator_icc_v1::WpImageDescriptionCreatorIccV1: helix_comp::color_management::IccData] => ColorManager);
 delegate_dispatch!(Helix: [cm::wp_image_description_v1::WpImageDescriptionV1: Description] => ColorManager);
 delegate_dispatch!(Helix: [cm::wp_image_description_info_v1::WpImageDescriptionInfoV1: ()] => ColorManager);

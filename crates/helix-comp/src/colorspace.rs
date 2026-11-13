@@ -148,18 +148,39 @@ pub fn sdr_white(percent: Option<f64>) -> f64 {
     SDR_WHITE * percent.unwrap_or(100.0).clamp(25.0, 300.0) / 100.0
 }
 
-/// An sRGB-encoded color as BT.2100 PQ-encoded values, with SDR white at
-/// `white` cd/m² (what the compositor's HDR pass computes on the GPU).
-pub fn sdr_to_pq(rgb: [f64; 3], white: f64) -> [f64; 3] {
+/// Where highlight compression starts, as a share of the monitor's peak.
+pub const KNEE: f64 = 0.75;
+
+/// Tone mapping of a luminance `nits` for a monitor reaching `peak`
+/// cd/m²: unchanged up to [`KNEE`] × `peak`, then compressed so that it
+/// approaches `peak` without passing it.
+pub fn tone_map(nits: f64, peak: f64) -> f64 {
+    let knee = KNEE * peak;
+    if nits <= knee {
+        return nits;
+    }
+    let room = peak - knee;
+    knee + room * (1.0 - (-(nits - knee) / room).exp())
+}
+
+/// A frame color (sRGB-encoded, values above 1.0 brighter than SDR white)
+/// as BT.2100 PQ-encoded values, with SDR white at `white` cd/m² and
+/// highlights tone mapped for a monitor reaching `peak` cd/m² (what the
+/// compositor's HDR pass computes on the GPU, without its dithering).
+pub fn sdr_to_pq(rgb: [f64; 3], white: f64, peak: f64) -> [f64; 3] {
     let linear = rgb.map(srgb_eotf);
-    let wide = apply(&conversion(&SRGB, &BT2020), linear);
-    wide.map(|v| pq_encode(v.max(0.0) * white))
+    let wide = apply(&conversion(&SRGB, &BT2020), linear).map(|v| v.max(0.0) * white);
+    let brightest = wide.iter().copied().fold(0.0f64, f64::max);
+    let k = if brightest > 0.0 { tone_map(brightest, peak) / brightest } else { 1.0 };
+    wide.map(|v| pq_encode(v * k))
 }
 
 /// The fragment shader of the compositor's HDR pass (GLSL ES 1.00, in
-/// the form Smithay's custom texture shaders take): an sRGB-encoded,
-/// premultiplied frame to BT.2100 PQ, with SDR white at the `sdr_white`
-/// uniform (cd/m² / 10000).
+/// the form Smithay's custom texture shaders take): a premultiplied,
+/// sRGB-encoded frame (values above 1.0 brighter than SDR white, from a
+/// half-float texture) to BT.2100 PQ, with SDR white at `white_nits`,
+/// highlights tone mapped for a monitor reaching `peak_nits`, and a
+/// dither of one 8-bit step.
 pub fn hdr_shader() -> String {
     let m = conversion(&SRGB, &BT2020);
     // GLSL matrices are given column by column.
@@ -185,7 +206,8 @@ uniform sampler2D tex;
 #endif
 
 uniform float alpha;
-uniform float sdr_white;
+uniform float white_nits;
+uniform float peak_nits;
 varying vec2 v_coords;
 
 #if defined(DEBUG_FLAGS)
@@ -196,26 +218,38 @@ const mat3 SRGB_TO_BT2020 = mat3({matrix});
 
 vec3 srgb_to_linear(vec3 c) {{
     vec3 low = c / 12.92;
-    vec3 high = pow((c + 0.055) / 1.055, vec3(2.4));
+    vec3 high = pow((max(c, 0.0) + 0.055) / 1.055, vec3(2.4));
     return mix(low, high, step(vec3(0.04045), c));
 }}
 
-vec3 pq_encode(vec3 y) {{
-    vec3 p = pow(clamp(y, 0.0, 1.0), vec3({m1:.10}));
+vec3 pq_encode(vec3 nits) {{
+    vec3 p = pow(clamp(nits / 10000.0, 0.0, 1.0), vec3({m1:.10}));
     return pow(({c1:.10} + {c2:.10} * p) / (1.0 + {c3:.10} * p), vec3({m2:.10}));
+}}
+
+float tone_map(float nits) {{
+    float knee = {knee:.4} * peak_nits;
+    if (nits <= knee) return nits;
+    float room = peak_nits - knee;
+    return knee + room * (1.0 - exp(-(nits - knee) / room));
+}}
+
+// Interleaved gradient noise: a dither of -0.5 to 0.5 that varies from
+// pixel to pixel.
+float dither(vec2 p) {{
+    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))) - 0.5;
 }}
 
 void main() {{
     vec4 color = texture2D(tex, v_coords);
     vec3 rgb = color.a > 0.0 ? color.rgb / color.a : vec3(0.0);
-    vec3 linear = SRGB_TO_BT2020 * srgb_to_linear(rgb);
-    color = vec4(pq_encode(linear * sdr_white), 1.0);
+    vec3 nits = max(SRGB_TO_BT2020 * srgb_to_linear(rgb), 0.0) * white_nits;
+    float brightest = max(nits.r, max(nits.g, nits.b));
+    if (brightest > 0.0) nits *= tone_map(brightest) / brightest;
+    vec3 encoded = pq_encode(nits) + dither(gl_FragCoord.xy) / 255.0;
+    color = vec4(clamp(encoded, 0.0, 1.0), 1.0);
 
-#if defined(NO_ALPHA)
     color = color * alpha;
-#else
-    color = color * alpha;
-#endif
 
 #if defined(DEBUG_FLAGS)
     if (tint == 1.0)
@@ -231,6 +265,7 @@ void main() {{
         c1 = C1,
         c2 = C2,
         c3 = C3,
+        knee = KNEE,
     )
 }
 
@@ -319,6 +354,26 @@ pub fn icc_vcgt(icc: &[u8], size: usize) -> Option<(Vec<u16>, Vec<u16>, Vec<u16>
 
 #[cfg(test)]
 mod tests {
+
+    /// The sRGB encoding (extended above 1).
+    fn srgb_inverse(l: f64) -> f64 {
+        1.055 * l.powf(1.0 / 2.4) - 0.055
+    }
+
+    #[test]
+    fn highlights_are_compressed() {
+        assert_eq!(tone_map(400.0, 1000.0), 400.0, "below the knee: as it is");
+        let a = tone_map(1000.0, 1000.0);
+        let b = tone_map(4000.0, 1000.0);
+        assert!(a > 750.0 && a < 1000.0 && b > a && b < 1000.0, "{a} {b}");
+        // Twice SDR white (a value of 2.0 in the frame) stays brighter
+        // than white on a 1000 cd/m² monitor.
+        let white = sdr_to_pq([1.0; 3], SDR_WHITE, 1000.0)[0];
+        let bright = sdr_to_pq([srgb_inverse(2.0); 3], SDR_WHITE, 1000.0)[0];
+        assert!(bright > white, "{bright} > {white}");
+        assert!((bright - pq_encode(406.0)).abs() < 2e-3);
+    }
+
     use super::*;
 
     fn close(a: f64, b: f64, eps: f64) -> bool {
@@ -382,9 +437,9 @@ mod tests {
         let y = rgb_to_xyz(&SRGB)[1];
         assert!(close(y[0], 0.2126, 1e-4) && close(y[1], 0.7152, 1e-4) && close(y[2], 0.0722, 1e-4));
         // White stays white: SDR white at 203 cd/m².
-        let white = sdr_to_pq([1.0, 1.0, 1.0], SDR_WHITE);
+        let white = sdr_to_pq([1.0, 1.0, 1.0], SDR_WHITE, 1000.0);
         assert!(white.iter().all(|v| close(*v, pq_encode(203.0), 1e-6)));
-        assert_eq!(sdr_to_pq([0.0, 0.0, 0.0], SDR_WHITE).map(|v| (v * 1e6).round()), [0.0; 3].map(|v: f64| (pq_encode(v) * 1e6).round()));
+        assert_eq!(sdr_to_pq([0.0, 0.0, 0.0], SDR_WHITE, 1000.0).map(|v| (v * 1e6).round()), [0.0; 3].map(|v: f64| (pq_encode(v) * 1e6).round()));
         assert_eq!((sdr_white(None), sdr_white(Some(200.0)), sdr_white(Some(1000.0))), (203.0, 406.0, 609.0));
     }
 
@@ -403,7 +458,7 @@ mod tests {
     fn shader() {
         let source = hdr_shader();
         assert!(source.lines().any(|l| l == "//_DEFINES_"), "Smithay's defines marker");
-        assert!(source.contains("uniform float sdr_white;"));
+        assert!(source.contains("uniform float white_nits;") && source.contains("uniform float peak_nits;"));
         // The first column of the matrix (red's share in each channel).
         assert!(source.contains("mat3(0.627"), "{source}");
         assert_eq!(source.matches('{').count(), source.matches('}').count());

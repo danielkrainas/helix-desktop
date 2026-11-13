@@ -211,7 +211,7 @@ pub fn init(
                     let clear = if locked || state.screens_off { [0.0, 0.0, 0.0, 1.0] } else { [0.12, 0.12, 0.14, 1.0] };
                     // Testing the HDR pass: the frame as an HDR monitor would get it.
                     let elements = match state.hdr_test.as_mut() {
-                        Some(pass) => match pass.convert(renderer, &output, &elements, clear, helix_comp::colorspace::SDR_WHITE) {
+                        Some(pass) => match pass.convert(renderer, &output, &elements, clear, helix_comp::colorspace::SDR_WHITE, 1000.0) {
                             Ok(converted) => vec![super::zoom::ScreenElement::Hdr(converted)],
                             Err(err) => {
                                 tracing::warn!(err, "HDR pass failed");
