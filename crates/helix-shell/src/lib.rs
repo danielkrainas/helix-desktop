@@ -14,6 +14,7 @@ pub mod extra_keys;
 pub mod favorites;
 pub mod font;
 pub mod geoclue_agent;
+pub mod housekeeping;
 pub mod ibus;
 pub mod idle;
 pub mod input_sources;

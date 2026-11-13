@@ -9,7 +9,8 @@ pub const WM_PREFERENCES: &str = "org.gnome.desktop.wm.preferences";
 pub const SOUND: &str = "org.gnome.desktop.sound";
 pub const MOUSE: &str = "org.gnome.desktop.peripherals.mouse";
 pub const MUTTER_WAYLAND: &str = "org.gnome.mutter.wayland";
-pub const SCHEMAS: [&str; 5] = [INTERFACE, WM_PREFERENCES, SOUND, MOUSE, MUTTER_WAYLAND];
+pub const PRIVACY: &str = "org.gnome.desktop.privacy";
+pub const SCHEMAS: [&str; 6] = [INTERFACE, WM_PREFERENCES, SOUND, MOUSE, MUTTER_WAYLAND, PRIVACY];
 
 /// The largest Xwayland scale Helix uses.
 pub const MAX_SCALE: i32 = 4;
@@ -54,6 +55,10 @@ pub struct Settings {
     pub event_sounds: bool,
     pub sound_theme: String,
     pub double_click: i32,
+    /// `remember-recent-files` and `recent-files-max-age` (days; -1: no
+    /// limit).
+    pub recent_files: bool,
+    pub recent_max_age: i32,
     /// `xwayland-scaling-factor`.
     pub xwayland_scaling: f64,
 }
@@ -80,6 +85,8 @@ impl Default for Settings {
             event_sounds: true,
             sound_theme: "freedesktop".into(),
             double_click: 400,
+            recent_files: true,
+            recent_max_age: -1,
             xwayland_scaling: 0.0,
         }
     }
@@ -116,6 +123,8 @@ pub fn values(s: &Settings, scale: i32) -> Vec<(&'static str, Value)> {
         ("Gtk/FontName", text(&s.font_name)),
         ("Gtk/KeyThemeName", text(&s.key_theme)),
         ("Gtk/OverlayScrolling", int(s.overlay_scrolling)),
+        ("Gtk/RecentFilesEnabled", int(s.recent_files)),
+        ("Gtk/RecentFilesMaxAge", Value::Int(s.recent_max_age)),
         ("Net/CursorBlink", int(s.cursor_blink)),
         ("Net/CursorBlinkTime", Value::Int(s.cursor_blink_time)),
         ("Net/DoubleClickTime", Value::Int(s.double_click)),
@@ -230,6 +239,8 @@ pub fn read() -> Settings {
         event_sounds: boolean(SOUND, "event-sounds", d.event_sounds),
         sound_theme: string(SOUND, "theme-name", &d.sound_theme),
         double_click: int(MOUSE, "double-click", d.double_click),
+        recent_files: boolean(PRIVACY, "remember-recent-files", d.recent_files),
+        recent_max_age: int(PRIVACY, "recent-files-max-age", d.recent_max_age),
         xwayland_scaling: with(MUTTER_WAYLAND, "xwayland-scaling-factor").map_or(0.0, |s| s.double("xwayland-scaling-factor")),
     }
 }

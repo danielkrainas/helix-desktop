@@ -236,7 +236,30 @@ pub fn xbel_entries(text: &str) -> Vec<(String, i64)> {
 
 /// Recently used local files that still exist and pass `filter`, newest
 /// first (`recently-used.xbel` under the data folder).
+/// The oldest recent file to list (Unix seconds), or `None` to list none,
+/// from `org.gnome.desktop.privacy` `remember-recent-files` and
+/// `recent-files-max-age` (days; -1: no limit).
+pub fn recent_cutoff(remember: bool, max_age_days: i32, now: i64) -> Option<i64> {
+    match (remember, max_age_days) {
+        (false, _) | (_, 0) => None,
+        (true, days) if days < 0 => Some(i64::MIN),
+        (true, days) => Some(now - i64::from(days) * 86_400),
+    }
+}
+
+fn privacy_cutoff() -> Option<i64> {
+    use gio::prelude::*;
+    const PRIVACY: &str = "org.gnome.desktop.privacy";
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    let Some(schema) = gio::SettingsSchemaSource::default().and_then(|src| src.lookup(PRIVACY, true)) else { return recent_cutoff(true, -1, now) };
+    let s = gio::Settings::new(PRIVACY);
+    let remember = !schema.has_key("remember-recent-files") || s.boolean("remember-recent-files");
+    let age = if schema.has_key("recent-files-max-age") { s.int("recent-files-max-age") } else { -1 };
+    recent_cutoff(remember, age, now)
+}
+
 fn recent_files(home: &Path, filter: Option<&Filter>) -> Vec<PathBuf> {
+    let Some(cutoff) = privacy_cutoff() else { return Vec::new() };
     let data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"));
     let Ok(text) = std::fs::read_to_string(data.join("recently-used.xbel")) else { return Vec::new() };
     let mut found: Vec<(i64, PathBuf)> = xbel_entries(&text)
@@ -244,7 +267,7 @@ fn recent_files(home: &Path, filter: Option<&Filter>) -> Vec<PathBuf> {
         .filter_map(|(uri, when)| {
             let path = gio::File::for_uri(&uri).path().filter(|_| uri.starts_with("file://"))?;
             let name = path.file_name()?.to_string_lossy().into_owned();
-            (path.is_file() && filter.is_none_or(|f| passes(f, &name))).then_some((when, path))
+            (when >= cutoff && path.is_file() && filter.is_none_or(|f| passes(f, &name))).then_some((when, path))
         })
         .collect();
     found.sort_by_key(|f| std::cmp::Reverse(f.0));
@@ -705,6 +728,15 @@ impl FileChooserBackend {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn recent_privacy() {
+        assert_eq!(recent_cutoff(false, -1, 1000), None);
+        assert_eq!(recent_cutoff(true, 0, 1000), None);
+        assert_eq!(recent_cutoff(true, -1, 1000), Some(i64::MIN));
+        assert_eq!(recent_cutoff(true, 2, 200_000), Some(200_000 - 172_800));
+    }
+
     use super::*;
 
     #[test]

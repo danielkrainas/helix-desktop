@@ -141,6 +141,8 @@ fn main() -> ExitCode {
             }
         }
     });
+    // Old Trash and temporary files.
+    runtime.spawn(helix_shell::housekeeping::run());
     // The clock's format.
     runtime.spawn(helix_shell::clock::follow());
     // Desktop icons.
