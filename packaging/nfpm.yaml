@@ -18,10 +18,30 @@ description: |-
   A Wayland desktop written in Rust that is compatible with GNOME 51:
   compositor, shell, session launcher and xdg-desktop-portal backends.
 
+# Files only, not a tree: the packages must not own shared directories
+# such as /usr/bin (on Fedora the filesystem package owns them, with other
+# modes, and the RPM would conflict with it).
 contents:
-  - src: ./stage/usr/
-    dst: /usr/
-    type: tree
+  - src: ./stage/usr/bin/helix-comp
+    dst: /usr/bin/helix-comp
+  - src: ./stage/usr/bin/helix-shell
+    dst: /usr/bin/helix-shell
+  - src: ./stage/usr/bin/helix-session
+    dst: /usr/bin/helix-session
+  - src: ./stage/usr/bin/helix-portals
+    dst: /usr/bin/helix-portals
+  - src: ./stage/usr/bin/helix-bluetooth-sendto
+    dst: /usr/bin/helix-bluetooth-sendto
+  - src: ./stage/usr/share/wayland-sessions/helix.desktop
+    dst: /usr/share/wayland-sessions/helix.desktop
+  - src: ./stage/usr/share/xdg-desktop-portal/portals/helix.portal
+    dst: /usr/share/xdg-desktop-portal/portals/helix.portal
+  - src: ./stage/usr/share/xdg-desktop-portal/helix-portals.conf
+    dst: /usr/share/xdg-desktop-portal/helix-portals.conf
+  - src: ./stage/usr/share/doc/helix-desktop/README.md
+    dst: /usr/share/doc/helix-desktop/README.md
+  - src: ./stage/usr/share/licenses/helix-desktop/LICENSE
+    dst: /usr/share/licenses/helix-desktop/LICENSE
   - src: ./stage/etc/xdg/helix/session.toml
     dst: /etc/xdg/helix/session.toml
     type: config|noreplace
