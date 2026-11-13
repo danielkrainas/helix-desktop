@@ -38,7 +38,14 @@ pub(super) struct PromptView {
     /// Previews by file: asked for (`None` until decoded, or when it
     /// cannot be shown).
     previews: std::collections::HashMap<String, Option<std::sync::Arc<helix_draw::Image>>>,
+    /// The password fields shown as text ("Show").
+    shown: [bool; 2],
+    /// Whether "Show" is offered (`disable-show-password` off).
+    can_show: bool,
 }
+
+/// The width of a password field's "Show" button.
+const SHOW_W: i32 = 56;
 
 /// The preview area's height.
 const PREVIEW_H: i32 = 160;
@@ -55,7 +62,7 @@ impl PromptView {
         };
         let selected = request.prompt.selected.min(request.prompt.list.len().saturating_sub(1));
         let picked = vec![false; request.prompt.list.len()];
-        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, place: None, previews: Default::default() }
+        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, place: None, previews: Default::default(), shown: [false; 2], can_show: !crate::locked_down("disable-show-password") }
     }
 
     /// Answer "cancel" if nobody answered yet.
@@ -212,6 +219,16 @@ impl Ui {
             return;
         }
         view.focus = field;
+        self.draw_dialog();
+    }
+
+    /// "Show" / "Hide" beside password field `index`.
+    pub(super) fn prompt_show_password(&mut self, index: usize) {
+        let Some(view) = self.prompt_view() else { return };
+        if !view.can_show || index > 1 {
+            return;
+        }
+        view.shown[index] = !view.shown[index];
         self.draw_dialog();
     }
 
@@ -424,10 +441,22 @@ impl Ui {
             if view.focus == index && !view.busy {
                 canvas.rect(r.x, r.y + r.h - 2, r.w, 2, ACCENT);
             }
-            // One dot per character (drawn: not every font has a bullet).
-            let count = view.fields[index].chars().count().min(((r.w - 20) / 12) as usize);
-            for i in 0..count {
-                canvas.circle(f64::from(r.x + 16 + i as i32 * 12), f64::from(r.y + r.h / 2), 4.0, FG);
+            let show_w = if view.can_show { SHOW_W } else { 0 };
+            if view.shown[index] {
+                label(text, &mut canvas, &view.fields[index], (r.x + 10) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 20 - show_w) as f32);
+            } else {
+                // One dot per character (drawn: not every font has a bullet).
+                let count = view.fields[index].chars().count().min(((r.w - 20 - show_w) / 12) as usize);
+                for i in 0..count {
+                    canvas.circle(f64::from(r.x + 16 + i as i32 * 12), f64::from(r.y + r.h / 2), 4.0, FG);
+                }
+            }
+            if view.can_show {
+                let b = Rect { x: r.x + r.w - SHOW_W, y: r.y, w: SHOW_W, h: r.h };
+                let s = if view.shown[index] { "Hide" } else { "Show" };
+                let lw = text.map_or(0.0, |t| t.width(s, 13.0));
+                label(text, &mut canvas, s, b.x as f32 + (b.w as f32 - lw) / 2.0, baseline(text, b.y, b.h, 13.0), 13.0, DIM_FG, b.w as f32);
+                hits.push((b, OverlayHit::ShowPassword(index)));
             }
             hits.push((r, OverlayHit::Field(index)));
             y += 62;

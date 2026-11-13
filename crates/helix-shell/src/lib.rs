@@ -60,6 +60,7 @@ pub mod state;
 pub mod status;
 pub mod text;
 pub mod ui;
+pub mod user_switch;
 pub mod wallpaper;
 pub mod weather;
 pub mod wellbeing;
@@ -166,6 +167,8 @@ pub enum UiEvent {
     EndDialog(Option<end_dialog::EndDialog>),
     /// Which power actions the Power menu may offer.
     PowerAvailability(logind::Availability),
+    /// Whether a display manager can switch users (`user_switch`).
+    UserSwitch(bool),
     /// Ask whether to keep a display change (countdown seconds), or stop
     /// asking.
     DisplayChange(Option<u32>),
@@ -231,6 +234,8 @@ pub enum PowerAction {
     Lock,
     Suspend,
     LogOut,
+    /// "Switch User…": lock, then the display manager's login screen.
+    SwitchUser,
     Restart,
     PowerOff,
 }
@@ -838,6 +843,23 @@ impl UiBridge {
                     PowerAction::Suspend => call("Suspend", None).await,
                     PowerAction::LogOut if locked_down("disable-log-out") => Err(zbus::Error::Failure("logging out is disabled".into())),
                     PowerAction::LogOut => call("Logout", Some(0)).await,
+                    PowerAction::SwitchUser if !user_switch::allowed() => Err(zbus::Error::Failure("user switching is disabled".into())),
+                    // The session is locked first; without that, no switch.
+                    PowerAction::SwitchUser if !lock_and_wait(&self.conn, std::time::Duration::from_secs(3)).await => {
+                        Err(zbus::Error::Failure("cannot lock before switching users".into()))
+                    }
+                    PowerAction::SwitchUser => {
+                        match user_switch::bus().await {
+                            Some(bus) => match user_switch::manager(&bus).await {
+                                Some(manager) => {
+                                    tracing::info!(?manager, "switching user");
+                                    user_switch::switch(&bus, &manager).await
+                                }
+                                None => Err(zbus::Error::Failure("no display manager to switch through".into())),
+                            },
+                            None => Err(zbus::Error::Failure("user switching needs bare hardware".into())),
+                        }
+                    }
                     PowerAction::Restart => call("Reboot", None).await,
                     PowerAction::PowerOff => call("Shutdown", None).await,
                 };

@@ -247,6 +247,8 @@ struct Ui {
     monitor_labels: Vec<Overlay<i32>>,
     /// Which power actions logind allows (entries shown in the menu).
     power: crate::logind::Availability,
+    /// A display manager can switch users.
+    user_switch: bool,
     /// The screen is being shared (panel indicator).
     sharing: bool,
     /// The screen is being recorded (panel indicator).
@@ -316,6 +318,8 @@ enum OverlayHit {
     Place(usize),
     /// A field of the prompt dialog (its focus number).
     Field(usize),
+    /// "Show" in a password field of the prompt dialog.
+    ShowPassword(usize),
     /// "Pair New Device…", and a device found nearby.
     PairNew,
     BtNearby(usize),
@@ -2081,6 +2085,7 @@ impl Ui {
                 }
             }
             UiEvent::PowerAvailability(power) => self.power = power,
+            UiEvent::UserSwitch(available) => self.user_switch = available,
             UiEvent::Lock => self.start_lock(),
             UiEvent::Banner(banner) => self.show_banner(banner),
             UiEvent::Osd(osd) => {
@@ -2494,6 +2499,7 @@ pub fn run(
         primary_area: (0, 0, 1920, 1080),
         monitor_labels: Vec::new(),
         power: Default::default(),
+        user_switch: false,
         sharing: false,
         recording: false,
         status: Default::default(),
@@ -2880,6 +2886,7 @@ impl Ui {
                     OverlayHit::Row(i) => self.prompt_pick(i),
                     OverlayHit::Place(i) => self.prompt_place(i),
                     OverlayHit::Field(f) => self.prompt_focus(f),
+                    OverlayHit::ShowPassword(f) => self.prompt_show_password(f),
                     _ => {}
                 }
             } else if self.switcher.as_ref().is_some_and(|o| o.layer.wl_surface() == &event.surface) {
@@ -3159,10 +3166,13 @@ fn read_icon(data: std::os::fd::OwnedFd, size: u32) -> Option<helix_draw::Image>
 
 /// Power menu entries, offering only what logind allows.
 /// `lock` and `log_out`: whether the lockdown settings allow them.
-fn power_menu_items(power: crate::logind::Availability, lock: bool, log_out: bool) -> Vec<(&'static str, PowerAction)> {
+fn power_menu_items(power: crate::logind::Availability, lock: bool, log_out: bool, switch_user: bool) -> Vec<(&'static str, PowerAction)> {
     let mut items = Vec::new();
     if lock {
         items.push(("Lock Screen", PowerAction::Lock));
+    }
+    if switch_user {
+        items.push(("Switch User…", PowerAction::SwitchUser));
     }
     if power.suspend {
         items.push(("Suspend", PowerAction::Suspend));
@@ -3295,10 +3305,12 @@ mod tests {
 
     #[test]
     fn power_menu_entries_follow_logind() {
-        let names = |power, lock, log_out| power_menu_items(power, lock, log_out).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+        let names = |power, lock, log_out| power_menu_items(power, lock, log_out, false).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
         assert_eq!(names(Availability::default(), true, true), ["Lock Screen", "Log Out…"]);
         let all = Availability { suspend: true, restart: true, power_off: true };
         assert_eq!(names(all, true, true), ["Lock Screen", "Suspend", "Log Out…", "Restart…", "Power Off…"]);
         assert_eq!(names(all, false, false), ["Suspend", "Restart…", "Power Off…"]);
+        let with_switch: Vec<_> = power_menu_items(Availability::default(), true, true, true).into_iter().map(|(n, _)| n).collect();
+        assert_eq!(with_switch, ["Lock Screen", "Switch User…", "Log Out…"]);
     }
 }

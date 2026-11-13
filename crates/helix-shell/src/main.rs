@@ -255,6 +255,16 @@ fn main() -> ExitCode {
         let _ = rebind.send(helix_shell::UiEvent::RebindKeys);
     });
 
+    // Whether "Switch User…" can be offered.
+    let switch_ui = service.ui_sender();
+    runtime.spawn(async move {
+        let available = match helix_shell::user_switch::bus().await {
+            Some(bus) => helix_shell::user_switch::available(&bus).await,
+            None => None,
+        };
+        tracing::info!(?available, "user switching");
+        let _ = switch_ui.send(helix_shell::UiEvent::UserSwitch(available.is_some()));
+    });
     // logind: which power actions to offer, and locking before sleep.
     let shell_conn = service.connection().clone();
     runtime.spawn(async move {
