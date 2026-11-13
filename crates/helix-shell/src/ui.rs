@@ -1972,12 +1972,17 @@ impl Ui {
                 self.dock_reset_pointer();
                 let rebind = (self.dock.settings.enabled, &self.dock.settings.hot_keys) != (settings.enabled, &settings.hot_keys);
                 self.dock.settings = settings;
+                self.dock_filter_mounts();
                 self.dock_update();
                 if rebind {
                     self.rebind_internal();
                 }
             }
             UiEvent::LauncherEntry(app, entry) => {
+                let was_urgent = self.dock.entries.get(&app.to_lowercase()).is_some_and(|e| e.urgent);
+                if entry.as_ref().is_some_and(|e| e.urgent) && !was_urgent {
+                    self.dock_urgent(&app);
+                }
                 match entry {
                     Some(entry) => self.dock.entries.insert(app.to_lowercase(), entry),
                     None => self.dock.entries.remove(&app.to_lowercase()),
@@ -1985,7 +1990,8 @@ impl Ui {
                 self.dock_draw();
             }
             UiEvent::Mounts(mounts) => {
-                self.dock.mounts = mounts;
+                self.dock.all_mounts = mounts;
+                self.dock_filter_mounts();
                 self.dock_update();
             }
             UiEvent::Trash(full) => {

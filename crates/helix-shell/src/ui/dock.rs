@@ -104,7 +104,19 @@ pub(super) struct DockState {
     /// Numbers are drawn on the apps' icons (after a hot key).
     numbers: bool,
     numbers_timer: Option<RegistrationToken>,
+    /// Every mount and volume the media side reported (`mounts` is what
+    /// the settings let the dock show).
+    pub all_mounts: Vec<crate::media::MountInfo>,
+    /// Urgent apps' icons wiggling, until when (by lower-case app id).
+    dancing: std::collections::HashMap<String, std::time::Instant>,
+    dance_timer: Option<RegistrationToken>,
 }
+
+/// How long an app that turned urgent wiggles, and how far.
+const DANCE: Duration = Duration::from_millis(1600);
+const DANCE_PX: f64 = 4.0;
+/// How long the dock shows for an app that turned urgent.
+const URGENT_SHOW: f64 = 2.0;
 
 thread_local! {
     static DESKTOP_IDS: std::cell::RefCell<std::collections::HashMap<String, Option<String>>> = Default::default();
@@ -203,9 +215,15 @@ impl Ui {
             })
             .collect();
         let primary = |a: &(i32, i32, i32, i32)| (a.0, a.1) == (self.primary_area.0, self.primary_area.1);
+        let index = self.dock.settings.monitor_index;
+        if index >= 0 {
+            if let Some((o, _, a)) = infos.get(index as usize) {
+                return Some((o.clone(), *a));
+            }
+        }
         infos
             .iter()
-            .find(|(_, name, _)| want != "primary" && name == want)
+            .find(|(_, name, _)| index == -2 && want != "primary" && name == want)
             .or_else(|| infos.iter().find(|(_, _, a)| primary(a)))
             .or_else(|| infos.first())
             .map(|(o, _, a)| (o.clone(), *a))
@@ -637,6 +655,14 @@ impl Ui {
                 _ => None,
             })
             .collect();
+        // Urgent apps' wiggles.
+        let wiggles: Vec<i32> = items
+            .iter()
+            .map(|i| match i {
+                Item::App { id, .. } => self.dance_offset(id).round() as i32,
+                _ => 0,
+            })
+            .collect();
         // Hot key numbers for the first ten apps.
         let numbers: Vec<Option<usize>> = {
             let mut n = 0;
@@ -696,7 +722,8 @@ impl Ui {
                     drop_marker = Some(pos);
                 }
             }
-            let (ix, iy) = (cell.x + (cell.w - icon) / 2, cell.y + (cell.h - icon) / 2);
+            let wiggle = wiggles[i];
+            let (ix, iy) = (cell.x + (cell.w - icon) / 2 + if vertical { 0 } else { wiggle }, cell.y + (cell.h - icon) / 2 + if vertical { wiggle } else { 0 });
             if entries[i].as_ref().is_some_and(|e| e.urgent) {
                 canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, URGENT);
             } else if hover == Some(i) || focused_item == Some(i) {
@@ -941,7 +968,15 @@ impl Ui {
     }
 
     fn dock_scroll(&mut self, under: Option<usize>, forward: bool) {
-        match self.dock.settings.scroll {
+        let on_app = matches!(under.and_then(|i| self.dock.views[self.dock.cur].items.get(i)), Some(Item::App { .. }));
+        let scroll = match self.dock.settings.scroll {
+            // `scroll-switch-workspace`: scrolling the action leaves unused
+            // switches workspaces.
+            logic::ScrollAction::Nothing if self.dock.settings.scroll_workspace => logic::ScrollAction::SwitchWorkspace,
+            logic::ScrollAction::CycleWindows if !on_app && self.dock.settings.scroll_workspace => logic::ScrollAction::SwitchWorkspace,
+            other => other,
+        };
+        match scroll {
             logic::ScrollAction::Nothing => {}
             logic::ScrollAction::SwitchWorkspace => {
                 let target = if forward { crate::windows::WorkspaceTarget::Right } else { crate::windows::WorkspaceTarget::Left };
@@ -1001,6 +1036,14 @@ impl Ui {
         match logic::click_outcome(action, &windows, focused, next) {
             Outcome::Nothing => {}
             Outcome::Launch => self.dock_launch(id, None),
+            Outcome::Focus(w) if !self.dock.settings.single_window && !focused => {
+                // All its windows come up, the newest used on top.
+                let mru: Vec<u32> = self.windows.mru().iter().map(|e| e.id).filter(|id| windows.contains(id) && *id != w).collect();
+                for other in mru.into_iter().rev() {
+                    self.activate_window(other);
+                }
+                self.activate_window(w);
+            }
             Outcome::Focus(w) => self.activate_window(w),
             Outcome::MinimizeAll => self.app_windows_action(&windows, WindowAction::Minimize),
             Outcome::CloseAll => self.app_windows_action(&windows, WindowAction::Close),
@@ -1186,9 +1229,11 @@ impl Ui {
             }
             Item::Mount(i) => {
                 let Some(m) = self.dock.mounts.get(i).cloned() else { return };
-                items.push(self.dock_menu_item("Open".into(), DockTarget::OpenMount(m.root.clone())));
-                let eject = if m.ejectable { "Eject" } else { "Unmount" };
-                items.push(self.dock_menu_item(eject.into(), DockTarget::EjectMount(m.root)));
+                items.push(self.dock_menu_item(if m.mounted { "Open" } else { "Mount" }.into(), DockTarget::OpenMount(m.root.clone())));
+                if m.mounted {
+                    let eject = if m.ejectable { "Eject" } else { "Unmount" };
+                    items.push(self.dock_menu_item(eject.into(), DockTarget::EjectMount(m.root)));
+                }
             }
             Item::Trash => {
                 items.push(self.dock_menu_item("Open".into(), DockTarget::OpenTrash));
@@ -1324,21 +1369,72 @@ impl Ui {
         self.dock_flash();
     }
 
+    /// Shows a hidden dock for `secs` seconds (it hides then unless the
+    /// pointer is on it).
+    fn dock_show_for(&mut self, secs: f64) {
+        for i in 0..self.dock.views.len() {
+            self.dock.views[i].revealed = true;
+        }
+        self.dock_update();
+        for i in 0..self.dock.views.len() {
+            self.dock.cur = i;
+            self.dock_set_timer(secs, false);
+        }
+        self.dock.cur = 0;
+    }
+
+    /// The mounts the settings let the dock show.
+    pub(super) fn dock_filter_mounts(&mut self) {
+        let s = &self.dock.settings;
+        self.dock.mounts = self.dock.all_mounts.iter().filter(|m| crate::media::shown(m, s.mounts_network, s.mounts_only_mounted)).cloned().collect();
+    }
+
+    /// App `app` turned urgent: the dock shows (`show-dock-urgent-notify`)
+    /// and its icon wiggles (`dance-urgent-applications`).
+    pub(super) fn dock_urgent(&mut self, app: &str) {
+        if !self.dock.settings.enabled {
+            return;
+        }
+        if self.dock.settings.urgent_shows {
+            self.dock_show_for(URGENT_SHOW);
+        }
+        if self.dock.settings.urgent_dance && self.dock.settings.animation_time > 0.0 {
+            self.dock.dancing.insert(app.to_lowercase(), std::time::Instant::now() + DANCE);
+            if self.dock.dance_timer.is_none() {
+                if let Some(handle) = self.loop_handle.as_ref() {
+                    let token = handle.insert_source(Timer::from_duration(Duration::from_millis(40)), |_, _, ui: &mut Ui| {
+                        let now = std::time::Instant::now();
+                        ui.dock.dancing.retain(|_, until| *until > now);
+                        ui.dock_draw();
+                        if ui.dock.dancing.is_empty() {
+                            ui.dock.dance_timer = None;
+                            TimeoutAction::Drop
+                        } else {
+                            TimeoutAction::ToDuration(Duration::from_millis(40))
+                        }
+                    });
+                    self.dock.dance_timer = token.ok();
+                }
+            }
+        }
+    }
+
+    /// How far app `id`'s icon is moved by its wiggle now.
+    fn dance_offset(&self, id: &str) -> f64 {
+        let Some(until) = self.dock.dancing.get(&id.to_lowercase()) else { return 0.0 };
+        let left = until.saturating_duration_since(std::time::Instant::now()).as_secs_f64();
+        let t = DANCE.as_secs_f64() - left;
+        // Four swings a second, fading out.
+        (t * std::f64::consts::TAU * 4.0).sin() * DANCE_PX * (left / DANCE.as_secs_f64())
+    }
+
     /// After a hot key or `shortcut`: numbers on the icons
     /// (`hotkeys-overlay`) and the dock shown (`hotkeys-show-dock`) for
     /// `shortcut-timeout` seconds.
     pub(super) fn dock_flash(&mut self) {
         let Some(keys) = self.dock.settings.hot_keys.clone() else { return };
         if keys.show_dock {
-            for i in 0..self.dock.views.len() {
-                self.dock.views[i].revealed = true;
-            }
-            self.dock_update();
-            for i in 0..self.dock.views.len() {
-                self.dock.cur = i;
-                self.dock_set_timer(keys.timeout, false);
-            }
-            self.dock.cur = 0;
+            self.dock_show_for(keys.timeout);
         }
         if keys.overlay {
             self.dock.numbers = true;

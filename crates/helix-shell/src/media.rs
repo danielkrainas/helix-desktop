@@ -76,22 +76,60 @@ pub struct MountInfo {
     pub icons: Vec<String>,
     /// It can be ejected (else only unmounted).
     pub ejectable: bool,
+    /// A network share.
+    pub network: bool,
+    /// Mounted (else a volume that can be mounted: `root` is
+    /// `volume:<its identifier>`).
+    pub mounted: bool,
+}
+
+/// The `root` of a volume that is not mounted.
+const VOLUME: &str = "volume:";
+
+fn volume_key(v: &gio::Volume) -> String {
+    let id = v.uuid().or_else(|| v.identifier("unix-device")).map(|s| s.to_string()).unwrap_or_else(|| v.name().to_string());
+    format!("{VOLUME}{id}")
+}
+
+fn is_network_volume(v: &gio::Volume) -> bool {
+    v.identifier("class").is_some_and(|c| c == "network")
+}
+
+/// Whether the dock shows `m`: network shares only with `network`,
+/// volumes that are not mounted only without `only_mounted`.
+pub fn shown(m: &MountInfo, network: bool, only_mounted: bool) -> bool {
+    (network || !m.network) && (m.mounted || !only_mounted)
 }
 
 /// The mounts to show: those of volumes (removable drives, discs, phones,
-/// network shares) that can be unmounted, not shadowed.
+/// network shares) and network shares without one, that can be unmounted,
+/// not shadowed; then the volumes that are not mounted but can be.
 fn mount_infos(monitor: &gio::VolumeMonitor) -> Vec<MountInfo> {
-    monitor
+    let icons = |icon: gio::Icon| icon.downcast::<gio::ThemedIcon>().map(|t| t.names().iter().map(|n| n.to_string()).collect()).unwrap_or_default();
+    let mut out: Vec<MountInfo> = monitor
         .mounts()
         .into_iter()
-        .filter(|m| !m.is_shadowed() && m.volume().is_some() && (m.can_unmount() || m.can_eject()))
-        .map(|m| MountInfo {
-            name: m.name().to_string(),
-            root: m.root().uri().to_string(),
-            icons: m.icon().downcast::<gio::ThemedIcon>().map(|t| t.names().iter().map(|n| n.to_string()).collect()).unwrap_or_default(),
-            ejectable: m.can_eject(),
+        .filter(|m| !m.is_shadowed() && (m.can_unmount() || m.can_eject()))
+        .filter_map(|m| {
+            let root = m.root().uri().to_string();
+            let network = match m.volume() {
+                Some(v) => is_network_volume(&v),
+                // Only network shares are mounted without a volume.
+                None if !root.starts_with("file://") => true,
+                None => return None,
+            };
+            Some(MountInfo { name: m.name().to_string(), root, icons: icons(m.icon()), ejectable: m.can_eject(), network, mounted: true })
         })
-        .collect()
+        .collect();
+    out.extend(monitor.volumes().into_iter().filter(|v| v.get_mount().is_none() && v.can_mount()).map(|v| MountInfo {
+        name: v.name().to_string(),
+        root: volume_key(&v),
+        icons: icons(v.icon()),
+        ejectable: v.can_eject(),
+        network: is_network_volume(&v),
+        mounted: false,
+    }));
+    out
 }
 
 /// Tell the UI the mounts and whether the trash holds anything.
@@ -136,6 +174,17 @@ static CONTEXT: OnceLock<gio::glib::MainContext> = OnceLock::new();
 /// A notification's button for the mount at `root` (a URI).
 pub fn request(root: String, what: Request) {
     match what {
+        // A volume that is not mounted: mount it (it then opens).
+        Request::Open if root.starts_with(VOLUME) => {
+            if let Some(context) = CONTEXT.get() {
+                context.invoke(move || {
+                    let volume = STATE.with(|s| s.borrow().monitor.as_ref().and_then(|m| m.volumes().into_iter().find(|v| volume_key(v) == root)));
+                    if let Some(volume) = volume {
+                        mount_volume(&volume, false);
+                    }
+                });
+            }
+        }
         Request::Open => open_uri(&root),
         Request::Eject => {
             if let Some(context) = CONTEXT.get() {
@@ -530,8 +579,15 @@ pub fn run(center: Center, ui: tokio::sync::mpsc::UnboundedSender<UiEvent>, runt
                     mount_volume(volume, true);
                 }
             }
-            monitor.connect_volume_added(|_, v| volume_added(v));
-            monitor.connect_volume_removed(|_, v| STATE.with(|s| s.borrow_mut().waiting.retain(|w| w != v)));
+            monitor.connect_volume_added(|_, v| {
+                STATE.with(|s| publish(&s.borrow()));
+                volume_added(v);
+            });
+            monitor.connect_volume_removed(|_, v| STATE.with(|s| {
+                s.borrow_mut().waiting.retain(|w| w != v);
+                publish(&s.borrow());
+            }));
+            monitor.connect_volume_changed(|_, _| STATE.with(|s| publish(&s.borrow())));
             monitor.connect_mount_added(|_, m| mount_added(m));
             monitor.connect_mount_removed(|_, m| mount_removed(m));
             monitor.connect_mount_changed(|_, _| STATE.with(|s| publish(&s.borrow())));
@@ -569,6 +625,17 @@ pub fn run(center: Center, ui: tokio::sync::mpsc::UnboundedSender<UiEvent>, runt
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn dock_mount_filter() {
+        let m = |network, mounted| MountInfo { name: String::new(), root: String::new(), icons: Vec::new(), ejectable: false, network, mounted };
+        assert!(shown(&m(false, true), false, true));
+        assert!(!shown(&m(true, true), false, true), "network shares only when asked");
+        assert!(shown(&m(true, true), true, true));
+        assert!(!shown(&m(false, false), false, true), "unmounted volumes only when asked");
+        assert!(shown(&m(false, false), false, false));
+    }
+
     use super::*;
 
     #[test]

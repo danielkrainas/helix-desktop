@@ -174,6 +174,20 @@ pub struct DockSettings {
     /// With `hot-keys` on: the dock's keys, used instead of GNOME's
     /// `switch-to-application-N` and `open-new-window-application-N`.
     pub hot_keys: Option<HotKeys>,
+    /// `show-mounts-network`, `show-mounts-only-mounted`.
+    pub mounts_network: bool,
+    pub mounts_only_mounted: bool,
+    /// `preferred-monitor`: -2 by connector (`monitor`), -1 the primary,
+    /// else the monitor's number.
+    pub monitor_index: i32,
+    /// `scroll-switch-workspace`.
+    pub scroll_workspace: bool,
+    /// `activate-single-window` (false: an app's activation raises all
+    /// its windows).
+    pub single_window: bool,
+    /// `show-dock-urgent-notify`, `dance-urgent-applications`.
+    pub urgent_shows: bool,
+    pub urgent_dance: bool,
 }
 
 impl Default for DockSettings {
@@ -217,6 +231,13 @@ impl Default for DockSettings {
             animation_time: 0.2,
             height_fraction: 0.9,
             hot_keys: None,
+            mounts_network: false,
+            mounts_only_mounted: true,
+            monitor_index: -2,
+            scroll_workspace: true,
+            single_window: true,
+            urgent_shows: true,
+            urgent_dance: true,
         }
     }
 }
@@ -305,6 +326,13 @@ pub fn read() -> DockSettings {
         hide_tooltip: b("hide-tooltip", d.hide_tooltip),
         animation_time: if animations { num("animation-time", d.animation_time).clamp(0.0, 2.0) } else { 0.0 },
         height_fraction: num("height-fraction", d.height_fraction).clamp(0.1, 1.0),
+        mounts_network: b("show-mounts-network", d.mounts_network),
+        mounts_only_mounted: b("show-mounts-only-mounted", d.mounts_only_mounted),
+        monitor_index: if key("preferred-monitor") { s.int("preferred-monitor") } else { d.monitor_index },
+        scroll_workspace: b("scroll-switch-workspace", d.scroll_workspace),
+        single_window: b("activate-single-window", d.single_window),
+        urgent_shows: b("show-dock-urgent-notify", d.urgent_shows),
+        urgent_dance: b("dance-urgent-applications", d.urgent_dance),
         hot_keys: b("hot-keys", true).then(|| {
             let strv = |k: &str| if key(k) { s.strv(k).iter().map(|a| a.to_string()).collect() } else { Vec::new() };
             let mut apps = Vec::new();
