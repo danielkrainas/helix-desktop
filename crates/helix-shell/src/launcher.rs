@@ -56,17 +56,27 @@ pub fn launch(id: &str) -> Result<(), String> {
         .find(|a| a.id().is_some_and(|i| i == id))
         .ok_or_else(|| format!("no app {id}"))?;
     info.launch(&[], None::<&gio::AppLaunchContext>)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    crate::app_usage::record(id);
+    Ok(())
 }
 
 /// Indices of apps matching `query`: name prefix matches first, then name
-/// substring, then other searchable text. An empty query matches all.
+/// substring, then other searchable text; within each, more used apps
+/// first (`app_usage`). An empty query matches all.
 pub fn search(apps: &[App], query: &str) -> Vec<usize> {
+    // Tests rank without this machine's usage.
+    let usage = if cfg!(test) { crate::app_usage::Usage::new() } else { crate::app_usage::read() };
+    search_with(apps, query, &usage, crate::app_usage::at())
+}
+
+/// [`search`] with this usage, at Unix time `at`.
+pub fn search_with(apps: &[App], query: &str, usage: &crate::app_usage::Usage, at: i64) -> Vec<usize> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return (0..apps.len()).collect();
     }
-    let mut ranked: Vec<(u8, usize)> = apps
+    let mut ranked: Vec<(u8, i64, usize)> = apps
         .iter()
         .enumerate()
         .filter_map(|(i, app)| {
@@ -82,11 +92,13 @@ pub fn search(apps: &[App], query: &str) -> Vec<usize> {
             } else {
                 return None;
             };
-            Some((rank, i))
+            // More used first (scores to thousandths).
+            let used = -((crate::app_usage::score(usage, &app.id, at) * 1000.0) as i64);
+            Some((rank, used, i))
         })
         .collect();
     ranked.sort();
-    ranked.into_iter().map(|(_, i)| i).collect()
+    ranked.into_iter().map(|(_, _, i)| i).collect()
 }
 
 /// One row of the launcher.
@@ -315,6 +327,16 @@ impl Launcher {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn used_apps_first() {
+        let app = |id: &str, name: &str| App { id: id.into(), name: name.into(), search: String::new(), categories: Vec::new() };
+        let apps = vec![app("a.desktop", "Text Editor"), app("b.desktop", "Terminal"), app("c.desktop", "Tetris")];
+        let usage = crate::app_usage::parse("c.desktop\t5\t100\nb.desktop\t1\t100\n");
+        assert_eq!(search_with(&apps, "te", &usage, 100), [2, 1, 0], "same match: most used first");
+        assert_eq!(search_with(&apps, "text", &usage, 100), [0], "a better match still wins");
+    }
+
     use super::*;
 
     fn app(id: &str, name: &str, search: &str) -> App {

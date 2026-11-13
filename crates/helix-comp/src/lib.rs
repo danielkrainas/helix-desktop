@@ -35,6 +35,7 @@ pub mod idle_monitor;
 pub mod lid;
 pub mod input_settings;
 pub mod remote_desktop;
+pub mod privacy_screen;
 pub mod rotation;
 pub mod screencast;
 pub mod wm_settings;

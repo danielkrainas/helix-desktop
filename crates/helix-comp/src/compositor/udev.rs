@@ -120,6 +120,36 @@ fn set_underscan(device: &DrmDevice, connector: connector::Handle, on: bool, bor
     set_connector_property(device, connector, "underscan", ConnectorValue::Enum(if on { "on" } else { "off" }))
 }
 
+/// Whether a connector has a privacy screen (its `privacy-screen
+/// sw-state` property).
+fn has_privacy_screen(device: &DrmDevice, connector: connector::Handle) -> bool {
+    let Ok(props) = device.get_properties(connector) else { return false };
+    let (ids, _) = props.as_props_and_values();
+    ids.iter().filter_map(|id| device.get_property(*id).ok()).any(|info| info.name().to_str() == Ok(helix_comp::privacy_screen::PROPERTY))
+}
+
+impl Helix {
+    /// `org.gnome.desktop.privacy privacy-screen`: every connector with a
+    /// privacy screen gets it on or off (bare hardware).
+    pub fn apply_privacy_screen(&mut self) {
+        let wanted = helix_comp::privacy_screen::wanted();
+        let Some(udev) = self.udev.as_ref() else { return };
+        for surface in udev.surfaces.values() {
+            let connectors: Vec<connector::Handle> = surface.drm_output.with_compositor(|c| c.surface().current_connectors().into_iter().collect());
+            for connector in connectors {
+                if !has_privacy_screen(udev.manager.device(), connector) {
+                    continue;
+                }
+                let value = helix_comp::privacy_screen::state_name(wanted);
+                match set_connector_property(udev.manager.device(), connector, helix_comp::privacy_screen::PROPERTY, ConnectorValue::Enum(value)) {
+                    Ok(()) => tracing::info!(name = surface.output.name(), wanted, "privacy screen"),
+                    Err(err) => tracing::warn!(err, "cannot set the privacy screen"),
+                }
+            }
+        }
+    }
+}
+
 enum ConnectorValue<'a> {
     Enum(&'a str),
     Raw(u64),
@@ -522,6 +552,7 @@ impl Helix {
         self.render_crtc(crtc);
         self.apply_x11_settings();
         self.capture_zones_changed();
+        self.apply_privacy_screen();
     }
 
     fn connector_disconnected(&mut self, crtc: crtc::Handle) {

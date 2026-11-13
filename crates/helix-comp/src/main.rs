@@ -115,6 +115,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     state.apply_workspace_settings();
     state.apply_frame_settings();
     state.apply_wm_settings();
+    state.apply_privacy_screen();
     let (settings_tx, settings_rx) = smithay::reexports::calloop::channel::channel::<()>();
     event_loop
         .handle()
@@ -126,6 +127,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 state.apply_workspace_settings();
                 state.apply_frame_settings();
                 state.apply_wm_settings();
+                state.apply_privacy_screen();
                 state.reread_x11_settings();
             }
         })

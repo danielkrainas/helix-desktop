@@ -8,6 +8,7 @@
 pub mod accel;
 pub mod ambient;
 pub mod app_grid;
+pub mod app_usage;
 pub mod app_notify;
 pub mod auth;
 pub mod display_change;
@@ -65,6 +66,7 @@ pub mod state;
 pub mod status;
 pub mod text;
 pub mod ui;
+pub mod usb_protection;
 pub mod user_switch;
 pub mod wallpaper;
 pub mod weather;

@@ -143,6 +143,8 @@ fn main() -> ExitCode {
     });
     // The welcome dialog, once per version.
     runtime.spawn(helix_shell::welcome::run(service.ui_sender()));
+    // USB protection through USBGuard.
+    runtime.spawn(helix_shell::usb_protection::run(service.notifications()));
     // Old Trash and temporary files.
     runtime.spawn(helix_shell::housekeeping::run());
     // The clock's format.
