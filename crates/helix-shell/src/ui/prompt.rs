@@ -37,7 +37,7 @@ pub(super) struct PromptView {
     place: Option<usize>,
     /// Previews by file: asked for (`None` until decoded, or when it
     /// cannot be shown).
-    previews: std::collections::HashMap<String, Option<std::sync::Arc<helix_draw::Image>>>,
+    previews: std::collections::HashMap<String, Option<crate::Preview>>,
     /// The password fields shown as text ("Show").
     shown: [bool; 2],
     /// Whether "Show" is offered (`disable-show-password` off).
@@ -137,7 +137,7 @@ impl Ui {
     }
 
     /// A preview was decoded (or cannot be shown).
-    pub(super) fn prompt_preview(&mut self, path: String, image: Option<std::sync::Arc<helix_draw::Image>>) {
+    pub(super) fn prompt_preview(&mut self, path: String, image: Option<crate::Preview>) {
         let Some(view) = self.prompt_view() else { return };
         if !view.previews.contains_key(&path) {
             return;
@@ -444,8 +444,17 @@ impl Ui {
         if preview_h > 0 {
             let area = Rect { x: bx + 24, y: y + 4, w: bw - 48, h: PREVIEW_H };
             canvas.rect(area.x, area.y, area.w, area.h, FIELD_BG);
-            let image = p.previews.get(view.selected).and_then(|f| view.previews.get(f)).and_then(|i| i.as_deref());
-            if let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) {
+            let preview = p.previews.get(view.selected).and_then(|f| view.previews.get(f)).and_then(|i| i.as_ref());
+            let image = match preview {
+                Some(crate::Preview::Image(image)) => Some(&**image),
+                _ => None,
+            };
+            if let Some(crate::Preview::Text(lines)) = preview {
+                // A text file's first lines, small.
+                for (i, line) in lines.iter().enumerate() {
+                    label(text, &mut canvas, line, (area.x + 10) as f32, (area.y + 18 + i as i32 * 16) as f32, 12.0, FG, (area.w - 20) as f32);
+                }
+            } else if let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) {
                 let k = (f64::from(area.w) / image.width as f64).min(f64::from(area.h) / image.height as f64).min(1.0);
                 let (iw, ih) = (image.width as f64 * k, image.height as f64 * k);
                 canvas.image(f64::from(area.x) + (f64::from(area.w) - iw) / 2.0, f64::from(area.y) + (f64::from(area.h) - ih) / 2.0, iw, ih, image);

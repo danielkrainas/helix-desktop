@@ -206,7 +206,7 @@ pub enum UiEvent {
     /// selected row's text); no rows cancel it.
     PromptRows(Vec<String>),
     /// A file's preview for the prompt (`None`: it cannot be shown).
-    PromptPreview(String, Option<std::sync::Arc<helix_draw::Image>>),
+    PromptPreview(String, Option<Preview>),
     /// A search provider answered: its results for search `serial`.
     SearchResults { serial: u64, provider: usize, hits: Vec<launcher::SearchHit> },
     /// `org.gnome.desktop.a11y.interface` `high-contrast`.
@@ -764,18 +764,37 @@ pub struct UiBridge {
     attention_notices: Arc<std::sync::Mutex<std::collections::HashMap<u32, u32>>>,
 }
 
+/// A file chooser preview: a picture (the file, or its thumbnail), or a
+/// text file's first lines.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Preview {
+    Image(std::sync::Arc<helix_draw::Image>),
+    Text(Vec<String>),
+}
+
 /// Largest file previewed.
 const PREVIEW_MAX_BYTES: u64 = 32 << 20;
 
-/// A picture file as a preview (at most 392 × 160), if it can be shown.
-fn preview_image(path: &str) -> Option<std::sync::Arc<helix_draw::Image>> {
+/// A file's preview (pictures at most 392 × 160), if it can be shown: a
+/// picture as it is, text as its first lines, anything else by its
+/// thumbnail (`helix_settings::thumbnails`).
+fn preview_image(path: &str) -> Option<Preview> {
+    use helix_settings::thumbnails;
     let path = std::path::Path::new(path);
-    if std::fs::metadata(path).ok()?.len() > PREVIEW_MAX_BYTES {
+    if std::fs::metadata(path).ok()?.len() > PREVIEW_MAX_BYTES && !thumbnails::thumbnail_known(path) {
         return None;
     }
-    let image = wallpaper::decode(path).ok()?;
-    Some(std::sync::Arc::new(wallpaper::thumbnail(&image, 392, 160)))
+    let mime = thumbnails::mime_of(path);
+    if thumbnails::is_text(&mime) {
+        return Some(Preview::Text(thumbnails::text_lines(path, PREVIEW_LINES)));
+    }
+    let source = if thumbnails::is_picture(&mime) { path.to_path_buf() } else { thumbnails::thumbnail(path)? };
+    let image = wallpaper::decode(&source).ok()?;
+    Some(Preview::Image(std::sync::Arc::new(wallpaper::thumbnail(&image, 392, 160))))
 }
+
+/// Lines of a text preview.
+const PREVIEW_LINES: usize = 9;
 
 impl UiBridge {
     pub async fn handle(&self, request: UiRequest) -> zbus::Result<()> {

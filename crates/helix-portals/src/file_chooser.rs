@@ -175,18 +175,26 @@ fn user_places(home: &Path, recent: bool) -> Vec<Place> {
 pub const SEARCH_SHOWN: usize = 200;
 const SEARCH_LOOKED: usize = 20_000;
 
+/// Text files whose content a search reads, at most, and how big one may
+/// be.
+const CONTENT_READS: usize = 500;
+const CONTENT_MAX: u64 = 256 * 1024;
+
 /// Files under `dir` (its folders too, hidden ones skipped) whose names
 /// hold `query` (ignoring case) and pass `filter`, nearest first, then by
-/// name.
+/// name; then text files (at most 256 KiB, the first 500 looked into)
+/// whose content holds it.
 pub fn search(dir: &Path, query: &str, filter: Option<&Filter>) -> Vec<PathBuf> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return Vec::new();
     }
     let mut found = Vec::new();
+    let mut by_content = Vec::new();
+    let mut reads = 0;
     let mut queue = std::collections::VecDeque::from([dir.to_path_buf()]);
     let mut looked = 0;
-    while let Some(folder) = queue.pop_front() {
+    'walk: while let Some(folder) = queue.pop_front() {
         let Ok(read) = std::fs::read_dir(&folder) else { continue };
         let mut names: Vec<(String, PathBuf, bool)> = read
             .flatten()
@@ -199,15 +207,24 @@ pub fn search(dir: &Path, query: &str, filter: Option<&Filter>) -> Vec<PathBuf> 
         for (name, path, is_dir) in names {
             looked += 1;
             if looked > SEARCH_LOOKED || found.len() >= SEARCH_SHOWN {
-                return found;
+                break 'walk;
             }
             if is_dir {
                 queue.push_back(path);
-            } else if name.to_lowercase().contains(&q) && filter.is_none_or(|f| passes(f, &name)) {
+            } else if filter.is_some_and(|f| !passes(f, &name)) {
+                continue;
+            } else if name.to_lowercase().contains(&q) {
                 found.push(path);
+            } else if reads < CONTENT_READS && std::fs::metadata(&path).is_ok_and(|m| m.len() <= CONTENT_MAX) && helix_settings::thumbnails::is_text(&helix_settings::thumbnails::mime_of(&path)) {
+                reads += 1;
+                if std::fs::read(&path).is_ok_and(|b| String::from_utf8_lossy(&b).to_lowercase().contains(&q)) {
+                    by_content.push(path);
+                }
             }
         }
     }
+    found.extend(by_content);
+    found.truncate(SEARCH_SHOWN);
     found
 }
 
@@ -371,18 +388,15 @@ pub struct Outcome {
     pub check: bool,
 }
 
-/// The file of row `row` (in folder `dir`) to preview, when its name
-/// says it is a picture.
+/// The file of row `row` (in folder `dir`) to preview: a picture, text,
+/// or a file a thumbnailer handles.
 pub fn preview_path(dir: &Path, row: &Row) -> Option<PathBuf> {
     let path = match row {
         Row::File(name) => dir.join(name),
         Row::Recent(path) => path.clone(),
         _ => return None,
     };
-    let name = path.file_name()?.to_string_lossy().into_owned();
-    let (guess, _) = gio::content_type_guess(Some(name.as_str()), None);
-    let mime = gio::content_type_get_mime_type(&guess).map(|m| m.to_string()).unwrap_or_default();
-    ["image/png", "image/jpeg", "image/webp", "image/jxl", "image/svg+xml"].contains(&mime.as_str()).then_some(path)
+    helix_settings::thumbnails::can_preview(&path).then_some(path)
 }
 
 /// What the dialog asks.
@@ -741,13 +755,18 @@ mod tests {
 
     #[test]
     fn previews() {
-        let dir = Path::new("/home/u");
-        assert_eq!(preview_path(dir, &Row::File("cat.PNG".into())), Some(dir.join("cat.PNG")));
-        assert_eq!(preview_path(dir, &Row::File("a.jpeg".into())), Some(dir.join("a.jpeg")));
-        assert_eq!(preview_path(dir, &Row::Recent("/tmp/x.svg".into())), Some(PathBuf::from("/tmp/x.svg")));
-        assert_eq!(preview_path(dir, &Row::File("notes.txt".into())), None);
-        assert_eq!(preview_path(dir, &Row::Folder("Pictures".into())), None);
-        assert_eq!(preview_path(dir, &Row::Parent), None);
+        let dir = std::env::temp_dir().join(format!("helix-previews-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("Pictures")).unwrap();
+        std::fs::write(dir.join("cat.PNG"), b"").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"some text").unwrap();
+        std::fs::write(dir.join("blob.bin"), (0u8..=255).cycle().take(2048).collect::<Vec<u8>>()).unwrap();
+        assert_eq!(preview_path(&dir, &Row::File("cat.PNG".into())), Some(dir.join("cat.PNG")));
+        assert_eq!(preview_path(&dir, &Row::File("notes.txt".into())), Some(dir.join("notes.txt")), "text");
+        assert_eq!(preview_path(&dir, &Row::File("blob.bin".into())), None);
+        assert_eq!(preview_path(&dir, &Row::File("gone.png".into())), None);
+        assert_eq!(preview_path(&dir, &Row::Folder("Pictures".into())), None);
+        assert_eq!(preview_path(&dir, &Row::Parent), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -778,6 +797,11 @@ mod tests {
         let pdf = ("PDF".to_owned(), vec![(0u32, "*.pdf".to_owned())]);
         assert_eq!(search(&tmp, "report", Some(&pdf)).len(), 1);
         assert!(search(&tmp, "  ", None).is_empty());
+        // Text files holding the words come after names that do.
+        std::fs::write(docs.join("minutes.txt"), "Quarterly REPORT due Friday").unwrap();
+        std::fs::write(docs.join("photo.png"), "report").unwrap();
+        let found: Vec<String> = search(&tmp, "report", None).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(found, ["Report.pdf", "report-final.txt", "minutes.txt"]);
         let _ = std::fs::remove_dir_all(&tmp);
         let xbel = r#"<xbel><bookmark href="file:///a/b%20c.txt" added="2026-01-01T10:00:00Z" modified="2026-03-01T10:00:00.5Z" visited="x"><info/></bookmark>
 <bookmark href="file:///x?a&amp;b" added="2026-02-01T00:00:00Z"></bookmark></xbel>"#;

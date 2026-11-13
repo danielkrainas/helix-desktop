@@ -13,6 +13,7 @@
 
 pub mod convert;
 pub mod sound;
+pub mod thumbnails;
 
 use std::collections::BTreeMap;
 use std::thread::JoinHandle;
