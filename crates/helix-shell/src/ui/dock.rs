@@ -241,6 +241,33 @@ impl Ui {
             .collect()
     }
 
+    /// With `isolate-locations`, the drive or Trash item file manager
+    /// window `e` belongs to.
+    fn window_location(&self, e: &crate::windows::WindowEntry) -> Option<Item> {
+        if !self.dock.settings.isolate_locations {
+            return None;
+        }
+        let fm = file_manager()?;
+        if !(e.app_id.eq_ignore_ascii_case(fm) || desktop_matches(&e.app_id, fm)) {
+            return None;
+        }
+        let names: Vec<&str> = self.dock.mounts.iter().map(|m| m.name.as_str()).collect();
+        crate::dock::window_location(&e.title, &names, trash_title())
+    }
+
+    /// The windows of drive or Trash item `item`, most recently used first.
+    fn location_windows(&self, item: &Item) -> Vec<u32> {
+        let isolate = self.dock.settings.isolate_workspaces;
+        self.windows
+            .mru()
+            .iter()
+            .filter(|e| self.window_location(e).as_ref() == Some(item))
+            .filter(|e| self.counts_urgent(e.id) || !isolate || e.workspace == self.windows.active || e.workspace == ALL_WORKSPACES)
+            .filter(|e| !self.dock.settings.isolate_monitors || self.on_view_monitor(e.id))
+            .map(|e| e.id)
+            .collect()
+    }
+
     /// Running apps in the order they first opened (window ids grow).
     fn dock_running(&self) -> Vec<String> {
         let mut entries: Vec<_> = self
@@ -249,6 +276,7 @@ impl Ui {
             .iter()
             .filter(|e| self.counts_urgent(e.id) || !self.dock.settings.isolate_workspaces || e.workspace == self.windows.active || e.workspace == ALL_WORKSPACES)
             .filter(|e| !self.dock.settings.isolate_monitors || self.on_view_monitor(e.id))
+            .filter(|e| self.window_location(e).is_none())
             .collect();
         entries.sort_by_key(|e| e.id);
         entries.into_iter().map(|e| e.app_id.clone()).collect()
@@ -263,6 +291,7 @@ impl Ui {
             .filter(|e| e.app_id.eq_ignore_ascii_case(app) || desktop_matches(&e.app_id, app))
             .filter(|e| self.counts_urgent(e.id) || !isolate || e.workspace == self.windows.active || e.workspace == ALL_WORKSPACES)
             .filter(|e| !self.dock.settings.isolate_monitors || self.on_view_monitor(e.id))
+            .filter(|e| self.window_location(e).is_none())
             .map(|e| e.id)
             .collect()
     }
@@ -674,6 +703,7 @@ impl Ui {
                     let own = self.dock_entry(id).and_then(|e| e.shown_count()).map(|c| c.max(0) as usize);
                     (self.app_windows(id).len().min(4), own.unwrap_or_else(|| if s.counters { self.dock_badge(id) } else { 0 }))
                 }
+                Item::Mount(_) | Item::Trash => (self.location_windows(i).len().min(4), 0),
                 _ => (0, 0),
             })
             .collect();
@@ -708,7 +738,12 @@ impl Ui {
                 .collect()
         };
         let focused_app = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).map(|e| e.app_id.clone()).unwrap_or_default();
-        let focused_item = items.iter().position(|i| matches!(i, Item::App { id, .. } if !focused_app.is_empty() && (id.eq_ignore_ascii_case(&focused_app) || desktop_matches(&focused_app, id))));
+        // A file manager window showing a drive or the Trash marks that item.
+        let focused_location = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).and_then(|e| self.window_location(e));
+        let focused_item = match focused_location {
+            Some(place) => items.iter().position(|i| *i == place),
+            None => items.iter().position(|i| matches!(i, Item::App { id, .. } if !focused_app.is_empty() && (id.eq_ignore_ascii_case(&focused_app) || desktop_matches(&focused_app, id)))),
+        };
         // The name, and for a running app its windows' titles.
         let hover_name: Option<Vec<String>> = self.dock.views[self.dock.cur].hover.and_then(|i| items.get(i)).filter(|_| !s.hide_tooltip).map(|i| {
             let name = self.dock_item_name(i);
@@ -1044,6 +1079,11 @@ impl Ui {
                 } else {
                     self.open_launcher(true);
                 }
+            }
+            // A drive or the Trash shown in a window: that window.
+            Item::Mount(_) | Item::Trash if !self.location_windows(&item).is_empty() => {
+                let windows = self.location_windows(&item);
+                self.activate_window(windows[0]);
             }
             Item::Trash => crate::media::trash_request(false),
             Item::Mount(i) => {
@@ -1498,6 +1538,28 @@ fn separated(a: &Item, b: &Item) -> bool {
 }
 
 /// Whether window app id `window_app` is app `id` (by its desktop file).
+/// The file manager: the app opening folders (its id without `.desktop`).
+fn file_manager() -> Option<&'static str> {
+    static ID: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    ID.get_or_init(|| {
+        use gio::prelude::AppInfoExt;
+        gio::AppInfo::default_for_type("inode/directory", false).and_then(|a| a.id()).map(|id| id.trim_end_matches(".desktop").to_owned())
+    })
+    .as_deref()
+}
+
+/// The Trash's name as the file manager titles its window.
+fn trash_title() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        use gio::prelude::FileExt;
+        gio::File::for_uri("trash:///")
+            .query_info("standard::display-name", gio::FileQueryInfoFlags::NONE, gio::Cancellable::NONE)
+            .map(|i| i.display_name().to_string())
+            .unwrap_or_else(|_| "Trash".into())
+    })
+}
+
 fn desktop_matches(window_app: &str, id: &str) -> bool {
     !window_app.is_empty() && desktop_id(window_app).is_some_and(|d| d.trim_end_matches(".desktop").eq_ignore_ascii_case(id))
 }

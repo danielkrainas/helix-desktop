@@ -152,6 +152,9 @@ pub struct DockSettings {
     pub multi_monitor: bool,
     /// Each dock shows only the apps with windows on its monitor.
     pub isolate_monitors: bool,
+    /// File manager windows showing a drive or the Trash belong to its
+    /// item (`isolate-locations`).
+    pub isolate_locations: bool,
     pub opacity: f64,
     pub transparency: Transparency,
     pub indicator: Indicator,
@@ -220,6 +223,7 @@ impl Default for DockSettings {
             isolate_workspaces: false,
             multi_monitor: false,
             isolate_monitors: false,
+            isolate_locations: true,
             opacity: 0.8,
             transparency: Transparency::Default,
             indicator: Indicator::Dots,
@@ -308,6 +312,7 @@ pub fn read() -> DockSettings {
         isolate_workspaces: b("isolate-workspaces", d.isolate_workspaces),
         multi_monitor: b("multi-monitor", d.multi_monitor),
         isolate_monitors: b("isolate-monitors", d.isolate_monitors),
+        isolate_locations: b("isolate-locations", d.isolate_locations),
         opacity: num("background-opacity", d.opacity).clamp(0.0, 1.0),
         transparency: match text("transparency-mode").as_deref() {
             Some("FIXED") => Transparency::Fixed,
@@ -675,6 +680,20 @@ impl Pressure {
     }
 }
 
+/// The item a file manager window titled `title` belongs to with
+/// `isolate-locations`: the drive of that name (index into
+/// `mount_names`), else the Trash when the title is `trash` or "Trash".
+pub fn window_location(title: &str, mount_names: &[&str], trash: &str) -> Option<Item> {
+    let title = title.trim();
+    if title.is_empty() {
+        return None;
+    }
+    if let Some(i) = mount_names.iter().position(|n| *n == title) {
+        return Some(Item::Mount(i));
+    }
+    (title == trash || title == "Trash").then_some(Item::Trash)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -692,6 +711,16 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn file_manager_windows_by_location() {
+        let mounts = ["Backup", "Cruzer"];
+        assert_eq!(window_location("Cruzer", &mounts, "Wastebasket"), Some(Item::Mount(1)));
+        assert_eq!(window_location("Wastebasket", &mounts, "Wastebasket"), Some(Item::Trash));
+        assert_eq!(window_location("Trash", &mounts, "Wastebasket"), Some(Item::Trash));
+        assert_eq!(window_location("Documents", &mounts, "Trash"), None);
+        assert_eq!(window_location("", &[""], "Trash"), None);
+    }
 
     fn s(v: &[&str]) -> Vec<String> {
         v.iter().map(|x| x.to_string()).collect()
