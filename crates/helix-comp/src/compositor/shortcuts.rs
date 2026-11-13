@@ -9,6 +9,7 @@
 //! | Super+Down | Restore a maximized window, else minimize |
 //! | `switch-to-session-N` (Ctrl+Alt+F1..F12) | Switch VT (bare hardware only) |
 //! | `rotate-monitor` (XF86RotateWindows) | Turn the built-in panel |
+//! | `switch-monitor` (Super+P, XF86Display) | Next way of using the monitors |
 //! | Ctrl+Alt+Backspace | Quit Helix (always available escape hatch) |
 //!
 //! After these, key combinations bound by the shell (via the private
@@ -36,6 +37,8 @@ pub enum Action {
     RestoreShortcuts,
     /// `rotate-monitor`.
     RotateMonitor,
+    /// `switch-monitor`.
+    SwitchMonitor,
 }
 
 /// Why a binding was refused.

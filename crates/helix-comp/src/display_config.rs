@@ -1030,6 +1030,14 @@ impl DisplayConfig {
         });
     }
 
+    /// Remember `config` for the monitors of `key` (they get it back when
+    /// they come again).
+    pub fn remember(&self, key: &str, config: &MonitorsConfig) {
+        if let Err(err) = self.store.save(key, config) {
+            tracing::warn!(%err, "cannot remember the monitor configuration");
+        }
+    }
+
     /// Have the compositor apply `config`, then publish the new layout.
     pub async fn apply_and_publish(&self, config: MonitorsConfig, emitter: &SignalEmitter<'_>) -> Result<(), String> {
         let applier = self.applier.as_ref().ok_or("the compositor cannot change monitors")?;

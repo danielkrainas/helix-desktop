@@ -91,6 +91,7 @@ impl Helix {
         let key = |name: &str| super::keybindings::key_from_name(name);
         let mut own: Vec<_> = settings.session_keys.iter().filter_map(|(m, k, n)| Some((mods(m), key(k)?, super::shortcuts::Action::SwitchVt(*n)))).collect();
         own.extend(settings.rotate_monitor.iter().filter_map(|(m, k)| Some((mods(m), key(k)?, super::shortcuts::Action::RotateMonitor))));
+        own.extend(settings.switch_monitor.iter().filter_map(|(m, k)| Some((mods(m), key(k)?, super::shortcuts::Action::SwitchMonitor))));
         self.shortcuts.set_own_keys(own);
         if settings != self.wm_settings {
             tracing::info!(?settings.focus_mode, "window-management settings");

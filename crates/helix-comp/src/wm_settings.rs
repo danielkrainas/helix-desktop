@@ -196,6 +196,8 @@ pub struct WmSettings {
     pub cancel_input_capture: Vec<(Modifiers, String)>,
     /// `rotate-monitor`.
     pub rotate_monitor: Vec<(Modifiers, String)>,
+    /// `switch-monitor`.
+    pub switch_monitor: Vec<(Modifiers, String)>,
     /// `xwayland-allow-grabs`.
     pub xwayland_allow_grabs: bool,
     /// `xwayland-grab-access-rules`.
@@ -241,6 +243,7 @@ impl Default for WmSettings {
             session_keys: (1..=12).filter_map(|n| parse_accelerator(&format!("<Primary><Alt>F{n}")).map(|(m, k)| (m, k, n))).collect(),
             cancel_input_capture: parse_accelerator("<Super><Shift>Escape").into_iter().collect(),
             rotate_monitor: parse_accelerator("XF86RotateWindows").into_iter().collect(),
+            switch_monitor: ["<Super>p", "XF86Display"].iter().filter_map(|a| parse_accelerator(a)).collect(),
             xwayland_allow_grabs: false,
             xwayland_grab_rules: Vec::new(),
             xwayland_disable_extension: 0,
@@ -313,6 +316,7 @@ pub fn read() -> WmSettings {
         },
         cancel_input_capture: settings_with(MUTTER_KEYS, "cancel-input-capture").map_or(d.cancel_input_capture, |s| accelerators(&s, "cancel-input-capture")),
         rotate_monitor: settings_with(MUTTER_KEYS, "rotate-monitor").map_or(d.rotate_monitor, |s| accelerators(&s, "rotate-monitor")),
+        switch_monitor: settings_with(MUTTER_KEYS, "switch-monitor").map_or(d.switch_monitor, |s| accelerators(&s, "switch-monitor")),
         xwayland_allow_grabs: boolean(MUTTER_WAYLAND, "xwayland-allow-grabs", d.xwayland_allow_grabs),
         xwayland_disable_extension: settings_with(MUTTER_WAYLAND, "xwayland-disable-extension").map_or(0, |s| s.flags("xwayland-disable-extension")),
         xwayland_byte_swapped: boolean(MUTTER_WAYLAND, "xwayland-allow-byte-swapped-clients", d.xwayland_byte_swapped),

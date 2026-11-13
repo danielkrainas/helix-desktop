@@ -20,6 +20,7 @@ pub mod ddc;
 pub mod gestures;
 pub mod tablet_v2;
 pub mod display_config;
+pub mod display_switch;
 pub mod eraser_button;
 pub mod color_management;
 pub mod colorimetry;
@@ -88,6 +89,8 @@ pub enum Event {
     ClickType(a11y_mouse::ClickType),
     /// `rotate-monitor` was pressed: turn the built-in panel.
     RotateMonitor,
+    /// `switch-monitor` was pressed: the next way of using the monitors.
+    SwitchMonitor,
 }
 
 /// The running D-Bus services of the compositor.
@@ -97,6 +100,7 @@ pub struct CompositorServices {
     layout: Arc<Mutex<Layout>>,
     tasks: Vec<JoinHandle<()>>,
     casts: screencast::Shared,
+    switcher: display_switch::Switcher,
     cast: Option<mpsc::UnboundedSender<screencast::CastRequest>>,
     remotes: remote_desktop::Shared,
     captures: input_capture::Shared,
@@ -247,6 +251,7 @@ impl CompositorServices {
             layout,
             tasks,
             casts,
+            switcher: display_switch::Switcher::default(),
             cast,
             remotes,
             captures,
@@ -294,6 +299,10 @@ impl CompositorServices {
                 Ok(())
             }
             Event::FocusTracking(_) => Ok(()),
+            Event::SwitchMonitor => {
+                self.switcher.press(&self.conn).await;
+                Ok(())
+            }
             Event::RotateMonitor => {
                 rotation::rotate_step(&self.conn).await;
                 Ok(())
