@@ -101,6 +101,9 @@ pub(super) struct DockState {
     /// The view whose edge strip the pointer is on, and how hard it pushes.
     pub at_edge: Option<usize>,
     pub pressure: logic::Pressure,
+    /// Numbers are drawn on the apps' icons (after a hot key).
+    numbers: bool,
+    numbers_timer: Option<RegistrationToken>,
 }
 
 thread_local! {
@@ -634,6 +637,20 @@ impl Ui {
                 _ => None,
             })
             .collect();
+        // Hot key numbers for the first ten apps.
+        let numbers: Vec<Option<usize>> = {
+            let mut n = 0;
+            items
+                .iter()
+                .map(|i| match i {
+                    Item::App { .. } if self.dock.numbers && n < 10 => {
+                        n += 1;
+                        Some(n)
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
         let focused_app = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).map(|e| e.app_id.clone()).unwrap_or_default();
         let focused_item = items.iter().position(|i| matches!(i, Item::App { id, .. } if !focused_app.is_empty() && (id.eq_ignore_ascii_case(&focused_app) || desktop_matches(&focused_app, id))));
         // The name, and for a running app its windows' titles.
@@ -703,6 +720,14 @@ impl Ui {
             }
             let (windows, badge) = counts[i];
             draw_indicator(&mut canvas, s.indicator, s.edge, cell, windows);
+            if let Some(number) = numbers[i] {
+                // The app's hot key number, at the icon's top left.
+                let (nx, ny) = (f64::from(ix) + 4.0, f64::from(iy) + 4.0);
+                canvas.circle(nx, ny, 10.0, 0xF0505058);
+                let label_text = (number % 10).to_string();
+                let tw = text.map_or(6.0, |t| t.width(&label_text, 13.0));
+                label(text, &mut canvas, &label_text, (nx - f64::from(tw) / 2.0) as f32, ny as f32 + 5.0, 13.0, FG, 20.0);
+            }
             if badge > 0 {
                 let (bx, by) = (f64::from(ix + icon) - 4.0, f64::from(iy) + 4.0);
                 canvas.circle(bx, by, 9.0, BADGE);
@@ -1256,22 +1281,80 @@ impl Ui {
         self.dock_update();
     }
 
-    /// `switch-to-application-N`: the Nth app of the dash.
-    pub(super) fn switch_to_app(&mut self, n: usize) {
+    /// The apps of the dock (or of the dash without one), in order.
+    fn dock_apps(&self) -> Vec<String> {
+        let shown: Vec<String> = self.dock.views.first().map(|v| v.items.iter().filter_map(|i| match i {
+            Item::App { id, .. } => Some(id.clone()),
+            _ => None,
+        }).collect()).unwrap_or_default();
+        if !shown.is_empty() {
+            return shown;
+        }
         use gio::prelude::*;
         let installed: Vec<String> = gio::AppInfo::all().into_iter().filter(|a| a.should_show()).filter_map(|a| a.id().map(|i| i.to_string())).collect();
         let settings = DockSettings { show_mounts: false, show_trash: false, show_apps_button: false, ..self.dock.settings.clone() };
         let running = self.dock_running();
-        let apps: Vec<String> = logic::items(&settings, &crate::favorites::favorites(), &installed, &running, 0)
+        logic::items(&settings, &crate::favorites::favorites(), &installed, &running, 0)
             .into_iter()
             .filter_map(|i| match i {
                 Item::App { id, .. } => Some(id),
                 _ => None,
             })
-            .collect();
-        if let Some(id) = apps.get(n.saturating_sub(1)) {
-            let id = id.clone();
-            self.app_click(&id, logic::ClickAction::CycleWindows);
+            .collect()
+    }
+
+    /// `switch-to-application-N` (`launch`: `open-new-window-application-N`):
+    /// the Nth app of the dash.
+    pub(super) fn switch_to_app(&mut self, n: usize, launch: bool) {
+        if let Some(id) = self.dock_apps().get(n.saturating_sub(1)).cloned() {
+            self.app_click(&id, if launch { logic::ClickAction::Launch } else { logic::ClickAction::CycleWindows });
+        }
+    }
+
+    /// One of the dock's hot keys for app `n` (1–10).
+    pub(super) fn dock_hot_key(&mut self, n: usize, which: logic::HotKey) {
+        let action = match which {
+            logic::HotKey::Plain => self.dock.settings.click,
+            logic::HotKey::Shift => self.dock.settings.shift_click,
+            logic::HotKey::Ctrl => logic::ClickAction::Launch,
+        };
+        if let Some(id) = self.dock_apps().get(n.saturating_sub(1)).cloned() {
+            self.app_click(&id, action);
+        }
+        self.dock_flash();
+    }
+
+    /// After a hot key or `shortcut`: numbers on the icons
+    /// (`hotkeys-overlay`) and the dock shown (`hotkeys-show-dock`) for
+    /// `shortcut-timeout` seconds.
+    pub(super) fn dock_flash(&mut self) {
+        let Some(keys) = self.dock.settings.hot_keys.clone() else { return };
+        if keys.show_dock {
+            for i in 0..self.dock.views.len() {
+                self.dock.views[i].revealed = true;
+            }
+            self.dock_update();
+            for i in 0..self.dock.views.len() {
+                self.dock.cur = i;
+                self.dock_set_timer(keys.timeout, false);
+            }
+            self.dock.cur = 0;
+        }
+        if keys.overlay {
+            self.dock.numbers = true;
+            if let (Some(handle), Some(token)) = (self.loop_handle.as_ref(), self.dock.numbers_timer.take()) {
+                handle.remove(token);
+            }
+            if let Some(handle) = self.loop_handle.as_ref() {
+                let token = handle.insert_source(Timer::from_duration(Duration::from_secs_f64(keys.timeout)), |_, _, ui: &mut Ui| {
+                    ui.dock.numbers_timer = None;
+                    ui.dock.numbers = false;
+                    ui.dock_draw();
+                    TimeoutAction::Drop
+                });
+                self.dock.numbers_timer = token.ok();
+            }
+            self.dock_draw();
         }
     }
 }

@@ -1954,8 +1954,12 @@ impl Ui {
                 dock::forget_desktop_ids();
                 // It may move away from under the pointer.
                 self.dock_reset_pointer();
+                let rebind = (self.dock.settings.enabled, &self.dock.settings.hot_keys) != (settings.enabled, &settings.hot_keys);
                 self.dock.settings = settings;
                 self.dock_update();
+                if rebind {
+                    self.rebind_internal();
+                }
             }
             UiEvent::LauncherEntry(app, entry) => {
                 match entry {
@@ -2185,14 +2189,36 @@ impl Ui {
         if self.window_list.is_none() {
             return;
         }
-        for n in 1..=9usize {
-            let key = format!("switch-to-application-{n}");
-            let default = format!("<Super>{n}");
-            for text in crate::shell_keys::shell_strv(&key, &[default.as_str()]) {
-                let Some(accelerator) = parse(&text, "switch to application") else { continue };
-                self.internal.insert(next, Internal::DockApp(n));
-                self.bind(next, &accelerator);
-                next += 1;
+        match self.dock.settings.hot_keys.clone().filter(|_| self.dock.settings.enabled) {
+            // Dash to Dock's keys replace GNOME's.
+            Some(keys) => {
+                for (n, which, text) in keys.apps {
+                    let Some(accelerator) = parse(&text, "dock hot key") else { continue };
+                    self.internal.insert(next, Internal::DockHotKey(n, which));
+                    self.bind(next, &accelerator);
+                    next += 1;
+                }
+                for text in keys.shortcut {
+                    let Some(accelerator) = parse(&text, "dock shortcut") else { continue };
+                    self.internal.insert(next, Internal::DockShortcut);
+                    self.bind(next, &accelerator);
+                    next += 1;
+                }
+            }
+            None => {
+                for n in 1..=9usize {
+                    for (key, default, launch) in [
+                        (format!("switch-to-application-{n}"), format!("<Super>{n}"), false),
+                        (format!("open-new-window-application-{n}"), format!("<Super><Control>{n}"), true),
+                    ] {
+                        for text in crate::shell_keys::shell_strv(&key, &[default.as_str()]) {
+                            let Some(accelerator) = parse(&text, "switch to application") else { continue };
+                            self.internal.insert(next, Internal::DockApp(n, launch));
+                            self.bind(next, &accelerator);
+                            next += 1;
+                        }
+                    }
+                }
             }
         }
         for (text, backward, mode) in crate::windows::accelerators() {
@@ -2241,7 +2267,9 @@ impl Ui {
             },
             Some(Internal::MessageTray) => self.toggle_notification_list(),
             Some(Internal::FocusNotification) => self.focus_banner(true),
-            Some(Internal::DockApp(n)) => self.switch_to_app(n),
+            Some(Internal::DockApp(n, launch)) => self.switch_to_app(n, launch),
+            Some(Internal::DockHotKey(n, which)) => self.dock_hot_key(n, which),
+            Some(Internal::DockShortcut) => self.dock_flash(),
             Some(Internal::QuickSettings) => {
                 self.toggle_power_menu();
                 self.draw_panel();
@@ -3071,8 +3099,13 @@ enum Internal {
     FocusNotification,
     /// `toggle-quick-settings`
     QuickSettings,
-    /// `switch-to-application-N`
-    DockApp(usize),
+    /// `switch-to-application-N`, or with true
+    /// `open-new-window-application-N`
+    DockApp(usize, bool),
+    /// Dash to Dock's `app-hotkey-N` and its Shift and Ctrl kinds.
+    DockHotKey(usize, crate::dock::HotKey),
+    /// Dash to Dock's `shortcut`.
+    DockShortcut,
 }
 
 /// Presses this close continue a window cycle.

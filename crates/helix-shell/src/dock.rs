@@ -35,6 +35,33 @@ pub enum HideMode {
     AlwaysOnTop,
 }
 
+/// Which of an app's hot keys (`app-hotkey-N`, `app-shift-hotkey-N`,
+/// `app-ctrl-hotkey-N`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotKey {
+    /// Acts as a click (`click-action`).
+    Plain,
+    /// Acts as a Shift+click (`shift-click-action`).
+    Shift,
+    /// Opens a new window.
+    Ctrl,
+}
+
+/// Dash to Dock's keyboard settings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HotKeys {
+    /// (app number 1–10, which key, accelerator).
+    pub apps: Vec<(usize, HotKey, String)>,
+    /// `shortcut`: shows the dock and the numbers.
+    pub shortcut: Vec<String>,
+    /// `hotkeys-overlay`: numbers on the apps' icons after a hot key.
+    pub overlay: bool,
+    /// `hotkeys-show-dock`: a hot key shows the dock.
+    pub show_dock: bool,
+    /// `shortcut-timeout` (seconds).
+    pub timeout: f64,
+}
+
 /// What clicking an app's icon does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClickAction {
@@ -144,6 +171,9 @@ pub struct DockSettings {
     pub animation_time: f64,
     /// The most of the edge the dock takes (`height-fraction`).
     pub height_fraction: f64,
+    /// With `hot-keys` on: the dock's keys, used instead of GNOME's
+    /// `switch-to-application-N` and `open-new-window-application-N`.
+    pub hot_keys: Option<HotKeys>,
 }
 
 impl Default for DockSettings {
@@ -186,6 +216,7 @@ impl Default for DockSettings {
             hide_tooltip: false,
             animation_time: 0.2,
             height_fraction: 0.9,
+            hot_keys: None,
         }
     }
 }
@@ -274,6 +305,22 @@ pub fn read() -> DockSettings {
         hide_tooltip: b("hide-tooltip", d.hide_tooltip),
         animation_time: if animations { num("animation-time", d.animation_time).clamp(0.0, 2.0) } else { 0.0 },
         height_fraction: num("height-fraction", d.height_fraction).clamp(0.1, 1.0),
+        hot_keys: b("hot-keys", true).then(|| {
+            let strv = |k: &str| if key(k) { s.strv(k).iter().map(|a| a.to_string()).collect() } else { Vec::new() };
+            let mut apps = Vec::new();
+            for n in 1..=10usize {
+                for (prefix, which) in [("app-hotkey", HotKey::Plain), ("app-shift-hotkey", HotKey::Shift), ("app-ctrl-hotkey", HotKey::Ctrl)] {
+                    apps.extend(strv(&format!("{prefix}-{n}")).into_iter().map(|a| (n, which, a)));
+                }
+            }
+            HotKeys {
+                apps,
+                shortcut: strv("shortcut"),
+                overlay: b("hotkeys-overlay", true),
+                show_dock: b("hotkeys-show-dock", true),
+                timeout: num("shortcut-timeout", 2.0).clamp(0.0, 10.0),
+            }
+        }),
     }
 }
 
