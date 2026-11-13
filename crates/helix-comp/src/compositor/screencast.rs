@@ -57,8 +57,32 @@ pub struct CastState {
     empty_cursor: std::sync::Arc<(Vec<u8>, u32, u32)>,
 }
 
-/// Size of virtual monitors.
+/// Size of virtual monitors until the consumer chooses one.
 const VIRTUAL_SIZE: (i32, i32) = (1920, 1080);
+
+/// How virtual monitor `name` at `position` of `size` (pixels, scale 1)
+/// looks to DisplayConfig clients.
+fn virtual_monitor(name: &str, position: (i32, i32), size: (i32, i32)) -> helix_comp::display_config::Monitor {
+    use helix_comp::display_config::{Mode, Monitor};
+    Monitor {
+        connector: name.to_owned(),
+        vendor: "Helix".into(),
+        product: "Virtual".into(),
+        serial: "0".into(),
+        display_name: "Virtual monitor".into(),
+        builtin: false,
+        modes: vec![Mode { width: size.0, height: size.1, refresh_mhz: 60_000, preferred: true, current: true }],
+        x: position.0,
+        y: position.1,
+        scale: 1.0,
+        transform: 0,
+        primary: false,
+        transforms: vec![0],
+        hdr: false,
+        color_mode: helix_comp::display_config::COLOR_MODE_DEFAULT,
+        underscan: None,
+    }
+}
 
 /// RGBA → BGRx, in place (when the GPU can't read back BGRA).
 pub fn to_bgrx(rgba: &mut [u8]) {
@@ -150,6 +174,7 @@ impl Helix {
                         width: size.w as u32,
                         height: size.h as u32,
                         cursor_meta: cursor == CursorMode::Metadata,
+                        negotiate: matches!(source, CastSource::Virtual(_)),
                         reply: node_tx,
                     })
                 });
@@ -218,7 +243,48 @@ impl Helix {
                 }
             }
             Notice::Ended { id } => self.end_cast(id),
+            Notice::Negotiated { id, width, height } => self.resize_virtual(id, (width as i32, height as i32)),
         }
+    }
+
+    /// The consumer of `stream` chose `size` for its virtual monitor.
+    fn resize_virtual(&mut self, stream: u32, size: (i32, i32)) {
+        use smithay::output::Mode;
+        let Some((output, _)) = self.screencast.virtuals.get(&stream) else { return };
+        let output = output.clone();
+        let mode = Mode { size: size.into(), refresh: 60_000 };
+        if output.current_mode() == Some(mode) {
+            return;
+        }
+        output.change_current_state(Some(mode), None, None, None);
+        output.set_preferred(mode);
+        if let Some(loc) = self.space.output_geometry(&output).map(|g| g.loc) {
+            self.space.map_output(&output, loc);
+        }
+        tracing::info!(name = output.name(), ?size, "virtual monitor resized");
+        // Frames are made at the new size; the stream already has it.
+        if let Some(cast) = self.screencast.casts.get_mut(&stream) {
+            cast.size = size.into();
+            cast.target = None;
+        }
+        self.rescue_windows();
+        self.publish_virtuals();
+    }
+
+    /// Tell DisplayConfig about the virtual monitors.
+    fn publish_virtuals(&self) {
+        let mut virtuals: Vec<_> = self
+            .screencast
+            .virtuals
+            .values()
+            .filter_map(|(output, _)| {
+                let geometry = self.space.output_geometry(output)?;
+                let mode = output.current_mode()?;
+                Some(virtual_monitor(&output.name(), (geometry.loc.x, geometry.loc.y), (mode.size.w, mode.size.h)))
+            })
+            .collect();
+        virtuals.sort_by(|a, b| a.connector.cmp(&b.connector));
+        self.send(Event::VirtualMonitors(virtuals));
     }
 
     /// A virtual monitor for `stream`, right of the others: name, position
@@ -239,6 +305,7 @@ impl Helix {
         self.space.map_output(&output, (x, 0));
         tracing::info!(name, x, "virtual monitor added");
         self.screencast.virtuals.insert(stream, (output, global));
+        self.publish_virtuals();
         (name, (x, 0), VIRTUAL_SIZE)
     }
 
@@ -305,6 +372,7 @@ impl Helix {
         self.space.unmap_output(&output);
         self.display_handle.remove_global::<Helix>(global);
         self.rescue_windows();
+        self.publish_virtuals();
     }
 
     /// The pointer for cursor metadata, relative to a source at `origin`

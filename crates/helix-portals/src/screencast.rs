@@ -244,7 +244,8 @@ async fn monitors(conn: &Connection) -> zbus::Result<Vec<(MonitorId, String)>> {
     let shown: Vec<String> = logical.iter().flat_map(|l| l.5.iter().map(|s| s.0.clone())).collect();
     Ok(monitors
         .into_iter()
-        .filter(|(spec, _, _)| shown.contains(&spec.0))
+        // Other casts' virtual monitors can't be shared.
+        .filter(|(spec, _, _)| shown.contains(&spec.0) && !(spec.1 == "Helix" && spec.2 == "Virtual"))
         .map(|(spec, _, props)| {
             let name = props
                 .get("display-name")

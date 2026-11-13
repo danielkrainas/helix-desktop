@@ -165,6 +165,9 @@ fn string(s: &str) -> OwnedValue {
 pub struct Layout {
     pub serial: u32,
     pub monitors: Vec<Monitor>,
+    /// Virtual monitors of screen casts: listed in `GetCurrentState`, not
+    /// configurable, and not part of the set of monitors (`key`).
+    pub virtuals: Vec<Monitor>,
 }
 
 impl Layout {
@@ -172,7 +175,23 @@ impl Layout {
         Self {
             serial: 1,
             monitors,
+            virtuals: Vec::new(),
         }
+    }
+
+    /// Replace the virtual monitors; returns true (and bumps the serial) if
+    /// anything changed.
+    pub fn set_virtuals(&mut self, virtuals: Vec<Monitor>) -> bool {
+        if virtuals == self.virtuals {
+            return false;
+        }
+        self.virtuals = virtuals;
+        self.serial = self.serial.wrapping_add(1).max(1);
+        true
+    }
+
+    fn is_virtual(&self, connector: &str) -> bool {
+        self.virtuals.iter().any(|m| m.connector == connector)
     }
 
     /// Replace the monitors; returns true (and bumps the serial) if anything
@@ -215,6 +234,13 @@ impl Layout {
         }
         let mut config = MonitorsConfig::default();
         for (x, y, scale, transform, primary, monitors) in logical {
+            // Virtual monitors can't be configured: they are left out (a
+            // client may send them back as they are).
+            let real: Vec<_> = monitors.iter().filter(|(connector, _, _)| !self.is_virtual(connector)).collect();
+            if real.is_empty() && !monitors.is_empty() {
+                continue;
+            }
+            let monitors = real;
             let mut choices = Vec::new();
             for (connector, mode_id, monitor_properties) in monitors {
                 let monitor = self
@@ -399,6 +425,7 @@ impl Layout {
         let monitors = self
             .monitors
             .iter()
+            .chain(&self.virtuals)
             .map(|m| {
                 let modes = m
                     .modes
@@ -448,6 +475,10 @@ impl Layout {
                 }
                 None => logical.push((m.x, m.y, m.scale, m.transform, m.primary, vec![m.spec()], Props::new())),
             }
+        }
+        // Each virtual monitor is a logical monitor of its own.
+        for m in &self.virtuals {
+            logical.push((m.x, m.y, m.scale, m.transform, false, vec![m.spec()], Props::new()));
         }
         let properties = props([
             ("layout-mode", OwnedValue::from(LAYOUT_MODE_LOGICAL)),
@@ -1542,6 +1573,32 @@ mod tests {
         assert!(layout.parse(&wire("1920x1080@60.000"), &physical).unwrap_err().contains("layout mode 2"));
         assert_eq!(Method::try_from(2), Ok(Method::Persistent));
         assert!(Method::try_from(3).is_err());
+    }
+
+    #[test]
+    fn virtual_monitors() {
+        let mut layout = two();
+        let (key, serial) = (layout.key(), layout.serial);
+        let mut v = nested(1280, 720);
+        (v.connector, v.product, v.display_name, v.x, v.primary) = ("Virtual-1".into(), "Virtual".into(), "Virtual monitor".into(), 3840, false);
+        assert!(layout.set_virtuals(vec![v.clone()]));
+        assert!(!layout.set_virtuals(vec![v]), "unchanged");
+        assert_ne!(layout.serial, serial);
+        assert_eq!(layout.key(), key, "not part of the set of monitors");
+        let (_, monitors, logical, _) = layout.current_state();
+        assert_eq!(monitors.len(), 3);
+        assert_eq!(monitors[2].0 .0, "Virtual-1");
+        assert_eq!(logical.len(), 3);
+        assert_eq!((logical[2].0, logical[2].4, &logical[2].5[0].0), (3840, false, &"Virtual-1".to_owned()));
+        // Sent back as they are, virtual monitors are left out.
+        let wire: Vec<WireLogicalConfig> = vec![
+            (0, 0, 1.0, 0, true, vec![("DP-1".into(), "1920x1080@60.000".into(), Props::new())]),
+            (1920, 0, 1.0, 0, false, vec![("HDMI-1".into(), "1920x1080@60.000".into(), Props::new())]),
+            (3840, 0, 1.0, 0, false, vec![("Virtual-1".into(), "1280x720@60.000".into(), Props::new())]),
+        ];
+        assert_eq!(layout.parse(&wire, &Props::new()).unwrap(), side_by_side(1920, 0));
+        assert!(layout.set_virtuals(Vec::new()));
+        assert!(layout.parse(&wire, &Props::new()).unwrap_err().contains("Virtual-1"), "gone: unknown");
     }
 
     #[test]

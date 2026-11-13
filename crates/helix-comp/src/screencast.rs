@@ -103,9 +103,6 @@ struct StreamState {
 pub struct Casts {
     sessions: HashMap<u32, SessionState>,
     streams: HashMap<u32, StreamState>,
-    /// Virtual monitors, by stream: name and rectangle (part of the layout
-    /// for `RecordArea`).
-    virtuals: HashMap<u32, (String, Rect)>,
     next: u32,
 }
 
@@ -297,7 +294,6 @@ pub async fn close_session(conn: &Connection, shared: &Shared, compositor: &mpsc
     for stream in &session.streams {
         let _ = compositor.send(CastRequest::Stop { stream: *stream });
         lock(shared).streams.remove(stream);
-        lock(shared).virtuals.remove(stream);
         let _ = conn.object_server().remove::<Stream, _>(stream_path(*stream).as_str()).await;
     }
     let path = session_path(id);
@@ -502,9 +498,11 @@ impl Session {
         let cursor = cursor_mode(&properties)?;
         let monitors: Vec<(String, Rect)> = {
             let layout = self.layout.lock().unwrap_or_else(|e| e.into_inner());
+            // Virtual monitors of `RecordVirtual` are part of the layout too.
             layout
                 .monitors
                 .iter()
+                .chain(&layout.virtuals)
                 .filter_map(|m| {
                     let mode = m.modes.iter().find(|mode| mode.current)?;
                     let (w, h) = crate::display_config::logical_size(mode.width, mode.height, m.scale, m.transform);
@@ -512,8 +510,6 @@ impl Session {
                 })
                 .collect()
         };
-        let mut monitors = monitors;
-        monitors.extend(lock(&self.shared).virtuals.values().cloned());
         let (connector, (cx, cy, cw, ch)) = clip_to_layout((x, y, width, height), &monitors)
             .ok_or_else(|| fdo::Error::InvalidArgs("the area is on no monitor".into()))?;
         let parameters = stream_parameters((cx, cy), (cw, ch), &connector);
@@ -539,7 +535,6 @@ impl Session {
             .map_err(|_| fdo::Error::Failed("the compositor did not answer".into()))?
             .map_err(fdo::Error::Failed)?;
         let parameters = stream_parameters(position, size, &name);
-        lock(&self.shared).virtuals.insert(id, (name.clone(), (position.0, position.1, size.0, size.1)));
         self.add_stream_as(id, CastSource::Virtual(name), cursor, parameters, server).await
     }
 }

@@ -64,6 +64,8 @@ pub enum Event {
     IdleInhibited(bool),
     /// The output layout is now this.
     Monitors(Vec<Monitor>),
+    /// The virtual monitors of screen casts (`RecordVirtual`) are now these.
+    VirtualMonitors(Vec<Monitor>),
     /// The overlay key (Super alone): show or hide the overview.
     ToggleOverview,
     /// The user asked to lock the screen (Super+L).
@@ -312,6 +314,18 @@ impl CompositorServices {
             Event::Capture(signal) => input_capture::emit(&self.conn, &self.captures, signal).await,
             Event::IdleInhibited(inhibited) => {
                 self.idle.set_inhibited(inhibited);
+                Ok(())
+            }
+            Event::VirtualMonitors(virtuals) => {
+                let changed = self.layout.lock().unwrap_or_else(|e| e.into_inner()).set_virtuals(virtuals);
+                if changed {
+                    let iface = self
+                        .conn
+                        .object_server()
+                        .interface::<_, DisplayConfig>(display_config::OBJECT_PATH)
+                        .await?;
+                    DisplayConfig::monitors_changed(iface.signal_emitter()).await?;
+                }
                 Ok(())
             }
             Event::Monitors(monitors) => {

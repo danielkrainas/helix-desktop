@@ -39,8 +39,10 @@ pub struct CursorMeta {
 /// What the compositor asks of the PipeWire thread.
 pub enum Command {
     /// Create a stream; the reply is its node id once PipeWire assigned it.
-    /// With `cursor_meta`, buffers carry cursor metadata.
-    Create { id: u32, width: u32, height: u32, cursor_meta: bool, reply: std::sync::mpsc::Sender<Result<u32, String>> },
+    /// With `cursor_meta`, buffers carry cursor metadata. With `negotiate`,
+    /// any size up to `MAX_VIRTUAL` is offered (`width`×`height` preferred)
+    /// and the consumer's choice comes back as `Notice::Negotiated`.
+    Create { id: u32, width: u32, height: u32, cursor_meta: bool, negotiate: bool, reply: std::sync::mpsc::Sender<Result<u32, String>> },
     /// The stream's frames change size (renegotiates the format).
     Resize { id: u32, width: u32, height: u32 },
     /// A frame for a stream: BGRx, rows of `width * 4` bytes.
@@ -57,7 +59,12 @@ pub enum Notice {
     Streaming { id: u32, on: bool },
     /// The stream failed or was removed by PipeWire.
     Ended { id: u32 },
+    /// The consumer chose this size for a stream made with `negotiate`.
+    Negotiated { id: u32, width: u32, height: u32 },
 }
+
+/// The largest virtual monitor a consumer may ask for.
+pub const MAX_VIRTUAL: (u32, u32) = (8192, 8192);
 
 /// Handle to the PipeWire thread.
 pub struct PipeWire {
@@ -91,7 +98,7 @@ fn property(key: u32, value: Value) -> Property {
     Property { key, flags: PropertyFlags::empty(), value }
 }
 
-fn format_pod(width: u32, height: u32) -> Result<Vec<u8>, String> {
+fn format_pod(width: u32, height: u32, negotiate: bool) -> Result<Vec<u8>, String> {
     use spa::param::format::{FormatProperties as F, MediaSubtype, MediaType};
     use spa::param::video::VideoFormat;
     let max = Fraction { num: MAX_FPS, denom: 1 };
@@ -102,7 +109,21 @@ fn format_pod(width: u32, height: u32) -> Result<Vec<u8>, String> {
             property(F::MediaType.as_raw(), Value::Id(spa::utils::Id(MediaType::Video.as_raw()))),
             property(F::MediaSubtype.as_raw(), Value::Id(spa::utils::Id(MediaSubtype::Raw.as_raw()))),
             property(F::VideoFormat.as_raw(), Value::Id(spa::utils::Id(VideoFormat::BGRx.as_raw()))),
-            property(F::VideoSize.as_raw(), Value::Rectangle(Rectangle { width, height })),
+            property(
+                F::VideoSize.as_raw(),
+                if negotiate {
+                    Value::Choice(ChoiceValue::Rectangle(Choice(
+                        ChoiceFlags::empty(),
+                        ChoiceEnum::Range {
+                            default: Rectangle { width, height },
+                            min: Rectangle { width: 1, height: 1 },
+                            max: Rectangle { width: MAX_VIRTUAL.0, height: MAX_VIRTUAL.1 },
+                        },
+                    )))
+                } else {
+                    Value::Rectangle(Rectangle { width, height })
+                },
+            ),
             property(F::VideoFramerate.as_raw(), Value::Fraction(Fraction { num: 0, denom: 1 })),
             property(
                 F::VideoMaxFramerate.as_raw(),
@@ -241,6 +262,8 @@ struct Live {
     /// The last frame sent (for pointer-only updates).
     last: Rc<RefCell<Option<Vec<u8>>>>,
     size: Rc<std::cell::Cell<(u32, u32)>>,
+    /// Its size is the consumer's choice (a virtual monitor).
+    negotiate: bool,
 }
 
 /// Give a buffer's first data block a memfd of one frame, mapped.
@@ -321,8 +344,8 @@ fn run(
         let core = core.clone();
         let notices = notices.clone();
         move |command| match command {
-            Command::Create { id, width, height, cursor_meta, reply } => {
-                match create(&core, id, width, height, cursor_meta, notices.clone(), pending.clone()) {
+            Command::Create { id, width, height, cursor_meta, negotiate, reply } => {
+                match create(&core, id, (width, height), cursor_meta, negotiate, notices.clone(), pending.clone()) {
                     Ok(live) => {
                         pending.borrow_mut().insert(id, reply);
                         streams.borrow_mut().insert(id, live);
@@ -359,7 +382,7 @@ fn run(
                     live.size.set((width, height));
                     *live.frame.borrow_mut() = None;
                     *live.last.borrow_mut() = None;
-                    match format_pod(width, height) {
+                    match format_pod(width, height, live.negotiate) {
                         Ok(bytes) => {
                             if let Some(pod) = Pod::from_bytes(&bytes) {
                                 if let Err(err) = live.stream.update_params(&mut [pod]) {
@@ -386,9 +409,9 @@ fn run(
 fn create(
     core: &pw::core::CoreRc,
     id: u32,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
     cursor_meta: bool,
+    negotiate: bool,
     notices: LoopSender<Notice>,
     pending: Pending,
 ) -> Result<Live, String> {
@@ -435,11 +458,25 @@ fn create(
         })
         .param_changed({
             let size = size.clone();
+            let notices = notices.clone();
             move |stream, _, param_id, param| {
-            let (width, height) = size.get();
-            if param_id != spa::param::ParamType::Format.as_raw() || param.is_none() {
+            let Some(param) = param.filter(|_| param_id == spa::param::ParamType::Format.as_raw()) else {
                 return;
+            };
+            if negotiate {
+                // The consumer picked a size from the range.
+                let mut info = spa::param::video::VideoInfoRaw::new();
+                if info.parse(param).is_ok() {
+                    let chosen = info.size();
+                    let chosen = (chosen.width.clamp(1, MAX_VIRTUAL.0), chosen.height.clamp(1, MAX_VIRTUAL.1));
+                    if chosen != size.get() {
+                        tracing::info!(id, ?chosen, "screen cast size negotiated");
+                        size.set(chosen);
+                        let _ = notices.send(Notice::Negotiated { id, width: chosen.0, height: chosen.1 });
+                    }
+                }
             }
+            let (width, height) = size.get();
             // The format is fixed; say how big the buffers are (and that
             // they carry cursor metadata).
             let buffers = buffers_pod(width, height);
@@ -525,7 +562,7 @@ fn create(
         })
         .register()
         .map_err(|e| e.to_string())?;
-    let format = format_pod(width, height)?;
+    let format = format_pod(width, height, negotiate)?;
     let mut params = [Pod::from_bytes(&format).ok_or("bad format")?];
     stream
         .connect(
@@ -535,5 +572,5 @@ fn create(
             &mut params,
         )
         .map_err(|e| e.to_string())?;
-    Ok(Live { stream, _listener: listener, frame, last, size })
+    Ok(Live { stream, _listener: listener, frame, last, size, negotiate })
 }
