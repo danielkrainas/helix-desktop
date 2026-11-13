@@ -193,6 +193,9 @@ pub struct Helix {
     pub input_settings: Option<helix_comp::input_settings::InputSettings>,
     /// libinput devices (bare hardware), to apply settings to.
     pub input_devices: Vec<smithay::reexports::input::Device>,
+    /// Num Lock as last remembered for the next session (None until the
+    /// settings were first applied).
+    pub saved_numlock: Option<bool>,
     /// Touchscreen and tablet mapping state.
     pub tablet: tablet_input::TabletInput,
     /// The tablet protocol's objects.
@@ -330,6 +333,7 @@ impl Helix {
             primary_output: None,
             input_settings: None,
             input_devices: Vec::new(),
+            saved_numlock: None,
             tablet: Default::default(),
             tablet_v2: Default::default(),
             touch_gestures: Default::default(),

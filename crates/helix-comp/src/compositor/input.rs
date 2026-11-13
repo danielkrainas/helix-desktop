@@ -319,6 +319,7 @@ impl Helix {
             self.run_shortcut(action, time);
         }
         self.run_pending_action(time);
+        self.note_numlock();
     }
 
     /// A pointer button went down or up (from a device, or injected).

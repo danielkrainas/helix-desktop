@@ -132,6 +132,10 @@ impl SeatHandler for Helix {
         self.update_shortcut_inhibit(surface);
     }
 
+    fn led_state_changed(&mut self, _seat: &Seat<Self>, led_state: smithay::input::keyboard::LedState) {
+        self.update_leds(led_state);
+    }
+
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
         self.cursor_status = image;
     }

@@ -4,7 +4,7 @@
 use helix_comp::input_settings::{self, AccelCurve, InputSettings, Pointer, PointingStick, Touchpad};
 use smithay::input::keyboard::{Layout, XkbConfig};
 use smithay::reexports::input::{
-    AccelProfile, AsRaw, ClickMethod, Device, DeviceCapability, ScrollButtonLockState, ScrollMethod, SendEventsMode,
+    AccelProfile, AsRaw, ClickMethod, Device, DeviceCapability, Led, ScrollButtonLockState, ScrollMethod, SendEventsMode,
     TapButtonMap,
 };
 
@@ -16,6 +16,8 @@ impl Helix {
         let new = input_settings::read();
         let old = self.input_settings.replace(new.clone());
         let keyboard = self.seat.get_keyboard().expect("seat has a keyboard");
+        // A new keymap starts with no lock keys on; they are kept.
+        let locks = keyboard.modifier_state();
 
         let same_map = |a: &InputSettings, b: &InputSettings| match (&a.keymap, &b.keymap) {
             (Some(a), Some(b)) => (&a.model, &a.layout, &a.variant, &a.options) == (&b.model, &b.layout, &b.variant, &b.options),
@@ -55,7 +57,15 @@ impl Helix {
             }
         }
         if keymap_applied {
+            self.set_lock_keys(Some(locks.num_lock), Some(locks.caps_lock));
             self.configured_keymap_applied();
+        }
+        if old.is_none() {
+            if let Some(on) = new.numlock {
+                tracing::info!(on, "num lock restored");
+                self.set_lock_keys(Some(on), None);
+            }
+            self.saved_numlock = Some(self.seat.get_keyboard().is_some_and(|k| k.modifier_state().num_lock));
         }
         if old.as_ref().is_none_or(|old| old.repeat != new.repeat) {
             keyboard.change_repeat_info(new.repeat.0, new.repeat.1);
@@ -69,6 +79,50 @@ impl Helix {
         }
     }
 
+    /// Turns Num Lock and Caps Lock on or off (`None` leaves one as it
+    /// is), telling the focused app and the keyboards' lights.
+    pub fn set_lock_keys(&mut self, num: Option<bool>, caps: Option<bool>) {
+        let keyboard = self.seat.get_keyboard().expect("seat has a keyboard");
+        let mut mods = keyboard.modifier_state();
+        let before = (mods.num_lock, mods.caps_lock);
+        mods.num_lock = num.unwrap_or(mods.num_lock);
+        mods.caps_lock = caps.unwrap_or(mods.caps_lock);
+        if (mods.num_lock, mods.caps_lock) == before {
+            return;
+        }
+        let leds = keyboard.led_state();
+        keyboard.set_modifier_state(mods);
+        if let Some(focus) = keyboard.current_focus() {
+            use smithay::input::keyboard::KeyboardTarget;
+            let mods = keyboard.modifier_state();
+            focus.modifiers(&self.seat.clone(), self, mods, smithay::utils::SERIAL_COUNTER.next_serial());
+        }
+        let now = keyboard.led_state();
+        if now != leds {
+            self.update_leds(now);
+        }
+    }
+
+    /// Lights the keyboards' lock key lights (bare hardware).
+    pub fn update_leds(&mut self, state: smithay::input::keyboard::LedState) {
+        let leds = helix_comp::input_settings::leds(state.num, state.caps, state.scroll);
+        for device in &mut self.input_devices {
+            if device.has_capability(DeviceCapability::Keyboard) {
+                device.led_update(Led::from_bits_truncate(leds));
+            }
+        }
+    }
+
+    /// Remembers Num Lock for the next session when it changed (after a
+    /// key).
+    pub fn note_numlock(&mut self) {
+        let on = self.seat.get_keyboard().is_some_and(|k| k.modifier_state().num_lock);
+        if self.saved_numlock.is_some_and(|saved| saved != on) {
+            self.saved_numlock = Some(on);
+            input_settings::save_numlock(on);
+        }
+    }
+
     /// A libinput device appeared (bare hardware).
     pub fn input_device_added(&mut self, device: &Device) {
         if device.has_capability(DeviceCapability::TabletTool) {
@@ -78,8 +132,15 @@ impl Helix {
         }
         let settings = self.input_settings.clone().unwrap_or_default();
         configure_device(device.clone(), &settings);
+        let mut device = device.clone();
+        if device.has_capability(DeviceCapability::Keyboard) {
+            if let Some(keyboard) = self.seat.get_keyboard() {
+                let state = keyboard.led_state();
+                device.led_update(Led::from_bits_truncate(input_settings::leds(state.num, state.caps, state.scroll)));
+            }
+        }
         self.input_devices.push(device.clone());
-        self.tablet_device_added(device);
+        self.tablet_device_added(&device);
     }
 
     pub fn input_device_removed(&mut self, device: &Device) {

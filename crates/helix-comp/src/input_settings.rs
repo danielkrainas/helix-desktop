@@ -259,6 +259,9 @@ pub struct InputSettings {
     pub touchpad: Touchpad,
     pub trackball: Pointer,
     pub pointing_stick: PointingStick,
+    /// Num Lock to set when the session starts (`numlock-state`, when
+    /// `remember-numlock-state` is on).
+    pub numlock: Option<bool>,
 }
 
 impl Default for InputSettings {
@@ -270,6 +273,7 @@ impl Default for InputSettings {
             touchpad: Touchpad::default(),
             trackball: Pointer::default(),
             pointing_stick: PointingStick::default(),
+            numlock: None,
         }
     }
 }
@@ -317,6 +321,21 @@ fn sources(settings: &gio::Settings, key: &str) -> Vec<Source> {
     settings.value(key).get::<Vec<(String, String)>>().unwrap_or_default()
 }
 
+/// libinput's LED bits (num 1, caps 2, scroll 4) for the lock states.
+pub fn leds(num: Option<bool>, caps: Option<bool>, scroll: Option<bool>) -> u32 {
+    u32::from(num == Some(true)) | u32::from(caps == Some(true)) << 1 | u32::from(scroll == Some(true)) << 2
+}
+
+/// Remembers Num Lock for the next session, when the user wants it
+/// remembered.
+pub fn save_numlock(on: bool) {
+    let Some(s) = settings(KEYBOARD) else { return };
+    let has = |k: &str| s.settings_schema().is_some_and(|schema| schema.has_key(k));
+    if has("remember-numlock-state") && s.boolean("remember-numlock-state") && has("numlock-state") && s.boolean("numlock-state") != on {
+        let _ = s.set_boolean("numlock-state", on);
+    }
+}
+
 /// Read the current settings (defaults for schemas that are not installed).
 pub fn read() -> InputSettings {
     let mut out = InputSettings::default();
@@ -326,6 +345,10 @@ pub fn read() -> InputSettings {
     }
     if let Some(s) = settings(KEYBOARD) {
         out.repeat = repeat(s.boolean("repeat"), s.uint("delay"), s.uint("repeat-interval"));
+        let has = |k: &str| s.settings_schema().is_some_and(|schema| schema.has_key(k));
+        if has("remember-numlock-state") && s.boolean("remember-numlock-state") && has("numlock-state") {
+            out.numlock = Some(s.boolean("numlock-state"));
+        }
     }
     if let Some(s) = Keys::open(MOUSE) {
         out.mouse = Pointer {
@@ -403,6 +426,14 @@ pub fn read() -> InputSettings {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn lock_lights() {
+        assert_eq!(leds(Some(true), Some(false), None), 1);
+        assert_eq!(leds(Some(false), Some(true), Some(true)), 6);
+        assert_eq!(leds(None, None, None), 0);
+    }
+
     use super::*;
 
     fn src(t: &str, id: &str) -> Source {
