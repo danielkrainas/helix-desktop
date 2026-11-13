@@ -19,10 +19,26 @@ use smithay::utils::{Logical, Point};
 
 use super::Helix;
 
-/// evdev codes: Escape, and the Super keys.
-const KEY_ESC: u32 = 1;
+/// evdev codes of the modifier keys.
+const KEY_LEFTCTRL: u32 = 29;
+const KEY_LEFTSHIFT: u32 = 42;
+const KEY_RIGHTSHIFT: u32 = 54;
+const KEY_LEFTALT: u32 = 56;
+const KEY_RIGHTCTRL: u32 = 97;
+const KEY_RIGHTALT: u32 = 100;
 const KEY_LEFTMETA: u32 = 125;
 const KEY_RIGHTMETA: u32 = 126;
+
+/// The modifiers held, from the evdev codes of the keys down.
+pub fn held_modifiers(held: &std::collections::HashSet<u32>) -> helix_comp::wm_settings::Modifiers {
+    let any = |a: u32, b: u32| held.contains(&a) || held.contains(&b);
+    helix_comp::wm_settings::Modifiers {
+        alt: any(KEY_LEFTALT, KEY_RIGHTALT),
+        logo: any(KEY_LEFTMETA, KEY_RIGHTMETA),
+        ctrl: any(KEY_LEFTCTRL, KEY_RIGHTCTRL),
+        shift: any(KEY_LEFTSHIFT, KEY_RIGHTSHIFT),
+    }
+}
 
 #[derive(Default)]
 struct CaptureEis {
@@ -359,8 +375,30 @@ impl Helix {
         true
     }
 
-    /// A key (evdev code) while captured. Super+Escape ends the capture
-    /// (the session is disabled), so a client cannot keep the input.
+    /// Is `key` (evdev code), with `mods` held, `cancel-input-capture`?
+    fn is_cancel_capture(&mut self, key: u32, mods: helix_comp::wm_settings::Modifiers) -> bool {
+        let Some(keyboard) = self.seat.get_keyboard() else { return false };
+        // The key's symbol without modifiers, in the active layout.
+        let sym = keyboard.with_xkb_state(self, |context| {
+            let xkb = context.xkb().lock().ok()?;
+            let layout = xkb.active_layout();
+            // SAFETY: only read from the keymap while the lock is held.
+            let keymap = unsafe { xkb.keymap() };
+            keymap.key_get_syms_by_level(smithay::input::keyboard::Keycode::new(key + 8), layout.0, 0).first().copied()
+        });
+        self.wm_settings.cancel_input_capture.iter().any(|(m, name)| {
+            *m == mods
+                && match super::keybindings::key_from_name(name) {
+                    Some(super::shortcuts::Key::Sym(s)) => Some(s) == sym,
+                    Some(super::shortcuts::Key::Code(c)) => c == key + 8,
+                    None => false,
+                }
+        })
+    }
+
+    /// A key (evdev code) while captured. `cancel-input-capture`
+    /// (Super+Shift+Escape) ends the capture (the session is disabled),
+    /// so a client cannot keep the input.
     pub(super) fn capture_key(&mut self, key: u32, pressed: bool) -> bool {
         let Some(active) = self.input_capture.active.as_mut() else { return false };
         if pressed {
@@ -368,18 +406,20 @@ impl Helix {
         } else {
             active.held.remove(&key);
         }
-        if key == KEY_ESC && pressed && (active.held.contains(&KEY_LEFTMETA) || active.held.contains(&KEY_RIGHTMETA)) {
+        let mods = held_modifiers(&active.held);
+        if pressed && self.is_cancel_capture(key, mods) {
+            let Some(active) = self.input_capture.active.as_mut() else { return false };
             let session = active.session;
-            // The client saw Super go down: it goes up again.
-            let supers: Vec<u32> = active.held.iter().copied().filter(|k| *k != KEY_ESC).collect();
-            for k in supers {
+            // The client saw the modifiers go down: they go up again.
+            let others: Vec<u32> = active.held.iter().copied().filter(|k| *k != key).collect();
+            for k in others {
                 self.capture_send(DeviceCapability::Keyboard, |d| {
                     if let Some(kb) = d.interface::<eis::Keyboard>() {
                         kb.key(k, eis::keyboard::KeyState::Released);
                     }
                 });
             }
-            tracing::info!(session, "input capture ended with Super+Escape");
+            tracing::info!(session, "input capture ended with cancel-input-capture");
             self.capture_deactivate(None);
             if let Some(s) = self.input_capture.sessions.get_mut(&session) {
                 s.enabled = false;

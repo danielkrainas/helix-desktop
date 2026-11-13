@@ -27,9 +27,41 @@ fn lock(s: &Sessions) -> std::sync::MutexGuard<'_, HashMap<OwnedObjectPath, Owne
     s.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// The dialog's message.
-pub fn message(app: &str) -> String {
-    format!("{app} wants to take over the pointer and keyboard when the pointer leaves the screen. Super+Escape gives them back.")
+/// The dialog's message, naming the key that ends a capture.
+pub fn message(app: &str, cancel: &str) -> String {
+    format!("{app} wants to take over the pointer and keyboard when the pointer leaves the screen. {cancel} gives them back.")
+}
+
+/// An accelerator as people write it: `<Super><Shift>Escape` →
+/// `Super+Shift+Escape` (`<Primary>`/`<Control>` → `Ctrl`).
+pub fn accelerator_label(accel: &str) -> String {
+    let mut parts = Vec::new();
+    let mut rest = accel.trim();
+    while let Some(after) = rest.strip_prefix('<') {
+        let Some(end) = after.find('>') else { break };
+        parts.push(match after[..end].to_ascii_lowercase().as_str() {
+            "primary" | "control" | "ctrl" => "Ctrl".to_owned(),
+            "super" | "mod4" => "Super".to_owned(),
+            "alt" | "mod1" => "Alt".to_owned(),
+            "shift" => "Shift".to_owned(),
+            other => other.to_owned(),
+        });
+        rest = &after[end + 1..];
+    }
+    parts.push(rest.to_owned());
+    parts.join("+")
+}
+
+/// `org.gnome.mutter.keybindings cancel-input-capture`'s first
+/// accelerator, for people (its default without the key).
+fn cancel_label() -> String {
+    use gio::prelude::*;
+    const SCHEMA: &str = "org.gnome.mutter.keybindings";
+    let configured = gio::SettingsSchemaSource::default()
+        .and_then(|src| src.lookup(SCHEMA, true))
+        .filter(|s| s.has_key("cancel-input-capture"))
+        .and_then(|_| gio::Settings::new(SCHEMA).strv("cancel-input-capture").first().map(|a| a.to_string()));
+    accelerator_label(configured.as_deref().unwrap_or("<Super><Shift>Escape"))
 }
 
 /// The barriers of `SetPointerBarriers` (id and position), skipping
@@ -110,7 +142,7 @@ async fn start(conn: &Connection, sessions: &Sessions, portal: &OwnedObjectPath,
         let who = if app_id.is_empty() { "An app".to_owned() } else { app_name(app_id) };
         let asked = HashMap::from([
             ("title".to_owned(), value(Value::from("Allow Input Capture?"))),
-            ("message".to_owned(), value(Value::from(message(&who)))),
+            ("message".to_owned(), value(Value::from(message(&who, &cancel_label())))),
             ("accept".to_owned(), value(Value::from("Allow"))),
             ("cancel".to_owned(), value(Value::from("Deny"))),
         ]);
@@ -445,7 +477,9 @@ mod tests {
         };
         let got = barriers_of(&[entry(Some(3), Some((0, 0, 0, 799))), entry(Some(4), None), entry(None, Some((1, 2, 3, 4)))]);
         assert_eq!(got, [(3, (0, 0, 0, 799))]);
-        assert!(message("Input Leap").contains("Super+Escape"));
+        assert!(message("Input Leap", "Super+Shift+Escape").ends_with("Super+Shift+Escape gives them back."));
+        assert_eq!(accelerator_label("<Super><Shift>Escape"), "Super+Shift+Escape");
+        assert_eq!(accelerator_label("<Primary><Alt>F1"), "Ctrl+Alt+F1");
         assert!(must_ask(3, None));
         assert!(!must_ask(3, Some(3)));
         assert!(must_ask(3, Some(2)), "more than allowed before");

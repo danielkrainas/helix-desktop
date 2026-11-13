@@ -9,6 +9,7 @@ pub const MUTTER: &str = "org.gnome.mutter";
 pub const WM_PREFERENCES: &str = "org.gnome.desktop.wm.preferences";
 pub const INTERFACE: &str = "org.gnome.desktop.interface";
 pub const MUTTER_WAYLAND: &str = "org.gnome.mutter.wayland";
+pub const MUTTER_KEYS: &str = "org.gnome.mutter.keybindings";
 pub const MUTTER_WAYLAND_KEYS: &str = "org.gnome.mutter.wayland.keybindings";
 const A11Y_INTERFACE: &str = "org.gnome.desktop.a11y.interface";
 pub const SCHEMAS: [&str; 6] = [MUTTER, WM_PREFERENCES, INTERFACE, MUTTER_WAYLAND, MUTTER_WAYLAND_KEYS, A11Y_INTERFACE];
@@ -189,6 +190,12 @@ pub struct WmSettings {
     pub check_alive_ms: u32,
     /// `restore-shortcuts`.
     pub restore_shortcuts: Vec<(Modifiers, String)>,
+    /// `switch-to-session-1` … `-12`: (modifiers, key, virtual terminal).
+    pub session_keys: Vec<(Modifiers, String, i32)>,
+    /// `cancel-input-capture`.
+    pub cancel_input_capture: Vec<(Modifiers, String)>,
+    /// `rotate-monitor`.
+    pub rotate_monitor: Vec<(Modifiers, String)>,
     /// `xwayland-allow-grabs`.
     pub xwayland_allow_grabs: bool,
     /// `xwayland-grab-access-rules`.
@@ -231,6 +238,9 @@ impl Default for WmSettings {
             locate_pointer_key: None,
             check_alive_ms: 5000,
             restore_shortcuts: parse_accelerator("<Super>Escape").into_iter().collect(),
+            session_keys: (1..=12).filter_map(|n| parse_accelerator(&format!("<Primary><Alt>F{n}")).map(|(m, k)| (m, k, n))).collect(),
+            cancel_input_capture: parse_accelerator("<Super><Shift>Escape").into_iter().collect(),
+            rotate_monitor: parse_accelerator("XF86RotateWindows").into_iter().collect(),
             xwayland_allow_grabs: false,
             xwayland_grab_rules: Vec::new(),
             xwayland_disable_extension: 0,
@@ -254,6 +264,10 @@ fn boolean(schema: &str, key: &str, default: bool) -> bool {
 
 fn string(schema: &str, key: &str) -> Option<String> {
     settings_with(schema, key).map(|s| s.string(key).to_string())
+}
+
+fn accelerators(s: &gio::Settings, key: &str) -> Vec<(Modifiers, String)> {
+    s.strv(key).iter().filter_map(|a| parse_accelerator(a.as_str())).collect()
 }
 
 /// The current settings (defaults where a schema or key is missing).
@@ -288,6 +302,17 @@ pub fn read() -> WmSettings {
         restore_shortcuts: settings_with(MUTTER_WAYLAND_KEYS, "restore-shortcuts").map_or(d.restore_shortcuts, |s| {
             s.strv("restore-shortcuts").iter().filter_map(|a| parse_accelerator(a.as_str())).collect()
         }),
+        session_keys: if settings_with(MUTTER_WAYLAND_KEYS, "switch-to-session-1").is_some() {
+            let s = gio::Settings::new(MUTTER_WAYLAND_KEYS);
+            (1..=12)
+                .filter(|n| settings_with(MUTTER_WAYLAND_KEYS, &format!("switch-to-session-{n}")).is_some())
+                .flat_map(|n| accelerators(&s, &format!("switch-to-session-{n}")).into_iter().map(move |(m, k)| (m, k, n)))
+                .collect()
+        } else {
+            d.session_keys
+        },
+        cancel_input_capture: settings_with(MUTTER_KEYS, "cancel-input-capture").map_or(d.cancel_input_capture, |s| accelerators(&s, "cancel-input-capture")),
+        rotate_monitor: settings_with(MUTTER_KEYS, "rotate-monitor").map_or(d.rotate_monitor, |s| accelerators(&s, "rotate-monitor")),
         xwayland_allow_grabs: boolean(MUTTER_WAYLAND, "xwayland-allow-grabs", d.xwayland_allow_grabs),
         xwayland_disable_extension: settings_with(MUTTER_WAYLAND, "xwayland-disable-extension").map_or(0, |s| s.flags("xwayland-disable-extension")),
         xwayland_byte_swapped: boolean(MUTTER_WAYLAND, "xwayland-allow-byte-swapped-clients", d.xwayland_byte_swapped),

@@ -86,6 +86,8 @@ pub enum Event {
     OverviewGesture { up: bool },
     /// The dwell click type changed (a dwell used it up).
     ClickType(a11y_mouse::ClickType),
+    /// `rotate-monitor` was pressed: turn the built-in panel.
+    RotateMonitor,
 }
 
 /// The running D-Bus services of the compositor.
@@ -292,6 +294,10 @@ impl CompositorServices {
                 Ok(())
             }
             Event::FocusTracking(_) => Ok(()),
+            Event::RotateMonitor => {
+                rotation::rotate_step(&self.conn).await;
+                Ok(())
+            }
             Event::Capture(signal) => input_capture::emit(&self.conn, &self.captures, signal).await,
             Event::IdleInhibited(inhibited) => {
                 self.idle.set_inhibited(inhibited);

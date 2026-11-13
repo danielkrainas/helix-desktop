@@ -7,7 +7,8 @@
 //! | Alt+F4 | Close the focused window |
 //! | Super+Up | Toggle maximize |
 //! | Super+Down | Restore a maximized window, else minimize |
-//! | Ctrl+Alt+F1..F12 | Switch VT (bare hardware only) |
+//! | `switch-to-session-N` (Ctrl+Alt+F1..F12) | Switch VT (bare hardware only) |
+//! | `rotate-monitor` (XF86RotateWindows) | Turn the built-in panel |
 //! | Ctrl+Alt+Backspace | Quit Helix (always available escape hatch) |
 //!
 //! After these, key combinations bound by the shell (via the private
@@ -33,6 +34,8 @@ pub enum Action {
     Binding(u32, bool),
     /// restore-shortcuts while an app has them.
     RestoreShortcuts,
+    /// `rotate-monitor`.
+    RotateMonitor,
 }
 
 /// Why a binding was refused.
@@ -62,13 +65,6 @@ pub enum Key {
 
 /// XKB keycode of the key above Tab (evdev KEY_GRAVE + 8).
 pub const ABOVE_TAB: u32 = 49;
-
-/// F1..F12 → 1..12.
-fn function_key(sym: Keysym) -> Option<i32> {
-    let raw = sym.raw();
-    let f1 = Keysym::F1.raw();
-    (f1..f1 + 12).contains(&raw).then(|| (raw - f1 + 1) as i32)
-}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Mods {
@@ -105,6 +101,8 @@ pub struct Shortcuts {
     /// their release is intercepted too.
     suppressed: Vec<(u32, Option<u32>)>,
     bindings: Vec<Binding>,
+    /// The compositor's own configurable keys.
+    own: Vec<(Mods, Key, Action)>,
 }
 
 impl Default for Shortcuts {
@@ -116,18 +114,16 @@ impl Default for Shortcuts {
             locate_alone: false,
             suppressed: Vec::new(),
             bindings: Vec::new(),
+            own: (1..=12).map(|n| (CTRL_ALT, Key::Sym(Keysym::new(Keysym::F1.raw() + n as u32 - 1)), Action::SwitchVt(n))).collect(),
         }
     }
 }
 
-/// The compositor's own action for a press, if any.
+const CTRL_ALT: Mods = Mods { alt: true, logo: false, ctrl: true, shift: false };
+
+/// The escape hatch: Ctrl+Alt+Backspace, whatever the settings.
 fn builtin(mods: Mods, sym: Keysym) -> Option<Action> {
-    let ctrl_alt = mods.ctrl && mods.alt && !mods.logo;
-    match sym {
-        Keysym::BackSpace if ctrl_alt => Some(Action::Quit),
-        _ if ctrl_alt && function_key(sym).is_some() => function_key(sym).map(Action::SwitchVt),
-        _ => None,
-    }
+    (sym == Keysym::BackSpace && mods == CTRL_ALT).then_some(Action::Quit)
 }
 
 impl Shortcuts {
@@ -136,7 +132,7 @@ impl Shortcuts {
         let reserved = match key {
             Key::Sym(sym) => self.overlay.contains(&sym) || builtin(mods, sym).is_some(),
             Key::Code(_) => false,
-        };
+        } || self.own.iter().any(|(m, k, _)| *m == mods && *k == key);
         let duplicate = self.bindings.iter().any(|b| b.mods == mods && b.key == key);
         if reserved || duplicate {
             return Err(BindError::Taken);
@@ -158,6 +154,27 @@ impl Shortcuts {
 
     pub fn unbind(&mut self, id: u32) {
         self.bindings.retain(|b| b.id != id);
+    }
+
+    /// The compositor's own keys (virtual terminals, rotation).
+    pub fn set_own_keys(&mut self, keys: Vec<(Mods, Key, Action)>) {
+        self.own = keys;
+    }
+
+    /// The compositor's own action for a press, if any.
+    fn own_action(&self, mods: Mods, keycode: u32, sym: Keysym) -> Option<Action> {
+        builtin(mods, sym).or_else(|| {
+            self.own
+                .iter()
+                .find(|(m, k, _)| {
+                    *m == mods
+                        && match k {
+                            Key::Sym(s) => *s == sym,
+                            Key::Code(c) => *c == keycode,
+                        }
+                })
+                .map(|(_, _, a)| *a)
+        })
     }
 
     /// The keys of `overlay-key` and `locate-pointer-key`.
@@ -201,7 +218,7 @@ impl Shortcuts {
         }
         self.super_alone = false;
 
-        if let Some(action) = builtin(mods, sym) {
+        if let Some(action) = self.own_action(mods, keycode, sym) {
             self.suppressed.push((keycode, None));
             return Decision {
                 intercept: true,
@@ -257,6 +274,21 @@ mod tests {
         assert_eq!(s.key(SUPER, true, Mods::default(), Keysym::Super_L), Decision { intercept: true, action: None });
         let release = s.key(SUPER, false, logo(), Keysym::Super_L);
         assert_eq!(release, Decision { intercept: true, action: Some(Action::ToggleOverview) });
+    }
+
+    #[test]
+    fn own_keys_follow_the_settings() {
+        let mut s = Shortcuts::default();
+        let ctrl_alt = Mods { ctrl: true, alt: true, ..Mods::default() };
+        s.set_own_keys(vec![
+            (logo(), Key::Sym(Keysym::F3), Action::SwitchVt(3)),
+            (Mods::default(), Key::Sym(Keysym::XF86_RotateWindows), Action::RotateMonitor),
+        ]);
+        assert_eq!(s.key(69, true, logo(), Keysym::F3).action, Some(Action::SwitchVt(3)));
+        assert_eq!(s.key(67, true, ctrl_alt, Keysym::F1), FORWARD, "no longer bound");
+        assert_eq!(s.key(200, true, Mods::default(), Keysym::XF86_RotateWindows).action, Some(Action::RotateMonitor));
+        assert_eq!(s.key(22, true, ctrl_alt, Keysym::BackSpace).action, Some(Action::Quit), "the escape hatch stays");
+        assert_eq!(s.bind(9, logo(), Key::Sym(Keysym::F3)), Err(BindError::Taken));
     }
 
     #[test]

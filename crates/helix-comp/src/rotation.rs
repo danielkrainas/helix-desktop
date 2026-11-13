@@ -42,6 +42,36 @@ fn locked() -> bool {
     }
 }
 
+/// The next transform `rotate-monitor` turns a panel to: the next quarter
+/// turn (DisplayConfig's 0 → 1 → 2 → 3 → 0), a flipped panel staying
+/// flipped.
+pub fn next_transform(transform: u32) -> u32 {
+    (transform & 4) | (((transform & 3) + 1) % 4)
+}
+
+/// `rotate-monitor`: turn the built-in panel the next quarter turn
+/// (whether or not rotation is locked).
+pub async fn rotate_step(session: &Connection) {
+    let Ok(iface) = session.object_server().interface::<_, DisplayConfig>(display_config::OBJECT_PATH).await else { return };
+    let config = {
+        let display = iface.get().await;
+        let layout = display.layout();
+        let Some(builtin) = layout.monitors.iter().find(|m| m.builtin && m.current_mode().is_some()).map(|m| m.connector.clone()) else {
+            tracing::info!("rotate-monitor: no built-in panel");
+            return;
+        };
+        let config = layout.current_config();
+        let Some(now) = config.logical.iter().find(|l| l.monitors.iter().any(|m| m.connector == builtin)).map(|l| l.transform) else { return };
+        rotated(config, &builtin, next_transform(now))
+    };
+    let Some(config) = config else { return };
+    tracing::info!("rotate-monitor: turning the built-in panel");
+    let result = iface.get().await.apply_and_publish(config, iface.signal_emitter()).await;
+    if let Err(err) = result {
+        tracing::warn!(err, "cannot rotate the built-in panel");
+    }
+}
+
 /// Turn the built-in panel as `orientation` says.
 async fn apply(session: &Connection, orientation: &str) {
     let Some(transform) = transform_of(orientation) else { return };
@@ -124,6 +154,12 @@ pub async fn run(session: Connection, system: Connection) {
 mod tests {
     use super::*;
     use crate::display_config::{LogicalConfig, MonitorChoice};
+
+    #[test]
+    fn quarter_turns() {
+        assert_eq!([0, 1, 2, 3].map(next_transform), [1, 2, 3, 0]);
+        assert_eq!(next_transform(7), 4, "flipped stays flipped");
+    }
 
     #[test]
     fn orientations() {

@@ -87,6 +87,11 @@ impl Helix {
         let overlay = settings.overlay_keys.iter().filter_map(sym).collect();
         let locate = settings.locate_pointer_key.as_ref().and_then(sym);
         self.shortcuts.set_special_keys(overlay, locate);
+        let mods = |m: &helix_comp::wm_settings::Modifiers| super::shortcuts::Mods { alt: m.alt, logo: m.logo, ctrl: m.ctrl, shift: m.shift };
+        let key = |name: &str| super::keybindings::key_from_name(name);
+        let mut own: Vec<_> = settings.session_keys.iter().filter_map(|(m, k, n)| Some((mods(m), key(k)?, super::shortcuts::Action::SwitchVt(*n)))).collect();
+        own.extend(settings.rotate_monitor.iter().filter_map(|(m, k)| Some((mods(m), key(k)?, super::shortcuts::Action::RotateMonitor))));
+        self.shortcuts.set_own_keys(own);
         if settings != self.wm_settings {
             tracing::info!(?settings.focus_mode, "window-management settings");
         }

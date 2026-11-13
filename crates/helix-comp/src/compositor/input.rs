@@ -87,6 +87,7 @@ impl Helix {
         }
         match action {
             Action::Lock => self.send(helix_comp::Event::Lock),
+            Action::RotateMonitor => self.send(helix_comp::Event::RotateMonitor),
             Action::Binding(id, pressed) => {
                 if let Some(obj) = self.keybindings.object(id) {
                     if pressed {

@@ -151,5 +151,11 @@ async fn rotates_the_builtin_panel() {
     set_orientation(&sensor, &state, "normal").await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(transforms(&services).await, [("HDMI-1".to_owned(), 0), ("eDP-1".to_owned(), 2)]);
+
+    // rotate-monitor turns it even while locked: 2 → 3 → 0.
+    services.handle(helix_comp::Event::RotateMonitor).await.unwrap();
+    wait(vec![("HDMI-1", 0), ("eDP-1", 3)]).await;
+    services.handle(helix_comp::Event::RotateMonitor).await.unwrap();
+    wait(vec![("HDMI-1", 0), ("eDP-1", 0)]).await;
     let _ = std::fs::remove_dir_all(&dir);
 }
