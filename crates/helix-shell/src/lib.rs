@@ -9,6 +9,7 @@ pub mod accel;
 pub mod ambient;
 pub mod app_grid;
 pub mod app_usage;
+pub mod extensions;
 pub mod app_notify;
 pub mod auth;
 pub mod display_change;
@@ -606,6 +607,7 @@ impl ShellService {
         let prompter = keyring_prompt::Prompter::new(ui.clone());
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone(), lock: lock_status.clone() })?
+            .serve_at(OBJECT_PATH, extensions::Extensions)?
             .serve_at(screensaver::OBJECT_PATH, saver)?
             .serve_at(notifications::FDO_PATH, notifications::FdoNotifications { center: center.clone() })?
             .serve_at(notifications::GTK_PATH, notifications::GtkNotifications { center: center.clone() })?

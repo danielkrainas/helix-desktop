@@ -253,6 +253,15 @@ async fn org_gnome_shell() {
     .await;
     assert_matches_contract(
         service.connection(),
+        helix_shell::BUS_NAME,
+        helix_shell::OBJECT_PATH,
+        "org.gnome.Shell.Extensions",
+        "org.gnome.Shell.Extensions.xml",
+        &[],
+    )
+    .await;
+    assert_matches_contract(
+        service.connection(),
         helix_shell::recording::BUS_NAME,
         helix_shell::recording::OBJECT_PATH,
         "org.gnome.Shell.Screencast",
