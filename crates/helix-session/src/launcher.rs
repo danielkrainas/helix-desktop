@@ -84,6 +84,12 @@ pub struct SessionSection {
     /// the Tour and Clocks alarms rely on it.
     #[serde(default = "default_true")]
     pub autostart: bool,
+    /// A systemd user target started once the components are up and
+    /// stopped when the session ends (`helix-session.target`, which binds
+    /// `graphical-session.target`). None in nested test sessions, which
+    /// must not touch the host's user manager.
+    #[serde(default)]
+    pub systemd_target: Option<String>,
 }
 
 impl Default for SessionSection {
@@ -91,6 +97,7 @@ impl Default for SessionSection {
         Self {
             name: default_name(),
             autostart: true,
+            systemd_target: None,
         }
     }
 }
@@ -393,6 +400,15 @@ async fn is_ready(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn installed_config_starts_the_session_target() {
+        let installed = SessionConfig::parse(include_str!("../../../session/helix-session.toml")).unwrap();
+        assert_eq!(installed.session.systemd_target.as_deref(), Some("helix-session.target"));
+        assert!(installed.session.autostart);
+        let bare = SessionConfig::parse("[session]\nname = \"nested\"\n").unwrap();
+        assert_eq!(bare.session.systemd_target, None, "nested sessions leave the host's user manager alone");
+    }
 
     #[test]
     fn parse_config() {

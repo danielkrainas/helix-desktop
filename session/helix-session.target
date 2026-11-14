@@ -1,0 +1,12 @@
+# Installed as /usr/lib/systemd/user/helix-session.target. helix-session
+# starts it once the session is up and stops it when the session ends.
+# graphical-session.target cannot be started directly; binding it here
+# brings it up and down with the Helix session, as GNOME's session does
+# with its own target.
+[Unit]
+Description=Helix session
+Documentation=https://github.com/danielkrainas/helix-desktop
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target
+Before=graphical-session.target

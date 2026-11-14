@@ -96,6 +96,11 @@ async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
     let mut children = match &config {
         Some(config) => match launcher::launch(&service, config, &BTreeMap::new()).await {
             Ok(children) => {
+                // Services of the graphical session (portal backends and
+                // the like) may start now.
+                if let Some(target) = &config.session.systemd_target {
+                    helix_session::environment::start_target(service.connection(), target).await;
+                }
                 if config.session.autostart {
                     let apps = helix_session::autostart::Autostart::new(launcher::app_environment(&service, config, &BTreeMap::new()));
                     tokio::spawn(apps.run(std::future::pending()));
@@ -130,6 +135,12 @@ async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
     let conn = service.connection().clone();
     // Whatever happened on the bus, the components are stopped.
     let end = service.run(stop).await;
+    if let Some(target) = config.as_ref().and_then(|c| c.session.systemd_target.as_deref()) {
+        let stop = helix_session::environment::stop_target(&conn, target);
+        if tokio::time::timeout(helix_session::BUS_CLEANUP_TIMEOUT, stop).await.is_err() {
+            tracing::warn!("stopping the session target timed out");
+        }
+    }
     if matches!(end, Ok(SessionEnd::Requested(_) | SessionEnd::Stopped)) {
         let retract = helix_session::environment::retract(&conn);
         if tokio::time::timeout(helix_session::BUS_CLEANUP_TIMEOUT, retract).await.is_err() {

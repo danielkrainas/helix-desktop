@@ -29,6 +29,7 @@ install -Dm644 "$root/session/helix.desktop" "$dest/usr/share/wayland-sessions/h
 install -Dm644 "$root/session/helix.portal" "$dest/usr/share/xdg-desktop-portal/portals/helix.portal"
 install -Dm644 "$root/session/helix-portals.conf" "$dest/usr/share/xdg-desktop-portal/helix-portals.conf"
 install -Dm644 "$root/session/helix-session.toml" "$dest/etc/xdg/helix/session.toml"
+install -Dm644 "$root/session/helix-session.target" "$dest/usr/lib/systemd/user/helix-session.target"
 install -Dm644 "$pam_file" "$dest/etc/pam.d/helix"
 for schema in "$root"/data/*.gschema.xml; do
     install -Dm644 "$schema" "$dest/usr/share/glib-2.0/schemas/$(basename "$schema")"

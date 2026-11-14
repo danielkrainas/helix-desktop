@@ -70,6 +70,23 @@ pub async fn publish(conn: &Connection, env: &HashMap<&str, &str>) {
     }
 }
 
+/// Start the session's systemd user target (helix-desktop-spec
+/// `org.gnome.SessionManager.md`, "The graphical session target"); not
+/// waited for.
+pub async fn start_target(conn: &Connection, unit: &str) {
+    match conn.call_method(Some(SYSTEMD), SYSTEMD_PATH, Some(SYSTEMD_MANAGER), "StartUnit", &(unit, "replace")).await {
+        Ok(_) => tracing::info!(unit, "started the session target"),
+        Err(err) => tracing::warn!(unit, %err, "cannot start the session target"),
+    }
+}
+
+/// Stop the session's systemd user target (the session is ending).
+pub async fn stop_target(conn: &Connection, unit: &str) {
+    if let Err(err) = conn.call_method(Some(SYSTEMD), SYSTEMD_PATH, Some(SYSTEMD_MANAGER), "StopUnit", &(unit, "replace")).await {
+        tracing::warn!(unit, %err, "cannot stop the session target");
+    }
+}
+
 /// The session ended: unset in systemd what [`publish`] set there.
 pub async fn retract(conn: &Connection) {
     let names: Vec<String> = std::mem::take(&mut *SET_IN_SYSTEMD.lock().unwrap_or_else(|e| e.into_inner())).into_iter().collect();
