@@ -34,5 +34,12 @@ install -Dm644 "$pam_file" "$dest/etc/pam.d/helix"
 for schema in "$root"/data/*.gschema.xml; do
     install -Dm644 "$schema" "$dest/usr/share/glib-2.0/schemas/$(basename "$schema")"
 done
+# The greeter (packaged separately as helix-greeter).
+install -Dm755 "$bin/helix-greeter" "$dest/usr/bin/helix-greeter"
+install -Dm755 "$root/greeter/helix-greeter-session" "$dest/usr/libexec/helix/helix-greeter-session"
+install -Dm644 "$root/greeter/greetd-helix-greeter.toml" "$dest/etc/greetd/helix-greeter.toml"
+install -Dm644 "$root/greeter/greetd.service-helix-greeter.conf" "$dest/usr/lib/systemd/system/greetd.service.d/helix-greeter.conf"
+install -Dm644 "$root/greeter/README" "$dest/usr/share/doc/helix-greeter/README"
+install -Dm644 "$root/greeter/greeter.toml.example" "$dest/usr/share/doc/helix-greeter/greeter.toml.example"
 install -Dm644 "$root/LICENSE" "$dest/usr/share/licenses/helix-desktop/LICENSE"
 install -Dm644 "$root/README.md" "$dest/usr/share/doc/helix-desktop/README.md"

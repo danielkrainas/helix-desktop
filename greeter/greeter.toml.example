@@ -1,0 +1,7 @@
+# Copy to /etc/helix/greeter.toml to change the Helix greeter.
+
+# false: always ask for the username instead of listing users.
+#user-list = true
+
+# Text shown under the clock.
+#banner = "Authorized use only."

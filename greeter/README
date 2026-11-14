@@ -1,0 +1,23 @@
+Helix greeter
+=============
+
+The Helix login screen, run by greetd. Installing this package does not
+change which login manager is active.
+
+Switch to it (from a text console or any terminal):
+
+    sudo systemctl disable gdm3      # or lightdm, sddm, ...
+    sudo systemctl enable greetd
+    sudo reboot
+
+Switch back:
+
+    sudo systemctl disable greetd
+    sudo systemctl enable gdm3
+    sudo reboot
+
+If the greeter does not come up, press Ctrl+Alt+F3 for a text login and
+switch back as above. Its log is in `journalctl -u greetd`.
+
+Settings: copy /usr/share/doc/helix-greeter/greeter.toml.example to
+/etc/helix/greeter.toml.

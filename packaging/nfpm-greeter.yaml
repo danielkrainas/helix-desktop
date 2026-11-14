@@ -1,0 +1,47 @@
+# nfpm description of helix-greeter: Helix's login screen under greetd
+# (helix-desktop-spec components/greeter.md). Staged by packaging/stage.sh
+# with the rest of helix-desktop; the release workflow fills in @VERSION@
+# and @ARCH@. Debian and Ubuntu only for now: greetd's greeter user and
+# path differ elsewhere (see the spec's gaps.md).
+name: helix-greeter
+version: "@VERSION@"
+arch: "@ARCH@"
+platform: linux
+release: "1"
+section: x11
+priority: optional
+maintainer: Daniel Krainas
+vendor: Helix
+homepage: https://github.com/danielkrainas/helix-desktop
+license: CC0-1.0
+description: |-
+  Helix login screen for greetd
+  The Helix greeter: a login screen in the Helix style, run by the greetd
+  login daemon on Helix's compositor, so that no GNOME component is needed
+  to log in. Installing it does not switch display managers; see
+  /usr/share/doc/helix-greeter/README.
+
+depends:
+  - greetd
+  - helix-desktop (= @VERSION@-1)
+  - dbus-bin
+
+contents:
+  - src: ./stage/usr/bin/helix-greeter
+    dst: /usr/bin/helix-greeter
+  - src: ./stage/usr/libexec/helix/helix-greeter-session
+    dst: /usr/libexec/helix/helix-greeter-session
+    file_info:
+      mode: 0755
+  - src: ./stage/etc/greetd/helix-greeter.toml
+    dst: /etc/greetd/helix-greeter.toml
+    type: config|noreplace
+  - src: ./stage/usr/lib/systemd/system/greetd.service.d/helix-greeter.conf
+    dst: /usr/lib/systemd/system/greetd.service.d/helix-greeter.conf
+  - src: ./stage/usr/share/doc/helix-greeter/README
+    dst: /usr/share/doc/helix-greeter/README
+  - src: ./stage/usr/share/doc/helix-greeter/greeter.toml.example
+    dst: /usr/share/doc/helix-greeter/greeter.toml.example
+
+scripts:
+  postinstall: ./packaging/greeter-postinstall.sh

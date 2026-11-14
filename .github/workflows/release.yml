@@ -124,6 +124,8 @@ jobs:
           case "${{ matrix.family }}" in
             debian)
               nfpm package --config nfpm.yaml --packager deb --target dist/
+              sed -e "s/@VERSION@/${VERSION}/" -e "s/@ARCH@/${arch}/" packaging/nfpm-greeter.yaml > nfpm-greeter.yaml
+              nfpm package --config nfpm-greeter.yaml --packager deb --target dist/
               # The tarball (Debian-style PAM file; see README.md for others).
               tar -czf "dist/helix-desktop-${VERSION}-$(uname -m).tar.gz" \
                 --owner=0 --group=0 -C stage .

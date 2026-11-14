@@ -149,6 +149,8 @@ pub struct Helix {
     pub keybindings: keybindings::Keybindings,
     /// The shell we launched and keep running, if any.
     pub shell: Option<supervise::Shell>,
+    /// A shell exiting with status 0 ends the compositor (`--exit-with-shell`).
+    pub exit_with_shell: bool,
     /// Shift was held when the shell first started: extensions are off
     /// for the session (`None` until checked).
     pub extensions_off: Option<bool>,
@@ -321,6 +323,7 @@ impl Helix {
             shortcuts: shortcuts::Shortcuts::default(),
             keybindings: keybindings::Keybindings::default(),
             shell: None,
+            exit_with_shell: false,
             extensions_off: None,
             shell_exits: None,
             host_cursor: None,
@@ -505,6 +508,11 @@ impl Helix {
     fn shell_exited(&mut self, status: std::process::ExitStatus) {
         if let Some(shell) = self.shell.as_mut() {
             shell.pid = None;
+        }
+        if self.exit_with_shell && status.success() {
+            tracing::info!("shell finished; exiting");
+            self.loop_signal.stop();
+            return;
         }
         tracing::warn!(%status, "shell exited");
         self.schedule_shell_restart();

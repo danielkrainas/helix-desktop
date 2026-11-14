@@ -1,7 +1,7 @@
 //! `helix-comp`: the Helix compositor.
 //!
 //! ```text
-//! helix-comp [--backend winit|drm] [--shell PROGRAM] [--command PROGRAM]
+//! helix-comp [--backend winit|drm] [--shell PROGRAM [--exit-with-shell]] [--command PROGRAM]
 //! ```
 //!
 //! Backends:
@@ -13,7 +13,10 @@
 //!
 //! `--shell` starts the shell as the compositor's privileged client (on a
 //! pre-connected socket), which is what lets it bind global keys through
-//! the private `helix_keybindings_v1` protocol.
+//! the private `helix_keybindings_v1` protocol. It is restarted when it
+//! exits, except with `--exit-with-shell`: then a shell that exits with
+//! status 0 ends the compositor (the greeter, helix-desktop-spec
+//! `components/greeter.md`, exits that way once the login is done).
 //!
 //! Serves `org.gnome.Mutter.IdleMonitor` and `org.gnome.Mutter.DisplayConfig`
 //! on the session bus and announces its Wayland socket to the session
@@ -61,11 +64,12 @@ enum Backend {
 struct Args {
     backend: Backend,
     shell: Option<String>,
+    exit_with_shell: bool,
     command: Option<String>,
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let Args { backend, shell, command } = parse_args()?;
+    let Args { backend, shell, exit_with_shell, command } = parse_args()?;
     tracing::info!(?backend, "starting");
 
     let (events_tx, events_rx) = mpsc::unbounded_channel();
@@ -221,6 +225,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     state.start_xwayland(move |state, xdisplay| {
         let _ = xdisplay_tx.send(xdisplay);
         if let Some(program) = shell {
+            state.exit_with_shell = exit_with_shell;
             if let Err(err) = state.supervise_shell(program) {
                 tracing::error!(%err, "cannot supervise the shell");
             }
@@ -268,11 +273,12 @@ fn stop_on_signals(signal: smithay::reexports::calloop::LoopSignal) {
 }
 
 fn parse_args() -> Result<Args, String> {
-    const USAGE: &str = "usage: helix-comp [--backend winit|drm] [--shell PROGRAM] [--command PROGRAM]";
+    const USAGE: &str = "usage: helix-comp [--backend winit|drm] [--shell PROGRAM [--exit-with-shell]] [--command PROGRAM]";
     let nested = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
     let mut parsed = Args {
         backend: if nested { Backend::Winit } else { Backend::Drm },
         shell: None,
+        exit_with_shell: false,
         command: None,
     };
     let mut args = std::env::args().skip(1);
@@ -287,6 +293,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--command" | "-c" => parsed.command = Some(args.next().ok_or(USAGE)?),
             "--shell" => parsed.shell = Some(args.next().ok_or(USAGE)?),
+            "--exit-with-shell" => parsed.exit_with_shell = true,
             _ => return Err(USAGE.into()),
         }
     }
