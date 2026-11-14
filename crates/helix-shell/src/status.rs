@@ -159,8 +159,12 @@ async fn prop<T: TryFrom<OwnedValue>>(conn: &Connection, dest: &str, path: &str,
 where
     T::Error: Into<zbus::Error>,
 {
-    let proxy = zbus::Proxy::new_owned(conn.clone(), dest.to_owned(), path.to_owned(), iface.to_owned()).await.ok()?;
-    proxy.get_property(name).await.ok()
+    // One plain Get: a caching proxy would also fetch every property in
+    // the background, and log a warning each time the service is missing
+    // (the status is read again every 5 seconds).
+    let reply = conn.call_method(Some(dest), path, Some("org.freedesktop.DBus.Properties"), "Get", &(iface, name)).await.ok()?;
+    let value: OwnedValue = reply.body().deserialize().ok()?;
+    T::try_from(value).ok()
 }
 
 async fn set_prop(conn: &Connection, dest: &str, path: &str, iface: &str, name: &str, value: Value<'_>) -> zbus::Result<()> {
