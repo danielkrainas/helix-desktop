@@ -259,14 +259,17 @@ impl Helix {
 
     /// A key went down or up (from a device, or injected).
     pub(super) fn key_input(&mut self, keycode: smithay::input::keyboard::Keycode, key_state: KeyState, time: u32) {
+        // Keys grabbed by a screen reader go nowhere else.
+        if self.monitor_key(keycode, key_state) {
+            return;
+        }
         let serial = SERIAL_COUNTER.next_serial();
         let pressed = key_state == KeyState::Pressed;
-        let action = self.seat.get_keyboard().unwrap().input::<Option<Action>, _>(
+        let keyboard = self.seat.get_keyboard().unwrap();
+        let (filtered, mods_changed) = keyboard.input_intercept::<FilterResult<Option<Action>>, _>(
             self,
             keycode,
             key_state,
-            serial,
-            time,
             |state, modifiers, handle| {
                 let mods = Mods {
                     alt: modifiers.alt,
@@ -317,7 +320,17 @@ impl Helix {
                 }
             },
         );
-        if let Some(Some(action)) = action {
+        let action = match filtered {
+            FilterResult::Intercept(action) => action,
+            FilterResult::Forward => {
+                // Modifiers changed by keys grabbed for a screen reader
+                // reach the app with its next key.
+                let mods_changed = mods_changed || std::mem::take(&mut self.monitor_mods_dirty);
+                keyboard.input_forward(self, keycode, key_state, serial, time, mods_changed);
+                None
+            }
+        };
+        if let Some(action) = action {
             self.run_shortcut(action, time);
         }
         self.run_pending_action(time);

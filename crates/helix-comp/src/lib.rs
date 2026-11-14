@@ -7,6 +7,7 @@
 //! - [`idle_monitor`] — `org.gnome.Mutter.IdleMonitor`
 //! - [`display_config`] — `org.gnome.Mutter.DisplayConfig`
 //! - [`input_settings`] — keyboard, mouse and touchpad GSettings
+//! - [`keyboard_monitor`] — `org.freedesktop.a11y.KeyboardMonitor`
 
 pub mod a11y_keys;
 pub mod a11y_mouse;
@@ -35,6 +36,7 @@ pub mod idle;
 pub mod idle_monitor;
 pub mod lid;
 pub mod input_settings;
+pub mod keyboard_monitor;
 pub mod remote_desktop;
 pub mod privacy_screen;
 pub mod rotation;
@@ -95,6 +97,8 @@ pub enum Event {
     RotateMonitor,
     /// `switch-monitor` was pressed: the next way of using the monitors.
     SwitchMonitor,
+    /// A key for screen readers (`org.freedesktop.a11y.KeyboardMonitor`).
+    KeyMonitor(keyboard_monitor::Report),
 }
 
 /// The running D-Bus services of the compositor.
@@ -142,6 +146,9 @@ pub struct MonitorControl {
     /// colord devices and their profiles' curves are applied (`None`: no
     /// color profiles).
     pub color_profiles: Option<Connection>,
+    /// Screen readers' key watches and grabs, shared with the compositor's
+    /// keyboard handling.
+    pub keyboard_monitor: keyboard_monitor::Shared,
 }
 
 impl Default for MonitorControl {
@@ -154,6 +161,7 @@ impl Default for MonitorControl {
             gamma: None,
             cast: None,
             color_profiles: None,
+            keyboard_monitor: Default::default(),
         }
     }
 }
@@ -180,6 +188,7 @@ impl CompositorServices {
         let effects = display_config::ScreenEffects { gamma: control.gamma.clone(), grayscale: false };
         let (color_profiles, gamma_for_profiles) = (control.color_profiles, control.gamma.clone());
         let gamma_for_clicks = control.gamma.clone();
+        let keyboard_monitor = control.keyboard_monitor.clone();
         let display_config = DisplayConfig::new(
             layout.clone(),
             control.applier,
@@ -212,6 +221,7 @@ impl CompositorServices {
             )?
             .serve_at(screencast::OBJECT_PATH, screencast::ScreenCastState { shared: casts.clone() })?
             .serve_at(input_capture::OBJECT_PATH, input_capture::InputCapture { shared: captures.clone(), compositor: cast.clone() })?
+            .serve_at(keyboard_monitor::OBJECT_PATH, keyboard_monitor::KeyboardMonitor { shared: keyboard_monitor.clone() })?
             .build()
             .await?;
         own(&conn, idle_monitor::BUS_NAME).await?;
@@ -219,11 +229,15 @@ impl CompositorServices {
         own(&conn, screencast::BUS_NAME).await?;
         own(&conn, remote_desktop::BUS_NAME).await?;
         own(&conn, input_capture::BUS_NAME).await?;
+        if let Err(err) = own(&conn, keyboard_monitor::BUS_NAME).await {
+            tracing::warn!(%err, "no keyboard monitor for screen readers");
+        }
         tracing::info!("IdleMonitor and DisplayConfig ready");
 
         let mut tasks = vec![
             spawn_idle_timer(&conn, idle.clone())?,
             spawn_owner_watcher(&conn, idle.clone()).await?,
+            keyboard_monitor::follow_owners(&conn, keyboard_monitor).await?,
         ];
         if watch_backlight {
             tasks.push(spawn_backlight_watcher(&conn));
@@ -303,6 +317,7 @@ impl CompositorServices {
                 Ok(())
             }
             Event::FocusTracking(_) => Ok(()),
+            Event::KeyMonitor(report) => keyboard_monitor::send(&self.conn, &report).await,
             Event::SwitchMonitor => {
                 self.switcher.press(&self.conn).await;
                 Ok(())

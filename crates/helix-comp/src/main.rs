@@ -214,7 +214,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .map_err(|e| format!("cannot follow focus for the magnifier: {e}"))?;
-    start_dbus_thread(socket, monitors, matches!(backend, Backend::Drm), events_rx, xdisplay_rx, apply_tx, gamma_tx, cast_tx, track_tx);
+    start_dbus_thread(socket, monitors, matches!(backend, Backend::Drm), events_rx, xdisplay_rx, apply_tx, gamma_tx, cast_tx, track_tx, state.keyboard_monitor.clone());
 
     stop_on_signals(state.loop_signal.clone());
 
@@ -307,6 +307,7 @@ fn start_dbus_thread(
     gamma_to_compositor: smithay::reexports::calloop::channel::Sender<ColorRequest>,
     cast_to_compositor: smithay::reexports::calloop::channel::Sender<CastRequest>,
     track_to_compositor: smithay::reexports::calloop::channel::Sender<helix_comp::focus_tracking::TrackPoint>,
+    keyboard_monitor: helix_comp::keyboard_monitor::Shared,
 ) {
     std::thread::Builder::new()
         .name("helix-comp-dbus".into())
@@ -356,6 +357,7 @@ fn start_dbus_thread(
                     // Real monitors only: nested sessions leave the host's
                     // colord alone.
                     color_profiles: if ddc { zbus::Connection::system().await.ok() } else { None },
+                    keyboard_monitor,
                     ..MonitorControl::default()
                 };
                 let services = match zbus::connection::Builder::session() {

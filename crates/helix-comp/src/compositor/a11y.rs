@@ -74,6 +74,50 @@ impl Helix {
         self.run_access(outs, time);
     }
 
+    /// Screen readers' key watches and grabs (helix-desktop-spec
+    /// `contracts/dbus/org.freedesktop.a11y.KeyboardMonitor.md`): reports
+    /// the key to the clients it concerns; true if it is grabbed (it goes
+    /// nowhere else).
+    pub(super) fn monitor_key(&mut self, keycode: Keycode, key_state: KeyState) -> bool {
+        use helix_comp::keyboard_monitor::{self, Key};
+        let shared = self.keyboard_monitor.clone();
+        if keyboard_monitor::lock(&shared).is_idle() {
+            return false;
+        }
+        let Some(keyboard) = self.seat.get_keyboard() else { return false };
+        let pressed = key_state == KeyState::Pressed;
+        // The key as the keyboard state makes it before the key changes it.
+        let key = keyboard.with_xkb_state(self, |ctx| {
+            let xkb = ctx.xkb().lock().unwrap_or_else(|e| e.into_inner());
+            let base_keysym = xkb.raw_syms_for_key_in_layout(keycode, xkb.active_layout()).first().map_or(0, |s| s.raw());
+            // SAFETY: the state is only read here; no reference to it is kept.
+            let state = unsafe { xkb.state() };
+            Key {
+                keycode: keycode.raw(),
+                pressed,
+                keysym: state.key_get_one_sym(keycode).raw(),
+                base_keysym,
+                unichar: state.key_get_utf32(keycode),
+                state: state.serialize_mods(smithay::input::keyboard::xkb::STATE_MODS_EFFECTIVE) & 0xff,
+            }
+        });
+        let delay = self.input_settings.as_ref().map_or(500, |s| u64::try_from(s.repeat.1).unwrap_or(0));
+        let verdict = keyboard_monitor::lock(&shared).key(&key, self.access_now(), delay, self.lock.locked);
+        if let Some(report) = verdict.report {
+            let _ = self.events.send(helix_comp::Event::KeyMonitor(report));
+        }
+        if !verdict.grabbed {
+            return false;
+        }
+        // Plain modifiers still count towards later keys; locks and latches
+        // must not change. The app hears of the modifiers with its next key.
+        if !keyboard_monitor::is_lock_keysym(key.keysym) {
+            let ((), changed) = keyboard.input_intercept(self, keycode, key_state, |_, _, _| ());
+            self.monitor_mods_dirty |= changed;
+        }
+        true
+    }
+
     /// The namespace of the shell surface under the pointer, if any.
     fn layer_namespace_under_pointer(&self) -> Option<String> {
         let pos = self.seat.get_pointer()?.current_location();

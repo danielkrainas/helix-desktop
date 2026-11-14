@@ -247,6 +247,14 @@ It serves `org.gnome.Mutter.IdleMonitor` and `org.gnome.Mutter.DisplayConfig`,
 and announces its socket with `SessionManager.Setenv("WAYLAND_DISPLAY", ...)`,
 which is what the session launcher waits for.
 
+For screen readers it serves `org.freedesktop.a11y.KeyboardMonitor`, as
+GNOME does: the owner of `org.gnome.Orca.KeyboardMonitor` (Orca) hears the
+keys typed anywhere and gets its own commands (its Orca key, keypad keys)
+instead of the app; a quick double press of the Orca key does what the
+key normally does. While the screen is locked the monitor stands aside,
+so no screen reader hears the password. Tested with a fake screen reader
+only, not with Orca.
+
 Monitor settings (e.g. from GNOME Settings' Displays panel) go through
 `ApplyMonitorsConfig`: verify, temporary or persistent. On bare hardware it
 changes modes, position, scale and rotation, mirrors

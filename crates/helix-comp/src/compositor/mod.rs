@@ -224,6 +224,11 @@ pub struct Helix {
     pub wm_settings: helix_comp::wm_settings::WmSettings,
     /// Keyboard accessibility (sticky, slow, bounce, mouse keys…).
     pub access: helix_comp::a11y_keys::AccessX,
+    /// Screen readers' key watches and grabs (`org.freedesktop.a11y.KeyboardMonitor`).
+    pub keyboard_monitor: helix_comp::keyboard_monitor::Shared,
+    /// Keys grabbed for screen readers changed the modifiers since the
+    /// focused app last heard of them.
+    pub monitor_mods_dirty: bool,
     /// Mouse accessibility (secondary click, dwell click).
     pub mouse_access: helix_comp::a11y_mouse::Mouse,
     /// The magnifier.
@@ -355,6 +360,8 @@ impl Helix {
             frames: Default::default(),
             wm_settings: Default::default(),
             access: Default::default(),
+            keyboard_monitor: Default::default(),
+            monitor_mods_dirty: false,
             mouse_access: Default::default(),
             zoom: Default::default(),
             hot_corner: Default::default(),
