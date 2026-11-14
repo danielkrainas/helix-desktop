@@ -188,7 +188,11 @@ fn icon_dirs() -> Vec<PathBuf> {
 
 /// One theme's subdirectories: (path, nominal size, scalable).
 struct Theme {
-    dirs: Vec<(PathBuf, u32, bool)>,
+    /// Directory and its image size in pixels (`Size` × `Scale`). Only
+    /// SVG files scale: a PNG is its directory's size even where the theme
+    /// calls the directory scalable (as elementary-xfce does for its
+    /// fixed-size PNGs), so `Type` is not read.
+    dirs: Vec<(PathBuf, u32)>,
     inherits: Vec<String>,
 }
 
@@ -197,7 +201,8 @@ fn load_theme(name: &str) -> Option<Theme> {
     let index = bases.iter().find_map(|b| std::fs::read_to_string(b.join("index.theme")).ok())?;
     let mut directories: Vec<String> = Vec::new();
     let mut inherits = Vec::new();
-    let mut sections: HashMap<String, (u32, bool)> = HashMap::new();
+    // Size, scale.
+    let mut sections: HashMap<String, (u32, u32)> = HashMap::new();
     let mut section = String::new();
     for line in index.lines() {
         let line = line.trim();
@@ -214,19 +219,19 @@ fn load_theme(name: &str) -> Option<Theme> {
                 _ => {}
             }
         } else {
-            let entry = sections.entry(section.clone()).or_insert((0, false));
+            let entry = sections.entry(section.clone()).or_insert((0, 1));
             match key {
                 "Size" => entry.0 = value.parse().unwrap_or(0),
-                "Type" => entry.1 = value == "Scalable",
+                "Scale" => entry.1 = value.parse().unwrap_or(1).max(1),
                 _ => {}
             }
         }
     }
     let mut dirs = Vec::new();
     for dir in directories {
-        let (size, scalable) = sections.get(&dir).copied().unwrap_or((0, false));
+        let (size, scale) = sections.get(&dir).copied().unwrap_or((0, 1));
         for base in &bases {
-            dirs.push((base.join(&dir), size, scalable));
+            dirs.push((base.join(&dir), size * scale));
         }
     }
     Some(Theme { dirs, inherits })
@@ -243,10 +248,28 @@ fn theme(name: &str) -> Option<std::sync::Arc<Theme>> {
 }
 
 /// The best file for icon `name` at `px` in `theme_name`, its parents, then
-/// `hicolor`, then `/usr/share/pixmaps`.
+/// `hicolor`, then `/usr/share/pixmaps` (helix-desktop-spec
+/// `contracts/wayland/README.md`, "App and theme icons").
 pub fn find_icon(name: &str, px: u32, theme_name: &str) -> Option<PathBuf> {
+    find_in(name, px, theme_name, &theme).or_else(|| {
+        ["png", "svg", "xpm"]
+            .iter()
+            .map(|ext| Path::new("/usr/share/pixmaps").join(format!("{name}.{ext}")))
+            .find(|p| p.is_file() && !p.extension().is_some_and(|e| e == "xpm"))
+    })
+}
+
+/// Scores at least this mean the image is smaller than wanted.
+const TOO_SMALL: i64 = 10_000;
+
+/// [`find_icon`] through the themes `theme` gives (without the pixmaps
+/// fallback). A theme whose best image is smaller than `px` does not end
+/// the search: a later theme with a scalable or large enough image wins,
+/// else that small image is used.
+fn find_in(name: &str, px: u32, theme_name: &str, theme: &dyn Fn(&str) -> Option<std::sync::Arc<Theme>>) -> Option<PathBuf> {
     let mut queue = vec![theme_name.to_owned()];
     let mut seen = Vec::new();
+    let mut small: Option<PathBuf> = None;
     while let Some(current) = queue.first().cloned() {
         queue.remove(0);
         if seen.contains(&current) {
@@ -254,29 +277,35 @@ pub fn find_icon(name: &str, px: u32, theme_name: &str) -> Option<PathBuf> {
         }
         seen.push(current.clone());
         if let Some(theme) = theme(&current) {
-            // Scalable first, then the smallest size at least `px`, then
+            // SVG first, then the smallest PNG at least `px`, then
             // the largest.
             let mut best: Option<(PathBuf, i64)> = None;
-            for (dir, size, scalable) in &theme.dirs {
+            for (dir, size) in &theme.dirs {
                 for ext in ["svg", "png"] {
                     let path = dir.join(format!("{name}.{ext}"));
                     if !path.is_file() {
                         continue;
                     }
-                    let score = if *scalable || ext == "svg" {
+                    let score = if ext == "svg" {
                         0
                     } else if *size >= px {
                         i64::from(*size - px) + 1
                     } else {
-                        10_000 + i64::from(px - *size)
+                        TOO_SMALL + i64::from(px - *size)
                     };
                     if best.as_ref().is_none_or(|(_, s)| score < *s) {
                         best = Some((path, score));
                     }
                 }
             }
-            if let Some((path, _)) = best {
-                return Some(path);
+            match best {
+                Some((path, score)) if score < TOO_SMALL => return Some(path),
+                // Too small: remembered (the first theme's), and the
+                // search goes on for a sharper one.
+                Some((path, _)) => {
+                    small.get_or_insert(path);
+                }
+                None => {}
             }
             queue.extend(theme.inherits.iter().cloned());
         }
@@ -284,10 +313,7 @@ pub fn find_icon(name: &str, px: u32, theme_name: &str) -> Option<PathBuf> {
             queue.push("hicolor".into());
         }
     }
-    ["png", "svg", "xpm"]
-        .iter()
-        .map(|ext| Path::new("/usr/share/pixmaps").join(format!("{name}.{ext}")))
-        .find(|p| p.is_file() && !p.extension().is_some_and(|e| e == "xpm"))
+    small
 }
 
 /// Tells `ui` whenever `icon-theme` changes, for the rest of the process
@@ -357,6 +383,48 @@ pub fn load(source: &IconSource, px: u32) -> Option<Image> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn small_theme_images_give_way_to_sharper_ones() {
+        let root = std::env::temp_dir().join(format!("helix-icon-lookup-{}", std::process::id()));
+        let dir = |theme: &str, sub: &str| {
+            let d = root.join(theme).join(sub);
+            std::fs::create_dir_all(&d).unwrap();
+            d
+        };
+        let file = |d: &Path, name: &str| {
+            std::fs::write(d.join(name), b"x").unwrap();
+            d.join(name)
+        };
+        let small = dir("styled", "apps/48");
+        let claimed = dir("styled", "apps/32");
+        let big = dir("styled", "apps/128");
+        let doubled = dir("styled", "apps/48@2");
+        let hicolor = dir("hicolor", "256x256/apps");
+        let styled_small = file(&small, "blurry.png");
+        let hicolor_big = file(&hicolor, "blurry.png");
+        let styled_big = file(&big, "fine.png");
+        file(&hicolor, "fine.png");
+        let only_small = file(&small, "lonely.png");
+        let styled_doubled = file(&doubled, "retina.png");
+        file(&hicolor, "retina.png");
+        file(&claimed, "claims.png");
+        let hicolor_claims = file(&hicolor, "claims.png");
+        let themes = |name: &str| -> Option<std::sync::Arc<Theme>> {
+            Some(std::sync::Arc::new(match name {
+                "styled" => Theme { dirs: vec![(small.clone(), 48), (big.clone(), 128), (doubled.clone(), 96), (claimed.clone(), 32)], inherits: vec![] },
+                "hicolor" => Theme { dirs: vec![(hicolor.clone(), 256)], inherits: vec![] },
+                _ => return None,
+            }))
+        };
+        assert_eq!(find_in("blurry", 64, "styled", &themes), Some(hicolor_big), "the theme's 48 would be stretched");
+        assert_eq!(find_in("blurry", 48, "styled", &themes), Some(styled_small.clone()), "large enough: the theme's own");
+        assert_eq!(find_in("fine", 64, "styled", &themes), Some(styled_big), "the theme has a large one");
+        assert_eq!(find_in("lonely", 64, "styled", &themes), Some(only_small), "nothing sharper: the small one");
+        assert_eq!(find_in("retina", 64, "styled", &themes), Some(styled_doubled), "a @2 directory counts double");
+        assert_eq!(find_in("claims", 64, "styled", &themes), Some(hicolor_claims), "a PNG in a 'Scalable' directory is still its size");
+        let _ = std::fs::remove_dir_all(&root);
+    }
     use zbus::zvariant::{Array, Structure};
 
     #[test]
