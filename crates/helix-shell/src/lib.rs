@@ -136,6 +136,8 @@ impl Osd {
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiEvent {
     Overview(bool),
+    /// `org.gnome.desktop.interface` `icon-theme` changed.
+    IconTheme,
     /// The accessibility switches changed (or were read at start).
     A11y(a11y_menu::Status),
     /// The panel layout keys (`org.helix.shell`).

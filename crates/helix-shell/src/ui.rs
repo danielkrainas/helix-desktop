@@ -2379,6 +2379,12 @@ impl Ui {
         match event {
             UiEvent::DesktopIcons(items) => self.desktop_icons_set(items),
             UiEvent::PanelLayout(keys) => self.panel_layout_changed(keys),
+            UiEvent::IconTheme => {
+                // Every cached icon came from the old theme.
+                self.icon_cache.clear();
+                self.draw_panel();
+                self.dock_update();
+            }
             UiEvent::Tray(items) => self.tray_changed(items),
             UiEvent::Extensions(snapshot) => self.extensions_changed(snapshot),
             UiEvent::ExtensionList(list) => {

@@ -290,6 +290,27 @@ pub fn find_icon(name: &str, px: u32, theme_name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file() && !p.extension().is_some_and(|e| e == "xpm"))
 }
 
+/// Tells `ui` whenever `icon-theme` changes, for the rest of the process
+/// (helix-desktop-spec `contracts/wayland/README.md`, "System status").
+pub async fn follow(ui: tokio::sync::mpsc::UnboundedSender<crate::UiEvent>) {
+    const SCHEMA: &str = "org.gnome.desktop.interface";
+    if !helix_settings::has_schema(SCHEMA) {
+        return;
+    }
+    let watched = helix_settings::GSettings::new(&[SCHEMA]);
+    let (mut changes, _watch) = watched.watch();
+    let mut theme = current_theme();
+    while changes.recv().await.is_some() {
+        let now = current_theme();
+        if now != theme {
+            theme = now;
+            if ui.send(crate::UiEvent::IconTheme).is_err() {
+                break;
+            }
+        }
+    }
+}
+
 fn current_theme() -> String {
     use gio::prelude::*;
     const SCHEMA: &str = "org.gnome.desktop.interface";

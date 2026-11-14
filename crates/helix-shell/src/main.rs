@@ -149,6 +149,8 @@ fn main() -> ExitCode {
     runtime.spawn(helix_shell::housekeeping::run());
     // The clock's format.
     runtime.spawn(helix_shell::clock::follow());
+    // The icon theme.
+    runtime.spawn(helix_shell::icons::follow(service.ui_sender()));
     // Desktop icons.
     runtime.spawn(helix_shell::desktop_icons::follow(service.ui_sender()));
     // Extensions.
