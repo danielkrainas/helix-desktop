@@ -117,7 +117,7 @@ fn unwrap<'a>(mut value: &'a Value<'a>) -> &'a Value<'a> {
     value
 }
 
-fn premultiply([r, g, b, a]: [u8; 4]) -> [u8; 4] {
+pub(crate) fn premultiply([r, g, b, a]: [u8; 4]) -> [u8; 4] {
     let m = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
     [m(r), m(g), m(b), a]
 }
@@ -304,12 +304,20 @@ fn current_theme() -> String {
 pub fn symbolic(name: &str, px: u32, rgb: [u8; 3]) -> Option<Image> {
     let path = find_icon(name, px, &current_theme()).or_else(|| find_icon(name, px, "Adwaita"))?;
     let mut image = decode(&std::fs::read(path).ok()?, px)?;
-    for p in image.rgba.as_chunks_mut::<4>().0 {
-        p[0] = rgb[0];
-        p[1] = rgb[1];
-        p[2] = rgb[2];
-    }
+    recolor(&mut image, rgb);
     Some(image)
+}
+
+/// Paint every pixel of `image` in `rgb`, keeping its coverage. Pixels
+/// are premultiplied: a half-covered edge pixel gets half the color, or
+/// edges come out too bright and the icon looks jagged.
+fn recolor(image: &mut Image, rgb: [u8; 3]) {
+    for p in image.rgba.as_chunks_mut::<4>().0 {
+        let a = u16::from(p[3]);
+        for (c, v) in p.iter_mut().zip(rgb) {
+            *c = ((u16::from(v) * a + 127) / 255) as u8;
+        }
+    }
 }
 
 /// The icon at `px` pixels, if it can be found and decoded.
@@ -346,6 +354,13 @@ mod tests {
         let data = Value::Structure(Structure::from((1i32, 1i32, 4i32, false, 8i32, 3i32, Array::from(vec![10u8, 20, 30, 0]))));
         let Some(IconSource::Data(image)) = IconSource::from_image_data(&data) else { panic!("not decoded") };
         assert_eq!(image.rgba, vec![10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn recolor_keeps_premultiplied() {
+        let mut image = Image { width: 2, height: 1, rgba: vec![0, 0, 0, 255, 0, 0, 0, 128] };
+        recolor(&mut image, [255, 200, 0]);
+        assert_eq!(image.rgba, vec![255, 200, 0, 255, 128, 100, 0, 128]);
     }
 
     #[test]

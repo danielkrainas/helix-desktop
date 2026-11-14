@@ -27,6 +27,11 @@ const BADGE: u32 = 0xFFE01B24;
 const URGENT: u32 = 0x80F57900;
 /// How long a dock revealed at the edge waits for the pointer.
 const REVEAL_GRACE: f64 = 1.5;
+/// How deep the edge strip that reveals a hidden dock is (logical).
+const EDGE_STRIP: u32 = 4;
+/// With `require-pressure-to-show`, how long a pointer resting on the
+/// strip waits before the dock shows anyway (at least `show-delay`).
+const EDGE_REST: f64 = 0.5;
 
 /// Something a dock menu entry does.
 #[derive(Debug, Clone, PartialEq)]
@@ -471,7 +476,7 @@ impl Ui {
             Edge::Left => Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM,
             Edge::Right => Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM,
         };
-        let (w, h) = if self.dock.settings.edge.vertical() { (1, 0) } else { (0, 1) };
+        let (w, h) = if self.dock.settings.edge.vertical() { (EDGE_STRIP, 0) } else { (0, EDGE_STRIP) };
         let surface = self.compositor.create_surface(&self.qh);
         let layer = self.layer_shell.create_layer_surface(&self.qh, surface, Layer::Top, Some("helix-dock-edge"), Some(&output));
         layer.set_anchor(anchor);
@@ -635,8 +640,9 @@ impl Ui {
             // Dimmed while its extension is not running.
             return image.map(|mut im| {
                 if !d.running {
-                    for p in im.rgba.as_chunks_mut::<4>().0 {
-                        p[3] /= 2;
+                    // Premultiplied: every channel halves.
+                    for c in &mut im.rgba {
+                        *c /= 2;
                     }
                 }
                 im
@@ -985,10 +991,14 @@ impl Ui {
                 PointerEventKind::Enter { .. } => {
                     self.dock.at_edge = Some(i);
                     self.dock.pressure.reset();
-                    // With pressure, only pushing against the edge shows it.
-                    if !self.dock.settings.require_pressure {
-                        self.dock_set_timer(self.dock.settings.show_delay, true);
-                    }
+                    // With pressure, pushing against the edge shows it at
+                    // once; resting there shows it a little later.
+                    let delay = if self.dock.settings.require_pressure {
+                        self.dock.settings.show_delay.max(EDGE_REST)
+                    } else {
+                        self.dock.settings.show_delay
+                    };
+                    self.dock_set_timer(delay, true);
                 }
                 PointerEventKind::Leave { .. } => {
                     self.dock.at_edge = None;

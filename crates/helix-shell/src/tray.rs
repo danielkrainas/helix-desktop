@@ -152,13 +152,14 @@ pub fn plain_label(label: &str) -> String {
     out
 }
 
-/// Pixmaps (`a(iiay)`, ARGB32 in network byte order) as RGBA; bad or
+/// Pixmaps (`a(iiay)`, ARGB32 in network byte order, not premultiplied)
+/// as premultiplied RGBA, as drawing wants; bad or
 /// too large ones are skipped.
 pub fn pixmaps(raw: Vec<(i32, i32, Vec<u8>)>) -> Vec<(u32, u32, Vec<u8>)> {
     raw.into_iter()
         .filter(|(w, h, data)| *w > 0 && *h > 0 && *w <= MAX_PIXMAP && *h <= MAX_PIXMAP && data.len() == (*w as usize) * (*h as usize) * 4)
         .map(|(w, h, data)| {
-            let rgba = data.as_chunks::<4>().0.iter().flat_map(|p| [p[1], p[2], p[3], p[0]]).collect();
+            let rgba = data.as_chunks::<4>().0.iter().flat_map(|p| crate::icons::premultiply([p[1], p[2], p[3], p[0]])).collect();
             (w as u32, h as u32, rgba)
         })
         .collect()
@@ -487,8 +488,8 @@ mod tests {
         assert_eq!(plain_label("_Open"), "Open");
         assert_eq!(plain_label("Save__As_x"), "Save_Asx");
         let argb = vec![0xff, 0x10, 0x20, 0x30];
-        let p = pixmaps(vec![(1, 1, argb), (2, 2, vec![0; 3]), (300, 1, vec![0; 1200])]);
-        assert_eq!(p, [(1, 1, vec![0x10, 0x20, 0x30, 0xff])]);
+        let p = pixmaps(vec![(1, 1, argb), (1, 1, vec![0x80, 0xff, 0xff, 0x00]), (2, 2, vec![0; 3]), (300, 1, vec![0; 1200])]);
+        assert_eq!(p, [(1, 1, vec![0x10, 0x20, 0x30, 0xff]), (1, 1, vec![0x80, 0x80, 0x00, 0x80])]);
         let set = vec![(16, 16, vec![]), (32, 32, vec![]), (64, 64, vec![])];
         assert_eq!(best_pixmap(&set, 24).map(|p| p.0), Some(32));
         assert_eq!(best_pixmap(&set, 128).map(|p| p.0), Some(64));
