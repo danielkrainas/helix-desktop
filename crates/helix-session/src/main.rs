@@ -60,7 +60,9 @@ async fn run() -> Result<SessionEnd, Box<dyn std::error::Error>> {
     let config = match config_path()? {
         Some(path) => {
             tracing::info!(path = %path.display(), "using session config");
-            Some(SessionConfig::load(&path)?)
+            let mut config = SessionConfig::load(&path)?;
+            helix_session::environment::add_login_identity(&mut config.environment, std::env::vars());
+            Some(config)
         }
         None => {
             tracing::info!("no session config; serving SessionManager only");
