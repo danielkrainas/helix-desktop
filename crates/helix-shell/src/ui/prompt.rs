@@ -6,7 +6,7 @@ use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym};
 use smithay_client_toolkit::shell::WaylandSurface;
 use tokio::sync::oneshot;
 
-use super::{baseline, label, physical, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, ACCENT, BANNER_BG, BANNER_BORDER, DIM_FG, FG, FIELD_BG, SCRIM, SHARING};
+use super::{baseline, caret, label, text_field, physical, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, ACCENT, BANNER_BG, BANNER_BORDER, DIM_FG, FG, FIELD_BG, SCRIM, SHARING};
 use crate::auth::Secret;
 use crate::prompt::{Answer, Prompt, Request};
 
@@ -475,11 +475,8 @@ impl Ui {
         if let Some((name, _)) = &p.entry {
             label(text, &mut canvas, name, (bx + 24) as f32, (y + 14) as f32, 13.0, DIM_FG, inner);
             let r = Rect { x: bx + 24, y: y + 22, w: bw - 48, h: 34 };
-            canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
             let focused = view.focus == 3 && !view.busy;
-            if focused {
-                canvas.rect(r.x, r.y + r.h - 2, r.w, 2, ACCENT);
-            }
+            text_field(&mut canvas, r, focused);
             // The end of the text when it does not fit, and a caret.
             let room = (r.w - 24) as f32;
             let mut shown = view.entry.as_str();
@@ -489,8 +486,7 @@ impl Ui {
             }
             label(text, &mut canvas, shown, (r.x + 10) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, room);
             if focused {
-                let cx = r.x + 10 + text.map_or(0.0, |t| t.width(shown, 14.0)) as i32 + 1;
-                canvas.rect(cx, r.y + 8, 1, r.h - 16, FG);
+                caret(&mut canvas, r, r.x + 10 + text.map_or(0.0, |t| t.width(shown, 14.0)) as i32 + 1, 14.0);
             }
             hits.push((r, OverlayHit::Field(3)));
             y += 62;
@@ -499,19 +495,23 @@ impl Ui {
             let Some(name) = field else { continue };
             label(text, &mut canvas, name, (bx + 24) as f32, (y + 14) as f32, 13.0, DIM_FG, inner);
             let r = Rect { x: bx + 24, y: y + 22, w: bw - 48, h: 34 };
-            canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
-            if view.focus == index && !view.busy {
-                canvas.rect(r.x, r.y + r.h - 2, r.w, 2, ACCENT);
-            }
+            let focused = view.focus == index && !view.busy;
+            text_field(&mut canvas, r, focused);
             let show_w = if view.can_show { SHOW_W } else { 0 };
-            if view.shown[index] {
-                label(text, &mut canvas, &view.fields[index], (r.x + 10) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 20 - show_w) as f32);
+            let end = if view.shown[index] {
+                let room = (r.w - 24 - show_w) as f32;
+                label(text, &mut canvas, &view.fields[index], (r.x + 10) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, room);
+                r.x + 10 + text.map_or(0.0, |t| t.width(&view.fields[index], 14.0).min(room)) as i32 + 1
             } else {
                 // One dot per character (drawn: not every font has a bullet).
-                let count = view.fields[index].chars().count().min(((r.w - 20 - show_w) / 12) as usize);
+                let count = view.fields[index].chars().count().min(((r.w - 28 - show_w) / 12) as usize);
                 for i in 0..count {
                     canvas.circle(f64::from(r.x + 16 + i as i32 * 12), f64::from(r.y + r.h / 2), 4.0, FG);
                 }
+                r.x + 10 + count as i32 * 12
+            };
+            if focused {
+                caret(&mut canvas, r, end, 14.0);
             }
             if view.can_show {
                 let b = Rect { x: r.x + r.w - SHOW_W, y: r.y, w: SHOW_W, h: r.h };

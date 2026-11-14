@@ -536,6 +536,21 @@ fn baseline(text: Option<&Text>, top: i32, height: i32, px: f32) -> f32 {
     top as f32 + (height as f32 + cap) / 2.0
 }
 
+/// A text field's box (helix-desktop-spec `components/README.md`, "Text
+/// fields"): an accent ring while it takes typing, a faint outline
+/// otherwise.
+fn text_field(canvas: &mut Canvas, r: Rect, focused: bool) {
+    let (ring, width) = if focused { (ACCENT, 2) } else { (0x30FFFFFF, 1) };
+    canvas.rect(r.x - width, r.y - width, r.w + 2 * width, r.h + 2 * width, ring);
+    canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
+}
+
+/// The caret at `x`, the height of a line of `px` text in field `r`.
+fn caret(canvas: &mut Canvas, r: Rect, x: i32, px: f32) {
+    let h = (px * 1.3).round() as i32;
+    canvas.rect(x, r.y + (r.h - h) / 2, 2, h, FG);
+}
+
 #[allow(clippy::too_many_arguments)]
 fn label(text: Option<&Text>, canvas: &mut Canvas, s: &str, x: f32, base: f32, px: f32, color: u32, max_w: f32) {
     if let Some(text) = text {
@@ -1439,7 +1454,7 @@ impl Ui {
 
         // Search field.
         let field = Rect { x: bx, y: by, w: bw, h: 48 };
-        canvas.rect(field.x, field.y, field.w, field.h, FIELD_BG);
+        text_field(&mut canvas, field, true);
         let (q_text, q_color) = if view.model.query.is_empty() {
             (view.model.folder_name().unwrap_or("Type to search…"), DIM_FG)
         } else {
@@ -1711,16 +1726,21 @@ impl Ui {
         let fw = 360.min(w as i32 - 40);
         let fx = (w as i32 - fw) / 2;
         let fy = top + 100;
-        canvas.rect(fx, fy, fw, 44, FIELD_BG);
-        if self.lock.password.is_empty() {
+        let field = Rect { x: fx, y: fy, w: fw, h: 44 };
+        let focused = !self.lock.checking;
+        text_field(&mut canvas, field, focused);
+        // One dot per character (drawn: not every font has a bullet).
+        let count = self.lock.password.chars().count().min(((fw - 40) / 14) as usize);
+        for i in 0..count {
+            canvas.circle(f64::from(fx + 20 + i as i32 * 14), f64::from(fy + 22), 5.0, FG);
+        }
+        if count == 0 {
+            // Room for the caret before the placeholder.
             let base = baseline(text, fy, 44, 17.0);
-            label(text, &mut canvas, "Password", (fx + 14) as f32, base, 17.0, DIM_FG, (fw - 28) as f32);
-        } else {
-            // One dot per character (drawn: not every font has a bullet).
-            let count = self.lock.password.chars().count().min(((fw - 28) / 14) as usize);
-            for i in 0..count {
-                canvas.circle(f64::from(fx + 20 + i as i32 * 14), f64::from(fy + 22), 5.0, FG);
-            }
+            label(text, &mut canvas, "Password", (fx + 20) as f32, base, 17.0, DIM_FG, (fw - 34) as f32);
+        }
+        if focused {
+            caret(&mut canvas, field, fx + 14 + count as i32 * 14, 17.0);
         }
         if let Some(message) = &self.lock.message {
             label(text, &mut canvas, message, center(message, 15.0), (fy + 76) as f32, 15.0, DIM_FG, w as f32);
@@ -3832,6 +3852,29 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn focused_field_has_ring_and_caret() {
+        // B, G, R, A at logical (x, y) of a 60×40 canvas at scale 1.
+        let px = |data: &[u8], x: usize, y: usize| -> [u8; 4] { data[(y * 60 + x) * 4..][..4].try_into().unwrap() };
+        let accent = [0xE4, 0x84, 0x35, 0xFF];
+        let [r, g, b, a] = helix_draw::rgba(super::FG).map(|c| (c * 255.0).round() as u8);
+        let fg = [b, g, r, a];
+        let r = super::Rect { x: 10, y: 10, w: 40, h: 20 };
+        let mut data = vec![0u8; 60 * 40 * 4];
+        let mut canvas = super::Canvas::scaled(&mut data, 60, 40, 1.0);
+        super::text_field(&mut canvas, r, true);
+        super::caret(&mut canvas, r, 20, 14.0);
+        assert_eq!(px(&data, 25, 8), accent, "ring above");
+        assert_eq!(px(&data, 9, 20), accent, "ring left");
+        assert_eq!(px(&data, 20, 20), fg, "caret");
+        let mut data = vec![0u8; 60 * 40 * 4];
+        let mut canvas = super::Canvas::scaled(&mut data, 60, 40, 1.0);
+        super::text_field(&mut canvas, r, false);
+        assert_ne!(px(&data, 25, 9), accent, "unfocused: no ring");
+        assert_ne!(px(&data, 25, 9), [0, 0, 0, 0], "unfocused: an outline");
+        assert_eq!(px(&data, 25, 8), [0, 0, 0, 0], "outline is 1px");
+    }
+
     use super::*;
     use crate::logind::Availability;
 
