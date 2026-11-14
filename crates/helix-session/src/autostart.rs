@@ -314,8 +314,18 @@ impl Autostart {
                 recent.push(now + RESTART_WAIT);
                 self.due.insert(id.clone(), now + RESTART_WAIT);
                 self.started.remove(&id);
-            } else if restart {
-                tracing::warn!(id, ?status, "autostarted app keeps failing (or ended cleanly); not restarting");
+            } else {
+                if !restart {
+                    tracing::debug!(id, ?status, "autostarted app ended");
+                } else if status.success() {
+                    // Often: what it starts was already running.
+                    tracing::info!(id, "autostarted app ended cleanly; not restarting");
+                } else {
+                    tracing::warn!(id, ?status, "autostarted app keeps failing; not restarting");
+                }
+                // Done: not started again (a conditional app starts again
+                // once its condition has gone and come back).
+                self.started.insert(id);
             }
         }
         for entry in &self.entries {
@@ -344,6 +354,8 @@ impl Autostart {
                         self.started.insert(entry.id.clone());
                     }
                 }
+            } else if !wanted && conditional && !running && self.started.remove(&entry.id) {
+                // It ended by itself; it may start when the condition holds again.
             } else if !wanted && running {
                 if let Some(pid) = self.running.get(&entry.id).and_then(|c| c.id()) {
                     tracing::info!(id = entry.id, pid, "condition no longer holds; stopping");
@@ -456,6 +468,23 @@ mod tests {
         }
         let runs = std::fs::read_to_string(&log).unwrap_or_default().lines().count();
         assert!((2..=5).contains(&runs), "restarted after failing: {runs} runs");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn an_app_that_ends_cleanly_is_not_started_again() {
+        let dir = std::env::temp_dir().join(format!("helix-clean-exit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("runs");
+        let entry = parse("c.desktop", Path::new("/x"), &format!("[Desktop Entry]\nType=Application\nExec=sh -c \"echo x >> {}\"\nX-GNOME-AutoRestart=true\n", log.display())).unwrap();
+        let mut a = Autostart::with_entries(vec![entry], BTreeMap::new());
+        for _ in 0..15 {
+            a.update();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let runs = std::fs::read_to_string(&log).unwrap_or_default().lines().count();
+        assert_eq!(runs, 1, "started once");
+        assert!(!a.busy(), "nothing left to follow");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
