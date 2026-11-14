@@ -228,7 +228,11 @@ impl Ui {
     }
 
     pub(super) fn open_menu(&mut self, id: u32, x: i32, y: i32, items: Vec<Option<Item>>, sources: Vec<crate::input_sources::Source>) {
-        self.close_launcher(true);
+        // A menu of the app grid's opens over the launcher.
+        if !std::mem::take(&mut self.dock.menu_over_launcher) {
+            self.close_launcher(true);
+            self.dock.menu_from_grid = false;
+        }
         self.tray_menu = None;
         self.ext_menu = None;
         self.power_menu = None;

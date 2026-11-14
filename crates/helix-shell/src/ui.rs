@@ -134,6 +134,8 @@ struct LauncherView {
     icons: HashMap<(usize, String), Option<helix_draw::Image>>,
     /// The app grid (shown with an empty search).
     grid: app_grid::GridView,
+    /// The monitor it is shown on (from the compositor).
+    output: Option<wl_output::WlOutput>,
 }
 
 struct Ui {
@@ -859,7 +861,8 @@ impl Ui {
             content: Rect { x: 0, y: 0, w: 0, h: 0 },
             rows: Vec::new(),
             icons: HashMap::new(),
-            grid: Default::default(),
+            grid: app_grid::GridView::new(crate::item_feedback::animations_enabled()),
+            output: None,
         });
         if notify {
             let _ = self.requests.send(UiRequest::Overview(true));
@@ -1474,10 +1477,14 @@ impl Ui {
             view.rows.clear();
             view.content = field;
             app_grid::paint_grid(&mut app_grid::Paint { cache: &mut self.icon_cache, text: self.text.as_ref(), scale }, view, &mut canvas, w as i32, h as i32, by + 72);
+            let moving = view.grid.feedback.moving(Instant::now());
             let surface = view.layer.wl_surface();
             self.scales.prepare(&self.qh, surface, w as i32, h as i32);
             if buffer.attach_to(surface).is_ok() {
                 view.layer.commit();
+            }
+            if moving {
+                self.grid_next_frame();
             }
             return;
         }
@@ -3100,7 +3107,11 @@ impl CompositorHandler for Ui {
     fn scale_factor_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: i32) {}
     fn transform_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: wl_output::Transform) {}
     fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {}
-    fn surface_enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
+    fn surface_enter(&mut self, _: &Connection, _: &QueueHandle<Self>, surface: &wl_surface::WlSurface, output: &wl_output::WlOutput) {
+        if let Some(view) = self.launcher.as_mut().filter(|v| v.layer.wl_surface() == surface) {
+            view.output = Some(output.clone());
+        }
+    }
     fn surface_leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
 }
 

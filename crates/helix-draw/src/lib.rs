@@ -466,7 +466,13 @@ impl Canvas<'_> {
     /// Draw `image` scaled into the logical rectangle (x, y, w, h)
     /// (bilinear sampling).
     pub fn image(&mut self, x: f64, y: f64, w: f64, h: f64, image: &Image) {
-        if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 {
+        self.image_alpha(x, y, w, h, image, 1.0);
+    }
+
+    /// [`Canvas::image`] at `opacity` (0 to 1).
+    pub fn image_alpha(&mut self, x: f64, y: f64, w: f64, h: f64, image: &Image, opacity: f32) {
+        let opacity = opacity.clamp(0.0, 1.0);
+        if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 || opacity <= 0.0 {
             return;
         }
         let s = self.scale;
@@ -489,7 +495,7 @@ impl Canvas<'_> {
                 let mix = |a: [f32; 4], b: [f32; 4], t: f32| [0, 1, 2, 3].map(|k| a[k] + (b[k] - a[k]) * t);
                 let top = mix(texel(x0, y0), texel(x1, y0), fx);
                 let bottom = mix(texel(x0, y1), texel(x1, y1), fx);
-                let [r, g, b, a] = mix(top, bottom, fy);
+                let [r, g, b, a] = mix(top, bottom, fy).map(|c| c * opacity);
                 if a <= 0.0 {
                     continue;
                 }

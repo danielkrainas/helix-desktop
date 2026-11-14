@@ -86,6 +86,8 @@ pub(super) struct DockView {
     slide_timer: Option<RegistrationToken>,
     press: Option<(usize, (f64, f64), u32)>,
     drag: Option<(usize, (f64, f64))>,
+    /// Hover, press and launch feedback on the items.
+    feedback: crate::item_feedback::Feedback<Item>,
 }
 
 #[derive(Default)]
@@ -107,6 +109,12 @@ pub(super) struct DockState {
     /// Numbers are drawn on the apps' icons (after a hot key).
     numbers: bool,
     numbers_timer: Option<RegistrationToken>,
+    /// Redraws while item feedback moves.
+    feedback_timer: Option<RegistrationToken>,
+    /// The next menu opens over the launcher (instead of closing it).
+    pub menu_over_launcher: bool,
+    /// The open menu is an app grid item's.
+    pub menu_from_grid: bool,
     /// Every mount and volume the media side reported (`mounts` is what
     /// the settings let the dock show).
     pub all_mounts: Vec<crate::media::MountInfo>,
@@ -171,6 +179,7 @@ impl Ui {
             view.pointer_on = false;
             view.revealed = false;
             view.hover = None;
+            view.feedback.reset();
         }
     }
 
@@ -693,6 +702,24 @@ impl Ui {
             self.dock_draw_view();
         }
         self.dock.cur = 0;
+        // Item feedback still moving: draw again next frame.
+        let now = std::time::Instant::now();
+        let moving = self.dock.views.iter_mut().fold(false, |any, v| v.feedback.moving(now) | any);
+        if moving && self.dock.feedback_timer.is_none() {
+            if let Some(handle) = self.loop_handle.as_ref() {
+                let token = handle.insert_source(Timer::from_duration(Duration::from_millis(16)), |_, _, ui: &mut Ui| {
+                    ui.dock.feedback_timer = None;
+                    ui.dock_draw();
+                    TimeoutAction::Drop
+                });
+                self.dock.feedback_timer = token.ok();
+            }
+        }
+    }
+
+    /// The item at `index` of the current view, for feedback.
+    fn dock_feedback_item(&self, index: Option<usize>) -> Option<Item> {
+        index.and_then(|i| self.dock.views[self.dock.cur].items.get(i).cloned())
     }
 
     fn dock_draw_view(&mut self) {
@@ -790,6 +817,10 @@ impl Ui {
             logic::tooltip_lines(&name, &titles)
         });
         let (hover, drag) = (self.dock.views[self.dock.cur].hover, self.dock.views[self.dock.cur].drag);
+        let now = std::time::Instant::now();
+        self.dock.views[self.dock.cur].feedback.animate = s.animation_time > 0.0;
+        let feedback = self.dock.views[self.dock.cur].feedback.clone();
+        let mut centers: Vec<(f64, f64)> = Vec::with_capacity(items.len());
 
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w as usize, scale) as i32, physical(h as usize, scale) as i32, (physical(w as usize, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
@@ -822,17 +853,30 @@ impl Ui {
             }
             let wiggle = wiggles[i];
             let (ix, iy) = (cell.x + (cell.w - icon) / 2 + if vertical { 0 } else { wiggle }, cell.y + (cell.h - icon) / 2 + if vertical { wiggle } else { 0 });
+            // Hover, press and launch feedback (none while dragging).
+            let look = if drag.is_some() {
+                crate::item_feedback::Look { highlight: if hover == Some(i) { 1.0 } else { 0.0 }, pressed: false, scale: 1.0 }
+            } else {
+                feedback.look(item, now)
+            };
             if urgent[i] {
                 canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, URGENT);
-            } else if hover == Some(i) || focused_item == Some(i) {
-                let tint = if hover == Some(i) { 0x40FFFFFF } else { 0x26FFFFFF };
-                canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, tint);
+            } else {
+                let lit = (look.highlight * f64::from(0x40)).round() as u32;
+                let alpha = if look.pressed { 0x26 } else if focused_item == Some(i) { lit.max(0x26) } else { lit };
+                if alpha > 0 {
+                    canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, (alpha << 24) | 0xFFFFFF);
+                }
             }
+            let (cx, cy) = (f64::from(ix) + f64::from(icon) / 2.0, f64::from(iy) + f64::from(icon) / 2.0);
+            centers.push((cx, cy));
             if !drag.is_some_and(|(d, _)| d == i) {
+                let size = f64::from(icon) * look.scale;
+                let (sx, sy) = (cx - size / 2.0, cy - size / 2.0);
                 match (item, &icons[i]) {
-                    (Item::ShowApps, _) => draw_grid(&mut canvas, ix, iy, icon),
-                    (_, Some(image)) => canvas.image(f64::from(ix), f64::from(iy), f64::from(icon), f64::from(icon), image),
-                    (_, None) => canvas.round_rect(f64::from(ix + 4), f64::from(iy + 4), f64::from(icon - 8), f64::from(icon - 8), 8.0, 0xFF5E5C64),
+                    (Item::ShowApps, _) => draw_grid(&mut canvas, sx.round() as i32, sy.round() as i32, size.round() as i32),
+                    (_, Some(image)) => canvas.image(sx, sy, size, size, image),
+                    (_, None) => canvas.round_rect(sx + 4.0, sy + 4.0, size - 8.0, size - 8.0, 8.0, 0xFF5E5C64),
                 }
             }
             if let Some(progress) = entries[i].as_ref().and_then(|e| e.shown_progress()) {
@@ -862,6 +906,14 @@ impl Ui {
             }
             hits.push((cell, i));
             pos += slot;
+        }
+        // Launch copies growing out of their items.
+        for (item, p) in feedback.ghosts(now) {
+            let Some(k) = items.iter().position(|x| *x == item) else { continue };
+            if let (Some(Some(image)), Some(&(cx, cy))) = (icons.get(k), centers.get(k)) {
+                let size = f64::from(icon) * (1.0 + (crate::item_feedback::GHOST_SCALE - 1.0) * p);
+                canvas.image_alpha(cx - size / 2.0, cy - size / 2.0, size, size, image, (0.8 * (1.0 - p)) as f32);
+            }
         }
         if let Some((d, at)) = drag {
             let marker = drop_marker.unwrap_or(pos);
@@ -1020,11 +1072,14 @@ impl Ui {
                 self.dock.views[self.dock.cur].pointer_on = true;
                 self.dock_cancel_timer();
                 self.dock.views[self.dock.cur].hover = under;
+                let item = self.dock_feedback_item(under);
+                self.dock.views[self.dock.cur].feedback.set_hover(item, std::time::Instant::now());
                 self.dock_draw();
             }
             PointerEventKind::Leave { .. } => {
                 self.dock.views[self.dock.cur].pointer_on = false;
                 self.dock.views[self.dock.cur].hover = None;
+                self.dock.views[self.dock.cur].feedback.set_hover(None, std::time::Instant::now());
                 if self.dock.views[self.dock.cur].drag.is_none() {
                     self.dock_draw();
                     // Hide (if it should) after the delay.
@@ -1036,6 +1091,7 @@ impl Ui {
                     let moved = (x - start.0).hypot(y - start.1);
                     if self.dock.views[self.dock.cur].drag.is_none() && button == BTN_LEFT && moved > crate::drag_threshold() && matches!(self.dock.views[self.dock.cur].items.get(item), Some(Item::App { .. })) {
                         self.dock.views[self.dock.cur].drag = Some((item, (x, y)));
+                        self.dock.views[self.dock.cur].feedback.release(std::time::Instant::now());
                     }
                 }
                 if let Some(drag) = self.dock.views[self.dock.cur].drag.as_mut() {
@@ -1043,16 +1099,31 @@ impl Ui {
                     self.dock_draw();
                 } else if self.dock.views[self.dock.cur].hover != under {
                     self.dock.views[self.dock.cur].hover = under;
+                    let item = self.dock_feedback_item(under);
+                    self.dock.views[self.dock.cur].feedback.set_hover(item, std::time::Instant::now());
                     self.dock_draw();
                 }
             }
             PointerEventKind::Press { button, .. } => {
                 if let Some(item) = under {
                     self.dock.views[self.dock.cur].press = Some((item, (x, y), button));
+                    if let Some(it) = self.dock_feedback_item(Some(item)) {
+                        self.dock.views[self.dock.cur].feedback.press(it, std::time::Instant::now());
+                        self.dock_draw();
+                    }
                 }
             }
             PointerEventKind::Release { button, .. } => {
                 let press = self.dock.views[self.dock.cur].press.take();
+                let now = std::time::Instant::now();
+                self.dock.views[self.dock.cur].feedback.release(now);
+                // A click that launches or activates an app sends out a copy.
+                if let Some((item, _, _)) = press.filter(|p| Some(p.0) == under && p.2 != BTN_RIGHT && self.dock.views[self.dock.cur].drag.is_none()) {
+                    if let Some(it @ Item::App { .. }) = self.dock_feedback_item(Some(item)) {
+                        self.dock.views[self.dock.cur].feedback.launch(it, now);
+                    }
+                }
+                self.dock_draw();
                 if let Some((item, _)) = self.dock.views[self.dock.cur].drag.take() {
                     self.dock_drop(item, (x, y));
                     self.dock_draw();
@@ -1309,43 +1380,8 @@ impl Ui {
         let mut items: Vec<Option<window_menu::Item>> = Vec::new();
         match item {
             Item::App { id, favorite } => {
-                let windows = self.app_windows(&id);
-                if self.dock.settings.previews && !windows.is_empty() {
-                    items.push(self.dock_menu_item("All Windows".into(), DockTarget::Previews(id.clone())));
-                } else {
-                    for w in &windows {
-                        let title = self.windows.mru().iter().find(|e| e.id == *w).map_or_else(String::new, |e| e.label().to_owned());
-                        items.push(self.dock_menu_item(title, DockTarget::Window(*w)));
-                    }
-                }
-                if !windows.is_empty() {
-                    items.push(None);
-                }
-                let open = if windows.is_empty() { "Open" } else { "New Window" };
-                items.push(self.dock_menu_item(open.into(), DockTarget::Launch(id.clone())));
-                let actions = desktop_id(&id).map(|d| logic::desktop_actions(d.trim_end_matches(".desktop"))).unwrap_or_default();
-                for (action, name) in actions {
-                    items.push(self.dock_menu_item(name, DockTarget::Action(id.clone(), action)));
-                }
-                // What the app puts in its quicklist (disabled entries are
-                // left out).
-                let quick = self.dock_entry(&id).and_then(|e| Some((e.quicklist.clone()?, e.quick_items.clone())));
-                if let Some((list, quick)) = quick.filter(|(_, q)| !q.is_empty()) {
-                    items.push(None);
-                    let entries = self.quick_menu_items(&list, quick);
-                    items.extend(entries);
-                }
-                items.push(None);
-                let pin = if favorite { "Unpin" } else { "Pin to Dash" };
-                items.push(self.dock_menu_item(pin.into(), DockTarget::TogglePin(id.clone())));
-                if which("gnome-software") {
-                    items.push(self.dock_menu_item("App Details".into(), DockTarget::Details(id.clone())));
-                }
-                if !windows.is_empty() {
-                    items.push(None);
-                    let quit = if windows.len() > 1 { format!("Quit {} Windows", windows.len()) } else { "Quit".to_owned() };
-                    items.push(self.dock_menu_item(quit, DockTarget::Quit(id.clone())));
-                }
+                let previews = self.dock.settings.previews;
+                items.extend(self.app_menu_items(&id, favorite, previews));
             }
             Item::Mount(i) => {
                 let Some(m) = self.dock.mounts.get(i).cloned() else { return };
@@ -1374,9 +1410,73 @@ impl Ui {
         self.open_dock_menu(lx, ly, items);
     }
 
+    /// The menu entries for app `id` (the dock's and the app grid's):
+    /// windows, open, actions, quicklist, pin, details, quit. With
+    /// `previews`, its windows are one "All Windows" entry.
+    pub(super) fn app_menu_items(&mut self, id: &str, favorite: bool, previews: bool) -> Vec<Option<window_menu::Item>> {
+        let id = id.to_owned();
+        let mut items: Vec<Option<window_menu::Item>> = Vec::new();
+        let windows = self.app_windows(&id);
+        if previews && !windows.is_empty() {
+            items.push(self.dock_menu_item("All Windows".into(), DockTarget::Previews(id.clone())));
+        } else {
+            for w in &windows {
+                let title = self.windows.mru().iter().find(|e| e.id == *w).map_or_else(String::new, |e| e.label().to_owned());
+                items.push(self.dock_menu_item(title, DockTarget::Window(*w)));
+            }
+        }
+        if !windows.is_empty() {
+            items.push(None);
+        }
+        let open = if windows.is_empty() { "Open" } else { "New Window" };
+        items.push(self.dock_menu_item(open.into(), DockTarget::Launch(id.clone())));
+        let actions = desktop_id(&id).map(|d| logic::desktop_actions(d.trim_end_matches(".desktop"))).unwrap_or_default();
+        for (action, name) in actions {
+            items.push(self.dock_menu_item(name, DockTarget::Action(id.clone(), action)));
+        }
+        // What the app puts in its quicklist (disabled entries are
+        // left out).
+        let quick = self.dock_entry(&id).and_then(|e| Some((e.quicklist.clone()?, e.quick_items.clone())));
+        if let Some((list, quick)) = quick.filter(|(_, q)| !q.is_empty()) {
+            items.push(None);
+            let entries = self.quick_menu_items(&list, quick);
+            items.extend(entries);
+        }
+        items.push(None);
+        let pin = if favorite { "Unpin" } else { "Pin to Dash" };
+        items.push(self.dock_menu_item(pin.into(), DockTarget::TogglePin(id.clone())));
+        if which("gnome-software") {
+            items.push(self.dock_menu_item("App Details".into(), DockTarget::Details(id.clone())));
+        }
+        if !windows.is_empty() {
+            items.push(None);
+            let quit = if windows.len() > 1 { format!("Quit {} Windows", windows.len()) } else { "Quit".to_owned() };
+            items.push(self.dock_menu_item(quit, DockTarget::Quit(id.clone())));
+        }
+        items
+    }
+
     /// A dock menu entry was chosen.
     pub(super) fn dock_menu_choice(&mut self, index: usize) {
+        let from_grid = std::mem::take(&mut self.dock.menu_from_grid);
         let Some(target) = self.dock.menu_targets.get(index).cloned() else { return };
+        if from_grid {
+            // From the app grid: opening something closes the launcher;
+            // pinning takes the app out of the grid.
+            match &target {
+                DockTarget::TogglePin(_) => {}
+                DockTarget::Quit(_) => {}
+                _ => self.close_launcher(true),
+            }
+        }
+        let pinning = matches!(target, DockTarget::TogglePin(_));
+        self.dock_menu_choice_do(target);
+        if from_grid && pinning {
+            self.grid_reload();
+        }
+    }
+
+    fn dock_menu_choice_do(&mut self, target: DockTarget) {
         match target {
             DockTarget::Window(w) => self.activate_window(w),
             DockTarget::Launch(id) => self.dock_launch(&id, None),

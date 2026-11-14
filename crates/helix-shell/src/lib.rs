@@ -38,6 +38,7 @@ pub mod click_type;
 pub mod clock;
 pub mod ical;
 pub mod icons;
+pub mod item_feedback;
 pub mod markup;
 pub mod network_agent;
 pub mod vpn_secrets;

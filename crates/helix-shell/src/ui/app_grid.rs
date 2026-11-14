@@ -2,7 +2,9 @@
 //! grid"): the launcher with an empty search, as pages of icons that can
 //! be rearranged and put into folders by dragging.
 
-use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, BTN_LEFT};
+use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, BTN_LEFT, BTN_RIGHT};
+
+use crate::item_feedback::{Feedback, Look, GHOST_SCALE, LAUNCH_LINGER};
 
 use super::*;
 use crate::app_grid::{self as layout, Pages};
@@ -58,6 +60,25 @@ pub(super) struct GridView {
     /// side turns the page after a moment.
     edge: Option<bool>,
     edge_timer: Option<smithay_client_toolkit::reexports::calloop::RegistrationToken>,
+    /// Hover, selection, press and launch feedback, by item id.
+    pub(super) feedback: Feedback<String>,
+    /// The next frame while feedback moves.
+    frame_timer: Option<smithay_client_toolkit::reexports::calloop::RegistrationToken>,
+    /// An app was launched: the launcher closes when this fires.
+    linger: Option<smithay_client_toolkit::reexports::calloop::RegistrationToken>,
+}
+
+impl GridView {
+    /// A grid whose feedback moves when `animate`.
+    pub(super) fn new(animate: bool) -> Self {
+        Self { feedback: Feedback::new(animate), ..Self::default() }
+    }
+
+    /// The item under (x, y): in the open folder's box, else on the page.
+    fn item_at(&self, x: f64, y: f64) -> Option<String> {
+        let cells = if self.folder_box.is_some() { &self.folder_cells } else { &self.cells };
+        cells.iter().find(|(r, _)| r.contains(x, y)).map(|(_, id)| id.clone())
+    }
 }
 
 /// How long a dragged icon is held at the side before the page turns,
@@ -207,7 +228,69 @@ impl Ui {
         if let Err(err) = crate::launcher::launch(id) {
             tracing::warn!(%err, app = id, "launch failed");
         }
-        self.close_launcher(true);
+        // With animations, the launcher stays for the launch copy.
+        if !view.grid.feedback.animate || view.grid.linger.is_some() {
+            self.close_launcher(true);
+            return;
+        }
+        view.grid.feedback.launch(id.to_owned(), std::time::Instant::now());
+        if let Some(handle) = self.loop_handle.as_ref() {
+            let token = handle.insert_source(Timer::from_duration(LAUNCH_LINGER), |_, _, ui: &mut Ui| {
+                // Only the launcher this was for (not one opened since).
+                if ui.launcher.as_ref().is_some_and(|v| v.grid.linger.is_some()) {
+                    ui.close_launcher(true);
+                }
+                TimeoutAction::Drop
+            });
+            view.grid.linger = token.ok();
+        }
+        if view.grid.linger.is_none() {
+            self.close_launcher(true);
+            return;
+        }
+        self.draw_launcher();
+    }
+
+    /// Draw the launcher again next frame (feedback is moving).
+    pub(super) fn grid_next_frame(&mut self) {
+        let Some(view) = self.launcher.as_mut() else { return };
+        if view.grid.frame_timer.is_some() {
+            return;
+        }
+        let Some(handle) = self.loop_handle.as_ref() else { return };
+        let token = handle.insert_source(Timer::from_duration(std::time::Duration::from_millis(16)), |_, _, ui: &mut Ui| {
+            if let Some(view) = ui.launcher.as_mut() {
+                view.grid.frame_timer = None;
+                ui.draw_launcher();
+            }
+            TimeoutAction::Drop
+        });
+        view.grid.frame_timer = token.ok();
+    }
+
+    /// The right-click menu of app `id`, at surface point `at` (else at
+    /// its icon); folders have none.
+    fn grid_menu(&mut self, id: &str, at: Option<(f64, f64)>) {
+        let Some(view) = self.launcher.as_ref() else { return };
+        if view.model.folders.iter().any(|f| f.id == id) {
+            return;
+        }
+        let g = &view.grid;
+        let cell = g.folder_cells.iter().chain(&g.cells).find(|(_, i)| i == id).map(|(r, _)| *r);
+        let Some((x, y)) = at.or_else(|| cell.map(|r| (f64::from(r.x + r.w / 2), f64::from(r.y + r.h / 2)))) else { return };
+        let origin = view
+            .output
+            .as_ref()
+            .and_then(|o| self.output_state.info(o))
+            .and_then(|i| i.logical_position)
+            .unwrap_or((self.primary_area.0, self.primary_area.1));
+        let app = id.strip_suffix(".desktop").unwrap_or(id).to_owned();
+        let favorite = crate::favorites::favorites().iter().any(|f| f == id);
+        self.dock.menu_targets.clear();
+        let items = self.app_menu_items(&app, favorite, false);
+        self.dock.menu_over_launcher = true;
+        self.dock.menu_from_grid = true;
+        self.open_menu(0, origin.0 + x as i32, origin.1 + y as i32, items, Vec::new());
     }
 
     /// Pointer input on the launcher while it shows the grid; true if it
@@ -238,7 +321,10 @@ impl Ui {
                 let from_folder = view.model.open_folder.and_then(|i| view.model.folders.get(i)).map(|f| f.id.clone());
                 let hit = if in_folder { g.folder_cells.iter().find(|(r, _)| r.contains(x, y)) } else { g.cells.iter().find(|(r, _)| r.contains(x, y)) };
                 if let Some((_, id)) = hit {
+                    let id = id.clone();
                     view.grid.press = Some((id.clone(), (x, y), if in_folder { from_folder } else { None }));
+                    view.grid.feedback.press(id, std::time::Instant::now());
+                    self.draw_launcher();
                 } else if let Some(&(_, page)) = g.dots.iter().find(|(r, _)| r.contains(x, y)) {
                     view.grid.page = page;
                     view.grid.selected = None;
@@ -250,8 +336,26 @@ impl Ui {
                     self.close_launcher(true);
                 }
             }
+            PointerEventKind::Press { button: BTN_RIGHT, .. } => {
+                let Some(id) = self.launcher.as_ref().and_then(|v| v.grid.item_at(x, y)) else { return true };
+                self.grid_menu(&id, Some((x, y)));
+            }
+            PointerEventKind::Leave { .. } => {
+                if let Some(view) = self.launcher.as_mut() {
+                    view.grid.feedback.set_hover(None, std::time::Instant::now());
+                    self.draw_launcher();
+                }
+            }
             PointerEventKind::Motion { .. } => {
                 let threshold = crate::drag_threshold();
+                let Some(view) = self.launcher.as_mut() else { return true };
+                if view.grid.drag.is_none() {
+                    let under = view.grid.item_at(x, y);
+                    if view.grid.feedback.hovered() != under.as_ref() {
+                        view.grid.feedback.set_hover(under, std::time::Instant::now());
+                        self.draw_launcher();
+                    }
+                }
                 let Some(view) = self.launcher.as_mut() else { return true };
                 if let Some(drag) = view.grid.drag.as_mut() {
                     drag.at = (x, y);
@@ -275,6 +379,7 @@ impl Ui {
                 } else if let Some((id, (sx, sy), from)) = view.grid.press.clone() {
                     if ((x - sx).powi(2) + (y - sy).powi(2)).sqrt() >= threshold {
                         view.grid.press = None;
+                        view.grid.feedback.release(std::time::Instant::now());
                         view.grid.drag = Some(Drag { id, at: (x, y), from_folder: from });
                         self.draw_launcher();
                     }
@@ -282,6 +387,7 @@ impl Ui {
             }
             PointerEventKind::Release { button: BTN_LEFT, .. } => {
                 let Some(view) = self.launcher.as_mut() else { return true };
+                view.grid.feedback.release(std::time::Instant::now());
                 if let Some(drag) = view.grid.drag.take() {
                     self.grid_edge(None);
                     let drop = self.launcher.as_ref().and_then(|v| drop_at(v, &drag));
@@ -291,7 +397,12 @@ impl Ui {
                         None => self.draw_launcher(),
                     }
                 } else if let Some((id, _, _)) = view.grid.press.take() {
-                    self.grid_open(&id);
+                    // Released elsewhere: nothing opens.
+                    if view.grid.item_at(x, y).as_deref() == Some(id.as_str()) {
+                        self.grid_open(&id);
+                    } else {
+                        self.draw_launcher();
+                    }
                 }
             }
             PointerEventKind::Axis { vertical, horizontal, .. } => {
@@ -408,6 +519,18 @@ impl Ui {
                 }
                 return true;
             }
+            Keysym::Menu => {
+                let id = match (&in_folder, at) {
+                    (Some(apps), Some(i)) => apps.get(i).cloned(),
+                    (None, Some(i)) => view.grid.page_items().get(i).cloned(),
+                    _ => None,
+                };
+                if let Some(id) = id {
+                    self.grid_menu(&id, None);
+                }
+                return true;
+            }
+            Keysym::F10 if self.mods.shift => return self.grid_key(Keysym::Menu),
             Keysym::Escape if in_folder.is_some() => {
                 view.model.leave_folder();
                 view.grid.selected = None;
@@ -435,30 +558,42 @@ pub(super) struct Paint<'a> {
     pub scale: f64,
 }
 
-fn paint_cell(p: &mut Paint, model: &Launcher, canvas: &mut Canvas, cell: Rect, id: &str, selected: bool) {
+/// The center of a cell's icon.
+fn icon_center(cell: Rect) -> (f64, f64) {
+    (f64::from(cell.x) + f64::from(cell.w) / 2.0, f64::from(cell.y + 10) + f64::from(ICON) / 2.0)
+}
+
+fn paint_cell(p: &mut Paint, model: &Launcher, canvas: &mut Canvas, cell: Rect, id: &str, look: Look) {
     let (text, scale) = (p.text, p.scale);
     let folder = model.folders.iter().find(|f| f.id == id).cloned();
     let name = Ui::item_name(model, id);
-    if selected {
-        canvas.round_rect(f64::from(cell.x + 4), f64::from(cell.y + 2), f64::from(cell.w - 8), f64::from(cell.h - 4), 10.0, 0x40FFFFFF);
+    // The highlight: lit by hover or selection, dimmer while pressed.
+    let alpha = if look.pressed { 0x26 } else { (look.highlight * f64::from(0x40)).round() as u32 };
+    if alpha > 0 {
+        canvas.round_rect(f64::from(cell.x + 4), f64::from(cell.y + 2), f64::from(cell.w - 8), f64::from(cell.h - 4), 10.0, (alpha << 24) | 0xFFFFFF);
     }
-    let (ix, iy) = (cell.x + (cell.w - ICON) / 2, cell.y + 10);
+    let iy = cell.y + 10;
+    let (cx, cy) = icon_center(cell);
+    let k = look.scale;
+    let size = f64::from(ICON) * k;
+    let (sx, sy) = (cx - size / 2.0, cy - size / 2.0);
     match folder {
         Some(folder) => {
-            canvas.round_rect(f64::from(ix), f64::from(iy), f64::from(ICON), f64::from(ICON), 12.0, 0x50FFFFFF);
-            let px = (f64::from(MINI) * scale).round() as u32;
-            for (k, app) in folder.apps.iter().take(4).enumerate() {
-                let (mx, my) = (ix + 5 + (k % 2) as i32 * (MINI + 2), iy + 5 + (k / 2) as i32 * (MINI + 2));
+            canvas.round_rect(sx, sy, size, size, 12.0 * k, 0x50FFFFFF);
+            let px = (f64::from(MINI) * k * scale).round() as u32;
+            let (mini, gap) = (f64::from(MINI) * k, f64::from(MINI + 2) * k);
+            for (n, app) in folder.apps.iter().take(4).enumerate() {
+                let (mx, my) = (sx + 5.0 * k + (n % 2) as f64 * gap, sy + 5.0 * k + (n / 2) as f64 * gap);
                 if let Some(icon) = grid_icon(p.cache, app, px) {
-                    canvas.image(f64::from(mx), f64::from(my), f64::from(MINI), f64::from(MINI), &icon);
+                    canvas.image(mx, my, mini, mini, &icon);
                 }
             }
         }
         None => {
             let px = (f64::from(ICON) * scale).round() as u32;
             match grid_icon(p.cache, id, px) {
-                Some(icon) => canvas.image(f64::from(ix), f64::from(iy), f64::from(ICON), f64::from(ICON), &icon),
-                None => canvas.round_rect(f64::from(ix + 6), f64::from(iy + 6), f64::from(ICON - 12), f64::from(ICON - 12), 10.0, 0xFF5E5C64),
+                Some(icon) => canvas.image(sx, sy, size, size, &icon),
+                None => canvas.round_rect(sx + 6.0 * k, sy + 6.0 * k, size - 12.0 * k, size - 12.0 * k, 10.0, 0xFF5E5C64),
             }
         }
     }
@@ -481,6 +616,25 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
     let pages = view.grid.pages.len();
     let current = view.grid.page;
     let target = drag.as_ref().and_then(|d| drop_at(view, d));
+    // The keyboard selection lights its item (in the open folder or on the page).
+    let now = std::time::Instant::now();
+    let focus = match (selected, open_folder) {
+        (Some(i), None) => items.get(i).cloned(),
+        (Some(i), Some(f)) => view.model.folders.get(f).and_then(|f| f.apps.get(i).cloned()),
+        _ => None,
+    };
+    view.grid.feedback.set_focus(focus, now);
+    let feedback = view.grid.feedback.clone();
+    let look_of = |id: &str, hot: bool| -> Look {
+        if drag.is_some() {
+            return Look { highlight: if hot { 1.0 } else { 0.0 }, pressed: false, scale: 1.0 };
+        }
+        let mut look = feedback.look(&id.to_owned(), now);
+        if hot {
+            look.highlight = 1.0;
+        }
+        look
+    };
     let mut cells = Vec::new();
     for (i, id) in items.iter().enumerate() {
         let cell = Rect { x: gx + (i % cols) as i32 * CELL_W, y: top + (i / cols) as i32 * CELL_H, w: CELL_W, h: CELL_H };
@@ -489,7 +643,7 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
             continue;
         }
         let hot = matches!(&target, Some(Drop::Combine(t)) if t == id);
-        paint_cell(p, &view.model, canvas, cell, id, (selected == Some(i) && open_folder.is_none()) || hot);
+        paint_cell(p, &view.model, canvas, cell, id, look_of(id, hot));
     }
     // Where a dragged item would go.
     if let Some(Drop::Insert { page, index }) = &target {
@@ -541,7 +695,7 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
             if drag.as_ref().is_some_and(|d| d.id == *id) {
                 continue;
             }
-            paint_cell(p, &view.model, canvas, cell, id, selected == Some(k));
+            paint_cell(p, &view.model, canvas, cell, id, look_of(id, false));
         }
         let mut fdots = Vec::new();
         if fpages > 1 {
@@ -556,6 +710,16 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         view.grid.folder_dots = fdots;
         folder_box = Some(b);
         folder_title = Some(title);
+    }
+    // Launch copies growing out of their icons.
+    for (id, progress) in feedback.ghosts(now) {
+        let Some(&(cell, _)) = folder_cells.iter().chain(&cells).find(|(_, i)| *i == id) else { continue };
+        let px = (f64::from(ICON) * scale).round() as u32;
+        if let Some(icon) = grid_icon(p.cache, &id, px) {
+            let (cx, cy) = icon_center(cell);
+            let size = f64::from(ICON) * (1.0 + (GHOST_SCALE - 1.0) * progress);
+            canvas.image_alpha(cx - size / 2.0, cy - size / 2.0, size, size, &icon, (0.8 * (1.0 - progress)) as f32);
+        }
     }
     // The dragged item under the pointer.
     if let Some(d) = &drag {
