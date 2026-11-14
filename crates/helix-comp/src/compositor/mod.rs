@@ -299,7 +299,10 @@ impl Helix {
                 smithay::wayland::xdg_system_bell::XdgSystemBellState::new::<Self>(&dh),
                 smithay::wayland::shell::xdg::dialog::XdgDialogState::new::<Self>(&dh),
             ),
-            protocol_globals: protocols::globals(&dh),
+            protocol_globals: {
+                helix_comp::toplevel_icon::create_global::<Helix>(&dh, &icons::ICON_SIZES);
+                protocols::globals(&dh)
+            },
             keyboard_shortcuts_inhibit_state: smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState::new::<Self>(&dh),
             xdg_foreign_state: smithay::wayland::xdg_foreign::XdgForeignState::new::<Self>(&dh),
             clock: smithay::utils::Clock::new(),

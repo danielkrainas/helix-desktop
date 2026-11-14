@@ -20,6 +20,7 @@ pub mod colorspace;
 pub mod ddc;
 pub mod gestures;
 pub mod tablet_v2;
+pub mod toplevel_icon;
 pub mod display_config;
 pub mod display_switch;
 pub mod eraser_button;
