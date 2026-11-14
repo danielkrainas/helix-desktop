@@ -3,6 +3,7 @@ members = [
     "crates/helix-comp",
     "crates/helix-draw",
     "crates/helix-extension",
+    "crates/helix-greeter",
     "crates/helix-shell",
     "crates/helix-session",
     "crates/helix-settings",

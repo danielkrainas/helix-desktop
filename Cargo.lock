@@ -1384,6 +1384,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "helix-greeter"
+version = "0.1.0"
+dependencies = [
+ "helix-draw",
+ "libc",
+ "png",
+ "serde",
+ "serde_json",
+ "smithay-client-toolkit 0.21.1",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
 name = "helix-portals"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,69 @@
+//! `/etc/helix/greeter.toml` (helix-desktop-spec `components/greeter.md`,
+//! "Configuration"). `HELIX_GREETER_CONFIG` names another file (tests).
+
+use serde::Deserialize;
+
+pub const CONFIG_PATH: &str = "/etc/helix/greeter.toml";
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case", default)]
+pub struct Config {
+    /// false: always ask for the username.
+    pub user_list: bool,
+    /// Text under the clock.
+    pub banner: Option<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { user_list: true, banner: None }
+    }
+}
+
+impl Config {
+    pub fn parse(contents: &str) -> Result<Self, toml::de::Error> {
+        let mut config: Self = toml::from_str(contents)?;
+        config.banner = config.banner.filter(|b| !b.trim().is_empty());
+        Ok(config)
+    }
+
+    /// The configuration; defaults when the file is missing or broken.
+    pub fn load() -> Self {
+        let path = std::env::var("HELIX_GREETER_CONFIG").unwrap_or_else(|_| CONFIG_PATH.to_owned());
+        match std::fs::read_to_string(&path) {
+            Ok(contents) => Self::parse(&contents).unwrap_or_else(|err| {
+                tracing::warn!(%err, path, "ignoring broken configuration");
+                Self::default()
+            }),
+            Err(_) => Self::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses() {
+        assert_eq!(Config::parse("").unwrap(), Config::default());
+        assert_eq!(Config::parse("user-list = false\nbanner = \"Authorized use only.\"\n").unwrap(), Config { user_list: false, banner: Some("Authorized use only.".into()) });
+        assert_eq!(Config::parse("banner = \"  \"").unwrap().banner, None);
+        assert!(Config::parse("user-list = \"no\"").is_err());
+        // Unknown keys are allowed (newer configuration, older greeter).
+        assert!(Config::parse("theme = \"x\"").is_ok());
+    }
+
+    #[test]
+    fn loads_from_env_path() {
+        let path = std::env::temp_dir().join(format!("helix-greeter-config-{}.toml", std::process::id()));
+        std::fs::write(&path, "user-list = false\n").unwrap();
+        // Only this test sets HELIX_GREETER_CONFIG.
+        unsafe { std::env::set_var("HELIX_GREETER_CONFIG", &path) };
+        assert!(!Config::load().user_list);
+        std::fs::write(&path, "user-list = [").unwrap();
+        assert_eq!(Config::load(), Config::default());
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(Config::load(), Config::default(), "missing file");
+    }
+}
