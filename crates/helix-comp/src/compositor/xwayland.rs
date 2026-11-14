@@ -384,7 +384,7 @@ impl XwmHandler for Helix {
     }
 
     fn new_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_types: Vec<String>) {
-        tracing::debug!(?selection, ?mime_types, "X11 selection offered to Wayland clients");
+        tracing::info!(?selection, types = mime_types.len(), "selection set by an X11 app");
         match selection {
             SelectionTarget::Clipboard => {
                 set_data_device_selection(&self.display_handle, &self.seat, mime_types.clone(), super::ServerSelection::X11);
@@ -397,6 +397,7 @@ impl XwmHandler for Helix {
     }
 
     fn cleared_selection(&mut self, _xwm: XwmId, selection: SelectionTarget) {
+        tracing::info!(?selection, "X11 selection cleared");
         match selection {
             SelectionTarget::Clipboard => {
                 let x11 = matches!(current_data_device_selection_userdata(&self.seat).as_deref(), Some(super::ServerSelection::X11));

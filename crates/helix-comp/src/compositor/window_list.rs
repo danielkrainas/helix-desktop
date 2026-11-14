@@ -36,7 +36,7 @@ pub struct WindowList {
 type Geometry = (i32, i32, i32, i32, u32);
 
 /// (app id, title)
-fn describe(window: &Window) -> (String, String) {
+pub(super) fn describe(window: &Window) -> (String, String) {
     if let Some(toplevel) = window.toplevel() {
         return with_states(toplevel.wl_surface(), |states| {
             states

@@ -103,6 +103,12 @@ pub fn focus_target(window: &smithay::desktop::Window) -> Option<KeyboardFocusTa
 
 impl Helix {
     /// The window a focus target belongs to.
+    /// The app id of the window with keyboard focus ("" if none), for logs.
+    pub fn focused_app(&self) -> String {
+        let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
+        focus.and_then(|f| self.window_for_focus(&f)).map(|w| super::window_list::describe(&w).0).unwrap_or_default()
+    }
+
     pub fn window_for_focus(&self, focus: &KeyboardFocusTarget) -> Option<smithay::desktop::Window> {
         match focus {
             KeyboardFocusTarget::X11(x11) => self

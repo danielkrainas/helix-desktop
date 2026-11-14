@@ -152,6 +152,10 @@ impl SelectionHandler for Helix {
         _seat: Seat<Self>,
     ) {
         let mime_types = source.as_ref().map(|s| s.mime_types());
+        // Who took it: only the app with keyboard focus may (Smithay drops
+        // other apps' requests without a word), so a copy with no line here
+        // was refused.
+        tracing::info!(?ty, app = %self.focused_app(), types = mime_types.as_ref().map_or(0, Vec::len), "selection set by a Wayland app");
         if let Some(xwm) = self.xwm.as_mut() {
             if let Err(err) = xwm.new_selection(ty, mime_types.clone()) {
                 tracing::warn!(?err, ?ty, "cannot offer selection to X11");
