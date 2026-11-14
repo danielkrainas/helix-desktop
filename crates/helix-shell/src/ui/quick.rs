@@ -509,6 +509,62 @@ impl Ui {
             label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 15.0), 15.0, FG, (r.w - 24) as f32);
             overlay.hits.push((r, OverlayHit::Power(*action)));
         }
+        // The same on the accessibility bus.
+        let menu = {
+            use crate::a11y::{Node, Role};
+            let hits = &overlay.hits;
+            let at = |hit: OverlayHit| hits.iter().find(|(_, h)| *h == hit).map(|(r, _)| crate::a11y::Rect::from(*r)).unwrap_or_default();
+            let mut menu = Node::new(Role::Menu, "System").id("menu").at(Rect { x: mx, y: my, w: MENU_W, h: mh }.into());
+            if let Some((percent, muted, max)) = self.quick.volume {
+                menu = menu.child(Node::new(Role::Slider, "Volume").id("volume").at(at(OverlayHit::VolumeSlider)).click().range(f64::from(percent), 0.0, f64::from(max), 5.0));
+                menu = menu.child(Node::button("Mute", at(OverlayHit::Mute)).id("mute").toggled(muted));
+            }
+            if let Some(percent) = self.quick.brightness {
+                menu = menu.child(Node::new(Role::Slider, "Brightness").id("brightness").at(at(OverlayHit::BrightnessSlider)).click().range(f64::from(percent), 0.0, 100.0, 5.0));
+            }
+            for &i in &ext_sliders {
+                let Some(s) = self.ext.sliders.get(i) else { continue };
+                let slider = Node::new(Role::Slider, &s.title).id(format!("slider:{}", s.full_id)).range((s.value * 100.0).round(), 0.0, 100.0, 5.0);
+                menu = menu.child(match hits.iter().find(|(_, h)| *h == OverlayHit::ExtSlider(i)) {
+                    Some((r, _)) => slider.at((*r).into()).click(),
+                    None => slider.disabled(true),
+                });
+            }
+            for ((switch, name), on) in switches.iter().zip(&states) {
+                let ext = if let Switch::Ext(i) = switch { self.ext.toggles.get(*i) } else { None };
+                let key = if switch.id().is_empty() { ext.map_or_else(String::new, |t| t.full_id.clone()) } else { switch.id().to_owned() };
+                let toggle = Node::new(Role::Switch, name).id(key.clone()).at(at(OverlayHit::Switch(*switch))).click().toggled(*on);
+                menu = menu.child(toggle.describe(ext.map_or("", |t| t.subtitle.as_str())).disabled(ext.is_some_and(|t| !t.sensitive)));
+                let (more, label) = match switch {
+                    Switch::Ext(i) => (OverlayHit::ExtDetails(*i), format!("{name} Settings")),
+                    Switch::Wifi => (OverlayHit::Expand(*switch), "Wi-Fi Networks".to_owned()),
+                    _ => (OverlayHit::Expand(*switch), format!("{name} Devices")),
+                };
+                if hits.iter().any(|(_, h)| *h == more) {
+                    let button = Node::button(label, at(more)).id(format!("{key}:more"));
+                    menu = menu.child(if matches!(switch, Switch::Ext(_)) { button } else { button.expanded(list_open == Some(*switch)) });
+                }
+            }
+            if list_open.is_some() {
+                let entries = rows.iter().enumerate().map(|(i, row)| {
+                    let state = [(row.connected, "Connected"), (row.secured, "Secured")].iter().filter(|(on, _)| *on).map(|(_, s)| *s).collect::<Vec<_>>().join(", ");
+                    match row.hit.and_then(|hit| hits.iter().find(|(_, h)| *h == hit)) {
+                        Some((r, _)) => Node::new(Role::MenuItem, &row.name).id(format!("row:{i}")).at((*r).into()).click().describe(state),
+                        None => Node::label(&row.name),
+                    }
+                });
+                menu = menu.child(Node::new(Role::Group, "").id("list").children(entries));
+            }
+            if !profiles.is_empty() {
+                let modes = profiles.iter().enumerate().map(|(i, (name, active))| Node::new(Role::RadioButton, name).at(at(OverlayHit::Profile(i))).click().toggled(*active));
+                menu = menu.child(Node::new(Role::Group, "Power Mode").id("profiles").children(modes));
+            }
+            for (name, action) in &items {
+                menu = menu.child(Node::new(Role::MenuItem, *name).at(at(OverlayHit::Power(*action))).click());
+            }
+            menu
+        };
+        self.atspi_record(overlay.layer.wl_surface(), vec![menu]);
         overlay.hits.push((Rect { x: mx, y: my, w: MENU_W, h: mh }, OverlayHit::Inside));
         overlay.hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, OverlayHit::Outside));
         let surface = overlay.layer.wl_surface();

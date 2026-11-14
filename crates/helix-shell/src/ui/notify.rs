@@ -327,6 +327,13 @@ impl Ui {
         self.notify.list.unseen && !self.notify.list.entries.is_empty() && self.notify.view.is_none()
     }
 
+    /// The open list for the accessibility bus (`ui/atspi.rs`): its
+    /// surface, size and what its places do.
+    pub(super) fn notification_list_a11y(&self) -> Option<super::atspi::ListShown<'_>> {
+        let view = self.notify.view.as_ref().filter(|v| v.configured)?;
+        Some((view.layer.wl_surface(), (view.width, view.height), &view.hits))
+    }
+
     pub(super) fn toggle_notification_list(&mut self) {
         if self.notify.view.take().is_some() {
             self.draw_panel();

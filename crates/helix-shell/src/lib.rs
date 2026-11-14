@@ -43,6 +43,7 @@ pub mod markup;
 pub mod network_agent;
 pub mod vpn_secrets;
 pub mod media;
+pub mod a11y;
 pub mod a11y_menu;
 pub mod dock;
 pub mod desktop_icons;

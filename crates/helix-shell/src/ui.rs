@@ -53,6 +53,7 @@ use crate::windows::{SwitchEntry, SwitchMode, Switcher, WindowAction};
 use std::collections::HashMap;
 
 mod app_grid;
+mod atspi;
 mod background;
 mod break_screen;
 mod calendar;
@@ -313,6 +314,8 @@ struct Ui {
     ime_menu: Vec<(String, crate::ibus::PropKind, u32)>,
     /// The accessibility switches.
     a11y: crate::a11y_menu::Status,
+    /// The shell's interface on the accessibility bus.
+    atspi: atspi::AtSpi,
     exit: bool,
 }
 
@@ -514,6 +517,8 @@ struct LockView {
     switch_user: Option<Rect>,
     /// Restart and Power Off (`restart-enabled`).
     power_hits: Vec<(Rect, LockPowerHit)>,
+    /// Its output's place in the layout.
+    origin: (i32, i32),
 }
 
 /// Clear a password buffer, overwriting its bytes first.
@@ -1755,6 +1760,7 @@ impl Ui {
         view.hits = lock_extras::paint_lock_extras(&mut canvas, (text, self.bold.as_ref()), w as i32, fy + 110, self.lock_extras.media.as_ref(), &counts, &icons);
         // Restart and Power Off at the bottom left (`restart-enabled`).
         view.power_hits.clear();
+        let mut asked = None;
         if crate::screensaver_flag("restart-enabled", false) && (self.power.restart || self.power.power_off) {
             let button = |canvas: &mut Canvas, x: i32, label_text: &str, strong: bool| -> Rect {
                 let bw = text.map_or(100.0, |t| t.width(label_text, 15.0)).ceil() as i32 + 32;
@@ -1784,6 +1790,7 @@ impl Ui {
                         ly += 22;
                     }
                     label(text, &mut canvas, question, 24.0, (h as i32 - 36 - 24 - 14) as f32, 15.0, FG, w as f32 / 2.0);
+                    asked = Some((question, if anyway { shown } else { Vec::new() }));
                     let cancel = button(&mut canvas, 24, "Cancel", false);
                     view.power_hits.push((cancel, LockPowerHit::Cancel));
                     let confirm = button(&mut canvas, cancel.x + cancel.w + 12, verb, true);
@@ -1811,6 +1818,9 @@ impl Ui {
             label(text, &mut canvas, SWITCH, (r.x + 16) as f32, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
             view.switch_user = Some(r);
         }
+        // The same on the accessibility bus.
+        let nodes = self.lock_a11y(view, &clock, field, asked, &counts);
+        self.atspi_record(view.surface.wl_surface(), nodes);
 
         let surface = view.surface.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -2233,6 +2243,9 @@ impl Ui {
         }
         overlay.hits = vec![(cancel, OverlayHit::Cancel), (confirm, OverlayHit::Confirm)];
         overlay.hits.extend(extra_hits);
+        let list = blocked.then_some((list_header, blockers.as_slice()));
+        let node = atspi::dialog(&title, &message, list, install, &overlay.hits, (cancel_label, &confirm_label));
+        self.atspi_record(overlay.layer.wl_surface(), vec![node]);
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
@@ -2313,7 +2326,9 @@ impl Ui {
                 hits.push((share, OverlayHit::Confirm));
             }
         }
+        let node = atspi::share_dialog(&message, *remember, sources, *multiple, picked, &hits);
         overlay.hits = hits;
+        self.atspi_record(overlay.layer.wl_surface(), vec![node]);
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
@@ -3040,6 +3055,7 @@ pub fn run(
         panel_tooltip: None,
         source_label: None,
         a11y: crate::a11y_menu::Status::default(),
+        atspi: Default::default(),
         ime_props: Vec::new(),
         ime_menu: Vec::new(),
         search_serial: 0,
@@ -3091,6 +3107,8 @@ pub fn run(
         })
         .map_err(|e| format!("cannot start UI timer: {e}"))?;
 
+    ui.atspi_start(&handle);
+
     tracing::info!("shell UI running");
     while !ui.exit {
         if let Err(err) = event_loop.dispatch(None, &mut ui) {
@@ -3099,6 +3117,7 @@ pub fn run(
             tracing::warn!(%err, "lost the compositor connection; shell UI stopping");
             break;
         }
+        ui.atspi_sync();
     }
     Ok(())
 }
@@ -3597,7 +3616,8 @@ impl SessionLockHandler for Ui {
         for output in self.output_state.outputs() {
             let surface = self.compositor.create_surface(qh);
             let lock_surface = session_lock.create_lock_surface(surface, &output, qh);
-            self.lock.surfaces.push(LockView { surface: lock_surface, width: 0, height: 0, hits: Vec::new(), switch_user: None, power_hits: Vec::new() });
+            let origin = self.output_state.info(&output).and_then(|i| i.logical_position).unwrap_or_default();
+            self.lock.surfaces.push(LockView { surface: lock_surface, width: 0, height: 0, hits: Vec::new(), switch_user: None, power_hits: Vec::new(), origin });
         }
         self.lock_extras_start();
         tracing::info!(surfaces = self.lock.surfaces.len(), "session locked");

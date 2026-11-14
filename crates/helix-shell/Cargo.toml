@@ -43,6 +43,9 @@ zune-jpeg = "0.5"
 image-webp = "0.2"
 jxl-oxide = "0.12"
 roxmltree = "0.20"
+# The shell's own interface on the accessibility bus (AT-SPI).
+accesskit = "0.25"
+accesskit_unix = { version = "0.24", default-features = false, features = ["tokio"] }
 
 [features]
 # DEVELOPMENT ONLY: the lock screen accepts the password "helix-test"

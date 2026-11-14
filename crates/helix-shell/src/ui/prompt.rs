@@ -566,11 +566,67 @@ impl Ui {
         }
         hits.push((cancel, OverlayHit::Cancel));
         hits.push((confirm, OverlayHit::Confirm));
+        let node = a11y(view, &hits, status, (cancel_label, confirm_label));
         overlay.hits = hits;
+        self.atspi_record(overlay.layer.wl_surface(), vec![node]);
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
     }
+}
+
+/// The prompt on the accessibility bus (`ui/atspi.rs`): the texts, fields
+/// and buttons painted, focus on the field that takes typing.
+fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, confirm): (&str, &str)) -> crate::a11y::Node {
+    use crate::a11y::{Node, Role};
+    let p = &view.prompt;
+    let at = |hit: OverlayHit| hits.iter().find(|(_, h)| *h == hit).map(|(r, _)| crate::a11y::Rect::from(*r)).unwrap_or_default();
+    let typing = |f: usize| view.focus == f && !view.busy;
+    let mut out = Node::new(Role::Dialog, &p.title).id("prompt").modal();
+    for text in [&p.message, &p.description] {
+        if !text.is_empty() {
+            out = out.child(Node::label(text));
+        }
+    }
+    if !p.places.is_empty() {
+        let places = p.places.iter().enumerate().take(PLACES_SHOWN).map(|(i, name)| Node::button(name, at(OverlayHit::Place(i))).selected(p.place_current == Some(i)));
+        out = out.child(Node::new(Role::List, "Places").children(places));
+    }
+    if !p.list.is_empty() {
+        let list_focused = view.focus == 2 && p.choice.is_none() && !view.busy;
+        let rows = p.list.iter().enumerate().filter(|(i, _)| hits.iter().any(|(_, h)| *h == OverlayHit::Row(*i))).map(|(i, name)| {
+            let on = if p.multiple { view.picked[i] } else { i == view.selected };
+            Node::new(Role::ListBoxOption, name).id(format!("row:{i}")).at(at(OverlayHit::Row(i))).click().selected(on).focused(list_focused && i == view.selected)
+        });
+        out = out.child(Node::new(Role::ListBox, "").children(rows));
+    }
+    if let Some((name, _)) = &p.entry {
+        out = out.child(Node::text_field(Role::TextInput, name, &view.entry, at(OverlayHit::Field(3))).id("entry").focused(typing(3)));
+    }
+    for (index, field) in [&p.password, &p.confirm].into_iter().enumerate() {
+        let Some(name) = field else { continue };
+        let r = at(OverlayHit::Field(index));
+        let node = if view.shown[index] {
+            Node::text_field(Role::TextInput, name, &view.fields[index], r)
+        } else {
+            Node::text_field(Role::PasswordInput, name, Node::mask(&view.fields[index]), r)
+        };
+        out = out.child(node.id(format!("password:{index}")).focused(typing(index)));
+        if view.can_show {
+            out = out.child(Node::new(Role::Button, "Show Password").id(format!("show:{index}")).at(at(OverlayHit::ShowPassword(index))).click().toggled(view.shown[index]));
+        }
+    }
+    if let Some((name, _)) = &p.choice {
+        out = out.child(Node::new(Role::CheckBox, name).id("choice").at(at(OverlayHit::Toggle)).click().toggled(view.choice).focused(typing(2)));
+    }
+    for (i, (name, _)) in p.checks.iter().enumerate() {
+        out = out.child(Node::new(Role::CheckBox, name).id(format!("check:{i}")).at(at(OverlayHit::Check(i))).click().toggled(view.checks[i]).focused(typing(CHECK_FOCUS + i)));
+    }
+    if !status.is_empty() {
+        out = out.child(Node::label(status).id("status").live());
+    }
+    let nothing_focused = out.find(&|n| n.focused).is_none();
+    out.child(Node::button(cancel, at(OverlayHit::Cancel)).id("cancel")).child(Node::button(confirm, at(OverlayHit::Confirm)).id("confirm").disabled(view.busy).focused(nothing_focused && !view.busy))
 }

@@ -738,3 +738,12 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
     view.grid.folder_title = folder_title;
     view.grid.folder_cells = folder_cells;
 }
+
+impl GridView {
+    /// What the last paint showed, for the accessibility bus
+    /// (`ui/atspi.rs`): the page's cells, the open folder's cells, the
+    /// selected item, the page dots and the page.
+    pub(super) fn a11y(&self) -> super::atspi::GridShown<'_> {
+        (&self.cells, &self.folder_cells, self.selected, &self.dots, self.page)
+    }
+}

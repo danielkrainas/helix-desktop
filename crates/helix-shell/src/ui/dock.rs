@@ -1768,3 +1768,12 @@ fn draw_indicator(canvas: &mut Canvas, style: logic::Indicator, edge: Edge, cell
         }
     }
 }
+
+impl Ui {
+    /// Each dock shown, for the accessibility bus (`ui/atspi.rs`): its
+    /// surface, monitor area and size, and its items where they are.
+    pub(super) fn dock_a11y(&self) -> Vec<super::atspi::DockShown<'_>> {
+        let views = self.dock.views.iter().filter(|v| v.configured && v.width > 0);
+        views.filter_map(|v| Some((v.layer.as_ref()?.wl_surface(), v.area, (v.width, v.height), v.hits.iter().filter_map(|(r, i)| Some((*r, v.items.get(*i)?))).collect()))).collect()
+    }
+}
