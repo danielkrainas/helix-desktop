@@ -212,17 +212,23 @@ fn decode_svg(data: &[u8], base: &Path) -> Result<Image, String> {
 /// Decode a picture file, by its content.
 pub fn decode(path: &Path) -> Result<Image, String> {
     let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    decode_bytes(&data, path)
+}
+
+/// Decode a picture from its bytes, by their content; `path` names it in
+/// errors (and an SVG's relative references are found from it).
+pub fn decode_bytes(data: &[u8], path: &Path) -> Result<Image, String> {
     let head = &data[..data.len().min(512)];
     if head.starts_with(b"\x89PNG") {
-        decode_png(&data)
+        decode_png(data)
     } else if head.starts_with(&[0xFF, 0xD8]) {
-        decode_jpeg(&data)
+        decode_jpeg(data)
     } else if head.len() >= 12 && &head[..4] == b"RIFF" && &head[8..12] == b"WEBP" {
-        decode_webp(&data)
+        decode_webp(data)
     } else if head.starts_with(&[0xFF, 0x0A]) || head.starts_with(&[0, 0, 0, 0x0C, b'J', b'X', b'L', b' ']) {
-        decode_jxl(&data)
+        decode_jxl(data)
     } else if String::from_utf8_lossy(head).contains("<svg") {
-        decode_svg(&data, path)
+        decode_svg(data, path)
     } else {
         Err(format!("{}: unknown picture format", path.display()))
     }

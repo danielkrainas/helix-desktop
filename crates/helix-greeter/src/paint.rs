@@ -23,7 +23,6 @@ const MENU_BORDER: u32 = 0xFF3C3D48;
 /// The background: a vertical gradient.
 const BG_TOP: u32 = 0xFF262A3B;
 const BG_BOTTOM: u32 = 0xFF0F1015;
-const AVATARS: [u32; 7] = [0xFF1C71D8, 0xFF26A269, 0xFFC64600, 0xFF813D9C, 0xFFA51D2D, 0xFF865E3C, 0xFF5E5C64];
 
 const ROW_H: i32 = 56;
 const ROW_GAP: i32 = 6;
@@ -158,12 +157,8 @@ fn field_contents(canvas: &mut Canvas, text: Option<&Text>, field: Rect, value: 
 /// A round picture standing in for the user: their initial on a color
 /// picked from their name.
 fn avatar(canvas: &mut Canvas, text: Option<&Text>, name: &str, cx: i32, cy: i32, r: i32) {
-    let hash = name.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b)));
-    canvas.circle(f64::from(cx), f64::from(cy), f64::from(r), AVATARS[hash as usize % AVATARS.len()]);
-    let initial: String = name.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
-    let px = r as f32 * 0.9;
-    let x = cx as f32 - width(text, &initial, px) / 2.0;
-    label(canvas, text, &initial, x, baseline(text, cy - r, 2 * r, px), px, FG, f32::MAX);
+    // The lock screen's avatar: the same colors and initials.
+    helix_draw::screen::avatar(canvas, text, None, name, None, f64::from(cx), f64::from(cy), f64::from(r), 1.0);
 }
 
 /// A push button; `strong` for the action of a question.

@@ -7,6 +7,10 @@
 
 use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
 
+pub mod backdrop;
+pub mod motion;
+pub mod screen;
+
 /// An ARGB8888 (premultiplied, little-endian) pixel buffer. Drawing takes
 /// logical coordinates (surface-local); `scale` turns them into the
 /// buffer's pixels.
@@ -252,6 +256,11 @@ impl Text {
         font_candidates().into_iter().find_map(|path| load_path(&path))
     }
 
+    /// Load the font file at `path`.
+    pub fn load_file(path: &str) -> Option<Self> {
+        load_path(path)
+    }
+
     /// Load the font fontconfig picks for `pattern` (e.g.
     /// `Adwaita Sans:bold`), else the system sans-serif font.
     pub fn load_matching(pattern: &str) -> Option<Self> {
@@ -467,6 +476,92 @@ impl Canvas<'_> {
     /// (bilinear sampling).
     pub fn image(&mut self, x: f64, y: f64, w: f64, h: f64, image: &Image) {
         self.image_alpha(x, y, w, h, image, 1.0);
+    }
+
+    /// Draw `image` to cover the logical rectangle (x, y, w, h) (cropped
+    /// to its aspect, centered) inside corners of radius `r`, with an
+    /// anti-aliased edge; `r` of half the size makes a circle.
+    #[allow(clippy::too_many_arguments)]
+    pub fn image_rounded(&mut self, x: f64, y: f64, w: f64, h: f64, r: f64, image: &Image, opacity: f32) {
+        if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 {
+            return;
+        }
+        // The part of the image shown: centered, the box's aspect.
+        let (iw, ih) = (image.width as f64, image.height as f64);
+        let k = (w / iw).max(h / ih);
+        let (cw, ch) = (w / k, h / k);
+        let (cx0, cy0) = ((iw - cw) / 2.0, (ih - ch) / 2.0);
+        let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
+        let (mx, my, hw, hh) = (x + w / 2.0, y + h / 2.0, w / 2.0 - r, h / 2.0 - r);
+        let s = self.scale;
+        let (px0, py0) = ((x * s).floor() as i32, (y * s).floor() as i32);
+        let (px1, py1) = (((x + w) * s).ceil() as i32, ((y + h) * s).ceil() as i32);
+        let texel = |ix: usize, iy: usize| -> [f32; 4] {
+            let i = (iy * image.width + ix) * 4;
+            let p = &image.rgba[i..i + 4];
+            [f32::from(p[0]), f32::from(p[1]), f32::from(p[2]), f32::from(p[3])]
+        };
+        for py in py0.max(0)..py1.min(self.height as i32) {
+            for px in px0.max(0)..px1.min(self.width as i32) {
+                let (lx, ly) = ((f64::from(px) + 0.5) / s, (f64::from(py) + 0.5) / s);
+                let (dx, dy) = ((lx - mx).abs() - hw, (ly - my).abs() - hh);
+                let outside = (dx.max(0.0).powi(2) + dy.max(0.0).powi(2)).sqrt() + dx.max(dy).min(0.0);
+                let cov = ((r - outside) * s + 0.5).clamp(0.0, 1.0) as f32 * opacity.clamp(0.0, 1.0);
+                if cov <= 0.0 {
+                    continue;
+                }
+                let sx = (cx0 + (lx - x) / k - 0.5).clamp(0.0, iw - 1.0);
+                let sy = (cy0 + (ly - y) / k - 0.5).clamp(0.0, ih - 1.0);
+                let (x0, y0) = (sx.floor() as usize, sy.floor() as usize);
+                let (x1, y1) = ((x0 + 1).min(image.width - 1), (y0 + 1).min(image.height - 1));
+                let (fx, fy) = ((sx - x0 as f64) as f32, (sy - y0 as f64) as f32);
+                let mix = |a: [f32; 4], b: [f32; 4], t: f32| [0, 1, 2, 3].map(|k| a[k] + (b[k] - a[k]) * t);
+                let [cr, cg, cb, ca] = mix(mix(texel(x0, y0), texel(x1, y0), fx), mix(texel(x0, y1), texel(x1, y1), fx), fy).map(|c| c * cov);
+                let i = (py as usize * self.width + px as usize) * 4;
+                let dst = &mut self.data[i..i + 4];
+                let inv = 1.0 - ca / 255.0;
+                for (k, src) in [cb, cg, cr, ca].into_iter().enumerate() {
+                    dst[k] = (src + f32::from(dst[k]) * inv).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+
+    /// An anti-aliased outline `width` thick just outside the rounded
+    /// rectangle (x, y, w, h) of corner radius `r`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn round_outline(&mut self, x: f64, y: f64, w: f64, h: f64, r: f64, width: f64, color: u32) {
+        let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
+        let (cx, cy, hw, hh) = (x + w / 2.0, y + h / 2.0, w / 2.0 - r, h / 2.0 - r);
+        self.shape(x - width, y - width, x + w + width, y + h + width, |px, py| {
+            let (dx, dy) = ((px - cx).abs() - hw, (py - cy).abs() - hh);
+            let d = (dx.max(0.0).powi(2) + dy.max(0.0).powi(2)).sqrt() + dx.max(dy).min(0.0) - r;
+            // Inside the band 0..width beyond the edge.
+            (d).min(width - d)
+        }, color);
+    }
+
+    /// An arc of a circle of radius `r` around (cx, cy), `width` thick,
+    /// from angle `start` sweeping `sweep` radians clockwise (0: to the
+    /// right), with round ends.
+    #[allow(clippy::too_many_arguments)]
+    pub fn arc(&mut self, cx: f64, cy: f64, r: f64, width: f64, start: f64, sweep: f64, color: u32) {
+        let half = width / 2.0;
+        let tau = std::f64::consts::TAU;
+        let sweep = sweep.clamp(0.0, tau);
+        let end = |a: f64| (cx + r * a.cos(), cy + r * a.sin());
+        let (a, b) = (end(start), end(start + sweep));
+        self.shape(cx - r - half, cy - r - half, cx + r + half, cy + r + half, |x, y| {
+            let angle = ((y - cy).atan2(x - cx) - start).rem_euclid(tau);
+            let ring = half - (((x - cx).powi(2) + (y - cy).powi(2)).sqrt() - r).abs();
+            if angle <= sweep {
+                ring
+            } else {
+                // Round caps at both ends.
+                let cap = |p: (f64, f64)| half - ((x - p.0).powi(2) + (y - p.1).powi(2)).sqrt();
+                cap(a).max(cap(b))
+            }
+        }, color);
     }
 
     /// [`Canvas::image`] at `opacity` (0 to 1).

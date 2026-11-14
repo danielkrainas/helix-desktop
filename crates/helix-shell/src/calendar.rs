@@ -27,6 +27,10 @@ pub struct Player {
     pub title: String,
     pub artist: String,
     pub playing: bool,
+    /// The track's art (`mpris:artUrl`), and the player's desktop file
+    /// id (`DesktopEntry`): may be empty.
+    pub art_url: String,
+    pub desktop_entry: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -208,7 +212,9 @@ pub async fn player(conn: &Connection) -> Option<Player> {
         .unwrap_or_default();
     let identity = root.get_property::<String>("Identity").await.unwrap_or_else(|_| name.trim_start_matches("org.mpris.MediaPlayer2.").to_owned());
     let playing = player.get_property::<String>("PlaybackStatus").await.is_ok_and(|s| s == "Playing");
-    Some(Player { identity, title, artist, playing })
+    let art_url = metadata.get("mpris:artUrl").and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default();
+    let desktop_entry = root.get_property::<String>("DesktopEntry").await.unwrap_or_default();
+    Some(Player { identity, title, artist, playing, art_url, desktop_entry })
 }
 
 #[cfg(test)]

@@ -23,6 +23,26 @@ impl Ui {
         self.icon_cache.entry(key).or_insert_with(|| crate::icons::symbolic(name, px, rgb)).clone()
     }
 
+    /// A symbolic icon `logical` px large in the panel's text color,
+    /// cached.
+    pub(super) fn symbolic_icon_px(&mut self, name: &str, logical: f64, scale: f64) -> Option<Image> {
+        let px = (logical * scale).round() as u32;
+        let key = format!("sym:{name}@{px}");
+        let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];
+        self.icon_cache.entry(key).or_insert_with(|| crate::icons::symbolic(name, px, rgb)).clone()
+    }
+
+    /// The icon of the app with desktop file id `id`, `logical` px large,
+    /// cached.
+    pub(super) fn app_icon_px(&mut self, id: &str, logical: f64, scale: f64) -> Option<Image> {
+        if id.is_empty() {
+            return None;
+        }
+        let px = (logical * scale).round() as u32;
+        let key = format!("app:{id}@{px}");
+        self.icon_cache.entry(key).or_insert_with(|| crate::icons::IconSource::for_app(id).and_then(|s| crate::icons::load(&s, px))).clone()
+    }
+
     /// The status area's items, right to left.
     pub(super) fn status_items(&mut self, scale: f64) -> Vec<StatusItem> {
         let status = self.status.clone();

@@ -105,6 +105,22 @@ pub fn lock_screen(f: ClockFormat, d: &DateTime) -> String {
     time_of_day(f, d)
 }
 
+/// The lock screen's clock in two parts: the digits, and in 12-hour
+/// format the AM/PM suffix (drawn smaller).
+pub fn lock_screen_parts(f: ClockFormat, d: &DateTime) -> (String, Option<String>) {
+    if f.twelve_hour {
+        (format(d, "%l:%M"), Some(format(d, "%p")).filter(|s| !s.is_empty()))
+    } else {
+        (format(d, "%H:%M"), None)
+    }
+}
+
+/// The lock screen's date line, e.g. "Thursday, November 12" (names in
+/// the locale's language).
+pub fn lock_date(d: &DateTime) -> String {
+    format(d, "%A, %B %e")
+}
+
 /// Now, in local time.
 pub fn now() -> Option<DateTime> {
     DateTime::now_local().ok()
@@ -134,5 +150,8 @@ mod tests {
         assert_eq!(top_bar(twelve, &d), "2:05 PM");
         assert_eq!(top_bar(ClockFormat { seconds: true, ..twelve }, &at(0, 30, 0.0)), "12:30:00 AM");
         assert_eq!(lock_screen(ClockFormat { seconds: true, ..twelve }, &d), "2:05 PM");
+        assert_eq!(lock_screen_parts(twelve, &d), ("2:05".to_owned(), Some("PM".to_owned())));
+        assert_eq!(lock_screen_parts(f, &d), ("14:05".to_owned(), None));
+        assert_eq!(lock_date(&d), "Thursday, November 12");
     }
 }

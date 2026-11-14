@@ -43,6 +43,7 @@ pub mod markup;
 pub mod network_agent;
 pub mod vpn_secrets;
 pub mod media;
+pub mod media_art;
 pub mod a11y;
 pub mod a11y_menu;
 pub mod dock;
@@ -74,6 +75,7 @@ pub mod text;
 pub mod ui;
 pub mod tray;
 pub mod usb_protection;
+pub mod user_identity;
 pub mod user_switch;
 pub mod wallpaper;
 pub mod weather;
@@ -190,6 +192,10 @@ pub enum UiEvent {
     Calendar(Box<calendar::CalendarData>),
     /// The media player for the lock screen.
     LockMedia(Option<calendar::Player>),
+    /// Who the lock screen shows: real name and picture.
+    LockIdentity(Box<user_identity::Identity>),
+    /// Album art read for the lock screen (its URL), if it could be.
+    LockArt(String, Option<helix_draw::Image>),
     /// Show (or update, or with `None` hide) the break screen.
     Break(Option<wellbeing::BreakView>),
     /// `org.gnome.desktop.notifications show-banners` changed.
@@ -350,6 +356,11 @@ pub enum UiRequest {
     LockPower(PowerAction),
     /// The lock screen asks which apps hold up logout.
     LockBlockers,
+    /// The lock screen asks who the user is (AccountsService), for login
+    /// name `.0`.
+    LockIdentity(String),
+    /// The lock screen wants the album art at this URL.
+    LockArt(String),
     /// The user kept or reverted a display change (or time ran out).
     DisplayChangeAnswer { keep: bool },
     /// A screenshot, brightness or volume key was pressed.
@@ -1185,6 +1196,23 @@ impl UiBridge {
             }
             UiRequest::RunningApps(apps) => {
                 portal_dialog::set_running(&self.conn, apps).await;
+                Ok(())
+            }
+            UiRequest::LockArt(url) => {
+                let ui = self.ui.clone();
+                tokio::task::spawn_blocking(move || {
+                    let art = media_art::fetch(&url);
+                    let _ = ui.send(UiEvent::LockArt(url, art));
+                });
+                Ok(())
+            }
+            UiRequest::LockIdentity(login) => {
+                let ui = self.ui.clone();
+                tokio::spawn(async move {
+                    let system = zbus::Connection::system().await.ok();
+                    let identity = user_identity::read(system.as_ref(), &login).await;
+                    let _ = ui.send(UiEvent::LockIdentity(Box::new(identity)));
+                });
                 Ok(())
             }
             UiRequest::LockBlockers => {

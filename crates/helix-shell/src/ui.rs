@@ -50,6 +50,7 @@ use smithay_client_toolkit::reexports::client::{Dispatch, Proxy, WEnum};
 use smithay_client_toolkit::reexports::calloop::LoopHandle;
 use helix_protocols::client::helix_screenshot_manager_v1::HelixScreenshotManagerV1;
 use crate::windows::{SwitchEntry, SwitchMode, Switcher, WindowAction};
+use helix_draw::motion::{Motion, Tween};
 use std::collections::HashMap;
 
 mod app_grid;
@@ -73,6 +74,7 @@ mod panel_editor;
 mod panel_tooltip;
 mod prompt;
 mod quick;
+mod lock;
 mod lock_extras;
 mod scale;
 mod status;
@@ -157,6 +159,8 @@ struct Ui {
     text: Option<Text>,
     /// The bold face of the UI font (summaries, bold markup).
     bold: Option<Text>,
+    /// The face of big clocks (light, else bold).
+    display: Option<Text>,
     notify: notify::NotifyState,
     /// The message tray's calendar column.
     calendar: calendar::CalendarState,
@@ -253,6 +257,9 @@ struct Ui {
     background_pool: Option<SlotPool>,
     desktop_background: crate::wallpaper::Background,
     lock_background: crate::wallpaper::Background,
+    /// Bumped when the lock background changes (its blurred copies are
+    /// made again).
+    lock_background_serial: u64,
     /// Where windows are, from the compositor (window list v8).
     window_geometry: HashMap<u32, overview::Geometry>,
     /// The primary monitor's area (x, y, w, h).
@@ -490,13 +497,46 @@ struct LockScreen {
     message: Option<String>,
     checking: bool,
     auth: Arc<dyn Authenticator>,
+    /// The login name (what is checked).
     user: String,
+    /// What the lock screen calls the user, and their picture.
+    identity: crate::user_identity::Identity,
     /// Results of password checks, from the worker thread.
     results: channel::Sender<Result<(), AuthError>>,
     /// Restart or Power Off asked on the lock screen, to be confirmed.
     confirming: Option<PowerAction>,
     /// Apps holding up logout while confirming.
     blockers: Vec<(String, String)>,
+    /// The button under the pointer and the one pressed (on their
+    /// surface), and the one with the keyboard focus (`None`: the field).
+    hover: Option<(wl_surface::WlSurface, lock::LockHit)>,
+    pressed: Option<(wl_surface::WlSurface, lock::LockHit)>,
+    focus: Option<lock::LockHit>,
+    /// How many characters are being checked (shown as dots meanwhile),
+    /// and since when.
+    checked_len: usize,
+    checking_since: Instant,
+    /// The last check failed: the field's ring shows it until a key.
+    failed: bool,
+    /// When the field was shaken (a wrong password).
+    shaken: Option<Instant>,
+    /// The monitor (its place) the prompt was moved to by a click.
+    prompt_at: Option<(i32, i32)>,
+    /// The prompt is shown (else the resting state), how far it got
+    /// (0 to 1), and when the user last did something.
+    revealed: bool,
+    reveal: Tween,
+    last_input: Instant,
+    /// The lock screen's opacity over its background: fading in after
+    /// locking, out before unlocking (`exiting`).
+    shown: Tween,
+    exiting: bool,
+    /// What moves: read when the screen locks.
+    motion: Motion,
+    /// Frames are drawn until then (something moves).
+    animate_until: Option<Instant>,
+    /// The next frame's timer.
+    frame_timer: Option<smithay_client_toolkit::reexports::calloop::RegistrationToken>,
 }
 
 /// The lock screen's Restart and Power Off buttons.
@@ -509,17 +549,24 @@ enum LockPowerHit {
 
 struct LockView {
     surface: SessionLockSurface,
+    output: wl_output::WlOutput,
     width: u32,
     height: u32,
-    /// The media buttons.
-    hits: Vec<(Rect, crate::shell_keys::Playback)>,
-    /// "Switch User…", when offered.
-    switch_user: Option<Rect>,
-    /// Restart and Power Off (`restart-enabled`).
-    power_hits: Vec<(Rect, LockPowerHit)>,
+    /// What its buttons do, where the last paint put them.
+    hits: Vec<(Rect, lock::LockHit)>,
     /// Its output's place in the layout.
     origin: (i32, i32),
+    /// Its background, blurred and toned once, and for what.
+    backdrop: Option<(lock::BackdropKey, Vec<u8>)>,
 }
+
+/// Lock screen transitions: the UI fading in after locking, out before
+/// unlocking, the prompt shown from the resting state; and how long the
+/// prompt stays without input before it rests again.
+const LOCK_ENTER: Duration = Duration::from_millis(280);
+const LOCK_EXIT: Duration = Duration::from_millis(180);
+const LOCK_REVEAL: Duration = Duration::from_millis(240);
+const LOCK_IDLE: Duration = Duration::from_secs(30);
 
 /// Clear a password buffer, overwriting its bytes first.
 fn wipe(s: &mut String) {
@@ -533,8 +580,23 @@ fn clock_text() -> String {
     crate::clock::now().map(|d| crate::clock::top_bar(crate::clock::current(), &d)).unwrap_or_else(|| "--:--".into())
 }
 
+/// The lock screen's clock: the time, its AM/PM suffix (12-hour format)
+/// and the date line.
+fn lock_clock() -> (String, Option<String>, String) {
+    match crate::clock::now() {
+        Some(d) => {
+            let (time, suffix) = crate::clock::lock_screen_parts(crate::clock::current(), &d);
+            (time, suffix, crate::clock::lock_date(&d))
+        }
+        None => ("--:--".into(), None, String::new()),
+    }
+}
+
+/// What the lock screen's clock shows, to tell when it changes (the
+/// minute, the day).
 fn lock_clock_text() -> String {
-    crate::clock::now().map(|d| crate::clock::lock_screen(crate::clock::current(), &d)).unwrap_or_else(|| "--:--".into())
+    let (time, suffix, date) = lock_clock();
+    format!("{time} {} {date}", suffix.unwrap_or_default())
 }
 
 /// Baseline that vertically centers text of size `px` in a box.
@@ -1615,6 +1677,15 @@ impl Ui {
 
     fn start_lock(&mut self) {
         if self.lock.session.is_some() {
+            // Asked to lock while fading out after an unlock: stay locked.
+            if self.lock.exiting {
+                self.lock.exiting = false;
+                let d = self.lock_duration(LOCK_ENTER);
+                self.lock.shown.go(1.0, d);
+                self.lock_animate_for(d);
+                self.lock_reveal(false);
+                self.draw_lock();
+            }
             return;
         }
         self.finish_pick(crate::screenshot::Picked::Cancelled);
@@ -1623,6 +1694,18 @@ impl Ui {
             self.answer_dialog(Choice::Canceled);
         }
         self.close_launcher(true);
+        // Who is shown (AccountsService may have changed it).
+        let _ = self.requests.send(UiRequest::LockIdentity(self.lock.user.clone()));
+        self.lock.motion = crate::item_feedback::motion();
+        // It starts resting; the UI fades in once the compositor says the
+        // session is locked.
+        self.lock.revealed = false;
+        self.lock.reveal = Tween::still(0.0);
+        self.lock.shown = Tween::still(0.0);
+        self.lock.exiting = false;
+        self.lock.focus = None;
+        self.lock.prompt_at = None;
+        self.lock.failed = false;
         match self.lock.state.lock(&self.qh) {
             Ok(session) => {
                 self.lock.session = Some(session);
@@ -1636,23 +1719,78 @@ impl Ui {
     }
 
     fn lock_key(&mut self, event: &KeyEvent) {
-        if self.lock.checking {
+        if self.lock.checking || self.lock.exiting {
             return;
         }
+        // Resting: any key shows the prompt; a character also goes in
+        // the field (the first key is never lost).
+        if !self.lock.revealed {
+            self.lock_reveal(true);
+            let printable = event.utf8.as_ref().is_some_and(|t| t.chars().any(|c| !c.is_control()));
+            if !printable {
+                return;
+            }
+        }
+        self.lock.last_input = Instant::now();
+        // Escape on an empty field: back to resting.
+        if event.keysym == Keysym::Escape && self.lock.password.is_empty() && self.lock.confirming.is_none() && self.lock.focus.is_none() {
+            self.lock_reveal(false);
+            return;
+        }
+        // The keyboard among the buttons: Tab moves, Return or Space
+        // presses, Escape answers the question with Cancel.
+        let shift = self.mods.shift;
         match event.keysym {
-            Keysym::Return | Keysym::KP_Enter => self.submit_password(),
+            Keysym::Tab | Keysym::ISO_Left_Tab => {
+                self.lock_move_focus(!shift && event.keysym == Keysym::Tab);
+                self.draw_lock();
+                return;
+            }
+            Keysym::Left | Keysym::Right if self.lock.confirming.is_some() => {
+                self.lock_move_focus(event.keysym == Keysym::Right);
+                self.draw_lock();
+                return;
+            }
+            Keysym::Escape if self.lock.confirming.is_some() => {
+                self.lock_activate(lock::LockHit::Power(LockPowerHit::Cancel));
+                return;
+            }
+            Keysym::Return | Keysym::KP_Enter | Keysym::space if self.lock.focus.is_some() => {
+                if let Some(hit) = self.lock.focus {
+                    self.lock_activate(hit);
+                }
+                return;
+            }
+            _ if self.lock.confirming.is_some() => return,
+            _ => {}
+        }
+        // Anything else goes to the field.
+        self.lock.focus = None;
+        let typed = match event.keysym {
+            Keysym::Return | Keysym::KP_Enter => {
+                self.submit_password();
+                false
+            }
             Keysym::Escape => {
                 wipe(&mut self.lock.password);
                 self.lock.message = None;
+                true
             }
             Keysym::BackSpace => {
                 self.lock.password.pop();
+                true
             }
-            _ => {
-                if let Some(text) = &event.utf8 {
+            _ => match &event.utf8 {
+                Some(text) if text.chars().any(|c| !c.is_control()) => {
                     self.lock.password.extend(text.chars().filter(|c| !c.is_control()));
+                    true
                 }
-            }
+                _ => false,
+            },
+        };
+        // Typing again: the failure is over.
+        if typed {
+            self.lock.failed = false;
         }
         self.draw_lock();
     }
@@ -1661,8 +1799,11 @@ impl Ui {
         if self.lock.password.is_empty() {
             return;
         }
+        self.lock.checked_len = self.lock.password.chars().count();
         let secret = Secret::new(std::mem::take(&mut self.lock.password));
         self.lock.checking = true;
+        self.lock.checking_since = Instant::now();
+        self.lock.failed = false;
         self.lock.message = Some("Checking…".into());
         let auth = self.lock.auth.clone();
         let user = self.lock.user.clone();
@@ -1676,151 +1817,236 @@ impl Ui {
 
     fn password_checked(&mut self, result: Result<(), AuthError>) {
         self.lock.checking = false;
+        self.lock.checked_len = 0;
         match result {
             Ok(()) => {
                 tracing::info!("unlocking");
-                if let Some(session) = self.lock.session.take() {
-                    session.unlock();
-                    self.lock.confirming = None;
+                // The lock screen fades out (still locked, still opaque),
+                // then the session shows.
+                let exit = self.lock_duration(LOCK_EXIT);
+                if exit.is_zero() {
+                    self.finish_unlock();
+                    return;
                 }
-                self.lock.surfaces.clear();
-                self.lock.message = None;
-                let _ = self.requests.send(UiRequest::Unlocked);
-                self.dock_update();
+                self.lock.exiting = true;
+                self.lock.shown.go(0.0, exit);
+                self.lock_animate_for(exit);
+                // However the frames go, never later than this.
+                match self.loop_handle.as_ref() {
+                    Some(handle) => {
+                        let _ = handle.insert_source(Timer::from_duration(exit + Duration::from_millis(40)), |_, _, ui: &mut Ui| {
+                            if ui.lock.exiting {
+                                ui.finish_unlock();
+                            }
+                            TimeoutAction::Drop
+                        });
+                    }
+                    None => self.finish_unlock(),
+                }
+                self.draw_lock();
             }
             Err(AuthError::Denied) => {
                 self.lock.message = Some("Incorrect password. Try again.".into());
+                self.lock.failed = true;
+                if self.lock.motion.moves() {
+                    self.lock.shaken = Some(Instant::now());
+                    self.lock_animate_for(helix_draw::motion::SHAKE);
+                }
                 self.draw_lock();
             }
             Err(AuthError::Unavailable(err)) => {
                 tracing::error!(%err, "cannot check passwords");
                 self.lock.message = Some(format!("Cannot check password: {err}"));
+                self.lock.failed = true;
                 self.draw_lock();
             }
         }
     }
 
     fn draw_lock(&mut self) {
-        let mut views = std::mem::take(&mut self.lock.surfaces);
-        for view in &mut views {
-            self.paint_lock(view);
-        }
-        self.lock.surfaces = views;
+        self.draw_lock_views(false);
     }
 
-    fn paint_lock(&mut self, view: &mut LockView) {
+    /// The session unlocks: the lock surfaces go and the session shows.
+    fn finish_unlock(&mut self) {
+        self.lock.exiting = false;
+        if let Some(session) = self.lock.session.take() {
+            session.unlock();
+            self.lock.confirming = None;
+        }
+        self.lock.surfaces.clear();
+        self.lock.message = None;
+        let _ = self.requests.send(UiRequest::Unlocked);
+        self.dock_update();
+    }
+
+    /// How long a lock screen transition of `full` takes with the motion
+    /// allowed: nothing without animations.
+    fn lock_duration(&self, full: Duration) -> Duration {
+        if self.lock.motion.fades() { full } else { Duration::ZERO }
+    }
+
+    /// Show the prompt (`true`) or go back to the resting state.
+    fn lock_reveal(&mut self, show: bool) {
+        self.lock.last_input = Instant::now();
+        if self.lock.revealed == show {
+            return;
+        }
+        self.lock.revealed = show;
+        let d = self.lock_duration(LOCK_REVEAL);
+        self.lock.reveal.go(if show { 1.0 } else { 0.0 }, d);
+        if !show {
+            wipe(&mut self.lock.password);
+            self.lock.focus = None;
+            self.lock.failed = false;
+            self.lock.message = None;
+        }
+        self.lock_animate_for(d);
+        self.draw_lock();
+    }
+
+    /// A lock surface for `output`.
+    fn add_lock_surface(&mut self, session: &SessionLock, output: wl_output::WlOutput, qh: &QueueHandle<Self>) {
+        if self.lock.surfaces.iter().any(|v| v.output == output) {
+            return;
+        }
+        let surface = self.compositor.create_surface(qh);
+        let lock_surface = session.create_lock_surface(surface, &output, qh);
+        let origin = self.output_state.info(&output).and_then(|i| i.logical_position).unwrap_or_default();
+        self.lock.surfaces.push(LockView { surface: lock_surface, output, width: 0, height: 0, hits: Vec::new(), origin, backdrop: None });
+    }
+
+    /// Draw the lock surfaces (`prompt_only`: just the one with the
+    /// prompt, when only it changes).
+    fn draw_lock_views(&mut self, prompt_only: bool) {
+        let prompt = self.lock_prompt_origin();
+        let mut views = std::mem::take(&mut self.lock.surfaces);
+        for view in &mut views {
+            let has_prompt = Some(view.origin) == prompt;
+            if has_prompt || !prompt_only {
+                self.paint_lock(view, has_prompt);
+            }
+        }
+        self.lock.surfaces = views;
+        self.lock_next_frame();
+    }
+
+    /// Where the monitor with the prompt is (helix-desktop-spec
+    /// `contracts/dbus/org.gnome.ScreenSaver.md`, "Monitors"): the one
+    /// last clicked, while it is there, else the primary monitor, else
+    /// the first.
+    pub(super) fn lock_prompt_origin(&self) -> Option<(i32, i32)> {
+        let shown = |origin: (i32, i32)| self.lock.surfaces.iter().any(|v| v.origin == origin && v.width > 0);
+        let primary = (self.primary_area.0, self.primary_area.1);
+        self.lock.prompt_at.filter(|o| shown(*o)).or_else(|| shown(primary).then_some(primary)).or_else(|| self.lock.surfaces.iter().find(|v| v.width > 0).map(|v| v.origin))
+    }
+
+    /// Something on the lock screen moves for `duration` from now: draw
+    /// frames until then (none when nothing may move).
+    fn lock_animate_for(&mut self, duration: Duration) {
+        if !self.lock.motion.fades() {
+            return;
+        }
+        let until = Instant::now() + duration;
+        if self.lock.animate_until.is_none_or(|t| t < until) {
+            self.lock.animate_until = Some(until);
+        }
+        self.lock_next_frame();
+    }
+
+    /// Whether the lock screen still moves.
+    fn lock_animating(&self) -> bool {
+        let spinning = self.lock.checking && self.lock.motion.moves();
+        self.lock.session.is_some() && (spinning || self.lock.animate_until.is_some_and(|t| Instant::now() < t))
+    }
+
+    /// Draw the lock screen again in a frame's time while it moves.
+    fn lock_next_frame(&mut self) {
+        if self.lock.frame_timer.is_some() || !self.lock_animating() {
+            return;
+        }
+        let Some(handle) = self.loop_handle.as_ref() else { return };
+        let token = handle.insert_source(Timer::from_duration(Duration::from_millis(16)), |_, _, ui: &mut Ui| {
+            ui.lock.frame_timer = None;
+            ui.lock_frame();
+            TimeoutAction::Drop
+        });
+        self.lock.frame_timer = token.ok();
+    }
+
+    /// A frame of the lock screen's movement.
+    fn lock_frame(&mut self) {
+        // Fading in or out: every monitor; else only the prompt moves (the
+        // spinner, the shake, the reveal).
+        self.draw_lock_views(self.lock.shown.done());
+        if self.lock.exiting && self.lock.shown.done() {
+            self.finish_unlock();
+        }
+    }
+
+    fn paint_lock(&mut self, view: &mut LockView, prompt: bool) {
         let (w, h) = (view.width as usize, view.height as usize);
         if w == 0 || h == 0 {
             return;
         }
         let scale = self.scales.of(view.surface.wl_surface());
-        let icons = self.lock_icons(scale);
         let counts = self.lock_note_counts();
-        let Ok((buffer, data)) =
-            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
-        else {
+        let icons = self.lock_icons(scale, &counts);
+        let (pw, ph) = (physical(w, scale), physical(h, scale));
+        let Ok((buffer, data)) = self.pool.create_buffer(pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Argb8888) else {
             tracing::warn!("cannot allocate lock screen buffer");
             return;
         };
-        // The lock screen's picture, dimmed by half.
-        background::paint(data, physical(w, scale), physical(h, scale), scale, &self.lock_background, (w as f64, h as f64), None);
+        // The background, blurred and toned once per picture and size.
+        let key = lock::BackdropKey { serial: self.lock_background_serial, size: (pw, ph), scale: scale.to_bits(), high_contrast: helix_draw::high_contrast() };
+        if view.backdrop.as_ref().is_none_or(|(k, _)| *k != key) {
+            let pixels = lock::backdrop(&self.lock_background, (w, h), scale);
+            view.backdrop = Some((key, pixels));
+        }
+        if let Some((_, pixels)) = &view.backdrop {
+            data.copy_from_slice(pixels);
+        }
         let mut canvas = Canvas::scaled(data, w, h, scale);
-        canvas.rect(0, 0, w as i32, h as i32, 0x80000000);
-        let text = self.text.as_ref();
-        let center = |s: &str, px: f32| -> f32 { (w as f32 - text.map_or(0.0, |t| t.width(s, px))) / 2.0 };
-
-        let clock = lock_clock_text();
-        self.shown_lock_clock = Some(clock.clone());
-        let top = (h as i32) / 4;
-        label(text, &mut canvas, &clock, center(&clock, 64.0), top as f32, 64.0, FG, w as f32);
-        label(text, &mut canvas, &self.lock.user, center(&self.lock.user, 18.0), (top + 70) as f32, 18.0, DIM_FG, w as f32);
-
-        let fw = 360.min(w as i32 - 40);
-        let fx = (w as i32 - fw) / 2;
-        let fy = top + 100;
-        let field = Rect { x: fx, y: fy, w: fw, h: 44 };
-        let focused = !self.lock.checking;
-        text_field(&mut canvas, field, focused);
-        // One dot per character (drawn: not every font has a bullet).
-        let count = self.lock.password.chars().count().min(((fw - 40) / 14) as usize);
-        for i in 0..count {
-            canvas.circle(f64::from(fx + 20 + i as i32 * 14), f64::from(fy + 22), 5.0, FG);
-        }
-        if count == 0 {
-            // Room for the caret before the placeholder.
-            let base = baseline(text, fy, 44, 17.0);
-            label(text, &mut canvas, "Password", (fx + 20) as f32, base, 17.0, DIM_FG, (fw - 34) as f32);
-        }
-        if focused {
-            caret(&mut canvas, field, fx + 14 + count as i32 * 14, 17.0);
-        }
-        if let Some(message) = &self.lock.message {
-            label(text, &mut canvas, message, center(message, 15.0), (fy + 76) as f32, 15.0, DIM_FG, w as f32);
-        }
-        view.hits = lock_extras::paint_lock_extras(&mut canvas, (text, self.bold.as_ref()), w as i32, fy + 110, self.lock_extras.media.as_ref(), &counts, &icons);
-        // Restart and Power Off at the bottom left (`restart-enabled`).
-        view.power_hits.clear();
-        let mut asked = None;
-        if crate::screensaver_flag("restart-enabled", false) && (self.power.restart || self.power.power_off) {
-            let button = |canvas: &mut Canvas, x: i32, label_text: &str, strong: bool| -> Rect {
-                let bw = text.map_or(100.0, |t| t.width(label_text, 15.0)).ceil() as i32 + 32;
-                let r = Rect { x, y: h as i32 - 36 - 24, w: bw, h: 36 };
-                canvas.rect(r.x, r.y, r.w, r.h, if strong { ACCENT } else { 0x40FFFFFF });
-                label(text, canvas, label_text, (r.x + 16) as f32, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
-                r
-            };
-            match self.lock.confirming {
-                Some(action) => {
-                    let anyway = !self.lock.blockers.is_empty();
-                    let (question, verb) = match (action == PowerAction::Restart, anyway) {
-                        (true, false) => ("Restart this computer?", "Restart"),
-                        (true, true) => ("Restart anyway?", "Restart"),
-                        (false, false) => ("Power off this computer?", "Power Off"),
-                        (false, true) => ("Power off anyway?", "Power Off"),
-                    };
-                    // Apps holding up logout, above the question.
-                    let shown: Vec<String> = self.lock.blockers.iter().take(4).map(|(app, reason)| if reason.is_empty() { app.clone() } else { format!("{app}: {reason}") }).collect();
-                    let mut ly = h as i32 - 36 - 24 - 14 - 22 * shown.len() as i32 - if anyway { 22 } else { 0 };
-                    if anyway {
-                        label(text, &mut canvas, "Some apps are busy:", 24.0, ly as f32, 15.0, FG, w as f32 / 2.0);
-                        ly += 22;
-                    }
-                    for line in &shown {
-                        label(text, &mut canvas, line, 36.0, ly as f32, 14.0, DIM_FG, w as f32 / 2.0);
-                        ly += 22;
-                    }
-                    label(text, &mut canvas, question, 24.0, (h as i32 - 36 - 24 - 14) as f32, 15.0, FG, w as f32 / 2.0);
-                    asked = Some((question, if anyway { shown } else { Vec::new() }));
-                    let cancel = button(&mut canvas, 24, "Cancel", false);
-                    view.power_hits.push((cancel, LockPowerHit::Cancel));
-                    let confirm = button(&mut canvas, cancel.x + cancel.w + 12, verb, true);
-                    view.power_hits.push((confirm, LockPowerHit::Confirm));
-                }
-                None => {
-                    let mut x = 24;
-                    for (allowed, label_text, action) in [(self.power.restart, "Restart…", PowerAction::Restart), (self.power.power_off, "Power Off…", PowerAction::PowerOff)] {
-                        if allowed {
-                            let r = button(&mut canvas, x, label_text, false);
-                            view.power_hits.push((r, LockPowerHit::Ask(action)));
-                            x = r.x + r.w + 12;
-                        }
-                    }
-                }
-            }
-        }
-        // "Switch User…" at the bottom right.
-        view.switch_user = None;
-        if self.user_switch && crate::user_switch::allowed() && crate::user_switch::on_lock_screen() {
-            const SWITCH: &str = "Switch User…";
-            let bw = text.map_or(120.0, |t| t.width(SWITCH, 15.0)).ceil() as i32 + 32;
-            let r = Rect { x: w as i32 - bw - 24, y: h as i32 - 36 - 24, w: bw, h: 36 };
-            canvas.rect(r.x, r.y, r.w, r.h, 0x40FFFFFF);
-            label(text, &mut canvas, SWITCH, (r.x + 16) as f32, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
-            view.switch_user = Some(r);
-        }
+        let (clock, suffix, date) = lock_clock();
+        self.shown_lock_clock = Some(lock_clock_text());
+        let restart = crate::screensaver_flag("restart-enabled", false);
+        let model = lock::LockModel {
+            prompt,
+            clock: &clock,
+            suffix: suffix.as_deref(),
+            date: &date,
+            user: if self.lock.identity.name.is_empty() { &self.lock.user } else { &self.lock.identity.name },
+            picture: self.lock.identity.picture.as_ref(),
+            typed: if self.lock.checking { self.lock.checked_len } else { self.lock.password.chars().count() },
+            checking: self.lock.checking,
+            failed: self.lock.failed,
+            shake: self.lock.shaken.map_or(0.0, |t| helix_draw::motion::shake(t.elapsed())),
+            spinner: self.lock.motion.moves().then(|| helix_draw::motion::spin(self.lock.checking_since.elapsed())),
+            message: self.lock.message.as_deref(),
+            media: self.lock_extras.media.as_ref(),
+            counts: &counts,
+            icons: &icons,
+            restart: restart && self.power.restart,
+            power_off: restart && self.power.power_off,
+            confirming: self.lock.confirming,
+            blockers: &self.lock.blockers,
+            hover: self.lock.hover.as_ref().filter(|(s, _)| s == view.surface.wl_surface()).map(|(_, h)| *h),
+            pressed: self.lock.pressed.as_ref().filter(|(s, _)| s == view.surface.wl_surface()).map(|(_, h)| *h),
+            focus: self.lock.focus,
+            caps_lock: self.mods.caps_lock,
+            revealed: self.lock.revealed,
+            reveal_pos: if self.lock.motion.moves() { self.lock.reveal.value() } else { self.lock.reveal.target() },
+            reveal_alpha: self.lock.reveal.value(),
+            alpha: self.lock.shown.value(),
+            slide: if self.lock.motion.moves() && !self.lock.exiting { (1.0 - self.lock.shown.value()) * 12.0 } else { 0.0 },
+            layout: self.source_label.as_deref(),
+            switch_user: self.user_switch && crate::user_switch::allowed() && crate::user_switch::on_lock_screen(),
+        };
+        let fonts = lock::LockFonts { text: self.text.as_ref(), bold: self.bold.as_ref(), display: self.display.as_ref() };
+        let painted = lock::paint(&mut canvas, &fonts, &model, w, h);
+        view.hits = painted.hits;
         // The same on the accessibility bus.
-        let nodes = self.lock_a11y(view, &clock, field, asked, &counts);
-        self.atspi_record(view.surface.wl_surface(), nodes);
+        self.atspi_record(view.surface.wl_surface(), painted.nodes);
 
         let surface = view.surface.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -2473,6 +2699,13 @@ impl Ui {
             UiEvent::Calendar(data) => self.calendar_data(*data),
             UiEvent::Break(view) => self.show_break(view),
             UiEvent::LockMedia(player) => self.lock_media(player),
+            UiEvent::LockArt(url, art) => self.lock_art(url, art),
+            UiEvent::LockIdentity(identity) => {
+                if self.lock.identity != *identity {
+                    self.lock.identity = *identity;
+                    self.draw_lock();
+                }
+            }
             UiEvent::DoNotDisturb(on) => {
                 self.notify.do_not_disturb = on;
                 self.draw_notification_list();
@@ -2622,6 +2855,7 @@ impl Ui {
             UiEvent::Background { desktop, lock } => {
                 self.desktop_background = *desktop;
                 self.lock_background = *lock;
+                self.lock_background_serial += 1;
                 self.draw_backgrounds();
                 if self.lock.session.is_some() {
                     self.draw_lock();
@@ -2900,6 +3134,11 @@ impl Ui {
         if !self.lock.surfaces.is_empty() && self.shown_lock_clock.as_deref() != Some(&lock_clock_text()) {
             self.draw_lock();
         }
+        // The prompt rests again after a while without input.
+        let idle = self.lock.last_input.elapsed() >= LOCK_IDLE;
+        if self.lock.session.is_some() && self.lock.revealed && idle && self.lock.password.is_empty() && !self.lock.checking && !self.lock.exiting && self.lock.confirming.is_none() {
+            self.lock_reveal(false);
+        }
     }
 }
 
@@ -2971,6 +3210,7 @@ pub fn run(
         launcher: None,
         text,
         bold: Text::load_matching("sans-serif:bold"),
+        display: helix_draw::screen::display_face(),
         notify: Default::default(),
         calendar: Default::default(),
         osk: Default::default(),
@@ -3028,6 +3268,7 @@ pub fn run(
         background_pool: None,
         desktop_background: Default::default(),
         lock_background: Default::default(),
+        lock_background_serial: 0,
         window_geometry: HashMap::new(),
         primary_area: (0, 0, 1920, 1080),
         monitor_labels: Vec::new(),
@@ -3071,14 +3312,33 @@ pub fn run(
             checking: false,
             auth,
             user: crate::auth::current_user(),
+            identity: Default::default(),
             results: auth_tx,
             confirming: None,
             blockers: Vec::new(),
+            hover: None,
+            pressed: None,
+            focus: None,
+            checked_len: 0,
+            checking_since: Instant::now(),
+            failed: false,
+            shaken: None,
+            prompt_at: None,
+            revealed: false,
+            reveal: Tween::still(0.0),
+            last_input: Instant::now(),
+            shown: Tween::still(1.0),
+            exiting: false,
+            motion: Motion::Full,
+            animate_until: None,
+            frame_timer: None,
         },
         exit: false,
     };
 
     ui.bind_internal();
+    // Who the lock screen shows, ready before it locks.
+    let _ = ui.requests.send(UiRequest::LockIdentity(ui.lock.user.clone()));
 
     let mut event_loop: EventLoop<Ui> = EventLoop::try_new()?;
     let handle = event_loop.handle();
@@ -3138,18 +3398,35 @@ impl OutputHandler for Ui {
     fn output_state(&mut self) -> &mut OutputState {
         &mut self.output_state
     }
-    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
+    fn new_output(&mut self, _: &Connection, qh: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        // A monitor plugged in while locked gets its lock surface.
+        if let Some(session) = self.lock.session.clone() {
+            self.add_lock_surface(&session, output.clone(), qh);
+        }
         self.add_background(output);
         self.dock_update();
         self.desktop_icons_sync();
     }
-    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        // Monitors move: the prompt follows the primary one.
+        let origin = self.output_state.info(&output).and_then(|i| i.logical_position).unwrap_or_default();
+        if let Some(view) = self.lock.surfaces.iter_mut().find(|v| v.output == output) {
+            view.origin = origin;
+        }
+        if self.lock.session.is_some() {
+            self.draw_lock();
+        }
         // Spanned pictures depend on every monitor.
         self.draw_backgrounds();
         self.dock_update();
         self.desktop_icons_sync();
     }
     fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        // The prompt moves on (to the primary monitor) with what was typed.
+        if self.lock.surfaces.iter().any(|v| v.output == output) {
+            self.lock.surfaces.retain(|v| v.output != output);
+            self.draw_lock();
+        }
         self.remove_background(&output);
         self.draw_backgrounds();
         if self.dock.output_is(&output) {
@@ -3387,7 +3664,12 @@ impl KeyboardHandler for Ui {
     fn release_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent) {}
     fn update_modifiers(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, modifiers: Modifiers, _: RawModifiers, _: u32) {
         self.ctrl_held = modifiers.ctrl;
+        let caps_changed = modifiers.caps_lock != self.mods.caps_lock;
         self.mods = modifiers;
+        // The lock screen's Caps Lock warning follows at once.
+        if caps_changed && self.lock.session.is_some() {
+            self.draw_lock_views(true);
+        }
         if self.switcher.is_some() {
             self.switcher_modifiers(&modifiers);
         }
@@ -3446,10 +3728,7 @@ impl Ui {
     fn pointer_events(&mut self, events: &[PointerEvent]) {
         for event in events {
             if self.lock.session.is_some() {
-                if let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind {
-                    let surface = event.surface.clone();
-                    self.lock_click(&surface, event.position.0, event.position.1);
-                }
+                self.lock_pointer(event);
                 continue;
             }
             if self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
@@ -3614,17 +3893,20 @@ impl SessionLockHandler for Ui {
     fn locked(&mut self, _: &Connection, qh: &QueueHandle<Self>, session_lock: SessionLock) {
         // One lock surface per output.
         for output in self.output_state.outputs() {
-            let surface = self.compositor.create_surface(qh);
-            let lock_surface = session_lock.create_lock_surface(surface, &output, qh);
-            let origin = self.output_state.info(&output).and_then(|i| i.logical_position).unwrap_or_default();
-            self.lock.surfaces.push(LockView { surface: lock_surface, width: 0, height: 0, hits: Vec::new(), switch_user: None, power_hits: Vec::new(), origin });
+            self.add_lock_surface(&session_lock, output, qh);
         }
         self.lock_extras_start();
+        // The first frame is the background alone (opaque); the rest fades
+        // in over it.
+        let enter = self.lock_duration(LOCK_ENTER);
+        self.lock.shown = Tween::new(0.0, 1.0, enter);
+        self.lock_animate_for(enter);
         tracing::info!(surfaces = self.lock.surfaces.len(), "session locked");
         let _ = self.requests.send(UiRequest::Locked);
     }
 
     fn finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _: SessionLock) {
+        self.lock.prompt_at = None;
         // Refused by the compositor (or the lock was taken away).
         tracing::warn!("session lock finished by the compositor");
         self.lock.session = None;
@@ -3646,9 +3928,10 @@ impl SessionLockHandler for Ui {
         if let Some(view) = views.iter_mut().find(|v| v.surface.wl_surface() == surface.wl_surface()) {
             view.width = configure.new_size.0;
             view.height = configure.new_size.1;
-            self.paint_lock(view);
         }
         self.lock.surfaces = views;
+        // Every surface: the prompt may have just found its monitor.
+        self.draw_lock();
     }
 }
 

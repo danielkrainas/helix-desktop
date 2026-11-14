@@ -35,6 +35,19 @@ pub fn animations_enabled() -> bool {
     !s.settings_schema().is_some_and(|k| k.has_key("enable-animations")) || s.boolean("enable-animations")
 }
 
+/// How much the shell's own surfaces may move: `enable-animations` and
+/// `org.gnome.desktop.a11y.interface reduced-motion` (no preference
+/// without that key).
+pub fn motion() -> helix_draw::motion::Motion {
+    use gio::prelude::*;
+    const A11Y: &str = "org.gnome.desktop.a11y.interface";
+    let reduce = helix_settings::has_schema(A11Y) && {
+        let s = gio::Settings::new(A11Y);
+        s.settings_schema().is_some_and(|k| k.has_key("reduced-motion")) && s.string("reduced-motion") == "reduce"
+    };
+    helix_draw::motion::Motion::from_settings(animations_enabled(), reduce)
+}
+
 /// What one item looks like at a moment.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Look {

@@ -18,7 +18,6 @@ use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::Proxy;
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind};
 
-use super::lock_extras::LockApp;
 use super::notify::ListHit;
 use super::*;
 use crate::a11y::publish::{Event, Publisher};
@@ -176,10 +175,10 @@ impl Ui {
         out
     }
 
-    /// The lock surface published: the primary monitor's.
-    fn lock_primary(&self) -> Option<&LockView> {
-        let primary = (self.primary_area.0, self.primary_area.1);
-        self.lock.surfaces.iter().find(|v| v.origin == primary && v.width > 0).or_else(|| self.lock.surfaces.iter().find(|v| v.width > 0))
+    /// The lock surface published: the one with the prompt.
+    pub(super) fn lock_primary(&self) -> Option<&LockView> {
+        let origin = self.lock_prompt_origin()?;
+        self.lock.surfaces.iter().find(|v| v.origin == origin && v.width > 0)
     }
 
     /// The window that has the keyboard.
@@ -265,55 +264,6 @@ impl Ui {
             }
         };
         Some(Window { title, bounds, active, children })
-    }
-
-    // ----- Lock screen -------------------------------------------------------
-
-    /// The lock screen as painted on `view`: the clock, the user, the
-    /// password field and its message, the media player and notification
-    /// counts, and the buttons; `asked` is the power question shown, with
-    /// the apps that are busy.
-    pub(super) fn lock_a11y(&self, view: &LockView, clock: &str, field: Rect, asked: Option<(&str, Vec<String>)>, counts: &[LockApp]) -> Vec<Node> {
-        let mut out = vec![Node::label(clock).id("clock"), Node::label(&self.lock.user).id("user")];
-        let password = Node::text_field(Role::PasswordInput, "Password", Node::mask(&self.lock.password), field.into()).id("password");
-        out.push(password.focused(self.lock.confirming.is_none()).disabled(self.lock.checking));
-        if let Some(message) = &self.lock.message {
-            out.push(Node::label(message).id("message").live());
-        }
-        if let Some(player) = &self.lock_extras.media {
-            let title = if player.title.is_empty() { &player.identity } else { &player.title };
-            out.push(Node::label(title).id("media-title"));
-            if !player.artist.is_empty() {
-                out.push(Node::label(&player.artist).id("media-artist"));
-            }
-        }
-        for &(r, command) in &view.hits {
-            out.push(Node::button(playback_name(command, self.lock_extras.media.as_ref().is_some_and(|p| p.playing)), r.into()).id(format!("{command:?}")));
-        }
-        for app in counts {
-            out.push(Node::label(format!("{}: {} notification{}", app.name, app.count, if app.count == 1 { "" } else { "s" })));
-        }
-        if let Some((question, busy)) = asked {
-            if !busy.is_empty() {
-                out.push(Node::label("Some apps are busy:"));
-                out.extend(busy.into_iter().map(Node::label));
-            }
-            out.push(Node::label(question).id("question").live());
-        }
-        for &(r, hit) in &view.power_hits {
-            let name = match hit {
-                LockPowerHit::Ask(PowerAction::Restart) => "Restart…",
-                LockPowerHit::Ask(_) => "Power Off…",
-                LockPowerHit::Cancel => "Cancel",
-                LockPowerHit::Confirm if self.lock.confirming == Some(PowerAction::Restart) => "Restart",
-                LockPowerHit::Confirm => "Power Off",
-            };
-            out.push(Node::button(name, r.into()).id(format!("{hit:?}")).focused(hit == LockPowerHit::Confirm));
-        }
-        if let Some(r) = view.switch_user {
-            out.push(Node::button("Switch User…", r.into()).id("switch-user"));
-        }
-        out
     }
 
     // ----- Panel -------------------------------------------------------------
@@ -607,7 +557,7 @@ fn status_words(s: &crate::status::Status) -> String {
     words.join(", ")
 }
 
-fn playback_name(command: crate::shell_keys::Playback, playing: bool) -> &'static str {
+pub(super) fn playback_name(command: crate::shell_keys::Playback, playing: bool) -> &'static str {
     use crate::shell_keys::Playback;
     match command {
         Playback::PlayPause if playing => "Pause",
