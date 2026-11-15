@@ -170,6 +170,8 @@ pub(super) struct WindowMenu {
     pub(super) previews: Vec<u32>,
     /// The keyboard highlight timed out (`keyboard-focus-visible-timeout`).
     focus_hidden: bool,
+    /// The selection was made with the keyboard (it gets a focus ring).
+    by_keyboard: bool,
     /// The menus a submenu was opened from, and their selection.
     parents: Vec<(Vec<Option<Item>>, Option<usize>)>,
 }
@@ -281,6 +283,7 @@ impl Ui {
             sources,
             previews: Vec::new(),
             focus_hidden: false,
+            by_keyboard: selected.is_some(),
             parents: Vec::new(),
         });
     }
@@ -330,7 +333,7 @@ impl Ui {
             return;
         }
         let selected = menu.selected.filter(|_| !menu.focus_hidden);
-        let (bounds, hits) = paint_menu(&mut canvas, self.text.as_ref(), (w as i32, h as i32), menu.at, &menu.items, selected, !menu.sources.is_empty());
+        let (bounds, hits) = paint_menu(&mut canvas, self.text.as_ref(), (w as i32, h as i32), menu.at, &menu.items, selected, menu.by_keyboard, !menu.sources.is_empty());
         menu.bounds = bounds;
         menu.hits = hits;
         let surface = menu.layer.wl_surface();
@@ -439,6 +442,7 @@ impl Ui {
                 let under = under.filter(|i| menu.items.get(*i).and_then(|i| i.as_ref()).is_some_and(enabled));
                 if menu.selected != under || (under.is_some() && menu.focus_hidden) {
                     menu.selected = under;
+                    menu.by_keyboard = false;
                     menu.focus_hidden = false;
                     self.draw_window_menu();
                 }
@@ -487,6 +491,7 @@ impl Ui {
             MenuKey::Choose(index) => self.choose_window_menu(index),
             MenuKey::Select(index) => {
                 menu.selected = Some(index);
+                menu.by_keyboard = true;
                 self.draw_window_menu();
                 self.hide_focus_later();
             }
@@ -497,7 +502,8 @@ impl Ui {
 /// Paint a menu of `items` at `at` (kept on the `w`×`h` surface) with
 /// `selected` lit; `sources`: an input source menu (dots for the current
 /// one). Returns its box and each entry's place.
-pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32, i32), at: (i32, i32), items: &[Option<Item>], selected: Option<usize>, sources: bool) -> (Rect, Vec<(Rect, usize)>) {
+#[allow(clippy::too_many_arguments)]
+pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32, i32), at: (i32, i32), items: &[Option<Item>], selected: Option<usize>, ring: bool, sources: bool) -> (Rect, Vec<(Rect, usize)>) {
     let (menu_w, item_h) = (menu_w(), item_h());
     let mh: i32 = 8 + items.iter().map(|i| if i.is_some() { item_h } else { SEPARATOR_H }).sum::<i32>();
     // Keep it on the output.
@@ -518,6 +524,11 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
         let r = Rect { x: mx + 4, y, w: menu_w - 8, h: item_h };
         if selected == Some(i) {
             theme::row_highlight(canvas, r.x, r.y, r.w, r.h);
+            // Selected from the keyboard: the focus ring too (inside the
+            // row, which reaches the menu's edges).
+            if ring {
+                theme::focus_ring(canvas, r.x + 4, r.y + 4, r.w - 8, r.h - 8);
+            }
         }
         let base = baseline(text, r.y, r.h, 14.0);
         let mut x = r.x + 12;
@@ -636,7 +647,10 @@ fn paint_previews(menu: &mut WindowMenu, canvas: &mut Canvas, w: i32, h: i32, te
         let (col, row) = ((i % TILES_PER_ROW) as i32, (i / TILES_PER_ROW) as i32);
         let tile = Rect { x: mx + TILE_GAP + col * (TILE_W + TILE_GAP), y: my + TILE_GAP + row * (PICTURE_H + TILE_TITLE_H + TILE_GAP), w: TILE_W, h: PICTURE_H + TILE_TITLE_H };
         if menu.selected == Some(2 * i) && !menu.focus_hidden {
-            canvas.rect(tile.x - 2, tile.y - 2, tile.w + 4, tile.h + 4, HOVER_BG);
+            theme::row_highlight(canvas, tile.x - 2, tile.y - 2, tile.w + 4, tile.h + 4);
+            if menu.by_keyboard {
+                theme::focus_ring(canvas, tile.x, tile.y, tile.w, tile.h);
+            }
         }
         // The picture, fitted into the tile keeping its proportions.
         let pic = Rect { x: tile.x + 4, y: tile.y + 4, w: tile.w - 8, h: PICTURE_H - 8 };
@@ -654,6 +668,9 @@ fn paint_previews(menu: &mut WindowMenu, canvas: &mut Canvas, w: i32, h: i32, te
         let close = Rect { x: tile.x + tile.w - 26, y: tile.y + 2, w: 24, h: 24 };
         let hot = menu.selected == Some(2 * i + 1) && !menu.focus_hidden;
         canvas.circle(f64::from(close.x) + 12.0, f64::from(close.y) + 12.0, 10.0, if hot { 0xFFE01B24 } else { 0xE0303036 });
+        if hot && menu.by_keyboard {
+            theme::focus_ring_round(canvas, f64::from(close.x + 2), f64::from(close.y + 2), 20.0, 20.0, 10.0);
+        }
         canvas.line((f64::from(close.x) + 8.0, f64::from(close.y) + 8.0), (f64::from(close.x) + 16.0, f64::from(close.y) + 16.0), 1.8, FG);
         canvas.line((f64::from(close.x) + 16.0, f64::from(close.y) + 8.0), (f64::from(close.x) + 8.0, f64::from(close.y) + 16.0), 1.8, FG);
         // The close button first: it lies on the tile.

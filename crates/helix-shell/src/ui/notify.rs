@@ -239,9 +239,12 @@ impl Ui {
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
         // Lighter than the desktop, with a thin border, so it stands out.
-        canvas.fill(if view.focused { accent() } else { BANNER_BORDER });
-        let edge = if view.focused { 2 } else { 1 };
-        canvas.rect(edge, edge, w as i32 - 2 * edge, h as i32 - 2 * edge, BANNER_BG);
+        canvas.fill(BANNER_BORDER);
+        canvas.rect(1, 1, w as i32 - 2, h as i32 - 2, BANNER_BG);
+        if view.focused {
+            // The focus ring, inside the banner's edge.
+            helix_draw::theme::focus_ring(&mut canvas, 5, 5, w as i32 - 10, h as i32 - 10);
+        }
         view.hits.clear();
         let inner = w as i32 - 2 * BANNER_PAD;
         // Close button, top right.

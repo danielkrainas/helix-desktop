@@ -572,14 +572,24 @@ fn icon_center(cell: Rect) -> (f64, f64) {
     (f64::from(cell.x) + f64::from(cell.w) / 2.0, f64::from(cell.y + 10) + f64::from(ICON) / 2.0)
 }
 
-fn paint_cell(p: &mut Paint, model: &Launcher, canvas: &mut Canvas, cell: Rect, id: &str, look: Look) {
+/// Draw one grid cell; `focused`: it has the keyboard focus (a focus
+/// ring, apart from the highlight that hover and selection share).
+pub(super) fn paint_cell(p: &mut Paint, model: &Launcher, canvas: &mut Canvas, cell: Rect, id: &str, look: Look, focused: bool) {
     let (text, scale) = (p.text, p.scale);
     let folder = model.folders.iter().find(|f| f.id == id).cloned();
     let name = Ui::item_name(model, id);
-    // The highlight: lit by hover or selection, dimmer while pressed.
-    let alpha = if look.pressed { 0x26 } else { (look.highlight * f64::from(0x40)).round() as u32 };
+    // The highlight: lit by hover or selection, stronger while pressed.
+    let alpha = if look.pressed { 0x59 } else { (look.highlight * f64::from(0x40)).round() as u32 };
+    let (bx, by, bw, bh) = (f64::from(cell.x + 4), f64::from(cell.y + 2), f64::from(cell.w - 8), f64::from(cell.h - 4));
     if alpha > 0 {
-        canvas.round_rect(f64::from(cell.x + 4), f64::from(cell.y + 2), f64::from(cell.w - 8), f64::from(cell.h - 4), 10.0, (alpha << 24) | 0xFFFFFF);
+        if helix_draw::high_contrast() {
+            canvas.round_outline(bx, by, bw, bh, 10.0, if look.pressed { 3.0 } else { 2.0 }, 0xFFFFFFFF);
+        } else {
+            canvas.round_rect(bx, by, bw, bh, 10.0, (alpha << 24) | 0xFFFFFF);
+        }
+    }
+    if focused {
+        helix_draw::theme::focus_ring_round(canvas, bx, by, bw, bh, 10.0);
     }
     let iy = cell.y + 10;
     let (cx, cy) = icon_center(cell);
@@ -633,7 +643,7 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         (Some(i), Some(f)) => view.model.folders.get(f).and_then(|f| f.apps.get(i).cloned()),
         _ => None,
     };
-    view.grid.feedback.set_focus(focus, now);
+    view.grid.feedback.set_focus(focus.clone(), now);
     let feedback = view.grid.feedback.clone();
     let look_of = |id: &str, hot: bool| -> Look {
         if drag.is_some() {
@@ -653,7 +663,8 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
             continue;
         }
         let hot = matches!(&target, Some(Drop::Combine(t)) if t == id);
-        paint_cell(p, &view.model, canvas, cell, id, look_of(id, hot));
+        let focused = open_folder.is_none() && focus.as_deref() == Some(id.as_str());
+        paint_cell(p, &view.model, canvas, cell, id, look_of(id, hot), focused);
     }
     // Where a dragged item would go.
     if let Some(Drop::Insert { page, index }) = &target {
@@ -705,7 +716,8 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
             if drag.as_ref().is_some_and(|d| d.id == *id) {
                 continue;
             }
-            paint_cell(p, &view.model, canvas, cell, id, look_of(id, false));
+            let focused = focus.as_deref() == Some(id.as_str());
+            paint_cell(p, &view.model, canvas, cell, id, look_of(id, false), focused);
         }
         let mut fdots = Vec::new();
         if fpages > 1 {

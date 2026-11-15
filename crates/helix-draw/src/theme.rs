@@ -221,16 +221,29 @@ pub fn workspace_dot(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, active
     canvas.rect(x, y, w, h, if active { TEXT } else { TEXT_DIM });
 }
 
-/// The keyboard focus ring's color.
+/// The keyboard focus ring's color: the accent, white in high contrast.
 pub fn focus() -> u32 {
-    accent()
+    if crate::high_contrast() { WHITE } else { accent() }
 }
 
-/// A focus ring: 2 logical px just outside the rectangle (x, y, w, h).
+/// How far outside its control the focus ring is, and how wide.
+pub const FOCUS_GAP: f64 = 2.0;
+pub const FOCUS_WIDTH: f64 = 2.0;
+
+/// The focus ring of a square-cornered control at (x, y, w, h): 2 logical
+/// px wide, 2 px outside it. Shown for keyboard focus only (never for the
+/// pointer), on every control the keyboard can reach.
 pub fn focus_ring(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32) {
-    for (rx, ry, rw, rh) in [(x - 2, y - 2, w + 4, 2), (x - 2, y + h, w + 4, 2), (x - 2, y, 2, h), (x + w, y, 2, h)] {
-        canvas.rect(rx, ry, rw, rh, focus());
-    }
+    focus_ring_round(canvas, f64::from(x), f64::from(y), f64::from(w), f64::from(h), 0.0);
+}
+
+/// The focus ring of a control with corner radius `radius`: it follows the
+/// corners (its own radius grows by the gap).
+pub fn focus_ring_round(canvas: &mut Canvas, x: f64, y: f64, w: f64, h: f64, radius: f64) {
+    let g = FOCUS_GAP;
+    let r = if radius > 0.0 { radius + g } else { 0.0 };
+    // (The outline is drawn outside the box it is given.)
+    canvas.round_outline(x - g, y - g, w + 2.0 * g, h + 2.0 * g, r, FOCUS_WIDTH, focus());
 }
 
 #[cfg(test)]
@@ -304,8 +317,9 @@ mod tests {
         let mut canvas = Canvas::scaled(&mut data, 20, 20, 1.0);
         focus_ring(&mut canvas, 5, 5, 10, 10);
         let alpha = |x: usize, y: usize| data[(y * 20 + x) * 4 + 3];
-        assert_eq!(alpha(10, 3), 255, "above");
-        assert_eq!(alpha(16, 10), 255, "right");
+        assert_eq!(alpha(10, 1), 255, "above, 2 px out");
+        assert_eq!(alpha(18, 10), 255, "right, 2 px out");
+        assert_eq!(alpha(10, 3), 0, "a gap between the ring and the control");
         assert_eq!(alpha(10, 5), 0, "the inside is left alone");
     }
 }

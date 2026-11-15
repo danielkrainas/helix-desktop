@@ -944,10 +944,8 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
     // Keyboard focus ring (switch-panels).
     let controls = panel_controls(&placed, m.tray_images.len());
     if let Some(&(_, x, iw)) = m.focus.and_then(|i| controls.get(i)) {
-        let (y, bh) = (3, h as i32 - 6);
-        for (rx, ry, rw, rh) in [(x, y, iw, 2), (x, y + bh - 2, iw, 2), (x, y, 2, bh), (x + iw - 2, y, 2, bh)] {
-            canvas.rect(rx, ry, rw, rh, accent());
-        }
+        let (y, bh) = (5.0, h as f64 - 10.0);
+        helix_draw::theme::focus_ring_round(canvas, f64::from(x + 3), y, f64::from(iw - 6), bh, bh / 2.0);
     }
     if let Some(osd) = m.osd {
         draw_osd(text, canvas, osd, w, h);

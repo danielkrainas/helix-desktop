@@ -247,7 +247,7 @@ fn text_scale() {
         };
         shot("scaled-quick-menu", &mut |canvas| {
             quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(None), None, &mut Default::default());
-            window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph as i32 + 4), &menu_items(), Some(1), false);
+            window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph as i32 + 4), &menu_items(), Some(1), true, false);
             let mut data = vec![0u8; w * ph * 4];
             let mut bar = Canvas::scaled(&mut data, w, ph, 1.0);
             panel(&mut bar, text.as_ref(), (w, ph), 1.0, Some(6), true);
@@ -300,7 +300,10 @@ fn menus() {
         helix_draw::set_high_contrast(hc);
         let name = if hc { "menu-hc" } else { "menu" };
         render(&dir, name, DARK, (640, 400, 1.0), |canvas| {
-            window_menu::paint_menu(canvas, text.as_ref(), (640, 400), (40, 40), &menu_items(), Some(1), false);
+            window_menu::paint_menu(canvas, text.as_ref(), (640, 400), (40, 40), &menu_items(), Some(1), false, false);
+        });
+        render(&dir, &format!("{name}-keyboard"), DARK, (640, 400, 1.0), |canvas| {
+            window_menu::paint_menu(canvas, text.as_ref(), (640, 400), (40, 40), &menu_items(), Some(1), true, false);
         });
     }
     helix_draw::set_high_contrast(false);
@@ -332,7 +335,7 @@ fn accents() {
         render(&dir, &format!("accent-{name}-quick-menu"), DARK, (w, h, 1.0), |canvas| {
             let focus = Some(OverlayHit::Switch(quick::Switch::Bluetooth));
             quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(None), focus, &mut Default::default());
-            window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph as i32 + 4), &menu_items(), Some(1), false);
+            window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph as i32 + 4), &menu_items(), Some(1), true, false);
             let mut data = vec![0u8; w * ph * 4];
             let mut bar = Canvas::scaled(&mut data, w, ph, 1.0);
             panel(&mut bar, text.as_ref(), (w, ph), 1.0, Some(6), true);

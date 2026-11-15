@@ -531,7 +531,7 @@ impl Ui {
             canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
             canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if view.choice { accent() } else { FIELD_BG });
             if view.focus == 2 {
-                canvas.rect(r.x, r.y + (r.h + 18) / 2 + 1, 18, 2, accent());
+                helix_draw::theme::focus_ring(&mut canvas, r.x - 1, r.y + (r.h - 20) / 2, 20, 20);
             }
             label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
             hits.push((r, OverlayHit::Toggle));
@@ -543,7 +543,7 @@ impl Ui {
             canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
             canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if view.checks[i] { accent() } else { FIELD_BG });
             if view.focus == CHECK_FOCUS + i {
-                canvas.rect(r.x, r.y + (r.h + 18) / 2 + 1, 18, 2, accent());
+                helix_draw::theme::focus_ring(&mut canvas, r.x - 1, r.y + (r.h - 20) / 2, 20, 20);
             }
             label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
             hits.push((r, OverlayHit::Check(i)));

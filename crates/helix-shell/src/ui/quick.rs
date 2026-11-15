@@ -1204,7 +1204,7 @@ pub(super) mod tests {
         let mut canvas = Canvas::scaled(&mut data, 1280, 800, 1.0);
         paint_quick(&mut canvas, None, (1280, 800), &m, Some(H::Network(1)), &mut QuickScroll::default());
         let px = |x: i32, y: i32| &data[((y * 1280 + x) * 4) as usize..][..3];
-        assert_eq!(px(r.x, r.y + r.h / 2), [0xE4, 0x84, 0x35], "ring left of the row");
+        assert!((r.x - 6..r.x + 2).any(|x| px(x, r.y + r.h / 2) == [0xE4, 0x84, 0x35]), "ring left of the row");
     }
 
     #[test]

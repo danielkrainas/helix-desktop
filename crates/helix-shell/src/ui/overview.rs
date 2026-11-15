@@ -444,8 +444,13 @@ impl Ui {
             let r = Rect { x: area.x + rect.x, y: area.y + rect.y, w: rect.w, h: rect.h };
             let dragged = state.drag.is_some_and(|(d, _)| d == *id);
             let highlighted = state.selected == Some(*id) || state.hover == Some(*id);
-            if highlighted && !dragged {
-                canvas.rect(r.x - 4, r.y - 4, r.w + 8, r.h + 8, accent());
+            // Under the pointer: a light frame; the keyboard's choice: the
+            // focus ring.
+            if state.hover == Some(*id) && !dragged {
+                canvas.round_rect(f64::from(r.x - 6), f64::from(r.y - 6), f64::from(r.w + 12), f64::from(r.h + 12), 8.0, 0x40FFFFFF);
+            }
+            if state.selected == Some(*id) && !dragged {
+                helix_draw::theme::focus_ring_round(&mut canvas, f64::from(r.x - 2), f64::from(r.y - 2), f64::from(r.w + 4), f64::from(r.h + 4), 6.0);
             }
             match self.overview_shots.pictures.get(id) {
                 Some(shot) if !dragged => canvas.image(f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), shot),

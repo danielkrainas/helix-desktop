@@ -365,8 +365,10 @@ pub fn push_button(canvas: &mut Canvas, text: Option<&Text>, (x, y, w, h): (f64,
         canvas.round_rect(x, y, w, h, radius, fade(button_fill(kind, state), alpha));
     }
     if state.focused {
-        let ring = if kind == ButtonKind::Normal || crate::high_contrast() { accent() } else { FG };
-        canvas.round_outline(x - 2.0, y - 2.0, w + 4.0, h + 4.0, radius + 2.0, 2.0, fade(ring, alpha));
+        // The shared focus ring (theme::focus_ring_round), faded with the
+        // button.
+        let g = crate::theme::FOCUS_GAP;
+        canvas.round_outline(x - g, y - g, w + 2.0 * g, h + 2.0 * g, radius + g, crate::theme::FOCUS_WIDTH, fade(crate::theme::focus(), alpha));
     }
     if let Some(t) = text {
         let px = BODY;
