@@ -82,6 +82,9 @@ contents:
   - src: ./stage/etc/pam.d/helix
     dst: /etc/pam.d/helix
     type: config|noreplace
+  # The compiled translations (shell, portals, session and greeter), one
+  # per language in po/LINGUAS, listed by packaging/nfpm-locales.sh.
+  # @LOCALES@
 
 overrides:
   deb:

@@ -31,7 +31,7 @@ jobs:
             pkg-config libglib2.0-dev libwayland-dev libxkbcommon-dev \
             libseat-dev libinput-dev libudev-dev libgbm-dev libdrm-dev libegl-dev \
             libpipewire-0.3-dev libspa-0.2-dev clang \
-            dbus gsettings-desktop-schemas
+            dbus gsettings-desktop-schemas gettext
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -40,6 +40,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: helix-desktop
+
+      # po/POTFILES and the template must match the sources, and every
+      # translation must compile (TRANSLATING.md).
+      - name: Check translations
+        working-directory: helix-desktop
+        run: |
+          tools/i18n/update-pot.sh --check
+          for lang in $(sed 's/#.*//' po/LINGUAS); do
+            msgfmt --check --statistics -o /dev/null "po/$lang.po"
+          done
 
       - name: Clippy
         working-directory: helix-desktop

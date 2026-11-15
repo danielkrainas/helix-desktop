@@ -5,7 +5,9 @@
 #   packaging/stage.sh DESTDIR [debian|redhat|arch]
 #
 # Binaries come from $BIN_DIR (default target/release). The PAM service
-# file differs by distribution family (default debian).
+# file differs by distribution family (default debian). Translations are
+# compiled with msgfmt (GNU gettext); packaging/nfpm-locales.sh lists
+# them for nfpm.
 set -eu
 
 dest=${1:?usage: packaging/stage.sh DESTDIR [debian|redhat|arch]}
@@ -25,7 +27,18 @@ done
 # The extension sandbox's launcher and its AppArmor profile.
 install -Dm755 "$bin/helix-extension-sandbox" "$dest/usr/libexec/helix/helix-extension-sandbox"
 install -Dm644 "$root/packaging/apparmor/helix-extension-sandbox" "$dest/etc/apparmor.d/helix-extension-sandbox"
-install -Dm644 "$root/session/helix.desktop" "$dest/usr/share/wayland-sessions/helix.desktop"
+# The session's name and comment in every language of po/LINGUAS
+# (Name[de]=…), for login screens.
+install -d "$dest/usr/share/wayland-sessions"
+msgfmt --desktop --template="$root/session/helix.desktop" -d "$root/po" \
+    -o "$dest/usr/share/wayland-sessions/helix.desktop"
+chmod 644 "$dest/usr/share/wayland-sessions/helix.desktop"
+# Translations (TRANSLATING.md): one catalogue, helix-desktop, for the
+# shell, portals, session and greeter.
+for lang in $(sed 's/#.*//' "$root/po/LINGUAS"); do
+    install -d "$dest/usr/share/locale/$lang/LC_MESSAGES"
+    msgfmt --check -o "$dest/usr/share/locale/$lang/LC_MESSAGES/helix-desktop.mo" "$root/po/$lang.po"
+done
 install -Dm644 "$root/session/helix.portal" "$dest/usr/share/xdg-desktop-portal/portals/helix.portal"
 install -Dm644 "$root/session/helix-portals.conf" "$dest/usr/share/xdg-desktop-portal/helix-portals.conf"
 install -Dm644 "$root/session/helix-session.toml" "$dest/etc/xdg/helix/session.toml"

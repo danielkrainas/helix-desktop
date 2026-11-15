@@ -65,7 +65,7 @@ jobs:
             build-essential git curl ca-certificates \
             pkg-config libglib2.0-dev libwayland-dev libxkbcommon-dev \
             libseat-dev libinput-dev libudev-dev libgbm-dev libdrm-dev libegl-dev \
-            libpipewire-0.3-dev libspa-0.2-dev clang
+            libpipewire-0.3-dev libspa-0.2-dev clang gettext
 
       - name: Install build packages (Fedora)
         if: matrix.family == 'redhat'
@@ -74,7 +74,7 @@ jobs:
             gcc clang pkgconf-pkg-config git curl tar gzip \
             glib2-devel wayland-devel libxkbcommon-devel libseat-devel \
             libinput-devel systemd-devel mesa-libgbm-devel libdrm-devel \
-            mesa-libEGL-devel pipewire-devel
+            mesa-libEGL-devel pipewire-devel gettext
 
       - name: Install build packages (Arch Linux)
         if: matrix.family == 'arch'
@@ -82,7 +82,7 @@ jobs:
           pacman -Syu --noconfirm --needed \
             base-devel clang git curl \
             glib2 wayland libxkbcommon seatd libinput systemd mesa libdrm \
-            libglvnd pipewire
+            libglvnd pipewire gettext
 
       - uses: actions/checkout@v4
 
@@ -120,7 +120,7 @@ jobs:
             aarch64) arch=arm64 ;;
           esac
           mkdir -p dist
-          sed -e "s/@VERSION@/${VERSION}/" -e "s/@ARCH@/${arch}/" packaging/nfpm.yaml > nfpm.yaml
+          sed -e "s/@VERSION@/${VERSION}/" -e "s/@ARCH@/${arch}/" packaging/nfpm.yaml | packaging/nfpm-locales.sh stage > nfpm.yaml
           case "${{ matrix.family }}" in
             debian)
               nfpm package --config nfpm.yaml --packager deb --target dist/
