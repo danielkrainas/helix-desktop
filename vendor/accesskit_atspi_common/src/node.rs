@@ -1246,6 +1246,27 @@ impl PlatformNode {
         })
     }
 
+    /// Helix: a clipboard operation on an editable text node
+    /// (`EditableText.CopyText`, `CutText`, `PasteText`), sent to the
+    /// application as a custom action ([`crate::CLIPBOARD_COPY`]…) on the
+    /// range selected just before.
+    pub fn clipboard_action(&self, action: i32) -> Result<bool> {
+        self.resolve_with_context(|node, tree, context| {
+            if action != crate::CLIPBOARD_COPY && node.is_read_only() {
+                return Ok(false);
+            }
+            let (target_node, target_tree) =
+                tree.state().locate_node(self.id).ok_or(Error::Defunct)?;
+            context.do_action(ActionRequest {
+                action: Action::CustomAction,
+                target_tree,
+                target_node,
+                data: Some(ActionData::CustomAction(action)),
+            });
+            Ok(true)
+        })
+    }
+
     pub fn n_anchors(&self) -> Result<i32> {
         self.resolve(|node| if node.url().is_some() { Ok(1) } else { Ok(0) })
     }

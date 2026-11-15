@@ -369,6 +369,28 @@ impl Ui {
         self.draw_dialog();
     }
 
+    /// The prompt's text field with the keyboard focus (its accessible
+    /// id), if one has it.
+    pub(super) fn prompt_focused_field(&self) -> Option<String> {
+        let Some(DialogKind::Prompt(view)) = self.dialog.as_ref().map(|d| &d.state.kind) else { return None };
+        match view.focus {
+            0 if view.prompt.password.is_some() => Some("password:0".into()),
+            1 if view.prompt.confirm.is_some() => Some("password:1".into()),
+            3 if view.prompt.entry.is_some() => Some("entry".into()),
+            _ => None,
+        }
+    }
+
+    /// Field `id`'s text, and whether it is a password (never copied).
+    pub(super) fn prompt_field_text(&self, id: &str) -> Option<(String, bool)> {
+        let Some(DialogKind::Prompt(view)) = self.dialog.as_ref().map(|d| &d.state.kind) else { return None };
+        if id == "entry" && view.prompt.entry.is_some() {
+            return Some((view.entry.clone(), false));
+        }
+        let i = id.strip_prefix("password:").and_then(|i| i.parse::<usize>().ok()).filter(|i| *i < 2)?;
+        Some((view.fields[i].clone(), true))
+    }
+
     /// An assistive technology set field `id`'s text (`ui/atspi.rs`).
     pub(super) fn prompt_set_text(&mut self, id: &str, value: &str, range: Option<(usize, usize)>) {
         let Some(DialogKind::Prompt(view)) = self.dialog.as_mut().map(|d| &mut d.state.kind) else { return };

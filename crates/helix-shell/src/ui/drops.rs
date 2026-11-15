@@ -109,13 +109,17 @@ impl DataOfferHandler for Ui {
     fn selected_action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &mut DragOffer, _: DndAction) {}
 }
 
-/// The shell offers no data of its own.
+/// The shell offers the text copied from its fields (`ui/clipboard.rs`).
 impl DataSourceHandler for Ui {
     fn accept_mime(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: Option<String>) {}
 
-    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: String, _: WritePipe) {}
+    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource, mime: String, pipe: WritePipe) {
+        self.clipboard_send(source, &mime, pipe);
+    }
 
-    fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
+        self.clipboard_cancelled(source);
+    }
 
     fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
 
@@ -124,7 +128,7 @@ impl DataSourceHandler for Ui {
     fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: DndAction) {}
 }
 
-/// The data device, made when the seat has a pointer.
+/// The data device, made when the seat has a keyboard or pointer.
 pub(super) type Device = DataDevice;
 
 #[cfg(test)]

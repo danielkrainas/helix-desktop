@@ -64,6 +64,7 @@ mod background;
 mod break_screen;
 mod calendar;
 mod capture;
+mod clipboard;
 mod click_type;
 mod dash;
 mod desktop_icons;
@@ -355,6 +356,8 @@ struct Ui {
     /// manager, the device, and the item a drag is over.
     data_devices: Option<smithay_client_toolkit::data_device_manager::DataDeviceManagerState>,
     data_device: Option<drops::Device>,
+    /// Copy and paste in the shell's text fields.
+    clipboard: clipboard::Clipboard,
     drop_at: Option<usize>,
     /// Where an extension dock item's menu was asked for (it comes later).
     ext_dock_menu_at: Option<(i32, i32)>,
@@ -3697,6 +3700,7 @@ pub fn run(
         panel_drag: None,
         data_devices,
         data_device: None,
+        clipboard: Default::default(),
         drop_at: None,
         ext_list: Vec::new(),
         extensions_dialog: None,
@@ -4002,6 +4006,10 @@ impl SeatHandler for Ui {
         if capability == Capability::Keyboard {
             self.start_ime(&seat);
         }
+        // The clipboard and drops come through the seat's data device.
+        if matches!(capability, Capability::Keyboard | Capability::Pointer) && self.data_device.is_none() {
+            self.data_device = self.data_devices.as_ref().map(|m| m.get_data_device(qh, &seat));
+        }
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             match self.seat_state.get_keyboard(qh, &seat, None) {
                 Ok(k) => self.keyboard = Some(k),
@@ -4013,10 +4021,6 @@ impl SeatHandler for Ui {
                 Ok(p) => {
                     self.relative_pointer = self.relative_state.get_relative_pointer(&p, qh).ok();
                     self.pointer = Some(p);
-                    // Drops come through the seat's data device.
-                    if self.data_device.is_none() {
-                        self.data_device = self.data_devices.as_ref().map(|m| m.get_data_device(qh, &seat));
-                    }
                 }
                 Err(err) => tracing::warn!(%err, "no pointer"),
             }
@@ -4050,7 +4054,9 @@ impl SeatHandler for Ui {
 }
 
 impl KeyboardHandler for Ui {
-    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32, _: &[u32], _: &[Keysym]) {}
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, serial: u32, _: &[u32], _: &[Keysym]) {
+        self.clipboard.serial = serial;
+    }
     fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, surface: &wl_surface::WlSurface, _: u32) {
         // The panel or dock lost the keyboard it had after switch-panels
         // (a click on a window took it): end the keyboard mode and give
@@ -4061,7 +4067,12 @@ impl KeyboardHandler for Ui {
             self.leave_dock();
         }
     }
-    fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
+    fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, serial: u32, event: KeyEvent) {
+        self.clipboard.serial = serial;
+        // Copy, cut and paste in the text field typed into.
+        if self.field_clipboard_key(&event) {
+            return;
+        }
         if self.lock.session.is_some() {
             self.lock_key(&event);
         } else if self.window_menu.is_some() {

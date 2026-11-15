@@ -586,6 +586,42 @@ async fn child() {
     let (target, request) = shell.action();
     assert_eq!((target.id.as_str(), request.data), ("password:0", Some(accesskit::ActionData::Value("hunter2".into()))));
 
+    // The clipboard (helix-desktop#96): CopyText, CutText and PasteText
+    // select their range, then ask the shell to copy, cut or paste there.
+    use super::clipboard::{plan, Op, Plan};
+    let clip = |request: &accesskit::ActionRequest| match request.data {
+        Some(accesskit::ActionData::CustomAction(id)) if request.action == accesskit::Action::CustomAction => Op::of_action(id),
+        _ => None,
+    };
+    let selected = |request: &accesskit::ActionRequest| match request.data.clone() {
+        Some(accesskit::ActionData::SetTextSelection(sel)) => (sel.anchor.character_index, sel.focus.character_index),
+        _ => panic!("a range first: {request:?}"),
+    };
+    let command = proxy(&conn, &w.named("Command").at, "org.a11y.atspi.EditableText").await;
+    command.call::<_, _, ()>("CopyText", &(0i32, 2i32)).await.unwrap();
+    let (target, request) = shell.action();
+    assert_eq!((target.id.as_str(), selected(&request)), ("entry", (0, 2)));
+    let (_, request) = shell.action();
+    assert_eq!(clip(&request), Some(Op::Copy));
+    assert_eq!(plan(Op::Copy, "ls", false, Some((0, 2))).copy.as_deref(), Some("ls"));
+    assert!(command.call::<_, _, bool>("CutText", &(1i32, -1i32)).await.unwrap());
+    let (_, request) = shell.action();
+    assert_eq!(selected(&request), (1, 2), "to the end");
+    let (_, request) = shell.action();
+    assert_eq!(clip(&request), Some(Op::Cut));
+    assert!(command.call::<_, _, bool>("PasteText", &(1i32,)).await.unwrap());
+    let (_, request) = shell.action();
+    assert_eq!(selected(&request), (1, 1));
+    let (_, request) = shell.action();
+    assert_eq!(clip(&request), Some(Op::Paste));
+    assert_eq!(plan(Op::Paste, "ls", false, Some((1, 1))).paste_at, Some(1));
+    // A password: the request comes, and the shell refuses to copy it.
+    editable.call::<_, _, ()>("CopyText", &(0i32, 3i32)).await.unwrap();
+    let (target, _) = shell.action();
+    let (_, request) = shell.action();
+    assert_eq!((target.id.as_str(), clip(&request)), ("password:0", Some(Op::Copy)));
+    assert_eq!(plan(Op::Copy, secret, true, Some((0, 3))), Plan { refused: true, ..Plan::default() });
+
     // The windows leave with their surfaces.
     shell.shown.clear();
     shell.sync();

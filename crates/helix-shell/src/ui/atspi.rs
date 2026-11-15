@@ -172,6 +172,13 @@ impl Ui {
                 self.atspi.edit_range = Some((target.id.clone(), a.min(b), a.max(b), Instant::now()));
                 true
             }
+            (Action::CustomAction, Some(ActionData::CustomAction(action))) => {
+                // CopyText, CutText, PasteText: on the range selected just before.
+                let Some(op) = super::clipboard::Op::of_action(*action) else { return false };
+                let range = self.atspi.edit_range.take().filter(|(id, .., at)| *id == target.id && at.elapsed() < Duration::from_secs(1)).map(|(_, s, e, _)| (s, e));
+                self.field_clipboard(surface, &target.id, op, range);
+                true
+            }
             (Action::SetValue, Some(ActionData::Value(value))) => {
                 // The range applies to the value set right after it.
                 let range = self.atspi.edit_range.take().filter(|(id, .., at)| *id == target.id && at.elapsed() < Duration::from_secs(1)).map(|(_, s, e, _)| (s, e));
@@ -183,7 +190,7 @@ impl Ui {
     }
 
     /// Field `id` on `surface` now holds `value` (see [`edited`]).
-    fn atspi_set_text(&mut self, surface: &WlSurface, id: &str, value: &str, range: Option<(usize, usize)>) {
+    pub(super) fn atspi_set_text(&mut self, surface: &WlSurface, id: &str, value: &str, range: Option<(usize, usize)>) {
         if self.lock.session.is_some() {
             let on_lock = self.lock_primary().is_some_and(|v| v.surface.wl_surface() == surface);
             if id == "password" && on_lock && !self.lock.checking && self.lock.revealed {

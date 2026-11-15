@@ -6,10 +6,6 @@
 use accesskit_atspi_common::PlatformNode;
 use zbus::{fdo, interface};
 
-fn unsupported() -> fdo::Error {
-    fdo::Error::NotSupported("editing operation is not supported".into())
-}
-
 pub(crate) struct EditableTextInterface(PlatformNode);
 
 impl EditableTextInterface {
@@ -44,12 +40,18 @@ impl EditableTextInterface {
         self.0.set_text_contents(&contents).map_err(self.map_error())
     }
 
-    fn copy_text(&self, _start_pos: i32, _end_pos: i32) -> fdo::Result<()> {
-        Err(unsupported())
+    // Helix: the clipboard operations select their range, then ask the
+    // application (a custom action) to copy, cut or paste there; it
+    // refuses copying and cutting a password.
+    fn copy_text(&self, start_pos: i32, end_pos: i32) -> fdo::Result<()> {
+        self.select(start_pos, end_pos)?;
+        self.0.clipboard_action(accesskit_atspi_common::CLIPBOARD_COPY).map_err(self.map_error())?;
+        Ok(())
     }
 
-    fn cut_text(&self, _start_pos: i32, _end_pos: i32) -> fdo::Result<bool> {
-        Err(unsupported())
+    fn cut_text(&self, start_pos: i32, end_pos: i32) -> fdo::Result<bool> {
+        self.select(start_pos, end_pos)?;
+        self.0.clipboard_action(accesskit_atspi_common::CLIPBOARD_CUT).map_err(self.map_error())
     }
 
     fn delete_text(&self, start_pos: i32, end_pos: i32) -> fdo::Result<bool> {
@@ -63,7 +65,20 @@ impl EditableTextInterface {
         self.0.set_text_contents(&contents).map_err(self.map_error())
     }
 
-    fn paste_text(&self, _position: i32) -> fdo::Result<bool> {
-        Err(unsupported())
+    fn paste_text(&self, position: i32) -> fdo::Result<bool> {
+        self.select(position, position)?;
+        self.0.clipboard_action(accesskit_atspi_common::CLIPBOARD_PASTE).map_err(self.map_error())
+    }
+}
+
+impl EditableTextInterface {
+    /// Select characters `start`..`end` (clamped to the text; `end` < 0:
+    /// to its end).
+    fn select(&self, start: i32, end: i32) -> fdo::Result<()> {
+        let count = self.0.text(0, -1).map_err(self.map_error())?.chars().count() as i32;
+        let end = if end < 0 { count } else { end.min(count) };
+        let start = start.clamp(0, end);
+        self.0.set_selection(0, start, end).map_err(self.map_error())?;
+        Ok(())
     }
 }

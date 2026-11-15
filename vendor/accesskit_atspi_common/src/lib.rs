@@ -31,3 +31,10 @@ pub use events::*;
 pub use node::{CacheNode, NodeIdOrRoot, PlatformNode, PlatformRoot};
 pub use rect::*;
 pub use util::WindowBounds;
+
+/// Helix: the custom action ids `EditableText.CopyText`, `CutText` and
+/// `PasteText` reach the application as (on the range selected just
+/// before; for a paste, an empty range where the text goes).
+pub const CLIPBOARD_COPY: i32 = 0x4858_0001;
+pub const CLIPBOARD_CUT: i32 = 0x4858_0002;
+pub const CLIPBOARD_PASTE: i32 = 0x4858_0003;
