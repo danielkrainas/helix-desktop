@@ -179,6 +179,13 @@ fn symbolic(name: &str, logical: f64, scale: f64) -> Option<helix_draw::Image> {
 /// The panel with everything on: workspaces, the a11y indicator, an
 /// input source, sharing and recording, the list open.
 fn panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), scale: f64, focus: Option<usize>, power_open: bool) {
+    panel_with(canvas, text, (w, h), scale, focus, power_open, None);
+}
+
+/// [`panel`], with `hover` under the pointer.
+fn panel_with(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), scale: f64, focus: Option<usize>, power_open: bool, hover: Option<crate::panel_layout::Slot>) {
+    let bold = Text::load_matching("sans-serif:bold");
+    let power_icon = symbolic("system-shutdown-symbolic", 16.0, scale);
     let status_items: Vec<status::StatusItem> =
         ["battery-level-80-symbolic", "audio-volume-high-symbolic", "network-wireless-signal-good-symbolic"].iter().filter_map(|n| symbolic(n, 16.0, scale).map(status::StatusItem::Icon)).collect();
     let layout = crate::panel_layout::Layout::default();
@@ -204,6 +211,10 @@ fn panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), scale
         osd: None,
         drag_target: None,
         focus,
+        hover,
+        pressed: None,
+        power_icon: power_icon.as_ref(),
+        bold: bold.as_ref(),
     };
     paint_panel(canvas, text, (w, h), &model);
 }
@@ -282,10 +293,11 @@ fn panels() {
     let text = Text::load();
     for hc in [false, true] {
         helix_draw::set_high_contrast(hc);
-        for (name, focus, power) in [("panel", None, false), ("panel-focus-open", Some(6), true)] {
+        use crate::panel_layout::{Item, Slot};
+        for (name, focus, power, hover) in [("panel", None, false, None), ("panel-focus-open", Some(6), true, None), ("panel-hover-clock", Some(0), false, Some(Slot::Item(Item::Clock)))] {
             let name = if hc { format!("{name}-hc") } else { name.to_owned() };
             let ph = panel_height() as usize;
-            render(&dir, &name, DARK, (1280, ph, 1.0), |canvas| panel(canvas, text.as_ref(), (1280, ph), 1.0, focus, power));
+            render(&dir, &name, DARK, (1280, ph, 1.0), |canvas| panel_with(canvas, text.as_ref(), (1280, ph), 1.0, focus, power, hover));
         }
     }
     helix_draw::set_high_contrast(false);

@@ -136,11 +136,6 @@ const HOVER_BG: u32 = theme::CONTROL_HOVER;
 const SHARING: u32 = theme::ERROR;
 
 const APPS_LABEL: &str = "Apps";
-fn apps_button_w() -> i32 {
-    helix_draw::theme::grow(72)
-}
-/// Size of a workspace dot in the panel.
-const WORKSPACE_DOT: i32 = 6;
 const ROW_H: i32 = 40;
 const MAX_ROWS: usize = 10;
 
@@ -234,6 +229,9 @@ struct Ui {
     cycle: Option<Cycle>,
     /// The panel control with keyboard focus (`switch-panels`).
     panel_focus: Option<usize>,
+    /// The panel item under the pointer, and the one pressed on it.
+    panel_lit: Option<crate::panel_layout::Slot>,
+    panel_pressed: Option<crate::panel_layout::Slot>,
     /// The next menu opened was asked for with a key: its first entry
     /// starts selected (taken by `open_menu`).
     menu_by_key: bool,
@@ -543,10 +541,6 @@ impl DialogKind {
     }
 }
 
-const POWER_LABEL: &str = "Power";
-fn power_button_w() -> i32 {
-    helix_draw::theme::grow(80)
-}
 /// The "Recording" indicator's width (clicking it stops the recording).
 fn recording_w() -> i32 {
     helix_draw::theme::grow(104)
@@ -567,7 +561,8 @@ fn panel_controls(placed: &[(crate::panel_layout::Slot, i32, i32)], tray_icons: 
     let mut out = Vec::new();
     for &(slot, x, w) in placed {
         match slot {
-            Slot::Privacy | Slot::Item(Item::Workspaces) => {}
+            _ if w <= 0 => {}
+            Slot::Privacy => {}
             Slot::Item(Item::Tray) => {
                 out.extend((0..tray_icons as i32).map(|i| (slot, x + i * (status::ICON + tray::TRAY_GAP), status::ICON)));
             }
@@ -783,6 +778,68 @@ struct PanelModel<'a> {
     pub drag_target: Option<i32>,
     /// The control with the keyboard focus (`switch-panels`).
     pub focus: Option<usize>,
+    /// The item under the pointer, and the one being pressed.
+    pub hover: Option<crate::panel_layout::Slot>,
+    pub pressed: Option<crate::panel_layout::Slot>,
+    /// The power icon at the end of the system pill.
+    pub power_icon: Option<&'a helix_draw::Image>,
+    /// The clock's (bold) face.
+    pub bold: Option<&'a Text>,
+}
+
+/// Whether the panel's `slot` reacts to clicks (gets the pill's hover and
+/// pressed looks).
+fn panel_clickable(slot: crate::panel_layout::Slot) -> bool {
+    use crate::panel_layout::{Item, Slot};
+    !matches!(slot, Slot::Privacy | Slot::Item(Item::Tray) | Slot::Ext(_))
+}
+
+/// A panel control's pill (x, iw across the panel `h` tall): clear at
+/// rest, a light fill under the pointer, a stronger one while pressed or
+/// while what it opens is open. High contrast: white outlines.
+fn panel_pill(canvas: &mut Canvas, x: i32, iw: i32, h: i32, hovered: bool, active: bool) {
+    if !hovered && !active {
+        return;
+    }
+    let (px, py, pw, ph) = (f64::from(x + 2), 4.0, f64::from(iw - 4), f64::from(h - 8));
+    if helix_draw::high_contrast() {
+        canvas.round_outline(px + 1.0, py + 1.0, pw - 2.0, ph - 2.0, ph / 2.0 - 1.0, if active { 2.0 } else { 1.0 }, 0xFFFFFFFF);
+        return;
+    }
+    canvas.round_rect(px, py, pw, ph, ph / 2.0, if active { 0x40FFFFFF } else { 0x26FFFFFF });
+}
+
+/// The workspace indicator's pills: `count` (at least one) with `active`
+/// wide, centered in a pill of width `w` at x.
+fn workspace_pills(canvas: &mut Canvas, x: i32, w: i32, h: i32, (count, active): (u32, u32)) {
+    let count = count.clamp(1, MAX_PILLS) as i32;
+    let total = (count - 1) * (PILL_DOT + PILL_GAP) + PILL_ACTIVE;
+    let mut px = x + (w - total) / 2;
+    let y = f64::from(h) / 2.0 - f64::from(PILL_DOT) / 2.0;
+    for i in 0..count {
+        let on = i as u32 == active;
+        let pw = if on { PILL_ACTIVE } else { PILL_DOT };
+        let color = if on { FG } else { 0x99FFFFFF };
+        if helix_draw::high_contrast() && !on {
+            canvas.round_outline(f64::from(px) + 0.5, y + 0.5, f64::from(pw) - 1.0, f64::from(PILL_DOT) - 1.0, f64::from(PILL_DOT) / 2.0, 1.0, 0xFFFFFFFF);
+        } else {
+            canvas.round_rect(f64::from(px), y, f64::from(pw), f64::from(PILL_DOT), f64::from(PILL_DOT) / 2.0, color);
+        }
+        px += pw + PILL_GAP;
+    }
+}
+
+/// The workspace indicator's dots and the active one's length, the gap
+/// between them, and how many it shows at most.
+const PILL_DOT: i32 = 7;
+const PILL_ACTIVE: i32 = 24;
+const PILL_GAP: i32 = 5;
+const MAX_PILLS: u32 = 12;
+
+/// The width of the workspace indicator for `count` workspaces.
+fn workspace_pills_w(count: u32) -> i32 {
+    let count = count.clamp(1, MAX_PILLS) as i32;
+    (count - 1) * (PILL_DOT + PILL_GAP) + PILL_ACTIVE + 2 * 14
 }
 
 /// Paint the panel (`m`) on a `w`×`h` canvas; returns where each item went.
@@ -795,7 +852,7 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
     let base = baseline(text, 0, h as i32, px);
     let text_w = |s: &str| text.map_or(0.0, |t| t.width(s, px)) as i32;
     let clock = m.clock;
-    let clock_w = match text {
+    let clock_w = match m.bold.or(text) {
         Some(text) => text.width(clock, px) as i32,
         None => font::text_width(clock, 2) as i32,
     };
@@ -808,16 +865,22 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
         .sum();
     let osd_shown = m.osd.is_some();
     let size = |slot: Slot| match slot {
-        Slot::Item(Item::Apps) => apps_button_w(),
-        Slot::Item(Item::Workspaces) if m.workspaces.0 > 1 => m.workspaces.0.min(36) as i32 * (WORKSPACE_DOT + 6) + WORKSPACE_DOT + 4,
+        // The workspace indicator (GNOME 45's "Activities" pill).
+        Slot::Item(Item::Apps) => workspace_pills_w(m.workspaces.0),
+        // Shown by Apps when it is in the panel too.
+        Slot::Item(Item::Workspaces) if m.layout.contains(Item::Apps) => 0,
+        Slot::Item(Item::Workspaces) if m.workspaces.0 > 1 => workspace_pills_w(m.workspaces.0),
         Slot::Item(Item::Workspaces) => 0,
         Slot::Item(Item::Clock) => clock_w + 2 * CLOCK_PAD,
         Slot::Item(Item::Tray) => m.tray_w,
         Slot::Item(Item::Accessibility) if m.a11y_shown => A11Y_W,
         Slot::Item(Item::Accessibility) => 0,
         Slot::Item(Item::Keyboard) => m.source_label.map_or(0, |s| text_w(s) + 16),
-        Slot::Item(Item::Status) => status_w,
-        Slot::Item(Item::Power) => power_button_w(),
+        // The status icons and the power icon are one system pill
+        // (Power's); Status alone only without Power in the panel.
+        Slot::Item(Item::Status) if m.layout.contains(Item::Power) => 0,
+        Slot::Item(Item::Status) => status_w + 16,
+        Slot::Item(Item::Power) => status_w + status::ICON + 20,
         Slot::Privacy => (if m.sharing { sharing_w() } else { 0 }) + if m.recording { recording_w() } else { 0 },
         // Nothing from extensions while locked.
         Slot::Ext(_) if m.locked => 0,
@@ -825,39 +888,29 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
     };
     let placed = crate::panel_layout::place(m.layout, w as i32, size);
     for &(slot, x, iw) in &placed {
+        // Every clickable item is a pill: lit under the pointer, stronger
+        // while pressed or while what it opens is open.
+        if iw > 0 && panel_clickable(slot) {
+            let open = match slot {
+                Slot::Item(Item::Apps) | Slot::Item(Item::Workspaces) => m.launcher_open,
+                Slot::Item(Item::Clock) => m.list_open,
+                Slot::Item(Item::Status) | Slot::Item(Item::Power) => m.power_open,
+                _ => false,
+            };
+            panel_pill(canvas, x, iw, h as i32, m.hover == Some(slot), open || m.pressed == Some(slot));
+        }
         match slot {
-            Slot::Item(Item::Apps) => {
-                // Highlighted while the launcher is open.
-                if m.launcher_open {
-                    theme::row_highlight(canvas, x + 4, 4, iw - 8, h as i32 - 8);
-                }
-                if let Some(text) = text {
-                    let lw = text.width(APPS_LABEL, px);
-                    text.draw(canvas, APPS_LABEL, x as f32 + (iw as f32 - lw) / 2.0, base, Style { px, color: FG, max_width: (iw - 8) as f32 });
-                }
-            }
-            Slot::Item(Item::Workspaces) => {
-                // The active workspace's dot is wide.
-                let y = h as i32 / 2 - WORKSPACE_DOT / 2;
-                for i in 0..m.workspaces.0.min(36) as i32 {
-                    let dx = x + 2 + i * (WORKSPACE_DOT + 6);
-                    let active = i as u32 == m.workspaces.1;
-                    let dw = if active { WORKSPACE_DOT * 2 } else { WORKSPACE_DOT };
-                    let dx = if i as u32 > m.workspaces.1 { dx + WORKSPACE_DOT } else { dx };
-                    theme::workspace_dot(canvas, dx, y, dw, WORKSPACE_DOT, active);
-                }
-            }
+            Slot::Item(Item::Apps) | Slot::Item(Item::Workspaces) => workspace_pills(canvas, x, iw, h as i32, m.workspaces),
             Slot::Item(Item::Clock) if !osd_shown => {
                 let tx = x + CLOCK_PAD;
                 match text {
                     Some(text) => {
-                        text.draw(canvas, clock, tx as f32, base, Style { px, color: FG, max_width: f32::MAX });
+                        // Bold, as GNOME's top bar clock.
+                        let face = m.bold.unwrap_or(text);
+                        face.draw(canvas, clock, tx as f32, base, Style { px, color: FG, max_width: f32::MAX });
                         // Unseen notifications: a dot after the clock.
                         if m.unseen_dot {
                             canvas.circle(f64::from(tx + clock_w + 9), f64::from(h as i32) / 2.0, 3.0, FG);
-                        }
-                        if m.list_open {
-                            canvas.rect(tx - 8, h as i32 - 3, clock_w + 16, 2, accent());
                         }
                     }
                     None => {
@@ -890,9 +943,17 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
                     label(text, canvas, s, (x + 8) as f32, base, px, FG, (iw - 15) as f32);
                 }
             }
-            Slot::Item(Item::Status) => {
-                // The first item is the rightmost.
-                let mut sx = x + iw;
+            Slot::Item(Item::Status) | Slot::Item(Item::Power) => {
+                // The power icon last, then the status items, the first
+                // rightmost.
+                let mut sx = x + iw - 8;
+                if slot == Slot::Item(Item::Power) {
+                    sx -= status::ICON;
+                    if let Some(image) = m.power_icon {
+                        canvas.image(f64::from(sx), f64::from((h as i32 - status::ICON) / 2), f64::from(status::ICON), f64::from(status::ICON), image);
+                    }
+                    sx -= 10;
+                }
                 for item in m.status_items {
                     match item {
                         status::StatusItem::Icon(image) => {
@@ -907,15 +968,6 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
                             sx -= 4;
                         }
                     }
-                }
-            }
-            Slot::Item(Item::Power) => {
-                if m.power_open {
-                    theme::row_highlight(canvas, x + 4, 4, iw - 8, h as i32 - 8);
-                }
-                if let Some(text) = text {
-                    let pw = text.width(POWER_LABEL, px);
-                    text.draw(canvas, POWER_LABEL, x as f32 + (iw as f32 - pw) / 2.0, base, Style { px, color: FG, max_width: (iw - 8) as f32 });
                 }
             }
             Slot::Ext(i) => {
@@ -1145,6 +1197,7 @@ impl Ui {
         let (w, h) = (self.panel_width as usize, panel_height() as usize);
         let scale = self.scales.of(self.panel.wl_surface());
         let status_items = self.status_items(scale);
+        let power_icon = self.symbolic_icon("system-shutdown-symbolic", scale);
         let tray_images = self.tray_images(scale);
         let ext_icons: Vec<Option<helix_draw::Image>> = (0..self.ext.panel.len()).map(|i| self.ext_icon(i, scale)).collect();
         let ext_widths: Vec<i32> = ext_icons.iter().enumerate().map(|(i, icon)| self.ext_width(i, icon.is_some())).collect();
@@ -1182,6 +1235,10 @@ impl Ui {
             osd: self.osd.as_ref().map(|(osd, _)| osd),
             drag_target: self.panel_drag.as_ref().filter(|d| d.moving && !d.off_panel).and_then(|d| d.target.as_ref()).map(|t| t.2),
             focus: self.panel_focus,
+            hover: self.panel_lit,
+            pressed: self.panel_pressed,
+            power_icon: power_icon.as_ref(),
+            bold: self.bold.as_ref(),
         };
         let placed = paint_panel(&mut canvas, self.text.as_ref(), (w, h), &model);
         if self.osd.is_none() {
@@ -1417,6 +1474,53 @@ impl Ui {
         list.set_on_all_workspaces(focused, u32::from(!on_all));
     }
 
+    // ----- Panel pointer --------------------------------------------------------
+
+    /// The pointer over the panel's pills: hover, press, and a click that
+    /// acts on release over the item it was pressed on (moving off while
+    /// pressed cancels it). Items with their own handling (status icons,
+    /// extension items, the privacy indicators) are left to it.
+    fn panel_pointer(&mut self, event: &PointerEvent) -> bool {
+        if &event.surface != self.panel.wl_surface() {
+            return false;
+        }
+        let x = event.position.0;
+        let hit = self.panel_placed.iter().copied().find(|&(slot, px, pw)| pw > 0 && panel_clickable(slot) && x >= f64::from(px) && x < f64::from(px + pw));
+        let under = hit.map(|h| h.0);
+        match event.kind {
+            PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                if self.panel_lit != under {
+                    self.panel_lit = under;
+                    self.draw_panel();
+                }
+                false
+            }
+            PointerEventKind::Leave { .. } => {
+                if self.panel_lit.take().is_some() | self.panel_pressed.take().is_some() {
+                    self.draw_panel();
+                }
+                false
+            }
+            PointerEventKind::Press { button: BTN_LEFT, .. } if under.is_some() => {
+                self.panel_pressed = under;
+                self.draw_panel();
+                true
+            }
+            PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                let pressed = self.panel_pressed.take();
+                if pressed.is_none() {
+                    return false;
+                }
+                self.draw_panel();
+                if let Some((slot, px, _)) = hit.filter(|h| Some(h.0) == pressed) {
+                    self.panel_activate(slot, px, None);
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
     // ----- Panel keyboard focus (switch-panels) -------------------------------
 
     /// `switch-panels` (Ctrl+Alt+Tab): the panel, then the dock (when
@@ -1499,7 +1603,15 @@ impl Ui {
                 }
             }
             Slot::Ext(i) => self.ext_activate(i, x),
-            Slot::Item(Item::Workspaces) | Slot::Privacy => {}
+            // The workspace indicator opens the launcher, as Apps.
+            Slot::Item(Item::Workspaces) => {
+                if self.launcher.is_some() {
+                    self.close_launcher(true);
+                } else {
+                    self.open_launcher(true);
+                }
+            }
+            Slot::Privacy => {}
         }
     }
 
@@ -3556,6 +3668,8 @@ pub fn run(
         switcher_mode: None,
         cycle: None,
         panel_focus: None,
+        panel_lit: None,
+        panel_pressed: None,
         menu_by_key: false,
         window_sources: HashMap::new(),
         window_icons: HashMap::new(),
@@ -4084,7 +4198,7 @@ impl Ui {
                 continue;
             }
             self.banner_hover(event);
-            if self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.quick_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
+            if self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.quick_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) || self.panel_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
@@ -4142,8 +4256,6 @@ impl Ui {
                         if self.recording && x >= f64::from(recording_x) {
                             let _ = self.requests.send(UiRequest::StopRecording);
                         }
-                    } else {
-                        self.panel_activate(slot, px, None);
                     }
                 }
             } else if let Some(view) = self.launcher.as_mut().filter(|v| v.layer.wl_surface() == &event.surface) {

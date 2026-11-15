@@ -284,8 +284,11 @@ impl Ui {
             }
             let r = crate::a11y::Rect::new(x, 0, w, h);
             let node = match slot {
-                Slot::Item(Item::Apps) => Node::button(APPS_LABEL, r).toggled(self.launcher.is_some()),
-                Slot::Item(Item::Workspaces) => Node::label(format!("Workspace {} of {}", self.windows.active + 1, self.windows.count)).at(r),
+                Slot::Item(Item::Apps) | Slot::Item(Item::Workspaces) => {
+                    let which = format!("Workspace {} of {}", self.windows.active + 1, self.windows.count.max(1));
+                    let name = if slot == Slot::Item(Item::Apps) { APPS_LABEL.to_owned() } else { "Workspaces".to_owned() };
+                    Node::button(name, r).toggled(self.launcher.is_some()).describe(which)
+                }
                 Slot::Item(Item::Clock) => {
                     let clock = self.shown_minute.clone().unwrap_or_else(clock_text);
                     let what = if self.unseen_dot() { "Notifications and calendar, unread notifications" } else { "Notifications and calendar" };
@@ -302,8 +305,8 @@ impl Ui {
                 }
                 Slot::Item(Item::Accessibility) => Node::button("Accessibility", r),
                 Slot::Item(Item::Keyboard) => Node::button(self.source_label.clone().unwrap_or_default(), r).describe("Input source"),
-                Slot::Item(Item::Status) => Node::button("System", r).describe(status_words(&self.status)).expanded(self.power_menu.is_some()),
-                Slot::Item(Item::Power) => Node::button(POWER_LABEL, r).expanded(self.power_menu.is_some()),
+                // One system button (status icons and power).
+                Slot::Item(Item::Status) | Slot::Item(Item::Power) => Node::button("System", r).describe(status_words(&self.status)).expanded(self.power_menu.is_some()),
                 Slot::Ext(i) => {
                     let Some(item) = self.ext.panel.get(i) else { continue };
                     let name = [&item.accessible_name, &item.label, &item.tooltip, &item.name].into_iter().find(|s| !s.is_empty()).cloned().unwrap_or_default();

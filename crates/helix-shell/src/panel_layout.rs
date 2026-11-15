@@ -106,6 +106,13 @@ impl Default for Layout {
     }
 }
 
+impl Layout {
+    /// Whether built-in `item` is in any zone.
+    pub fn contains(&self, item: Item) -> bool {
+        self.left.iter().chain(&self.center).chain(&self.right).any(|s| *s == Slot::Item(item))
+    }
+}
+
 /// The items to show: unknown ids are skipped, an item is shown at its
 /// first place only, an extension's item only in a zone it allows, and
 /// Power always somewhere (at the right end). Development extensions'
