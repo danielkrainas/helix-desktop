@@ -4,6 +4,7 @@ members = [
     "crates/helix-draw",
     "crates/helix-extension",
     "crates/helix-greeter",
+    "crates/helix-i18n",
     "crates/helix-shell",
     "crates/helix-session",
     "crates/helix-settings",
@@ -36,6 +37,7 @@ zbus_xml = "5.2"
 gio = { version = "0.22", features = ["v2_68"] }
 smithay-client-toolkit = { version = "0.21", default-features = false, features = ["calloop", "xkbcommon"] }
 ab_glyph = "0.2"
+unicode-bidi = "0.3.18"
 png = "0.17"
 xcursor = "0.3"
 resvg = { version = "0.45", default-features = false }
@@ -60,6 +62,7 @@ smithay = { version = "0.7", default-features = false, features = [
 smithay-drm-extras = { version = "0.1", default-features = false }
 helix-settings = { path = "crates/helix-settings" }
 helix-draw = { path = "crates/helix-draw" }
+helix-i18n = { path = "crates/helix-i18n" }
 helix-extension = { path = "crates/helix-extension" }
 helix-test-support = { path = "crates/helix-test-support" }
 helix-session = { path = "crates/helix-session" }

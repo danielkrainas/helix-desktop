@@ -15,6 +15,7 @@ name = "helix-session"
 path = "src/main.rs"
 
 [dependencies]
+helix-i18n.workspace = true
 zbus.workspace = true
 tokio.workspace = true
 futures-util.workspace = true

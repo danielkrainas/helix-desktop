@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Helix login screen: a greetd greeter"
 
 [dependencies]
+helix-i18n.workspace = true
 zbus.workspace = true
 tokio.workspace = true
 serde.workspace = true

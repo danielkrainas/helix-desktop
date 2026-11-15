@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Helix XDG desktop portal backends"
 
 [dependencies]
+helix-i18n.workspace = true
 zbus.workspace = true
 tokio.workspace = true
 futures-util.workspace = true

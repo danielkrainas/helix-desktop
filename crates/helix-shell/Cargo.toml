@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Helix shell: org.gnome.Shell and the shell UI"
 
 [dependencies]
+helix-i18n.workspace = true
 zbus.workspace = true
 serde_json.workspace = true
 ureq.workspace = true

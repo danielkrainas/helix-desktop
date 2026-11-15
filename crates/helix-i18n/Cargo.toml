@@ -1,0 +1,13 @@
+[package]
+name = "helix-i18n"
+description = "Translation (gettext) and locale formats for Helix's desktop components"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+gettext-rs = { version = "=0.8.0", features = ["gettext-system"] }
+gio.workspace = true
+libc.workspace = true

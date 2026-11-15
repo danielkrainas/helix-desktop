@@ -1,0 +1,35 @@
+# Translations of the Helix desktop (shell, portals, session, greeter).
+# This file is distributed under the same license as helix-desktop (CC0-1.0).
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: helix-desktop\n"
+"Report-Msgid-Bugs-To: https://github.com/danielkrainas/helix-desktop/issues\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#. Translators: write "right-to-left" here (in English) if your language is written from right to left, else keep "left-to-right". It is not shown; it mirrors the shell.
+#: crates/helix-i18n/src/lib.rs:291
+msgctxt "text direction"
+msgid "left-to-right"
+msgstr ""
+
+#. Translators: a percentage; {} is the number. Write it as your language does ("{} %", "%{}", "{}٪"…).
+#: crates/helix-i18n/src/lib.rs:322
+msgid "{}%"
+msgstr ""
+
+#: session/helix.desktop
+msgid "Helix"
+msgstr ""
+
+#: session/helix.desktop
+msgid "Helix desktop session"
+msgstr ""
