@@ -320,6 +320,14 @@ impl Helix {
         for window in windows {
             let Some(output) = self.output_of(&window) else { continue };
             let Some((area, full)) = areas.iter().find(|(n, _, _)| *n == output.name()).map(|(_, a, f)| (*a, *f)) else { continue };
+            // configure_bounds follows the work area (taking over below
+            // sends the configure itself).
+            if let Some(toplevel) = window.toplevel() {
+                let changed = toplevel.with_pending_state(|s| s.bounds.replace(area.size) != Some(area.size));
+                if changed && toplevel.is_initial_configure_sent() && !self.restore.iter().any(|(w, _, _)| *w == window) {
+                    toplevel.send_pending_configure();
+                }
+            }
             if self.is_taken_over(&window, Takeover::Fullscreen) {
                 self.take_over(&window, Takeover::Fullscreen, full);
                 continue;

@@ -42,10 +42,13 @@ pub mod monitors;
 mod shortcuts;
 mod supervise;
 pub mod window_list;
+pub mod headless;
 pub mod udev;
 pub mod winit;
 mod wm;
 mod workspaces;
+#[cfg(test)]
+mod placement_tests;
 mod xwayland;
 mod xsettings;
 mod input_capture;

@@ -59,6 +59,8 @@ fn main() -> ExitCode {
 enum Backend {
     Winit,
     Drm,
+    /// A virtual monitor and nothing else (tests).
+    Headless,
 }
 
 struct Args {
@@ -79,6 +81,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let monitors = match backend {
         Backend::Winit => compositor::winit::init(&mut event_loop, &mut state)?,
         Backend::Drm => compositor::udev::init(&mut event_loop, &mut state)?,
+        Backend::Headless => compositor::headless::init(&mut event_loop, &mut state)?,
     };
 
     // Keep the shell's window list current (titles, focus, open/close).
@@ -203,7 +206,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: still single-threaded here; children inherit the variable.
     std::env::set_var("WAYLAND_DISPLAY", &socket);
     // Tell clients (the shell) whether this session drives real hardware.
-    std::env::set_var("HELIX_BACKEND", if matches!(backend, Backend::Drm) { "drm" } else { "winit" });
+    std::env::set_var(
+        "HELIX_BACKEND",
+        match backend {
+            Backend::Drm => "drm",
+            Backend::Winit => "winit",
+            Backend::Headless => "headless",
+        },
+    );
 
     // Xwayland comes up first; then DISPLAY and WAYLAND_DISPLAY are
     // announced (in that order) and the shell and --command start.
@@ -273,7 +283,7 @@ fn stop_on_signals(signal: smithay::reexports::calloop::LoopSignal) {
 }
 
 fn parse_args() -> Result<Args, String> {
-    const USAGE: &str = "usage: helix-comp [--backend winit|drm] [--shell PROGRAM [--exit-with-shell]] [--command PROGRAM]";
+    const USAGE: &str = "usage: helix-comp [--backend winit|drm|headless] [--shell PROGRAM [--exit-with-shell]] [--command PROGRAM]";
     let nested = std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
     let mut parsed = Args {
         backend: if nested { Backend::Winit } else { Backend::Drm },
@@ -288,6 +298,7 @@ fn parse_args() -> Result<Args, String> {
                 parsed.backend = match args.next().as_deref() {
                     Some("winit") => Backend::Winit,
                     Some("drm") => Backend::Drm,
+                    Some("headless") => Backend::Headless,
                     _ => return Err(USAGE.into()),
                 }
             }

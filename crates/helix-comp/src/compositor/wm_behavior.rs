@@ -204,6 +204,11 @@ impl Helix {
     /// A new window has its size: put it where the settings say.
     pub fn place_new_window(&mut self, window: &Window) {
         self.wm.unplaced.retain(|w| w != window);
+        // Maximized, fullscreen or tiled before its first frame (it asked
+        // before mapping): it is where that put it.
+        if self.restore.iter().any(|(w, _, _)| w == window) {
+            return;
+        }
         let size = window.geometry().size;
         let top = frame_top(window);
         if let Some(parent) = self.parent_of(window) {

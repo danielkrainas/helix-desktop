@@ -222,6 +222,14 @@ impl XdgShellHandler for Helix {
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         tracing::info!("new toplevel window");
+        // What Helix can do with it (xdg_toplevel.wm_capabilities), and the
+        // largest size that fits beside the panels (configure_bounds).
+        let bounds = self.pointer_output().and_then(|o| self.usable_area_of(&o)).map(|a| a.size);
+        surface.with_pending_state(|state| {
+            use xdg_toplevel::WmCapabilities;
+            state.capabilities.replace([WmCapabilities::WindowMenu, WmCapabilities::Maximize, WmCapabilities::Fullscreen, WmCapabilities::Minimize]);
+            state.bounds = bounds;
+        });
         let window = Window::new_wayland_window(surface);
         let position = self.next_window_position();
         // Placed for real once it has a size (its first buffer).
