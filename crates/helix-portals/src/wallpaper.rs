@@ -11,6 +11,8 @@ use zbus::{fdo, interface, Connection, ObjectServer};
 
 use crate::dialogs::{app_name, dialog, value};
 use crate::screenshot::{response, with_request, Results};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 const BACKGROUND: &str = "org.gnome.desktop.background";
 const SCREENSAVER: &str = "org.gnome.desktop.screensaver";
@@ -102,18 +104,18 @@ impl WallpaperBackend {
                 return (response::OTHER, Results::new());
             };
             if preview {
-                let who = if app_id.is_empty() { "An app".to_owned() } else { app_name(&app_id) };
-                let what = match (background, lock_screen) {
-                    (true, true) => "the background and lock screen",
-                    (true, false) => "the background",
-                    _ => "the lock screen",
+                let who = if app_id.is_empty() { tr("An app").to_owned() } else { app_name(&app_id) };
+                let message = match (background, lock_screen) {
+                    (true, true) => trf!("{who} wants to set this picture as the background and lock screen.", who = who),
+                    (true, false) => trf!("{who} wants to set this picture as the background.", who = who),
+                    _ => trf!("{who} wants to set this picture as the lock screen.", who = who),
                 };
                 let options = HashMap::from([
-                    ("title".to_owned(), value(Value::from("Set Background"))),
-                    ("message".to_owned(), value(Value::from(format!("{who} wants to set this picture as {what}.")))),
+                    ("title".to_owned(), value(Value::from(tr("Set Background")))),
+                    ("message".to_owned(), value(Value::from(message))),
                     ("picture".to_owned(), value(Value::from(path.to_string_lossy().into_owned()))),
-                    ("accept".to_owned(), value(Value::from("Set"))),
-                    ("cancel".to_owned(), value(Value::from("Cancel"))),
+                    ("accept".to_owned(), value(Value::from(tr("Set")))),
+                    ("cancel".to_owned(), value(Value::from(tr("Cancel")))),
                 ]);
                 if dialog(&conn, options).await.is_none() {
                     return (response::CANCELLED, Results::new());

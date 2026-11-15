@@ -26,6 +26,335 @@ msgstr ""
 msgid "{}%"
 msgstr ""
 
+#: crates/helix-portals/src/dialogs.rs:105
+#: crates/helix-portals/src/dialogs.rs:324
+#: crates/helix-portals/src/global_shortcuts.rs:185
+#: crates/helix-portals/src/input_capture.rs:148
+#: crates/helix-shell/src/bluetooth_agent.rs:170
+#: crates/helix-shell/src/bluetooth_agent.rs:175
+#: crates/helix-shell/src/geoclue_agent.rs:115
+#: crates/helix-shell/src/ui.rs:1046 crates/helix-shell/src/ui.rs:1053
+msgid "Allow"
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:106
+#: crates/helix-portals/src/global_shortcuts.rs:186
+#: crates/helix-portals/src/input_capture.rs:149
+#: crates/helix-shell/src/bluetooth_agent.rs:170
+#: crates/helix-shell/src/bluetooth_agent.rs:175
+#: crates/helix-shell/src/geoclue_agent.rs:116
+#: crates/helix-shell/src/ui.rs:1045 crates/helix-shell/src/ui.rs:1052
+msgid "Deny"
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:177
+msgid "{} wants to know your name."
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:178
+msgid "Name: {real} ({user})"
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:181
+#: crates/helix-portals/src/dynamic_launcher.rs:146
+#: crates/helix-portals/src/file_chooser.rs:548
+#: crates/helix-portals/src/file_chooser.rs:672
+#: crates/helix-portals/src/print.rs:146
+#: crates/helix-portals/src/wallpaper.rs:118
+#: crates/helix-shell/src/bluetooth_agent.rs:104
+#: crates/helix-shell/src/bluetooth_agent.rs:165
+#: crates/helix-shell/src/keyring_prompt.rs:85
+#: crates/helix-shell/src/lib.rs:1263 crates/helix-shell/src/lib.rs:1351
+#: crates/helix-shell/src/mount_handler.rs:125
+#: crates/helix-shell/src/mount_handler.rs:139
+#: crates/helix-shell/src/mount_handler.rs:174
+#: crates/helix-shell/src/network_agent.rs:213
+#: crates/helix-shell/src/network_agent.rs:448
+#: crates/helix-shell/src/notifications.rs:501
+#: crates/helix-shell/src/obex.rs:498 crates/helix-shell/src/polkit.rs:226
+#: crates/helix-shell/src/polkit.rs:309
+#: crates/helix-shell/src/portal_dialog.rs:121
+#: crates/helix-shell/src/run_dialog.rs:183 crates/helix-shell/src/ui.rs:1038
+#: crates/helix-shell/src/ui.rs:1041 crates/helix-shell/src/ui.rs:2921
+#: crates/helix-shell/src/ui.rs:2922 crates/helix-shell/src/ui/atspi.rs:568
+#: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:580
+#: crates/helix-shell/src/ui/prompt.rs:592
+#: crates/helix-shell/src/vpn_secrets.rs:195
+msgid "Cancel"
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:2927
+#: crates/helix-shell/src/ui.rs:2928 crates/helix-shell/src/ui/atspi.rs:569
+msgid "Share"
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:181
+msgid "Share Details"
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:214
+msgid "Choose an app to open {n}."
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:215
+msgid "Choose an app."
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:241
+msgid "Open With"
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:324
+msgid "Background Activity"
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:324
+msgid "Forbid"
+msgstr ""
+
+#: crates/helix-portals/src/dialogs.rs:324
+msgid "{name} is running in the background."
+msgstr ""
+
+#: crates/helix-portals/src/dynamic_launcher.rs:83
+msgid "{who} wants to add a launcher for this web app to your apps."
+msgstr ""
+
+#: crates/helix-portals/src/dynamic_launcher.rs:84
+msgid "{who} wants to add a launcher for this app to your apps."
+msgstr ""
+
+#: crates/helix-portals/src/dynamic_launcher.rs:85
+msgid "{who} wants to add a launcher for the web app “{name}” to your apps."
+msgstr ""
+
+#: crates/helix-portals/src/dynamic_launcher.rs:86
+msgid "{who} wants to add a launcher for the app “{name}” to your apps."
+msgstr ""
+
+#: crates/helix-portals/src/dynamic_launcher.rs:140
+#: crates/helix-portals/src/global_shortcuts.rs:173
+#: crates/helix-portals/src/input_capture.rs:144
+#: crates/helix-portals/src/wallpaper.rs:107
+msgid "An app"
+msgstr ""
+
+#: crates/helix-portals/src/dynamic_launcher.rs:143
+msgid "Add to Apps"
+msgstr ""
+
+#: crates/helix-portals/src/dynamic_launcher.rs:145
+msgid "Add"
+msgstr ""
+
+#: crates/helix-portals/src/dynamic_launcher.rs:154
+#: crates/helix-portals/src/file_chooser.rs:526
+msgid "Name"
+msgstr ""
+
+#: crates/helix-portals/src/dynamic_launcher.rs:158
+msgid "Choose a different icon"
+msgstr ""
+
+#: crates/helix-portals/src/dynamic_launcher.rs:177
+msgid "Choose an Icon"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:72
+#: crates/helix-portals/src/file_chooser.rs:534
+msgid "Recent"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:99
+msgid "Home"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:101
+msgid "Computer"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:370
+msgid "Parent Folder"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:371
+msgid "File type: {filter_name} (choose to change)"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:372
+msgid "Select This Folder"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:373
+msgid "Save Here"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:464
+msgid "Images"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:467
+#: crates/helix-shell/src/mount_handler.rs:138
+#: crates/helix-shell/src/obex.rs:497
+msgid "Choose"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:515
+msgid "All Files"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:527
+msgid "Location"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:533
+msgid "Search for “{query}” in {folder}"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:597
+msgid "No files named like “{}”."
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:603
+msgid "“{}” was not found."
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:641
+msgid "Type a name for the file."
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:651
+msgid "That folder does not exist."
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:669
+msgid "Replace File?"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:670
+msgid ""
+"A file named “{name}” already exists in “{folder}”. Replacing it overwrites "
+"its contents."
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:671
+msgid "Replace"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:729
+msgid "Select"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:730
+#: crates/helix-shell/src/notifications.rs:229
+#: crates/helix-shell/src/notifications.rs:344
+#: crates/helix-shell/src/portal_dialog.rs:120
+#: crates/helix-shell/src/ui/dock.rs:1444
+#: crates/helix-shell/src/ui/dock.rs:1459
+#: crates/helix-shell/src/ui/dock.rs:1487
+msgid "Open"
+msgstr ""
+
+#: crates/helix-portals/src/file_chooser.rs:731
+msgid "Save"
+msgstr ""
+
+#: crates/helix-portals/src/global_shortcuts.rs:77
+msgid "Not assigned"
+msgstr ""
+
+#: crates/helix-portals/src/global_shortcuts.rs:83
+#: crates/helix-portals/src/input_capture.rs:45
+msgid "Ctrl"
+msgstr ""
+
+#: crates/helix-portals/src/global_shortcuts.rs:84
+#: crates/helix-portals/src/input_capture.rs:47
+msgid "Alt"
+msgstr ""
+
+#: crates/helix-portals/src/global_shortcuts.rs:85
+#: crates/helix-portals/src/input_capture.rs:48
+msgid "Shift"
+msgstr ""
+
+#: crates/helix-portals/src/global_shortcuts.rs:86
+#: crates/helix-portals/src/input_capture.rs:46
+msgid "Super"
+msgstr ""
+
+#: crates/helix-portals/src/global_shortcuts.rs:178
+msgid "{} — not assigned"
+msgstr ""
+
+#: crates/helix-portals/src/global_shortcuts.rs:182
+msgid "Allow Global Shortcuts?"
+msgstr ""
+
+#: crates/helix-portals/src/global_shortcuts.rs:183
+msgid "{who} wants to use these shortcuts in every app."
+msgstr ""
+
+#: crates/helix-portals/src/input_capture.rs:34
+msgid ""
+"{app} wants to take over the pointer and keyboard when the pointer leaves "
+"the screen. {cancel} gives them back."
+msgstr ""
+
+#: crates/helix-portals/src/input_capture.rs:146
+msgid "Allow Input Capture?"
+msgstr ""
+
+#: crates/helix-portals/src/print.rs:21
+msgid "Print to File"
+msgstr ""
+
+#: crates/helix-portals/src/print.rs:138 crates/helix-portals/src/print.rs:193
+#: crates/helix-portals/src/print.rs:249
+msgid "Print"
+msgstr ""
+
+#: crates/helix-portals/src/print.rs:139
+msgid "Choose a printer."
+msgstr ""
+
+#: crates/helix-portals/src/print.rs:139
+msgid "Print “{title}” on:"
+msgstr ""
+
+#: crates/helix-portals/src/print.rs:142
+msgid "Copies"
+msgstr ""
+
+#: crates/helix-portals/src/print.rs:152
+msgid "The number of copies must be 1 to 999."
+msgstr ""
+
+#: crates/helix-portals/src/screenshot.rs:86
+#: crates/helix-shell/src/screenshot.rs:315
+msgid "Screenshot From {stamp}.png"
+msgstr ""
+
+#: crates/helix-portals/src/wallpaper.rs:109
+msgid "{who} wants to set this picture as the background and lock screen."
+msgstr ""
+
+#: crates/helix-portals/src/wallpaper.rs:110
+msgid "{who} wants to set this picture as the background."
+msgstr ""
+
+#: crates/helix-portals/src/wallpaper.rs:111
+msgid "{who} wants to set this picture as the lock screen."
+msgstr ""
+
+#: crates/helix-portals/src/wallpaper.rs:114
+msgid "Set Background"
+msgstr ""
+
+#: crates/helix-portals/src/wallpaper.rs:117
+msgid "Set"
+msgstr ""
+
 #: crates/helix-shell/src/a11y_menu.rs:28
 msgid "High Contrast"
 msgstr ""
@@ -86,28 +415,6 @@ msgstr ""
 msgid "Pair"
 msgstr ""
 
-#: crates/helix-shell/src/bluetooth_agent.rs:104
-#: crates/helix-shell/src/bluetooth_agent.rs:165
-#: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1263 crates/helix-shell/src/lib.rs:1351
-#: crates/helix-shell/src/mount_handler.rs:125
-#: crates/helix-shell/src/mount_handler.rs:139
-#: crates/helix-shell/src/mount_handler.rs:174
-#: crates/helix-shell/src/network_agent.rs:213
-#: crates/helix-shell/src/network_agent.rs:448
-#: crates/helix-shell/src/notifications.rs:501
-#: crates/helix-shell/src/obex.rs:498 crates/helix-shell/src/polkit.rs:226
-#: crates/helix-shell/src/polkit.rs:309
-#: crates/helix-shell/src/portal_dialog.rs:121
-#: crates/helix-shell/src/run_dialog.rs:183 crates/helix-shell/src/ui.rs:1038
-#: crates/helix-shell/src/ui.rs:1041 crates/helix-shell/src/ui.rs:2921
-#: crates/helix-shell/src/ui.rs:2922 crates/helix-shell/src/ui/atspi.rs:568
-#: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:580
-#: crates/helix-shell/src/ui/prompt.rs:592
-#: crates/helix-shell/src/vpn_secrets.rs:195
-msgid "Cancel"
-msgstr ""
-
 #: crates/helix-shell/src/bluetooth_agent.rs:113
 msgid "This code is not valid."
 msgstr ""
@@ -133,20 +440,6 @@ msgstr ""
 
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 msgid "Pair with {name}?"
-msgstr ""
-
-#: crates/helix-shell/src/bluetooth_agent.rs:170
-#: crates/helix-shell/src/bluetooth_agent.rs:175
-#: crates/helix-shell/src/geoclue_agent.rs:115
-#: crates/helix-shell/src/ui.rs:1046 crates/helix-shell/src/ui.rs:1053
-msgid "Allow"
-msgstr ""
-
-#: crates/helix-shell/src/bluetooth_agent.rs:170
-#: crates/helix-shell/src/bluetooth_agent.rs:175
-#: crates/helix-shell/src/geoclue_agent.rs:116
-#: crates/helix-shell/src/ui.rs:1045 crates/helix-shell/src/ui.rs:1052
-msgid "Deny"
 msgstr ""
 
 #: crates/helix-shell/src/bluetooth_agent.rs:170
@@ -464,11 +757,6 @@ msgstr ""
 msgid "Windows System Volume"
 msgstr ""
 
-#: crates/helix-shell/src/mount_handler.rs:138
-#: crates/helix-shell/src/obex.rs:497
-msgid "Choose"
-msgstr ""
-
 #: crates/helix-shell/src/mount_handler.rs:161
 msgid "User name (domain\\name)"
 msgstr ""
@@ -661,15 +949,6 @@ msgstr ""
 
 #: crates/helix-shell/src/notifications.rs:228
 msgid "You can paste the image from the clipboard."
-msgstr ""
-
-#: crates/helix-shell/src/notifications.rs:229
-#: crates/helix-shell/src/notifications.rs:344
-#: crates/helix-shell/src/portal_dialog.rs:120
-#: crates/helix-shell/src/ui/dock.rs:1444
-#: crates/helix-shell/src/ui/dock.rs:1459
-#: crates/helix-shell/src/ui/dock.rs:1487
-msgid "Open"
 msgstr ""
 
 #: crates/helix-shell/src/notifications.rs:229
@@ -1032,10 +1311,6 @@ msgstr ""
 msgid "An application"
 msgstr ""
 
-#: crates/helix-shell/src/screenshot.rs:315
-msgid "Screenshot From {stamp}.png"
-msgstr ""
-
 #: crates/helix-shell/src/ui.rs:984 crates/helix-shell/src/ui/atspi.rs:337
 msgid "Sharing"
 msgstr ""
@@ -1229,11 +1504,6 @@ msgstr ""
 
 #: crates/helix-shell/src/ui.rs:2888 crates/helix-shell/src/ui/atspi.rs:557
 msgid "It will be able to share the same screen again without asking."
-msgstr ""
-
-#: crates/helix-shell/src/ui.rs:2927 crates/helix-shell/src/ui.rs:2928
-#: crates/helix-shell/src/ui/atspi.rs:569
-msgid "Share"
 msgstr ""
 
 #: crates/helix-shell/src/ui.rs:3109

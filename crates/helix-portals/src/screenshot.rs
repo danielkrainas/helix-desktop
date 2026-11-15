@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use gio::prelude::*;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
 use zbus::{fdo, interface, Connection, ObjectServer};
+use helix_i18n::trf;
 
 /// `response` values.
 pub mod response {
@@ -82,7 +83,7 @@ fn screenshot_path() -> PathBuf {
         .and_then(|now| now.format("%Y-%m-%d %H-%M-%S"))
         .map(|s| s.to_string())
         .unwrap_or_else(|_| "unknown time".into());
-    dir.join(format!("Screenshot From {stamp}.png"))
+    dir.join(trf!("Screenshot From {stamp}.png", stamp = stamp))
 }
 
 fn is_cancel(err: &zbus::Error) -> bool {

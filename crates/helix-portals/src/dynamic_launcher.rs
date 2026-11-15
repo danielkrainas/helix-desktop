@@ -11,6 +11,8 @@ use zbus::{fdo, interface, Connection, ObjectServer};
 
 use crate::dialogs::{app_name, dialog, value};
 use crate::screenshot::{response, with_request, Results};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 /// `launcher_type` values.
 pub mod launcher_type {
@@ -77,11 +79,11 @@ pub fn chosen_name(entered: Option<&str>, default: &str) -> String {
 
 /// The dialog's message.
 pub fn message(who: &str, kind: u32, editable: bool, name: &str) -> String {
-    let what = if kind == launcher_type::WEBAPP { "web app" } else { "app" };
-    if editable {
-        format!("{who} wants to add a launcher for this {what} to your apps.")
-    } else {
-        format!("{who} wants to add a launcher for the {what} “{name}” to your apps.")
+    match (kind == launcher_type::WEBAPP, editable) {
+        (true, true) => trf!("{who} wants to add a launcher for this web app to your apps.", who = who),
+        (false, true) => trf!("{who} wants to add a launcher for this app to your apps.", who = who),
+        (true, false) => trf!("{who} wants to add a launcher for the web app “{name}” to your apps.", who = who, name = name),
+        (false, false) => trf!("{who} wants to add a launcher for the app “{name}” to your apps.", who = who, name = name),
     }
 }
 
@@ -135,13 +137,13 @@ impl DynamicLauncherBackend {
             if kind != launcher_type::APPLICATION && kind != launcher_type::WEBAPP {
                 return (response::OTHER, Results::new());
             }
-            let who = if app_id.is_empty() { "An app".to_owned() } else { app_name(&app_id) };
+            let who = if app_id.is_empty() { tr("An app").to_owned() } else { app_name(&app_id) };
             let default = chosen_name(None, &name);
             let mut dialog_options = HashMap::from([
-                ("title".to_owned(), value(Value::from("Add to Apps"))),
+                ("title".to_owned(), value(Value::from(tr("Add to Apps")))),
                 ("message".to_owned(), value(Value::from(message(&who, kind, editable, &default)))),
-                ("accept".to_owned(), value(Value::from("Add"))),
-                ("cancel".to_owned(), value(Value::from("Cancel"))),
+                ("accept".to_owned(), value(Value::from(tr("Add")))),
+                ("cancel".to_owned(), value(Value::from(tr("Cancel")))),
             ]);
             if kind == launcher_type::WEBAPP {
                 if let Some(target) = &target {
@@ -149,11 +151,11 @@ impl DynamicLauncherBackend {
                 }
             }
             if editable {
-                dialog_options.insert("entry-label".to_owned(), value(Value::from("Name")));
+                dialog_options.insert("entry-label".to_owned(), value(Value::from(tr("Name"))));
                 dialog_options.insert("entry".to_owned(), value(Value::from(default.clone())));
             }
             if icon_editable {
-                dialog_options.insert("check-label".to_owned(), value(Value::from("Choose a different icon")));
+                dialog_options.insert("check-label".to_owned(), value(Value::from(tr("Choose a different icon"))));
                 dialog_options.insert("check".to_owned(), value(Value::from(false)));
             }
             let icon_file = icon.as_deref().and_then(IconFile::write);
@@ -172,7 +174,7 @@ impl DynamicLauncherBackend {
             out.insert("name".to_owned(), value(Value::from(chosen)));
             let other_icon = icon_editable && results.get("check").and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(false);
             let picked = match other_icon {
-                true => crate::file_chooser::pick_image(&conn, "Choose an Icon").await,
+                true => crate::file_chooser::pick_image(&conn, tr("Choose an Icon")).await,
                 false => None,
             };
             let icon_v = match picked.map(|p| (icon_from_file(&p), p)) {

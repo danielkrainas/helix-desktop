@@ -13,6 +13,8 @@ use zbus::{fdo, interface, Connection, ObjectServer};
 
 use crate::dialogs::{app_name, dialog, value};
 use crate::screenshot::{response, with_request, Results};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 const COMPOSITOR: &str = "org.helix.InputCapture";
 const COMPOSITOR_PATH: &str = "/org/helix/InputCapture";
@@ -29,7 +31,7 @@ fn lock(s: &Sessions) -> std::sync::MutexGuard<'_, HashMap<OwnedObjectPath, Owne
 
 /// The dialog's message, naming the key that ends a capture.
 pub fn message(app: &str, cancel: &str) -> String {
-    format!("{app} wants to take over the pointer and keyboard when the pointer leaves the screen. {cancel} gives them back.")
+    trf!("{app} wants to take over the pointer and keyboard when the pointer leaves the screen. {cancel} gives them back.", app = app, cancel = cancel)
 }
 
 /// An accelerator as people write it: `<Super><Shift>Escape` →
@@ -40,10 +42,10 @@ pub fn accelerator_label(accel: &str) -> String {
     while let Some(after) = rest.strip_prefix('<') {
         let Some(end) = after.find('>') else { break };
         parts.push(match after[..end].to_ascii_lowercase().as_str() {
-            "primary" | "control" | "ctrl" => "Ctrl".to_owned(),
-            "super" | "mod4" => "Super".to_owned(),
-            "alt" | "mod1" => "Alt".to_owned(),
-            "shift" => "Shift".to_owned(),
+            "primary" | "control" | "ctrl" => tr("Ctrl").to_owned(),
+            "super" | "mod4" => tr("Super").to_owned(),
+            "alt" | "mod1" => tr("Alt").to_owned(),
+            "shift" => tr("Shift").to_owned(),
             other => other.to_owned(),
         });
         rest = &after[end + 1..];
@@ -139,12 +141,12 @@ async fn start(conn: &Connection, sessions: &Sessions, portal: &OwnedObjectPath,
         return (response::OTHER, Results::new());
     }
     if must_ask(wanted, restored) {
-        let who = if app_id.is_empty() { "An app".to_owned() } else { app_name(app_id) };
+        let who = if app_id.is_empty() { tr("An app").to_owned() } else { app_name(app_id) };
         let asked = HashMap::from([
-            ("title".to_owned(), value(Value::from("Allow Input Capture?"))),
+            ("title".to_owned(), value(Value::from(tr("Allow Input Capture?")))),
             ("message".to_owned(), value(Value::from(message(&who, &cancel_label())))),
-            ("accept".to_owned(), value(Value::from("Allow"))),
-            ("cancel".to_owned(), value(Value::from("Deny"))),
+            ("accept".to_owned(), value(Value::from(tr("Allow")))),
+            ("cancel".to_owned(), value(Value::from(tr("Deny")))),
         ]);
         if dialog(conn, asked).await.is_none() {
             return (response::CANCELLED, Results::new());

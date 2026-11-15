@@ -13,6 +13,8 @@ use zbus::{fdo, interface, Connection, ObjectServer};
 
 use crate::dialogs::{answered_choices, check_box, dialog, value, Choice};
 use crate::screenshot::{response, with_request, Results};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 /// A filter: its name and patterns, (0, glob) or (1, MIME type).
 pub type Filter = (String, Vec<(u32, String)>);
@@ -67,7 +69,7 @@ pub enum Place {
 impl Place {
     pub fn label(&self) -> &str {
         match self {
-            Place::Recent => "Recent",
+            Place::Recent => tr("Recent"),
             Place::Folder(label, _) => label,
         }
     }
@@ -94,9 +96,9 @@ pub fn places(home: &Path, standard: &[PathBuf], bookmarks: &[(String, PathBuf)]
     if recent {
         out.push(Place::Recent);
     }
-    out.push(Place::Folder("Home".into(), home.to_path_buf()));
+    out.push(Place::Folder(tr("Home").into(), home.to_path_buf()));
     let named = |p: &PathBuf| (p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned()), p.clone());
-    let candidates = standard.iter().map(named).chain(bookmarks.iter().cloned()).chain(drives.iter().cloned()).chain([("Computer".to_owned(), PathBuf::from("/"))]);
+    let candidates = standard.iter().map(named).chain(bookmarks.iter().cloned()).chain(drives.iter().cloned()).chain([(tr("Computer").to_owned(), PathBuf::from("/"))]);
     for (label, path) in candidates {
         let seen = out.iter().any(|p| matches!(p, Place::Folder(_, q) if *q == path));
         if !seen && path.is_dir() {
@@ -365,10 +367,10 @@ pub fn rows(dir: &Path, entries: &[(String, bool)], mode: Mode, filter: Option<&
 
 pub fn label(row: &Row, filter_name: &str) -> String {
     match row {
-        Row::Parent => "Parent Folder".into(),
-        Row::FilterRow => format!("File type: {filter_name} (choose to change)"),
-        Row::SelectHere => "Select This Folder".into(),
-        Row::SaveHere => "Save Here".into(),
+        Row::Parent => tr("Parent Folder").into(),
+        Row::FilterRow => trf!("File type: {filter_name} (choose to change)", filter_name = filter_name),
+        Row::SelectHere => tr("Select This Folder").into(),
+        Row::SaveHere => tr("Save Here").into(),
         Row::Folder(n) => format!("{n}/"),
         Row::File(n) => n.clone(),
         Row::Recent(p) => {
@@ -459,10 +461,10 @@ fn opt<T: TryFrom<OwnedValue>>(results: &HashMap<String, OwnedValue>, key: &str)
 pub(crate) async fn pick_image(conn: &Connection, title: &str) -> Option<PathBuf> {
     let home = home();
     let folder = gio::glib::user_special_dir(gio::glib::UserDirectory::Pictures).filter(|d| d.is_dir()).unwrap_or(home);
-    let images: Filter = ("Images".into(), ["image/png", "image/jpeg", "image/svg+xml"].iter().map(|m| (1, (*m).to_owned())).collect());
+    let images: Filter = (tr("Images").into(), ["image/png", "image/jpeg", "image/svg+xml"].iter().map(|m| (1, (*m).to_owned())).collect());
     let ask = Ask {
         title: title.into(),
-        accept: "Choose".into(),
+        accept: tr("Choose").into(),
         mode: Mode::Open { multiple: false, directory: false },
         folder,
         name: String::new(),
@@ -510,7 +512,7 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             Place::Recent => recent && searching.is_none(),
             Place::Folder(_, path) => !recent && searching.is_none() && *path == ask.folder,
         });
-        let filter_name = filter.map_or("All Files", |f| f.0.as_str());
+        let filter_name = filter.map_or(tr("All Files"), |f| f.0.as_str());
         let labels: Vec<String> = list.iter().map(|r| label(r, filter_name)).collect();
         let selected = prefer
             .take()
@@ -521,15 +523,15 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             })
             .unwrap_or(0);
         let (entry_label, entry) = match ask.mode {
-            Mode::Save => ("Name", ask.name.clone()),
-            _ => ("Location", String::new()),
+            Mode::Save => (tr("Name"), ask.name.clone()),
+            _ => (tr("Location"), String::new()),
         };
         let multiple = matches!(ask.mode, Mode::Open { multiple: true, directory: false });
         let mut options = HashMap::from([
             ("title".to_owned(), value(Value::from(ask.title.clone()))),
             ("message".to_owned(), value(Value::from(match (&searching, recent) {
-                (Some(q), _) => format!("Search for “{q}” in {}", shown_path(&ask.folder, &home)),
-                (None, true) => "Recent".to_owned(),
+                (Some(q), _) => trf!("Search for “{query}” in {folder}", query = q, folder = shown_path(&ask.folder, &home)),
+                (None, true) => tr("Recent").to_owned(),
                 (None, false) => shown_path(&ask.folder, &home),
             }))),
             ("places".to_owned(), value(Value::from(places.iter().map(|p| p.label().to_owned()).collect::<Vec<String>>()))),
@@ -543,7 +545,7 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             ("entry".to_owned(), value(Value::from(entry))),
             ("warning".to_owned(), value(Value::from(std::mem::take(&mut warning)))),
             ("accept".to_owned(), value(Value::from(ask.accept.clone()))),
-            ("cancel".to_owned(), value(Value::from("Cancel"))),
+            ("cancel".to_owned(), value(Value::from(tr("Cancel")))),
         ]);
         // Image files can be previewed: their paths, by row.
         let previews: Vec<String> = list.iter().map(|r| preview_path(&ask.folder, r).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()).collect();
@@ -592,13 +594,13 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
                 // Not a place: look for files by that name.
                 let filter = ask.filter.and_then(|i| ask.filters.get(i));
                 if find(conn, &ask.folder, &typed, filter).await.is_empty() {
-                    warning = format!("No files named like “{}”.", typed.trim());
+                    warning = trf!("No files named like “{}”.", typed.trim());
                 } else {
                     recent = false;
                     searching = Some(typed.trim().to_owned());
                 }
             } else {
-                warning = format!("“{}” was not found.", typed.trim());
+                warning = trf!("“{}” was not found.", typed.trim());
             }
             continue;
         }
@@ -636,7 +638,7 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
             Some(Row::SaveHere) if ask.mode == Mode::SaveFiles => return done(vec![ask.folder.clone()], &ask),
             Some(Row::SaveHere) => {
                 if ask.name.is_empty() {
-                    warning = "Type a name for the file.".into();
+                    warning = tr("Type a name for the file.").into();
                     continue;
                 }
                 let target = resolve(&ask.folder, &ask.name, &home);
@@ -646,7 +648,7 @@ async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
                     continue;
                 }
                 if !target.parent().is_some_and(Path::is_dir) {
-                    warning = "That folder does not exist.".into();
+                    warning = tr("That folder does not exist.").into();
                     continue;
                 }
                 if target.exists() && !replace(conn, &target).await {
@@ -664,10 +666,10 @@ async fn replace(conn: &Connection, path: &Path) -> bool {
     let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
     let folder = path.parent().and_then(Path::file_name).map_or_else(String::new, |n| n.to_string_lossy().into_owned());
     let options = HashMap::from([
-        ("title".to_owned(), value(Value::from("Replace File?"))),
-        ("message".to_owned(), value(Value::from(format!("A file named “{name}” already exists in “{folder}”. Replacing it overwrites its contents.")))),
-        ("accept".to_owned(), value(Value::from("Replace"))),
-        ("cancel".to_owned(), value(Value::from("Cancel"))),
+        ("title".to_owned(), value(Value::from(tr("Replace File?")))),
+        ("message".to_owned(), value(Value::from(trf!("A file named “{name}” already exists in “{folder}”. Replacing it overwrites its contents.", name = name, folder = folder)))),
+        ("accept".to_owned(), value(Value::from(tr("Replace")))),
+        ("cancel".to_owned(), value(Value::from(tr("Cancel")))),
     ]);
     dialog(conn, options).await.is_some()
 }
@@ -724,9 +726,9 @@ impl FileChooserBackend {
             .unwrap_or_else(home);
         let name = opt_str(&options, "current_name").or_else(|| current_file.as_ref().and_then(|f| f.file_name()).map(|n| n.to_string_lossy().into_owned())).unwrap_or_default();
         let accept = opt_str(&options, "accept_label").unwrap_or_else(|| match mode {
-            Mode::Open { directory: true, .. } => "Select".into(),
-            Mode::Open { .. } => "Open".into(),
-            _ => "Save".into(),
+            Mode::Open { directory: true, .. } => tr("Select").into(),
+            Mode::Open { .. } => tr("Open").into(),
+            _ => tr("Save").into(),
         });
         let title = if title.is_empty() { accept.clone() } else { title };
         let ask = Ask { title, accept, mode, folder, name, filters: filters.clone(), filter, check };

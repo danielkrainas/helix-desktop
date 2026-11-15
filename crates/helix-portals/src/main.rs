@@ -11,15 +11,24 @@ use helix_settings::{GSettings, PORTAL_SCHEMAS};
 use tokio::signal::unix::{signal, SignalKind};
 use tracing_subscriber::EnvFilter;
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
+    // The locale and translations of the portals' own dialogs
+    // (helix-desktop-spec components/i18n.md), before any thread starts.
+    helix_i18n::init();
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .with_writer(std::io::stderr)
         .init();
-    match run().await {
+    let runtime = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(err) => {
+            tracing::error!(%err, "cannot start runtime");
+            return ExitCode::FAILURE;
+        }
+    };
+    match runtime.block_on(run()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             tracing::error!(%err, "helix-portals failed");

@@ -14,9 +14,11 @@ use zbus::{fdo, interface, Connection, ObjectServer};
 
 use crate::dialogs::{dialog, value};
 use crate::screenshot::{response, with_request, Results};
+use helix_i18n::{n_, tr};
+use helix_i18n::trf;
 
 /// The row that saves instead of printing.
-pub const TO_FILE: &str = "Print to File";
+pub const TO_FILE: &str = n_("Print to File");
 
 /// From `lpstat -e` and `lpstat -d` output: the printers, the default one
 /// first.
@@ -125,31 +127,33 @@ fn printing_disabled() -> bool {
 /// Ask the user; `None` when canceled.
 async fn ask(conn: &Connection, title: &str, accept: &str, preferred: Option<&str>) -> Option<Choice> {
     let mut rows = find_printers();
-    rows.push(TO_FILE.into());
+    // Shown translated; apps get the English name back (TO_FILE).
+    rows.push(tr(TO_FILE).into());
+    let preferred = preferred.map(|p| if p == TO_FILE { tr(TO_FILE) } else { p });
     let selected = preferred.and_then(|p| rows.iter().position(|r| r == p)).unwrap_or(0);
     let mut warning = String::new();
     let mut copies_text = "1".to_owned();
     loop {
         let options = HashMap::from([
-            ("title".to_owned(), value(Value::from("Print"))),
-            ("message".to_owned(), value(Value::from(if title.is_empty() { "Choose a printer.".to_owned() } else { format!("Print “{title}” on:") }))),
+            ("title".to_owned(), value(Value::from(tr("Print")))),
+            ("message".to_owned(), value(Value::from(if title.is_empty() { tr("Choose a printer.").to_owned() } else { trf!("Print “{title}” on:", title = title) }))),
             ("rows".to_owned(), value(Value::from(rows.clone()))),
             ("selected".to_owned(), value(Value::from(selected as i32))),
-            ("entry-label".to_owned(), value(Value::from("Copies"))),
+            ("entry-label".to_owned(), value(Value::from(tr("Copies")))),
             ("entry".to_owned(), value(Value::from(copies_text.clone()))),
             ("warning".to_owned(), value(Value::from(warning.clone()))),
             ("accept".to_owned(), value(Value::from(accept))),
-            ("cancel".to_owned(), value(Value::from("Cancel"))),
+            ("cancel".to_owned(), value(Value::from(tr("Cancel")))),
         ]);
         let results = dialog(conn, options).await?;
         let row = results.get("selected").and_then(|v| i32::try_from(v.clone()).ok()).and_then(|i| usize::try_from(i).ok()).unwrap_or(0);
         copies_text = results.get("entry").and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default();
         let Some(copies) = copies(&copies_text) else {
-            warning = "The number of copies must be 1 to 999.".into();
+            warning = tr("The number of copies must be 1 to 999.").into();
             continue;
         };
         let target = match rows.get(row) {
-            Some(name) if name != TO_FILE => Target::Printer(name.clone()),
+            Some(name) if name != tr(TO_FILE) => Target::Printer(name.clone()),
             _ => Target::File,
         };
         return Some(Choice { target, copies });
@@ -186,7 +190,7 @@ impl PrintBackend {
         options: HashMap<String, OwnedValue>,
     ) -> fdo::Result<(u32, Results)> {
         tracing::info!(app_id, title, "prepare print");
-        let accept = opt_str(&options, "accept_label").unwrap_or_else(|| "Print".into());
+        let accept = opt_str(&options, "accept_label").unwrap_or_else(|| tr("Print").into());
         let preferred = opt_str(&settings, "printer");
         let conn = self.conn.clone();
         let prepared = self.prepared.clone();
@@ -242,7 +246,7 @@ impl PrintBackend {
             }
             let choice = match prepared {
                 Some(c) => c,
-                None => match ask(&conn, &title, "Print", None).await {
+                None => match ask(&conn, &title, tr("Print"), None).await {
                     Some(c) => c,
                     None => return (response::CANCELLED, Results::new()),
                 },

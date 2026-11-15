@@ -15,6 +15,8 @@ use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
 use zbus::{fdo, interface, Connection, ObjectServer};
 
 use crate::screenshot::{response, with_request, Results};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 const SHELL: &str = "org.gnome.Shell";
 const DIALOG_PATH: &str = "/org/helix/PortalDialog";
@@ -100,8 +102,8 @@ impl AccessBackend {
         body: String,
         options: HashMap<String, OwnedValue>,
     ) -> fdo::Result<(u32, Results)> {
-        let grant = opt_str(&options, "grant_label").unwrap_or_else(|| "Allow".into());
-        let deny = opt_str(&options, "deny_label").unwrap_or_else(|| "Deny".into());
+        let grant = opt_str(&options, "grant_label").unwrap_or_else(|| tr("Allow").into());
+        let deny = opt_str(&options, "deny_label").unwrap_or_else(|| tr("Deny").into());
         let choices: Vec<Choice> = options.get("choices").and_then(|v| Vec::<Choice>::try_from(v.clone()).ok()).unwrap_or_default();
         let check = check_box(&choices);
         let (label, initial) = check.map_or((String::new(), false), |i| (choices[i].1.clone(), choices[i].3 == "true"));
@@ -172,11 +174,11 @@ impl AccountBackend {
         let (user, real) = passwd_entry(&std::fs::read_to_string("/etc/passwd").unwrap_or_default(), uid)
             .unwrap_or_else(|| (std::env::var("USER").unwrap_or_default(), std::env::var("USER").unwrap_or_default()));
         let reason = opt_str(&options, "reason").map(|r| format!("{r}\n")).unwrap_or_default();
-        let message = format!("{} wants to know your name.", app_name(&app_id));
-        let description = format!("{reason}Name: {real} ({user})");
+        let message = trf!("{} wants to know your name.", app_name(&app_id));
+        let description = format!("{reason}{}", trf!("Name: {real} ({user})", real = real, user = user));
         let conn = self.conn.clone();
         Ok(with_request(server, handle, || async move {
-            let (granted, _) = ask(&conn, "Share Details", &message, &description, "Share", "Cancel", "", false).await;
+            let (granted, _) = ask(&conn, tr("Share Details"), &message, &description, tr("Share"), tr("Cancel"), "", false).await;
             if !granted {
                 return (response::CANCELLED, Results::new());
             }
@@ -209,8 +211,8 @@ fn app_items(choices: &[String]) -> Vec<(String, String)> {
 pub fn open_message(uri: Option<&str>, filename: Option<&str>) -> String {
     let name = filename.map(str::to_owned).or_else(|| uri.map(|u| gio::File::for_uri(u).basename().map_or_else(|| u.to_owned(), |b| b.to_string_lossy().into_owned())));
     match name.filter(|n| !n.is_empty()) {
-        Some(n) => format!("Choose an app to open {n}."),
-        None => "Choose an app.".into(),
+        Some(n) => trf!("Choose an app to open {n}.", n = n),
+        None => tr("Choose an app.").into(),
     }
 }
 
@@ -236,7 +238,7 @@ impl AppChooserBackend {
                 return (response::CANCELLED, Results::new());
             }
             open.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone());
-            let reply = conn.call_method(Some(SHELL), DIALOG_PATH, Some(DIALOG), "ChooseApp", &("Open With", message.as_str(), &items, last.as_str())).await;
+            let reply = conn.call_method(Some(SHELL), DIALOG_PATH, Some(DIALOG), "ChooseApp", &(tr("Open With"), message.as_str(), &items, last.as_str())).await;
             open.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
             let choice: String = reply.and_then(|r| r.body().deserialize()).unwrap_or_default();
             if choice.is_empty() {
@@ -319,7 +321,7 @@ impl BackgroundBackend {
         let name = if name.is_empty() { app_name(&app_id) } else { name };
         let conn = self.conn.clone();
         Ok(with_request(server, handle, || async move {
-            let (allow, _) = ask(&conn, "Background Activity", &format!("{name} is running in the background."), "", "Allow", "Forbid", "", false).await;
+            let (allow, _) = ask(&conn, tr("Background Activity"), &trf!("{name} is running in the background.", name = name), "", tr("Allow"), tr("Forbid"), "", false).await;
             (response::SUCCESS, Results::from([("result".to_owned(), value(Value::from(u32::from(allow))))]))
         })
         .await)

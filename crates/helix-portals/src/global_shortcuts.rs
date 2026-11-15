@@ -15,6 +15,8 @@ use zbus::{fdo, interface, Connection, ObjectServer};
 
 use crate::dialogs::{app_name, dialog, value};
 use crate::screenshot::{response, with_request, Results};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 const SHELL: &str = "org.gnome.Shell";
 const SHELL_PATH: &str = "/org/gnome/Shell";
@@ -72,16 +74,16 @@ pub fn accelerator_of(trigger: &str) -> Option<String> {
 
 /// A human-readable form of an accelerator (`Ctrl+Shift+S`).
 pub fn trigger_description(accelerator: Option<&str>) -> String {
-    let Some(accel) = accelerator else { return "Not assigned".into() };
+    let Some(accel) = accelerator else { return tr("Not assigned").into() };
     let mut rest = accel;
     let mut parts = Vec::new();
     while let Some(after) = rest.strip_prefix('<') {
         let Some(end) = after.find('>') else { break };
         parts.push(match &after[..end] {
-            "Control" => "Ctrl",
-            "Alt" => "Alt",
-            "Shift" => "Shift",
-            "Super" => "Super",
+            "Control" => tr("Ctrl"),
+            "Alt" => tr("Alt"),
+            "Shift" => tr("Shift"),
+            "Super" => tr("Super"),
             other => other,
         }.to_owned());
         rest = &after[end + 1..];
@@ -168,20 +170,20 @@ async fn bind(conn: &Connection, sessions: &Sessions, session: &OwnedObjectPath,
     let path = store_path();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     if !allowed_before(&remembered(&text, &app_id), &shortcuts) {
-        let who = if app_id.is_empty() { "An app".to_owned() } else { app_name(&app_id) };
+        let who = if app_id.is_empty() { tr("An app").to_owned() } else { app_name(&app_id) };
         let rows: Vec<String> = shortcuts
             .iter()
             .map(|s| match &s.accelerator {
                 Some(a) => format!("{} — {}", s.description, trigger_description(Some(a))),
-                None => format!("{} — not assigned", s.description),
+                None => trf!("{} — not assigned", s.description),
             })
             .collect();
         let asked = HashMap::from([
-            ("title".to_owned(), value(Value::from("Allow Global Shortcuts?"))),
-            ("message".to_owned(), value(Value::from(format!("{who} wants to use these shortcuts in every app.")))),
+            ("title".to_owned(), value(Value::from(tr("Allow Global Shortcuts?")))),
+            ("message".to_owned(), value(Value::from(trf!("{who} wants to use these shortcuts in every app.", who = who)))),
             ("rows".to_owned(), value(Value::from(rows))),
-            ("accept".to_owned(), value(Value::from("Allow"))),
-            ("cancel".to_owned(), value(Value::from("Deny"))),
+            ("accept".to_owned(), value(Value::from(tr("Allow")))),
+            ("cancel".to_owned(), value(Value::from(tr("Deny")))),
         ]);
         if dialog(conn, asked).await.is_none() {
             return (response::CANCELLED, Results::new());
