@@ -4,7 +4,8 @@
 # The release workflow fills in @VERSION@; the package is
 # architecture-independent (all / noarch / any).
 #
-# When the helix-apps package exists, add it to each depends list below.
+# helix-apps is released from its own repository on its own schedule,
+# so it is required without a version.
 name: helix-desktop-full
 version: "@VERSION@"
 arch: all
@@ -18,13 +19,15 @@ homepage: https://github.com/danielkrainas/helix-desktop
 license: CC0-1.0
 description: |-
   Helix desktop session with everything it works with
-  Installs the Helix desktop (helix-desktop) together with Xwayland,
-  xdg-desktop-portal, the GNOME settings schemas, dconf and PipeWire.
+  Installs the Helix desktop (helix-desktop) and Helix's applications
+  (helix-apps) together with Xwayland, xdg-desktop-portal, the GNOME
+  settings schemas, dconf and PipeWire.
 
 overrides:
   deb:
     depends:
       - helix-desktop (= @VERSION@-1)
+      - helix-apps
       - xwayland
       - xdg-desktop-portal
       - gsettings-desktop-schemas
@@ -33,6 +36,7 @@ overrides:
   rpm:
     depends:
       - helix-desktop = @VERSION@-1
+      - helix-apps
       - xorg-x11-server-Xwayland
       - xdg-desktop-portal
       - gsettings-desktop-schemas
@@ -41,6 +45,7 @@ overrides:
   archlinux:
     depends:
       - helix-desktop=@VERSION@-1
+      - helix-apps
       - xorg-xwayland
       - xdg-desktop-portal
       - gsettings-desktop-schemas

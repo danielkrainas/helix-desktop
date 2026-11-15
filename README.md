@@ -100,9 +100,12 @@ Contracts are defined in the companion [helix-desktop-spec](https://github.com/d
 1. Install the packages from a
    [release](https://github.com/danielkrainas/helix-desktop/releases)
    (or build them, see "Releases and packages"): `helix-desktop`, plus
-   `helix-desktop-full` to pull in Xwayland, xdg-desktop-portal, the GNOME
-   schemas, dconf and PipeWire, and `helix-apps` for Helix's
-   applications. On Debian/Ubuntu:
+   `helix-desktop-full`, which pulls in Helix's applications
+   (`helix-apps`, from its own
+   [releases](https://github.com/danielkrainas/helix-apps/releases)),
+   Xwayland, xdg-desktop-portal, the GNOME schemas, dconf and PipeWire.
+   The package manager must be able to find `helix-apps`, so install it
+   in the same step. On Debian/Ubuntu:
 
    ```sh
    sudo apt install ./helix-desktop_*.deb ./helix-desktop-full_*.deb ./helix-apps_*.deb
@@ -165,7 +168,8 @@ and aarch64, as:
 
 and `helix-desktop-full`, a meta package (no files; one each for Debian,
 RPM and Arch, architecture-independent) that depends on the same version
-of `helix-desktop` and on what that only recommends (Xwayland,
+of `helix-desktop`, on `helix-apps` (any version; it is released from its
+own repository), and on what `helix-desktop` only recommends (Xwayland,
 xdg-desktop-portal, the GNOME schemas, dconf, PipeWire;
 `packaging/nfpm-full.yaml`), and `helix-greeter`, the login screen
 (`packaging/nfpm-greeter.yaml`, `.deb` only; depends on `greetd`).
