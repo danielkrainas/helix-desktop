@@ -5110,6 +5110,30 @@ mod tests {
         assert_eq!(hits[3].1, OverlayHit::Window(103));
     }
 
+    /// The result row under the pointer is lit apart from the keyboard's
+    /// selection (which keeps the accent fill), and only while the pointer
+    /// is on it.
+    #[test]
+    fn result_hover() {
+        let app = |name: &str| launcher::App { id: format!("{name}.desktop"), name: name.into(), search: String::new(), categories: Vec::new() };
+        let mut model = Launcher::new(vec![app("Notes"), app("Notebook"), app("Note Taker")]);
+        model.type_text("note");
+        let empty = HashMap::new();
+        let paint = |hover: Option<usize>| {
+            let mut data = vec![0u8; 800 * 600 * 4];
+            let mut canvas = Canvas::scaled(&mut data, 800, 600, 1.0);
+            let (rows, _) = paint_results(&mut canvas, (None, None), &model, (&empty, &empty), (100, 20, 600, 580), (hover, None));
+            (data, rows)
+        };
+        let (rest, rows) = paint(None);
+        let (lit, _) = paint(Some(rows[2].1));
+        let at = |data: &[u8], r: Rect| -> [u8; 4] { data[(((r.y + r.h / 2) * 800 + r.x + r.w - 20) * 4) as usize..][..4].try_into().unwrap() };
+        assert_ne!(at(&lit, rows[2].0), at(&rest, rows[2].0), "the hovered row is lit");
+        assert_eq!(at(&lit, rows[0].0), at(&rest, rows[0].0), "the selection keeps its look");
+        assert_ne!(at(&lit, rows[2].0), at(&lit, rows[0].0), "and differs from the hover");
+        assert_eq!(at(&lit, rows[1].0), at(&rest, rows[1].0), "other rows stay");
+    }
+
     #[test]
     fn dialog_defaults() {
         use theme::Kind as ButtonKind;
