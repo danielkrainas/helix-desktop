@@ -89,38 +89,35 @@ pub struct Keys {
 }
 
 impl Keys {
+    /// The keys as stored; a key an older installed schema lacks keeps
+    /// its default.
     pub fn read() -> Keys {
-        use gio::prelude::*;
-        if !helix_settings::has_schema(SCHEMA) {
-            return Keys::default();
+        let s = helix_settings::Schema::open(SCHEMA);
+        let d = Keys::default();
+        Keys {
+            enabled: s.strv("enabled").unwrap_or(d.enabled),
+            disabled: s.strv("disabled").unwrap_or(d.disabled),
+            disable_all: s.get_or("disable-all", d.disable_all),
+            approved: s.get("approved").unwrap_or(d.approved),
+            placed: s.strv("placed").unwrap_or(d.placed),
+            command_keys: s.get("command-keys").unwrap_or(d.command_keys),
+            require_sandbox: s.get_or("require-sandbox", d.require_sandbox),
         }
-        let s = gio::Settings::new(SCHEMA);
-        let strv = |k: &str| s.strv(k).iter().map(|v| v.to_string()).collect();
-        let approved = s.value("approved").get::<HashMap<String, Vec<String>>>().unwrap_or_default();
-        let has = |k: &str| s.settings_schema().is_some_and(|x| x.has_key(k));
-        let command_keys = if has("command-keys") { s.value("command-keys").get::<HashMap<String, String>>().unwrap_or_default() } else { HashMap::new() };
-        let require_sandbox = has("require-sandbox") && s.boolean("require-sandbox");
-        Keys { enabled: strv("enabled"), disabled: strv("disabled"), disable_all: s.boolean("disable-all"), approved, placed: strv("placed"), command_keys, require_sandbox }
     }
 
+    /// Store the keys (ones an older installed schema lacks are skipped).
     pub fn write(&self) {
-        use gio::prelude::*;
-        if !helix_settings::has_schema(SCHEMA) {
+        let s = helix_settings::Schema::open(SCHEMA);
+        if !s.installed() {
             tracing::warn!("{SCHEMA} is not installed; extension choices cannot be saved");
             return;
         }
-        let s = gio::Settings::new(SCHEMA);
-        fn refs(l: &[String]) -> Vec<&str> {
-            l.iter().map(String::as_str).collect()
-        }
-        let _ = s.set_strv("enabled", refs(&self.enabled).as_slice());
-        let _ = s.set_strv("disabled", refs(&self.disabled).as_slice());
-        let _ = s.set_boolean("disable-all", self.disable_all);
-        let _ = s.set_value("approved", &gio::glib::Variant::from(self.approved.clone()));
-        let _ = s.set_strv("placed", refs(&self.placed).as_slice());
-        if s.settings_schema().is_some_and(|x| x.has_key("command-keys")) {
-            let _ = s.set_value("command-keys", &gio::glib::Variant::from(self.command_keys.clone()));
-        }
+        s.set("enabled", self.enabled.clone());
+        s.set("disabled", self.disabled.clone());
+        s.set("disable-all", self.disable_all);
+        s.set("approved", self.approved.clone());
+        s.set("placed", self.placed.clone());
+        s.set("command-keys", self.command_keys.clone());
         gio::Settings::sync();
     }
 

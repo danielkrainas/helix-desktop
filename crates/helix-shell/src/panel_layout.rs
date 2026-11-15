@@ -392,29 +392,28 @@ pub fn drag(keys: &Keys, id: &str, to: Option<(usize, Option<&str>)>) -> Keys {
     keys.normalized()
 }
 
-/// The keys as they are now (the defaults without the schema).
+/// The keys as they are now (the defaults without the schema; a key an
+/// older installed schema lacks keeps its default).
 pub fn read() -> Keys {
-    use gio::prelude::*;
-    let Some(source) = gio::SettingsSchemaSource::default() else { return Keys::default() };
-    if source.lookup(SCHEMA, true).is_none() {
-        return Keys::default();
+    let s = helix_settings::Schema::open(SCHEMA);
+    let d = Keys::default();
+    Keys {
+        left: s.strv("panel-left").unwrap_or(d.left),
+        center: s.strv("panel-center").unwrap_or(d.center),
+        right: s.strv("panel-right").unwrap_or(d.right),
+        quick: s.strv("quick-settings").unwrap_or(d.quick),
     }
-    let s = gio::Settings::new(SCHEMA);
-    let strv = |k: &str| s.strv(k).iter().map(|v| v.to_string()).collect();
-    Keys { left: strv("panel-left"), center: strv("panel-center"), right: strv("panel-right"), quick: strv("quick-settings") }
 }
 
-/// Write the zones' ids.
+/// Write the zones' ids (keys an older installed schema lacks are skipped).
 pub fn write(keys: &Keys) {
-    use gio::prelude::*;
-    if !helix_settings::has_schema(SCHEMA) {
+    let s = helix_settings::Schema::open(SCHEMA);
+    if !s.installed() {
         tracing::warn!("{SCHEMA} is not installed; the panel layout cannot be saved");
         return;
     }
-    let s = gio::Settings::new(SCHEMA);
     for (key, ids) in [("panel-left", &keys.left), ("panel-center", &keys.center), ("panel-right", &keys.right), ("quick-settings", &keys.quick)] {
-        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-        let _ = s.set_strv(key, refs.as_slice());
+        s.set(key, ids.clone());
     }
     gio::Settings::sync();
 }

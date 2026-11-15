@@ -918,21 +918,27 @@ async fn user_active(conn: &Connection) -> bool {
 /// Follow `org.helix.shell banner-ignore-timeout` and
 /// `critical-banner-ignore-timeout`.
 pub async fn follow_ignore_timeouts(center: Center) {
-    // An older installed schema without the keys: the defaults.
-    if helix_settings::key_type(HELIX_SCHEMA, "critical-banner-ignore-timeout").is_none() {
+    center.set_ignore_timeouts(read_ignore_timeouts());
+    if !helix_settings::has_schema(HELIX_SCHEMA) {
         return;
     }
-    let read = || {
-        let settings = gio::Settings::new(HELIX_SCHEMA);
-        IgnoreTimeouts::from_seconds(settings.uint("banner-ignore-timeout"), settings.uint("critical-banner-ignore-timeout"))
-    };
-    center.set_ignore_timeouts(read());
     let settings = helix_settings::GSettings::new(&[HELIX_SCHEMA]);
     let (mut changes, _watch) = settings.watch();
     while changes.recv().await.is_some() {
-        let ignore = read();
+        let ignore = read_ignore_timeouts();
         tracing::debug!(?ignore, "banner ignore periods changed");
         center.set_ignore_timeouts(ignore);
+    }
+}
+
+/// The banner ignore periods from `org.helix.shell`; each one an older
+/// installed schema lacks keeps its default.
+pub fn read_ignore_timeouts() -> IgnoreTimeouts {
+    let s = helix_settings::Schema::open(HELIX_SCHEMA);
+    let d = IgnoreTimeouts::default();
+    IgnoreTimeouts {
+        normal: s.get::<u32>("banner-ignore-timeout").map_or(d.normal, |v| IgnoreTimeouts::from_seconds(v, 0).normal),
+        critical: s.get::<u32>("critical-banner-ignore-timeout").map_or(d.critical, |v| IgnoreTimeouts::from_seconds(0, v).critical),
     }
 }
 

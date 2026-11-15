@@ -8,6 +8,9 @@
 //!   values (for the Settings portal and similar services).
 //! - [`GSettings::watch`] reports which schema changed.
 //! - [`key_type`] exposes a key's GVariant type, for contract checks.
+//! - [`Schema`] reads and writes keys of a schema whose installed copy may
+//!   be older than this build (Helix's own schemas after a partial upgrade):
+//!   a missing key gives the built-in default instead of aborting.
 //!
 //! Key contracts: `helix-desktop-spec/contracts/gsettings/`.
 
@@ -64,6 +67,102 @@ pub fn key_type(schema_id: &str, key: &str) -> Option<String> {
     schema
         .has_key(key)
         .then(|| schema.key(key).value_type().as_str().to_string())
+}
+
+/// One schema, read and written key by key without the risk of GLib
+/// aborting the process.
+///
+/// GSettings aborts when asked for a key its schema does not have. The
+/// installed copy of a Helix schema can be older than the program (a
+/// partial upgrade, or a build run against an older package), so every
+/// read of a Helix-owned key goes through here: a key that is missing, or
+/// has a different type than expected, reads as `None` (callers use their
+/// built-in default) and is logged once; writes to it are skipped.
+pub struct Schema {
+    id: String,
+    settings: Option<gio::Settings>,
+}
+
+impl Schema {
+    /// Open `schema_id`; without the schema every read is `None`.
+    pub fn open(schema_id: &str) -> Self {
+        let settings = has_schema(schema_id).then(|| gio::Settings::new(schema_id));
+        Self { id: schema_id.to_owned(), settings }
+    }
+
+    /// Whether the schema is installed.
+    pub fn installed(&self) -> bool {
+        self.settings.is_some()
+    }
+
+    /// The underlying settings, when the schema is installed.
+    pub fn settings(&self) -> Option<&gio::Settings> {
+        self.settings.as_ref()
+    }
+
+    /// Whether the installed schema has `key`.
+    pub fn has(&self, key: &str) -> bool {
+        self.settings
+            .as_ref()
+            .and_then(|s| s.settings_schema())
+            .is_some_and(|schema| schema.has_key(key))
+    }
+
+    /// The settings, if the installed schema has `key` with type `ty`;
+    /// otherwise logs (once per schema and key) and gives `None`.
+    fn checked(&self, key: &str, ty: &gio::glib::VariantTy) -> Option<&gio::Settings> {
+        let settings = self.settings.as_ref()?;
+        let found = settings
+            .settings_schema()
+            .filter(|schema| schema.has_key(key))
+            .map(|schema| schema.key(key).value_type());
+        if found.as_deref() == Some(ty) {
+            return Some(settings);
+        }
+        warn_once(&self.id, key, found.as_ref().map(|t| t.as_str()), ty.as_str());
+        None
+    }
+
+    /// `key`'s value, or `None` when the installed schema lacks it (or
+    /// gives it another type).
+    pub fn get<T: gio::glib::variant::FromVariant + gio::glib::variant::StaticVariantType>(&self, key: &str) -> Option<T> {
+        self.checked(key, &T::static_variant_type())?.value(key).get::<T>()
+    }
+
+    /// `key`'s value, or `default`.
+    pub fn get_or<T: gio::glib::variant::FromVariant + gio::glib::variant::StaticVariantType>(&self, key: &str, default: T) -> T {
+        self.get(key).unwrap_or(default)
+    }
+
+    /// A string-list key.
+    pub fn strv(&self, key: &str) -> Option<Vec<String>> {
+        self.get::<Vec<String>>(key)
+    }
+
+    /// Set `key`; `false` when the schema lacks it or refuses the value.
+    pub fn set<T: gio::glib::variant::ToVariant + gio::glib::variant::StaticVariantType>(&self, key: &str, value: T) -> bool {
+        match self.checked(key, &T::static_variant_type()) {
+            Some(settings) => settings.set_value(key, &value.to_variant()).is_ok(),
+            None => false,
+        }
+    }
+}
+
+/// Warn once per process about a missing or retyped key.
+fn warn_once(schema: &str, key: &str, found: Option<&str>, wanted: &str) {
+    use std::sync::{Mutex, OnceLock};
+    static SEEN: OnceLock<Mutex<std::collections::HashSet<(String, String)>>> = OnceLock::new();
+    let seen = SEEN.get_or_init(Default::default);
+    let first = seen
+        .lock()
+        .map(|mut s| s.insert((schema.to_owned(), key.to_owned())))
+        .unwrap_or(false);
+    if first {
+        match found {
+            None => tracing::warn!(schema, key, "the installed schema has no such key (older than this build?); using the default"),
+            Some(found) => tracing::warn!(schema, key, found, wanted, "the installed schema gives this key another type; using the default"),
+        }
+    }
 }
 
 /// A set of installed schemas.
