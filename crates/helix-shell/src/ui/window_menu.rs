@@ -527,7 +527,7 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
             // Selected from the keyboard: the focus ring too (inside the
             // row, which reaches the menu's edges).
             if ring {
-                theme::focus_ring(canvas, r.x + 4, r.y + 4, r.w - 8, r.h - 8);
+                theme::focus_ring(canvas, r.x + 7, r.y + 7, r.w - 14, r.h - 14);
             }
         }
         let base = baseline(text, r.y, r.h, 14.0);
@@ -567,12 +567,18 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
             }
             _ => {}
         }
-        let color = if item.choice == Choice::Disabled { DIM_FG } else { FG };
+        let color = if item.choice == Choice::Disabled { disabled_text() } else { FG };
         label(text, canvas, &item.label, x as f32, base, 14.0, color, (r.x + r.w - x - 24) as f32);
         hits.push((r, i));
         y += item_h;
     }
     (bounds, hits)
+}
+
+/// A disabled entry's label: dimmed, and in high contrast (where all text
+/// is white) white at 60 % (still 7:1 on black).
+pub(super) fn disabled_text() -> u32 {
+    if helix_draw::high_contrast() { 0x99FF_FFFF } else { DIM_FG }
 }
 
 /// Whether an entry can be chosen.
