@@ -27,29 +27,10 @@ const GAP: i32 = 10;
 const MAX_EVENTS: usize = 6;
 const MEDIA_H: i32 = 64 + 40;
 
-/// The first day of the week (1 = Monday … 7 = Sunday) from glibc's
-/// `week-1stday` (a date, `YYYYMMDD`) and `first_weekday` (1-based).
-pub(super) fn week_start_from(week_1stday: &str, first_weekday: &str) -> i32 {
-    let num = |s: &str| s.trim().parse::<i32>().ok();
-    let base = week_1stday.trim();
-    let base_dow = match (base.get(0..4).and_then(num), base.get(4..6).and_then(num), base.get(6..8).and_then(num)) {
-        (Some(y), Some(m), Some(d)) => DateTime::new(&TimeZone::utc(), y, m, d, 0, 0, 0.0).map(|d| d.day_of_week()).unwrap_or(7),
-        _ => 7,
-    };
-    let first = num(first_weekday).unwrap_or(1);
-    (base_dow - 1 + first - 1).rem_euclid(7) + 1
-}
-
-fn locale_week_start() -> i32 {
-    let out = std::process::Command::new("locale").args(["week-1stday", "first_weekday"]).output();
-    match out {
-        Ok(o) if o.status.success() => {
-            let text = String::from_utf8_lossy(&o.stdout);
-            let mut lines = text.lines();
-            week_start_from(lines.next().unwrap_or(""), lines.next().unwrap_or(""))
-        }
-        _ => 7,
-    }
+/// The first day of the week in the locale (1 = Monday … 7 = Sunday),
+/// read from the C library's locale data (`LC_TIME`).
+pub(super) fn locale_week_start() -> i32 {
+    helix_i18n::first_weekday() as i32 + 1
 }
 
 fn show_week_numbers() -> bool {
@@ -486,10 +467,24 @@ mod tests {
 
     #[test]
     fn week_starts() {
-        // glibc's usual base date is a Sunday.
-        assert_eq!(week_start_from("19971130", "1"), 7, "Sunday (en_US)");
-        assert_eq!(week_start_from("19971130", "2"), 1, "Monday (de_DE)");
-        assert_eq!(week_start_from("19971201", "1"), 1, "a Monday base");
-        assert_eq!(week_start_from("", ""), 7);
+        // The grid's first column follows the locale: Sunday in en_US,
+        // Monday in en_GB (November 2026 begins on a Sunday).
+        let grid_start = |locale: &str| {
+            helix_i18n::with_thread_locale(libc::LC_TIME_MASK, locale, || {
+                let start = locale_week_start();
+                let state = CalendarState { month: (2026, 11), week_start: Some(start), ..CalendarState::default() };
+                (start, state.first_shown().map(|d| d.ymd()))
+            })
+        };
+        let Some(us) = grid_start("en_US.UTF-8") else {
+            eprintln!("en_US.UTF-8 is not installed; skipping");
+            return;
+        };
+        assert_eq!(us, (7, Some((2026, 11, 1))), "en_US: Sunday");
+        let Some(gb) = grid_start("en_GB.UTF-8") else {
+            eprintln!("en_GB.UTF-8 is not installed; skipping");
+            return;
+        };
+        assert_eq!(gb, (1, Some((2026, 10, 26))), "en_GB: Monday");
     }
 }

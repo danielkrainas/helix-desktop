@@ -431,6 +431,45 @@ pub fn first_weekday() -> u32 {
     }
 }
 
+/// The locale's measurement system (`LC_MEASUREMENT`, as `locale
+/// measurement` prints it): 1 metric, 2 US customary; `None` when the
+/// locale doesn't say.
+pub fn measurement_system() -> Option<u32> {
+    // glibc's _NL_MEASUREMENT_MEASUREMENT: _NL_ITEM(LC_MEASUREMENT = 11, 0).
+    const MEASUREMENT: libc::nl_item = 0xB0000;
+    // SAFETY: for this item nl_langinfo returns a pointer to one byte of
+    // the locale data (or an empty string).
+    let value = unsafe {
+        let p = libc::nl_langinfo(MEASUREMENT);
+        if p.is_null() {
+            return None;
+        }
+        *p as u8
+    };
+    matches!(value, 1 | 2).then_some(u32::from(value))
+}
+
+/// Run `f` with the calling thread's locale categories `mask`
+/// (`libc::LC_TIME_MASK`…) set to locale `name`, the others "C"; `None`
+/// (without running it) when that locale is not installed. For tests:
+/// other threads keep the process's locale.
+pub fn with_thread_locale<T>(mask: libc::c_int, name: &str, f: impl FnOnce() -> T) -> Option<T> {
+    let name = std::ffi::CString::new(name).ok()?;
+    // SAFETY: a new locale object owned here, used only on this thread
+    // and freed after the thread's previous locale is restored.
+    unsafe {
+        let locale = libc::newlocale(mask, name.as_ptr(), std::ptr::null_mut());
+        if locale.is_null() {
+            return None;
+        }
+        let previous = libc::uselocale(locale);
+        let out = f();
+        libc::uselocale(previous);
+        libc::freelocale(locale);
+        Some(out)
+    }
+}
+
 /// `date` written with a strftime-like GLib `pattern` (from a translated
 /// message, so each language puts day, month and weekday in its own
 /// order), runs of spaces from padded fields (`%e`, `%l`) made single.
@@ -541,6 +580,20 @@ pub fn locale_key_candidates(locale: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn locale_week_and_measurement() {
+        let mask = libc::LC_TIME_MASK | libc::LC_MEASUREMENT_MASK;
+        // Without the locales installed there is nothing to compare.
+        let Some(us) = with_thread_locale(mask, "en_US.UTF-8", || (first_weekday(), measurement_system())) else {
+            eprintln!("en_US.UTF-8 is not installed; skipping");
+            return;
+        };
+        assert_eq!(us, (6, Some(2)), "en_US: weeks start on Sunday, US customary units");
+        if let Some(gb) = with_thread_locale(mask, "en_GB.UTF-8", || (first_weekday(), measurement_system())) {
+            assert_eq!(gb, (0, Some(1)), "en_GB: weeks start on Monday, metric");
+        }
+    }
 
     #[test]
     fn fills_placeholders() {

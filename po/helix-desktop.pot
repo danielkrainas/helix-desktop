@@ -612,7 +612,7 @@ msgstr ""
 msgid "Untitled"
 msgstr ""
 
-#: crates/helix-shell/src/dock.rs:537 crates/helix-shell/src/ui/calendar.rs:356
+#: crates/helix-shell/src/dock.rs:537 crates/helix-shell/src/ui/calendar.rs:337
 msgid "{n} more"
 msgid_plural "{n} more"
 msgstr[0] ""
@@ -1847,7 +1847,7 @@ msgid "Previous Month"
 msgstr ""
 
 #: crates/helix-shell/src/ui/atspi.rs:750
-#: crates/helix-shell/src/ui/calendar.rs:342
+#: crates/helix-shell/src/ui/calendar.rs:323
 msgid "No Events"
 msgstr ""
 
@@ -1954,71 +1954,71 @@ msgid "Skip"
 msgstr ""
 
 #. Translators: a month and year heading (GLib DateTime format).
-#: crates/helix-shell/src/ui/calendar.rs:108
-#: crates/helix-shell/src/ui/calendar.rs:274
+#: crates/helix-shell/src/ui/calendar.rs:89
+#: crates/helix-shell/src/ui/calendar.rs:255
 msgctxt "month and year"
 msgid "%OB %Y"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:268
+#: crates/helix-shell/src/ui/calendar.rs:249
 msgctxt "calendar today weekday"
 msgid "%A"
 msgstr ""
 
 #. Translators: today's date over the calendar (GLib DateTime format).
-#: crates/helix-shell/src/ui/calendar.rs:270
+#: crates/helix-shell/src/ui/calendar.rs:251
 msgctxt "calendar today"
 msgid "%B %e %Y"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:331
+#: crates/helix-shell/src/ui/calendar.rs:312
 msgid "Today"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:332
+#: crates/helix-shell/src/ui/calendar.rs:313
 msgid "Tomorrow"
 msgstr ""
 
 #. Translators: the day whose events are listed (GLib DateTime format).
-#: crates/helix-shell/src/ui/calendar.rs:334
+#: crates/helix-shell/src/ui/calendar.rs:315
 msgctxt "calendar day"
 msgid "%A, %B %e"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:347
-#: crates/helix-shell/src/ui/calendar.rs:454
+#: crates/helix-shell/src/ui/calendar.rs:328
+#: crates/helix-shell/src/ui/calendar.rs:435
 msgid "All Day"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:364
+#: crates/helix-shell/src/ui/calendar.rs:345
 msgid "World Clocks"
 msgstr ""
 
 #. Translators: a forecast hour on another day: weekday and time.
-#: crates/helix-shell/src/ui/calendar.rs:370
+#: crates/helix-shell/src/ui/calendar.rs:351
 msgid "{weekday} {time}"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:384
+#: crates/helix-shell/src/ui/calendar.rs:365
 msgid "Weather"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:405
+#: crates/helix-shell/src/ui/calendar.rs:386
 msgid "Weather unavailable"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:415
+#: crates/helix-shell/src/ui/calendar.rs:396
 msgid "Unknown Title"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:438
+#: crates/helix-shell/src/ui/calendar.rs:419
 #: crates/helix-shell/src/wellbeing.rs:238
 msgid "{n} hour"
 msgid_plural "{n} hours"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/ui/calendar.rs:439
+#: crates/helix-shell/src/ui/calendar.rs:420
 #: crates/helix-shell/src/wellbeing.rs:239
 msgid "{n} minute"
 msgid_plural "{n} minutes"
@@ -2026,17 +2026,17 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. Translators: a duration, hours then minutes ("1 hour 30 minutes").
-#: crates/helix-shell/src/ui/calendar.rs:444
+#: crates/helix-shell/src/ui/calendar.rs:425
 msgid "{hours} {minutes}"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:454
+#: crates/helix-shell/src/ui/calendar.rs:435
 msgid "All day, {n} day"
 msgid_plural "All day, {n} days"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/ui/calendar.rs:459
+#: crates/helix-shell/src/ui/calendar.rs:440
 msgid "{start} to {end}, {duration}"
 msgstr ""
 
@@ -2597,7 +2597,7 @@ msgstr ""
 msgid "{} K"
 msgstr ""
 
-#: crates/helix-shell/src/weather.rs:127
+#: crates/helix-shell/src/weather.rs:126
 msgid "Current Location"
 msgstr ""
 

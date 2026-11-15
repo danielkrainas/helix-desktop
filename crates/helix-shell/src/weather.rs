@@ -106,8 +106,7 @@ pub fn unit_for(setting: &str, measurement: Option<u32>) -> Unit {
 
 pub fn unit() -> Unit {
     let setting = if helix_settings::has_schema(GWEATHER) { gio::Settings::new(GWEATHER).string("temperature-unit").to_string() } else { "default".into() };
-    let measurement = std::process::Command::new("locale").arg("measurement").output().ok().and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok());
-    unit_for(&setting, measurement)
+    unit_for(&setting, helix_i18n::measurement_system())
 }
 
 /// Within this distance, a place is named after the nearest time zone city.
