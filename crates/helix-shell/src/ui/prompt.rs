@@ -52,6 +52,11 @@ pub(super) struct PromptView {
 
 /// Focus numbers of the extra check boxes (from here up).
 const CHECK_FOCUS: usize = 10;
+/// Focus on a password field's "Show" button (+ the field's index), on
+/// Cancel and on the confirm button.
+const SHOW_FOCUS: usize = 30;
+const CANCEL_FOCUS: usize = 40;
+const CONFIRM_FOCUS: usize = 41;
 
 /// The width of a password field's "Show" button.
 const SHOW_W: i32 = 56;
@@ -87,16 +92,20 @@ impl PromptView {
         if self.prompt.entry.is_some() {
             out.push(3);
         }
-        if self.prompt.password.is_some() {
-            out.push(0);
-        }
-        if self.prompt.confirm.is_some() {
-            out.push(1);
+        // Each password field, then its "Show" button.
+        for (index, field) in [&self.prompt.password, &self.prompt.confirm].into_iter().enumerate() {
+            if field.is_some() {
+                out.push(index);
+                if self.can_show {
+                    out.push(SHOW_FOCUS + index);
+                }
+            }
         }
         if self.prompt.choice.is_some() {
             out.push(2);
         }
         out.extend((0..self.prompt.checks.len()).map(|i| CHECK_FOCUS + i));
+        out.extend([CANCEL_FOCUS, CONFIRM_FOCUS]);
         out
     }
 }
@@ -266,8 +275,26 @@ impl Ui {
     pub(super) fn prompt_key(&mut self, event: &KeyEvent) {
         match event.keysym {
             Keysym::Escape => return self.prompt_answer(false),
+            // Enter always answers with the default button (Space presses
+            // the focused one).
             Keysym::Return | Keysym::KP_Enter => return self.prompt_answer(true),
             _ => {}
+        }
+        // On a button: Space presses it, Left/Right move between the two.
+        let on_button = self.prompt_view().filter(|v| !v.busy).map(|v| v.focus).filter(|f| *f >= SHOW_FOCUS);
+        if let Some(focus) = on_button {
+            match event.keysym {
+                Keysym::space if focus == CANCEL_FOCUS => return self.prompt_answer(false),
+                Keysym::space if focus == CONFIRM_FOCUS => return self.prompt_answer(true),
+                Keysym::space if focus < CANCEL_FOCUS => return self.prompt_show_password(focus - SHOW_FOCUS),
+                Keysym::Left | Keysym::Right if focus >= CANCEL_FOCUS => {
+                    if let Some(view) = self.prompt_view() {
+                        view.focus = if event.keysym == Keysym::Left { CANCEL_FOCUS } else { CONFIRM_FOCUS };
+                    }
+                    return self.draw_dialog();
+                }
+                _ => {}
+            }
         }
         let titles: Vec<String> = self.ext.commands.iter().map(|c| c.title.clone()).collect();
         let Some(view) = self.prompt_view() else { return };
@@ -520,6 +547,9 @@ impl Ui {
                 let s = if view.shown[index] { "Hide" } else { "Show" };
                 let lw = text.map_or(0.0, |t| t.width(s, 13.0));
                 label(text, &mut canvas, s, b.x as f32 + (b.w as f32 - lw) / 2.0, baseline(text, b.y, b.h, 13.0), 13.0, DIM_FG, b.w as f32);
+                if view.focus == SHOW_FOCUS + index && !view.busy {
+                    helix_draw::theme::focus_ring(&mut canvas, b.x + 4, b.y + 6, b.w - 8, b.h - 12);
+                }
                 hits.push((b, OverlayHit::ShowPassword(index)));
             }
             hits.push((r, OverlayHit::Field(index)));
@@ -558,15 +588,16 @@ impl Ui {
         let half = (bw - 24 * 2 - 12) / 2;
         let cancel = Rect { x: bx + 24, y: by2, w: half, h: grow(36) };
         let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: grow(36) };
-        theme::control(&mut canvas, cancel.x, cancel.y, cancel.w, cancel.h, theme::Look::default());
-        theme::control(&mut canvas, confirm.x, confirm.y, confirm.w, confirm.h, theme::Look { on: !view.busy, ..Default::default() });
         let cancel_label = if p.cancel_label.is_empty() { "Cancel" } else { &p.cancel_label };
         let confirm_label = if p.continue_label.is_empty() { "Continue" } else { &p.continue_label };
-        for (r, s, on) in [(cancel, cancel_label, false), (confirm, confirm_label, !view.busy)] {
-            let lw = text.map_or(0.0, |t| t.width(s, 15.0));
-            let fg = theme::control_text(theme::Look { on, ..Default::default() });
-            label(text, &mut canvas, s, r.x as f32 + (r.w as f32 - lw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, fg, r.w as f32);
-        }
+        // Rounded buttons; the confirm button is the default one (the
+        // suggested style; Enter presses it).
+        use helix_draw::screen::{push_button, ButtonKind, ButtonState};
+        let at = |r: Rect| (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
+        let state = |f: usize| ButtonState { focused: view.focus == f && !view.busy, ..Default::default() };
+        push_button(&mut canvas, text, at(cancel), cancel_label, ButtonKind::Normal, state(CANCEL_FOCUS), 1.0);
+        let kind = if view.busy { ButtonKind::Normal } else { ButtonKind::Suggested };
+        push_button(&mut canvas, text, at(confirm), confirm_label, kind, state(CONFIRM_FOCUS), if view.busy { 0.6 } else { 1.0 });
         hits.push((cancel, OverlayHit::Cancel));
         hits.push((confirm, OverlayHit::Confirm));
         let node = a11y(view, &hits, status, (cancel_label, confirm_label));
@@ -618,7 +649,7 @@ fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, c
         };
         out = out.child(node.id(format!("password:{index}")).focused(typing(index)));
         if view.can_show {
-            out = out.child(Node::new(Role::Button, "Show Password").id(format!("show:{index}")).at(at(OverlayHit::ShowPassword(index))).click().toggled(view.shown[index]));
+            out = out.child(Node::new(Role::Button, "Show Password").id(format!("show:{index}")).at(at(OverlayHit::ShowPassword(index))).click().toggled(view.shown[index]).focusable().focused(view.focus == SHOW_FOCUS + index && !view.busy));
         }
     }
     if let Some((name, _)) = &p.choice {
@@ -631,5 +662,7 @@ fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, c
         out = out.child(Node::label(status).id("status").live());
     }
     let nothing_focused = out.find(&|n| n.focused).is_none();
-    out.child(Node::button(cancel, at(OverlayHit::Cancel)).id("cancel")).child(Node::button(confirm, at(OverlayHit::Confirm)).id("confirm").disabled(view.busy).focused(nothing_focused && !view.busy))
+    let on = |f: usize| view.focus == f && !view.busy;
+    out.child(Node::button(cancel, at(OverlayHit::Cancel)).id("cancel").focusable().focused(on(CANCEL_FOCUS)))
+        .child(Node::button(confirm, at(OverlayHit::Confirm)).id("confirm").disabled(view.busy).focusable().focused(on(CONFIRM_FOCUS) || (nothing_focused && !view.busy)))
 }
