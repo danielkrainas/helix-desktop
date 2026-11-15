@@ -1087,8 +1087,8 @@ msgstr ""
 
 #: crates/helix-shell/src/notifications.rs:226
 #: crates/helix-shell/src/ui/atspi.rs:440
-#: crates/helix-shell/src/ui/capture.rs:338
-#: crates/helix-shell/src/ui/capture.rs:367
+#: crates/helix-shell/src/ui/capture.rs:324
+#: crates/helix-shell/src/ui/capture.rs:397
 msgid "Screenshot"
 msgstr ""
 
@@ -1583,7 +1583,7 @@ msgid "Muted"
 msgstr ""
 
 #: crates/helix-shell/src/ui.rs:1231 crates/helix-shell/src/ui/atspi.rs:875
-#: crates/helix-shell/src/ui/gallery.rs:942
+#: crates/helix-shell/src/ui/gallery.rs:954
 #: crates/helix-shell/src/ui/quick.rs:437
 msgid "Volume"
 msgstr ""
@@ -1828,6 +1828,8 @@ msgstr ""
 
 #: crates/helix-shell/src/ui/atspi.rs:700
 #: crates/helix-shell/src/ui/atspi.rs:734
+#: crates/helix-shell/src/ui/capture.rs:386
+#: crates/helix-shell/src/ui/capture.rs:388
 #: crates/helix-shell/src/ui/dock.rs:1369
 #: crates/helix-shell/src/ui/window_menu.rs:113
 msgid "Close"
@@ -2046,54 +2048,81 @@ msgstr[1] ""
 msgid "{start} to {end}, {duration}"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:108
+#: crates/helix-shell/src/ui/capture.rs:199
 msgid "Drag to select an area · Esc to cancel"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:109
+#: crates/helix-shell/src/ui/capture.rs:200
 msgid "Click to pick a color · Esc to cancel"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:110
+#: crates/helix-shell/src/ui/capture.rs:201
 msgid "Click a window to capture it · Esc to cancel"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:111
+#: crates/helix-shell/src/ui/capture.rs:202
 msgid ""
 "S, C, W: area, screen, window · V: record · P: pointer · Enter: capture · "
 "Esc: cancel"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:327
-msgid "Selected: {w} × {h}"
+#: crates/helix-shell/src/ui/capture.rs:290
+msgid "{w} × {h}"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:333
+#: crates/helix-shell/src/ui/capture.rs:319
 msgid "Area"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:334
+#: crates/helix-shell/src/ui/capture.rs:320
 msgid "Screen"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:335
+#: crates/helix-shell/src/ui/capture.rs:321
 msgid "Window"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:339
+#: crates/helix-shell/src/ui/capture.rs:324
 msgid "Record"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:341
+#: crates/helix-shell/src/ui/capture.rs:326
 msgid "Show Pointer"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:342
+#: crates/helix-shell/src/ui/capture.rs:355
+#: crates/helix-shell/src/ui/capture.rs:375
+#: crates/helix-shell/src/ui/capture.rs:386
+msgid "{name} ({key})"
+msgstr ""
+
+#: crates/helix-shell/src/ui/capture.rs:357
+#: crates/helix-shell/src/ui/capture.rs:377
+#: crates/helix-shell/src/ui/capture.rs:388
+msgid "Key: {key}"
+msgstr ""
+
+#: crates/helix-shell/src/ui/capture.rs:372
 msgid "Capture"
 msgstr ""
 
-#: crates/helix-shell/src/ui/capture.rs:342
+#: crates/helix-shell/src/ui/capture.rs:372
 msgid "Start Recording"
+msgstr ""
+
+#: crates/helix-shell/src/ui/capture.rs:375
+#: crates/helix-shell/src/ui/capture.rs:377
+#: crates/helix-shell/src/ui/osk.rs:788
+msgid "Enter"
+msgstr ""
+
+#: crates/helix-shell/src/ui/capture.rs:386
+#: crates/helix-shell/src/ui/capture.rs:388
+msgid "Esc"
+msgstr ""
+
+#: crates/helix-shell/src/ui/capture.rs:657
+msgid "Selected: {w} × {h}"
 msgstr ""
 
 #: crates/helix-shell/src/ui/click_type.rs:13
@@ -2288,10 +2317,6 @@ msgstr ""
 
 #: crates/helix-shell/src/ui/osk.rs:787
 msgid "Backspace"
-msgstr ""
-
-#: crates/helix-shell/src/ui/osk.rs:788
-msgid "Enter"
 msgstr ""
 
 #: crates/helix-shell/src/ui/osk.rs:789

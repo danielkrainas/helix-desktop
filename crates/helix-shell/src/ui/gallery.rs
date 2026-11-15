@@ -334,6 +334,18 @@ fn launcher_results() {
     });
 }
 
+/// The screenshot UI (`shot-…`): an area with handles and its size, the
+/// icon toolbar with a tooltip, recording with the capture button under
+/// the pointer; in every look.
+#[test]
+#[ignore]
+fn screenshot_ui() {
+    let Some(dir) = dir() else { return };
+    let text = Text::load();
+    in_looks(&dir, "shot-area", (1280, 720), &mut |canvas, (w, h)| capture::gallery_scene(canvas, text.as_ref(), (w as i32, h as i32), false, 1, true));
+    in_looks(&dir, "shot-record", (1280, 720), &mut |canvas, (w, h)| capture::gallery_scene(canvas, text.as_ref(), (w as i32, h as i32), true, 2, false));
+}
+
 #[test]
 #[ignore]
 fn dialogs() {
