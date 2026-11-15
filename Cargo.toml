@@ -87,3 +87,8 @@ opt-level = 2
 [patch.crates-io]
 accesskit_unix = { path = "vendor/accesskit_unix" }
 accesskit_atspi_common = { path = "vendor/accesskit_atspi_common" }
+# Smithay 0.7.0 (MIT), patched (changes marked "Helix:"): Xwayland window
+# frames take the window's own depth and visual, so X11 windows with an
+# alpha channel (GTK's rounded client-side decorations) keep it
+# (vendor/smithay, src/xwayland/xwm/mod.rs, MapRequest).
+smithay = { path = "vendor/smithay" }
