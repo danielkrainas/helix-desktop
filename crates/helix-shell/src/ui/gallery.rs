@@ -208,7 +208,6 @@ fn panel_with(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), 
         source_label: Some("en"),
         sharing: true,
         recording: true,
-        osd: None,
         drag_target: None,
         focus,
         hover,
@@ -481,6 +480,52 @@ fn dock_and_grid() {
                 app_grid::paint_cell(&mut p, &model, canvas, cell, &app.id, look, focused);
             }
         });
+    }
+    helix_draw::theme::set_text_scale(1.0);
+    helix_draw::set_high_contrast(false);
+    helix_draw::accent::set(Accent::Blue);
+}
+
+/// On-screen displays: volume, brightness with a label, above 100 %,
+/// words only; in an accent, high contrast and text scale 1.5 (`osd-…`).
+#[test]
+#[ignore]
+fn osds() {
+    use helix_draw::accent::Accent;
+    let Some(dir) = dir() else { return };
+    let text = Text::load();
+    let osd = |icon: &str, label: Option<&str>, level: Option<f64>, max: f64| Osd { icon: Some(icon.into()), label: label.map(Into::into), level, max_level: max, connector: None };
+    let scenes = [
+        ("volume", osd("audio-volume-medium-symbolic", None, Some(0.45), 1.0)),
+        ("brightness-label", osd("display-brightness-symbolic", Some("Built-in display"), Some(0.8), 1.0)),
+        ("overdrive", osd("audio-volume-overamplified-symbolic", None, Some(1.2), 1.5)),
+        ("mic-off", osd("microphone-disabled-symbolic", Some("Microphone off"), None, 1.0)),
+    ];
+    for (look, accent, hc, factor) in [("", Accent::Blue, false, 1.0), ("-orange", Accent::Orange, false, 1.0), ("-hc", Accent::Blue, true, 1.0), ("-text1.5", Accent::Blue, false, 1.5)] {
+        helix_draw::accent::set(accent);
+        helix_draw::set_high_contrast(hc);
+        helix_draw::theme::set_text_scale(factor);
+        for (name, o) in &scenes {
+            let icon = o.icon.as_deref().map(osd::osd_icon_names).and_then(|names| names.iter().find_map(|n| symbolic(n, 24.0, 1.0)));
+            let (w, h) = (helix_draw::theme::grow(300), helix_draw::theme::grow(if o.level.is_some() && o.label.is_some() { 72 } else { 52 }));
+            render(&dir, &format!("osd-{name}{look}"), DARK, (w as usize + 40, h as usize + 40, 1.0), |canvas| {
+                let mut data = vec![0u8; (w * h * 4) as usize];
+                let mut pill = Canvas::scaled(&mut data, w as usize, h as usize, 1.0);
+                osd::paint_osd(&mut pill, text.as_ref(), icon.as_ref(), o, (w, h));
+                for y in 0..h {
+                    for x in 0..w {
+                        let p = &data[((y * w + x) * 4) as usize..][..4];
+                        let a = p[3];
+                        if a > 0 {
+                            // Premultiplied: back to a straight color for blending.
+                            let un = |c: u8| (u32::from(c) * 255 / u32::from(a)).min(255);
+                            let color = (u32::from(a) << 24) | (un(p[2]) << 16) | (un(p[1]) << 8) | un(p[0]);
+                            canvas.blend_px(x + 20, y + 20, color, 1.0);
+                        }
+                    }
+                }
+            });
+        }
     }
     helix_draw::theme::set_text_scale(1.0);
     helix_draw::set_high_contrast(false);

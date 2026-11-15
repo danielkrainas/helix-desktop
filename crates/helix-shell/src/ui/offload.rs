@@ -86,6 +86,7 @@ impl Ui {
         self.draw_launcher();
         self.draw_switcher();
         self.dock_draw();
+        self.draw_osd();
         self.draw_notification_list();
         self.draw_banner();
         self.draw_desktop_icons();

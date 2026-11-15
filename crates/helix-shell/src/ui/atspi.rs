@@ -39,6 +39,7 @@ const QUICK: &str = "quick";
 const BANNER: &str = "banner";
 const NOTIFICATIONS: &str = "notifications";
 const DOCK: &str = "dock:";
+const OSD: &str = "osd";
 
 /// What the app grid last showed: the page's cells, the open folder's
 /// cells, the selected item, the page dots, the page.
@@ -158,6 +159,9 @@ impl Ui {
         if let Some(view) = self.banner.as_ref().filter(|v| v.configured) {
             add(BANNER, view.layer.wl_surface());
         }
+        if let Some((surface, _)) = self.osd_a11y() {
+            add(OSD, surface);
+        }
         if let Some((surface, ..)) = self.notification_list_a11y() {
             add(NOTIFICATIONS, surface);
         }
@@ -183,8 +187,12 @@ impl Ui {
     }
 
     /// The window that has the keyboard.
-    fn atspi_active(&self) -> &'static str {
-        if self.lock.session.is_some() {
+    fn atspi_active(&self) -> String {
+        if let Some(i) = self.dock_keyboard_view().filter(|_| self.lock.session.is_none()) {
+            // (The views shown are published in order: dock:N.)
+            return format!("{DOCK}{i}");
+        }
+        let key = if self.lock.session.is_some() {
             LOCK
         } else if self.dialog.is_some() {
             DIALOG
@@ -202,7 +210,8 @@ impl Ui {
             BANNER
         } else {
             ""
-        }
+        };
+        key.to_owned()
     }
 
     /// A full-output overlay of the primary monitor, `w`×`h`.
@@ -238,6 +247,14 @@ impl Ui {
             LAUNCHER => {
                 let view = self.launcher.as_ref()?;
                 ("Overview".to_owned(), self.overlay_bounds(view.width, view.height), self.launcher_nodes(view))
+            }
+            OSD => {
+                // A live status: each new level or label is announced.
+                let (_, (w, h)) = self.osd_a11y()?;
+                let (x, y, aw, ah) = self.primary_area;
+                let bounds = crate::a11y::Rect::new(x + (aw - w as i32) / 2, y + ah - h as i32 - 72, w as i32, h as i32);
+                let words = self.osd_words().unwrap_or_default();
+                ("On-screen display".to_owned(), bounds, vec![Node::new(Role::Status, words).id("osd").live()])
             }
             BANNER => {
                 let view = self.banner.as_ref()?;

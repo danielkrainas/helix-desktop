@@ -72,6 +72,7 @@ mod gallery;
 mod ime;
 mod notify;
 mod offload;
+mod osd;
 use offload::source_icon;
 mod osk;
 mod overview;
@@ -200,6 +201,8 @@ struct Ui {
     click_type: click_type::ClickTypeState,
     desktop_icons: desktop_icons::DesktopIconsState,
     osd: Option<(Osd, Instant)>,
+    /// The OSD's surfaces, one per monitor it shows on.
+    osd_views: Vec<osd::OsdView>,
     shown_minute: Option<String>,
     /// The lock screen clock's text when it was drawn.
     shown_lock_clock: Option<String>,
@@ -773,7 +776,6 @@ struct PanelModel<'a> {
     pub source_label: Option<&'a str>,
     pub sharing: bool,
     pub recording: bool,
-    pub osd: Option<&'a Osd>,
     /// Dragging in the panel editor: where the item would go.
     pub drag_target: Option<i32>,
     /// The control with the keyboard focus (`switch-panels`).
@@ -863,7 +865,6 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
             status::StatusItem::Text(s) => text_w(s) + 4,
         })
         .sum();
-    let osd_shown = m.osd.is_some();
     let size = |slot: Slot| match slot {
         // The workspace indicator (GNOME 45's "Activities" pill).
         Slot::Item(Item::Apps) => workspace_pills_w(m.workspaces.0),
@@ -901,7 +902,7 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
         }
         match slot {
             Slot::Item(Item::Apps) | Slot::Item(Item::Workspaces) => workspace_pills(canvas, x, iw, h as i32, m.workspaces),
-            Slot::Item(Item::Clock) if !osd_shown => {
+            Slot::Item(Item::Clock) => {
                 let tx = x + CLOCK_PAD;
                 match text {
                     Some(text) => {
@@ -919,7 +920,6 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
                     }
                 }
             }
-            Slot::Item(Item::Clock) => {}
             Slot::Item(Item::Tray) => {
                 let y = (h as i32 - status::ICON) / 2;
                 for (i, (image, overlay, attention)) in m.tray_images.iter().enumerate() {
@@ -998,9 +998,6 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
     if let Some(&(_, x, iw)) = m.focus.and_then(|i| controls.get(i)) {
         let (y, bh) = (5.0, h as f64 - 10.0);
         helix_draw::theme::focus_ring_round(canvas, f64::from(x + 3), y, f64::from(iw - 6), bh, bh / 2.0);
-    }
-    if let Some(osd) = m.osd {
-        draw_osd(text, canvas, osd, w, h);
     }
     placed
 }
@@ -1149,42 +1146,6 @@ fn osd_caption(osd: &Osd) -> Option<String> {
     Some(caption.to_owned())
 }
 
-fn draw_osd(text: Option<&Text>, canvas: &mut Canvas, osd: &Osd, w: usize, h: usize) {
-    let caption = osd_caption(osd);
-    let Some(level) = osd.level else {
-        // Just words (e.g. "Microphone off").
-        if let (Some(t), Some(caption)) = (text, &caption) {
-            let cw = t.width(caption, 14.0);
-            let base = baseline(text, 0, h as i32, 14.0);
-            label(text, canvas, caption, (w as f32 - cw) / 2.0, base, 14.0, FG, cw + 1.0);
-        }
-        return;
-    };
-    let fraction = (level / osd.max_level.max(f64::EPSILON)).clamp(0.0, 1.0);
-    let percent = format!("{}%", (level * 100.0).round() as u32);
-    let bar_w = 200.min(w.saturating_sub(160)) as i32;
-    let caption_w = match (text, &caption) {
-        (Some(t), Some(c)) => t.width(c, 14.0) as i32 + 12,
-        _ => 0,
-    };
-    let x0 = (w as i32 - bar_w - 56 + caption_w) / 2;
-    if let (Some(caption), true) = (&caption, caption_w > 0) {
-        let base = baseline(text, 0, h as i32, 14.0);
-        label(text, canvas, caption, (x0 - caption_w) as f32, base, 14.0, FG, caption_w as f32);
-    }
-    let bar_y = h as i32 / 2 - 3;
-    canvas.rect(x0, bar_y, bar_w, 6, TRACK);
-    canvas.rect(x0, bar_y, (fraction * f64::from(bar_w)) as i32, 6, accent());
-    if text.is_some() {
-        let base = baseline(text, 0, h as i32, 14.0);
-        label(text, canvas, &percent, (x0 + bar_w + 12) as f32, base, 14.0, FG, 48.0);
-    } else {
-        let tx = (x0 + bar_w + 12) as usize;
-        let ty = (h - font::GLYPH_H * 2) / 2;
-        font::render(&percent, 2, |x, y| canvas.rect((tx + x) as i32, (ty + y) as i32, 1, 1, FG));
-    }
-}
-
 impl Ui {
 
     // ----- Panel -----------------------------------------------------------
@@ -1209,9 +1170,6 @@ impl Ui {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
-        if self.osd.as_ref().is_some_and(|(_, until)| Instant::now() >= *until) {
-            self.osd = None;
-        }
         let clock = clock_text();
         let model = PanelModel {
             layout: &self.panel_layout,
@@ -1232,7 +1190,6 @@ impl Ui {
             source_label: self.source_label.as_deref(),
             sharing: self.sharing,
             recording: self.recording,
-            osd: self.osd.as_ref().map(|(osd, _)| osd),
             drag_target: self.panel_drag.as_ref().filter(|d| d.moving && !d.off_panel).and_then(|d| d.target.as_ref()).map(|t| t.2),
             focus: self.panel_focus,
             hover: self.panel_lit,
@@ -1241,9 +1198,7 @@ impl Ui {
             bold: self.bold.as_ref(),
         };
         let placed = paint_panel(&mut canvas, self.text.as_ref(), (w, h), &model);
-        if self.osd.is_none() {
-            self.shown_minute = Some(clock);
-        }
+        self.shown_minute = Some(clock);
         self.panel_placed = placed;
 
         let surface = self.panel.wl_surface();
@@ -3245,10 +3200,7 @@ impl Ui {
             UiEvent::ActivateWindow(id) => self.activate_window(id),
             UiEvent::Lock => self.start_lock(),
             UiEvent::Banner(banner) => self.show_banner(banner),
-            UiEvent::Osd(osd) => {
-                self.osd = Some((osd, Instant::now() + OSD_DURATION));
-                self.draw_panel();
-            }
+            UiEvent::Osd(osd) => self.show_osd(osd),
             UiEvent::Overview(true) => self.open_overview(false),
             UiEvent::Overview(false) => {
                 self.close_overview(false);
@@ -3547,10 +3499,9 @@ impl Ui {
         self.report_running_apps();
         self.refresh_source_label();
         self.dialog_tick();
-        let osd_expired = self.osd.as_ref().is_some_and(|(_, until)| Instant::now() >= *until);
-        let minute_changed =
-            self.osd.is_none() && self.shown_minute.as_deref() != Some(&clock_text());
-        if osd_expired || minute_changed {
+        self.osd_tick();
+        let minute_changed = self.shown_minute.as_deref() != Some(&clock_text());
+        if minute_changed {
             self.draw_panel();
         }
         // The list's arrival times ("5 min") move on with the clock.
@@ -3650,6 +3601,7 @@ pub fn run(
         click_type: Default::default(),
         desktop_icons: Default::default(),
         osd: None,
+        osd_views: Vec::new(),
         shown_minute: None,
         shown_lock_clock: None,
         keyboard: None,
@@ -3894,6 +3846,9 @@ impl OutputHandler for Ui {
 
 impl LayerShellHandler for Ui {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
+        if self.osd_closed(layer) {
+            return;
+        }
         if self.backgrounds.iter().any(|b| &b.layer == layer) {
             self.backgrounds.retain(|b| &b.layer != layer);
             return;
@@ -3959,6 +3914,7 @@ impl LayerShellHandler for Ui {
             || self.desktop_icons_configured(layer, configure.new_size)
             || self.workspace_popup_configured(layer, configure.new_size)
             || self.panel_tooltip_configured(layer, configure.new_size)
+            || self.osd_configured(layer, configure.new_size)
         {
             return;
         }
