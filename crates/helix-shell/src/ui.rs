@@ -131,6 +131,11 @@ fn on_accent() -> u32 {
 fn accent_text() -> u32 {
     theme::text_accent()
 }
+/// Placeholders and labels of what cannot be used now: dimmed, and in
+/// high contrast (where all text is white) white at 60 %.
+fn hint_text() -> u32 {
+    window_menu::disabled_text()
+}
 /// Words in red: errors, "Sharing" and "Recording".
 const ERROR_TEXT: u32 = theme::TEXT_ERROR;
 const SCRIM: u32 = 0xB00C0C10;
@@ -1934,7 +1939,13 @@ impl Ui {
                 }
                 _ => match &icons[index].1 {
                     Some(icon) => canvas.image(f64::from(pic.x + (pic.w - 64) / 2), f64::from(pic.y + (pic.h - 64) / 2), 64.0, 64.0, icon),
-                    None => canvas.rect(pic.x, pic.y, pic.w, pic.h, 0xFF55555F),
+                    None => {
+                        canvas.rect(pic.x, pic.y, pic.w, pic.h, 0xFF55555F);
+                        // Black on black in high contrast: outlined.
+                        if helix_draw::high_contrast() {
+                            theme::outline(&mut canvas, pic.x, pic.y, pic.w, pic.h, 1, 0xFFFF_FFFF);
+                        }
+                    }
                 },
             }
             let tw = text.map_or(0.0, |t| t.width(&entry.label, 13.0)).min((tile.w - 8) as f32);
@@ -2003,7 +2014,7 @@ impl Ui {
         let field = Rect { x: bx, y: by, w: bw, h: grow(48) };
         text_field(&mut canvas, field, true);
         let (q_text, q_color) = if view.model.query.is_empty() {
-            (view.model.folder_name().unwrap_or(tr("Type to search…")), DIM_FG)
+            (view.model.folder_name().unwrap_or(tr("Type to search…")), hint_text())
         } else {
             (view.model.query.as_str(), FG)
         };
@@ -2941,7 +2952,7 @@ impl Ui {
             let share = Rect { x: cancel.x + cw + 12, y: cancel.y, w: cw, h: cancel.h };
             theme::control(&mut canvas, share.x, share.y, share.w, share.h, theme::Look { on: !picked.is_empty(), ..Default::default() });
             let sw = text.map_or(0.0, |t| t.width(tr("Share"), 15.0));
-            label(text, &mut canvas, tr("Share"), share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, if picked.is_empty() { DIM_FG } else { on_accent() }, share.w as f32);
+            label(text, &mut canvas, tr("Share"), share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, if picked.is_empty() { hint_text() } else { on_accent() }, share.w as f32);
             if !picked.is_empty() {
                 hits.push((share, OverlayHit::Confirm));
             }

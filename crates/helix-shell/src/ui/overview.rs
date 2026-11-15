@@ -17,7 +17,7 @@ use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, BTN_
 use smithay_client_toolkit::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerSurface};
 use smithay_client_toolkit::shell::WaylandSurface;
 
-use super::{accent, baseline, label, physical, Canvas, Overlay, Rect, Ui, BANNER_BORDER, DIM_FG, FG, FIELD_BG, SCRIM};
+use super::{accent, baseline, hint_text, label, physical, Canvas, Overlay, Rect, Ui, BANNER_BORDER, DIM_FG, FG, FIELD_BG, SCRIM};
 use crate::UiRequest;
 use helix_i18n::tr;
 
@@ -381,7 +381,7 @@ impl Ui {
         let ty = if primary { field.y + field.h + 24 } else { -THUMB_H - 8 };
         if primary {
         canvas.rect(field.x, field.y, field.w, field.h, FIELD_BG);
-        label(text, &mut canvas, tr("Type to search…"), (field.x + 16) as f32, baseline(text, field.y, field.h, 15.0), 15.0, DIM_FG, (field.w - 32) as f32);
+        label(text, &mut canvas, tr("Type to search…"), (field.x + 16) as f32, baseline(text, field.y, field.h, 15.0), 15.0, hint_text(), (field.w - 32) as f32);
         state.search = field;
 
         // Workspace thumbnails: the primary monitor, its windows in place.
