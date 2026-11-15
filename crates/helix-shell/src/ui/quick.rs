@@ -744,6 +744,11 @@ pub(super) struct QuickScroll {
     pub body: i32,
 }
 
+/// A slider's bar (it acts from the press on, following the pointer).
+pub(super) fn is_slider(hit: OverlayHit) -> bool {
+    matches!(hit, OverlayHit::VolumeSlider | OverlayHit::BrightnessSlider | OverlayHit::ExtSlider(_))
+}
+
 /// A row of the open Wi-Fi or Bluetooth list.
 fn is_list_row(hit: OverlayHit) -> bool {
     matches!(hit, OverlayHit::Network(_) | OverlayHit::BtDevice(_) | OverlayHit::BtSendFiles | OverlayHit::PairNew | OverlayHit::BtNearby(_))
@@ -1078,7 +1083,8 @@ fn paint_quick_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Tex
             canvas.image_alpha(cx - 8.0, cy - 8.0, 16.0, 16.0, icon, if s.dim { 0.6 } else { 1.0 });
         }
         let bar = Rect { x: icon_r.x + d + 6, y: y + row_h / 2 - 9, w: menu_w - 2 * PAD - d - 6 - value_w, h: 18 };
-        theme::slider(canvas, bar.x, bar.y, bar.w, bar.h, f64::from(s.value.min(s.max)) / f64::from(s.max.max(1)), s.dim);
+        let look = s.hit.map_or_else(theme::Look::default, |hit| m.look(hit, false));
+        theme::slider_look(canvas, (bar.x, bar.y, bar.w, bar.h), f64::from(s.value.min(s.max)) / f64::from(s.max.max(1)), s.dim, look);
         let pct = helix_i18n::format_percent(f64::from(s.value));
         let pw = text.map_or(0.0, |t| t.width(&pct, size::CAPTION)).min((value_w - 4) as f32);
         label(text, canvas, &pct, (mx + menu_w - PAD) as f32 - pw, baseline(text, y, row_h, size::CAPTION), size::CAPTION, DIM_FG, (value_w - 4) as f32);

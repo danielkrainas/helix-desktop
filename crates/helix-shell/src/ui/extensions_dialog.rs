@@ -393,14 +393,12 @@ impl Ui {
         self.draw_extensions_dialog();
     }
 
-    pub(super) fn extensions_dialog_click(&mut self, x: f64, y: f64) {
-        let hit = self.extensions_dialog.as_ref().and_then(|o| o.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, h)| *h));
-        if let Some(OverlayHit::ExtDialog(hit)) = hit {
-            if let Some(d) = self.extensions_dialog.as_mut() {
-                d.state.focus = None;
-            }
-            self.extensions_dialog_do(hit);
+    /// A click on one of the dialog's controls.
+    pub(super) fn extensions_dialog_press(&mut self, hit: DialogHit) {
+        if let Some(d) = self.extensions_dialog.as_mut() {
+            d.state.focus = None;
         }
+        self.extensions_dialog_do(hit);
     }
 
     /// Scrolling the list.

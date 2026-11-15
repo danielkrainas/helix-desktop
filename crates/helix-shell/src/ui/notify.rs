@@ -90,6 +90,9 @@ pub(super) struct ListView {
     /// than the screen), and where it was shown.
     cal_scroll: i32,
     cal_area: Rect,
+    /// The part under the pointer, and the one pressed.
+    hover: Option<ListHit>,
+    pressed: Option<ListHit>,
 }
 
 
@@ -250,6 +253,16 @@ impl Ui {
         // A popover, rounded, its edge inside the surface.
         canvas.fill(0);
         theme::popover_round(&mut canvas, 1.0, 1.0, w as f64 - 2.0, h as f64 - 2.0, theme::RADIUS_POPOVER);
+        // The body under the pointer (clicking it opens the notification).
+        let body = theme::Look { hovered: view.hover == Some(BannerHit::Body), pressed: view.pressed == Some(BannerHit::Body), ..Default::default() };
+        if body.hovered || body.pressed {
+            let rect = (1.0, 1.0, w as f64 - 2.0, h as f64 - 2.0);
+            if helix_draw::high_contrast() {
+                theme::inner_outline(&mut canvas, rect, theme::RADIUS_POPOVER, if body.pressed { 2.0 } else { 1.0 }, 0xFFFF_FFFF);
+            } else {
+                canvas.round_rect(rect.0, rect.1, rect.2, rect.3, theme::RADIUS_POPOVER, if body.pressed { theme::CARD_PRESSED } else { theme::CARD_HOVER });
+            }
+        }
         if view.focused {
             // The focus ring, inside the banner's edge.
             theme::focus_ring_round(&mut canvas, 5.0, 5.0, w as f64 - 10.0, h as f64 - 10.0, theme::RADIUS_POPOVER - 4.0);
@@ -290,17 +303,6 @@ impl Ui {
         }
     }
 
-    /// The pointer entering or leaving the banner holds its timer.
-    pub(super) fn banner_hover(&mut self, event: &PointerEvent) {
-        let Some(view) = self.banner.as_ref().filter(|b| b.layer.wl_surface() == &event.surface) else { return };
-        let held = match event.kind {
-            PointerEventKind::Enter { .. } => true,
-            PointerEventKind::Leave { .. } => false,
-            _ => return,
-        };
-        let _ = self.requests.send(UiRequest::BannerHeld { id: view.data.id, held: held || view.focused });
-    }
-
     /// Give the banner keyboard focus (or take it away).
     pub(super) fn focus_banner(&mut self, focus: bool) {
         let Some(view) = self.banner.as_mut() else { return };
@@ -332,9 +334,33 @@ impl Ui {
         }
     }
 
-    pub(super) fn banner_click(&mut self, x: f64, y: f64) {
+    /// Pointer input on the banner: entering or leaving holds its timer;
+    /// its parts light under the pointer and act when released; true if
+    /// it was for the banner.
+    pub(super) fn banner_pointer(&mut self, event: &PointerEvent) -> bool {
+        let Some(view) = self.banner.as_mut().filter(|b| b.layer.wl_surface() == &event.surface) else { return false };
+        let held = match event.kind {
+            PointerEventKind::Enter { .. } => Some(true),
+            PointerEventKind::Leave { .. } => Some(false),
+            _ => None,
+        };
+        if let Some(held) = held {
+            let _ = self.requests.send(UiRequest::BannerHeld { id: view.data.id, held: held || view.focused });
+        }
+        let (x, y) = event.position;
+        let hit = view.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, h)| h.clone());
+        let out = super::press::track(&mut view.hover, &mut view.pressed, &event.kind, hit);
+        if out.redraw {
+            self.draw_banner();
+        }
+        if let Some(hit) = out.click {
+            self.banner_click(hit);
+        }
+        true
+    }
+
+    fn banner_click(&mut self, hit: BannerHit) {
         let Some(view) = &self.banner else { return };
-        let Some(hit) = view.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, h)| h.clone()) else { return };
         let id = view.data.id;
         let request = match hit {
             BannerHit::Close => UiRequest::NotificationDismissed { id },
@@ -393,7 +419,7 @@ impl Ui {
         layer.commit();
         // (`Inside`: the first notification, once painted.)
         let focus = opened.keyboard().then_some(ListHit::Inside);
-        self.notify.view = Some(ListView { layer, width: 0, height: 0, configured: false, hits: Vec::new(), scroll: 0, expanded: HashSet::new(), opened, focus, stops: Vec::new(), cal_scroll: 0, cal_area: Rect::default() });
+        self.notify.view = Some(ListView { layer, width: 0, height: 0, configured: false, hits: Vec::new(), scroll: 0, expanded: HashSet::new(), opened, focus, stops: Vec::new(), cal_scroll: 0, cal_area: Rect::default(), hover: None, pressed: None });
         let _ = self.requests.send(UiRequest::NotificationListOpened);
         self.calendar_open();
         self.draw_panel();
@@ -461,7 +487,8 @@ impl Ui {
         // A focus that is not there (yet, or any more) moves to the first
         // notification, else Do Not Disturb.
         let targets = row_targets(&entries, &rows);
-        let model = ListModel { entries: &entries, rows: &rows, heights: &heights, icons: &icons, scroll: view.scroll, do_not_disturb: self.notify.do_not_disturb, calendar: &self.calendar, media_icons: &media_icons, cal_h, cal_scroll: view.cal_scroll, hover: None, pressed: None };
+        let (hover, pressed) = (view.hover.clone(), view.pressed.clone());
+        let model = ListModel { entries: &entries, rows: &rows, heights: &heights, icons: &icons, scroll: view.scroll, do_not_disturb: self.notify.do_not_disturb, calendar: &self.calendar, media_icons: &media_icons, cal_h, cal_scroll: view.cal_scroll, hover: hover.as_ref(), pressed: pressed.as_ref() };
         let fonts = (self.text.as_ref(), self.bold.as_ref());
         let mut painted = paint_list(&mut canvas, fonts, (w, h), &model, view.focus.as_ref());
         let lost = view.focus.as_ref().is_some_and(|f| !painted.stops.iter().any(|(_, s)| s == f) && !targets.contains(f));
@@ -536,12 +563,23 @@ impl Ui {
                 }
                 self.draw_notification_list();
             }
-            PointerEventKind::Press { button: BTN_LEFT, .. } => {
+            PointerEventKind::Axis { .. } => {}
+            ref kind => {
                 let (x, y) = event.position;
-                let hit = view.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, h)| h.clone());
-                self.list_activate(hit.unwrap_or(ListHit::Outside));
+                let hit = view.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, h)| h.clone()).unwrap_or(ListHit::Outside);
+                // A press outside closes the list at once.
+                if matches!(kind, PointerEventKind::Press { button: BTN_LEFT, .. }) && hit == ListHit::Outside {
+                    self.list_activate(ListHit::Outside);
+                    return true;
+                }
+                let part = Some(hit).filter(|h| !matches!(h, ListHit::Inside | ListHit::Outside));
+                let out = super::press::track(&mut view.hover, &mut view.pressed, kind, part);
+                if let Some(hit) = out.click {
+                    self.list_activate(hit);
+                } else if out.redraw {
+                    self.draw_notification_list();
+                }
             }
-            _ => {}
         }
         true
     }
@@ -1058,6 +1096,12 @@ pub(super) mod tests {
 
     /// Paint `entries` (as ListView would) on a `w`×`h` surface.
     pub(in crate::ui) fn paint_sample(canvas: &mut Canvas, fonts: (Option<&Text>, Option<&Text>), (w, h): (usize, usize), entries: &[Banner], expanded: &HashSet<String>, cal: &super::super::calendar::CalendarState, focus: Option<&ListHit>) -> ListPainted {
+        paint_sample_pointer(canvas, fonts, (w, h), entries, expanded, cal, focus, (None, None))
+    }
+
+    /// [`paint_sample`] with a part under the pointer and one pressed.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::ui) fn paint_sample_pointer(canvas: &mut Canvas, fonts: (Option<&Text>, Option<&Text>), (w, h): (usize, usize), entries: &[Banner], expanded: &HashSet<String>, cal: &super::super::calendar::CalendarState, focus: Option<&ListHit>, (hover, pressed): (Option<&ListHit>, Option<&ListHit>)) -> ListPainted {
         let rows = list_rows(entries, expanded);
         let f = fonts.0.map(|regular| Fonts { regular, bold: fonts.1 });
         let indents = row_indents(entries, &rows);
@@ -1065,8 +1109,33 @@ pub(super) mod tests {
         let icons = vec![None; rows.len()];
         let media_icons: super::super::calendar::MediaIcons = [None, None, None, None];
         let cal_h = super::super::calendar::height(cal);
-        let model = ListModel { entries, rows: &rows, heights: &heights, icons: &icons, scroll: 0, do_not_disturb: false, calendar: cal, media_icons: &media_icons, cal_h, cal_scroll: 0, hover: None, pressed: None };
+        let model = ListModel { entries, rows: &rows, heights: &heights, icons: &icons, scroll: 0, do_not_disturb: false, calendar: cal, media_icons: &media_icons, cal_h, cal_scroll: 0, hover, pressed };
         paint_list(canvas, fonts, (w, h), &model, focus)
+    }
+
+    /// The part under the pointer is lit and the pressed one darker than
+    /// that; the rest is left as it was.
+    #[test]
+    fn hover_and_press() {
+        let entries = sample();
+        let cal = sample_calendar(true);
+        let (w, h) = (1280, 800);
+        let draw = |pointer: (Option<&ListHit>, Option<&ListHit>)| {
+            let mut data = vec![0u8; w * h * 4];
+            let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
+            let painted = paint_sample_pointer(&mut canvas, (None, None), (w, h), &entries, &Default::default(), &cal, None, pointer);
+            (data, painted)
+        };
+        let (rest, painted) = draw((None, None));
+        let at = |data: &[u8], r: Rect| -> [u8; 4] { data[(((r.y + r.h - 6) as usize) * w + (r.x + r.w / 2) as usize) * 4..][..4].try_into().unwrap() };
+        let row = painted.hits.iter().find(|(_, hit)| matches!(hit, ListHit::Entry(_))).cloned().unwrap();
+        let clear = painted.hits.iter().find(|(_, hit)| *hit == ListHit::Clear).unwrap().0;
+        let (lit, _) = draw((Some(&row.1), None));
+        assert_ne!(at(&lit, row.0), at(&rest, row.0), "a hovered row is lit");
+        assert_eq!(at(&lit, clear), at(&rest, clear), "nothing else is");
+        let (hovered, _) = draw((Some(&ListHit::Clear), None));
+        let (pressed, _) = draw((Some(&ListHit::Clear), Some(&ListHit::Clear)));
+        assert!(at(&hovered, clear) != at(&rest, clear) && at(&pressed, clear) != at(&hovered, clear), "hovered and pressed differ");
     }
 
     /// On a short screen the calendar column scrolls: nothing is drawn

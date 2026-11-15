@@ -84,6 +84,7 @@ mod osk;
 mod overview;
 mod panel_editor;
 mod panel_tooltip;
+mod press;
 mod prompt;
 mod quick;
 mod lock;
@@ -177,6 +178,9 @@ struct LauncherView {
     grid: app_grid::GridView,
     /// The monitor it is shown on (from the compositor).
     output: Option<wl_output::WlOutput>,
+    /// The result row under the pointer, and the one pressed.
+    hover: Option<usize>,
+    pressed: Option<usize>,
 }
 
 struct Ui {
@@ -1281,6 +1285,8 @@ impl Ui {
             rows: Vec::new(),
             grid: app_grid::GridView::new(crate::item_feedback::motion()),
             output: None,
+            hover: None,
+            pressed: None,
         });
         if notify {
             let _ = self.requests.send(UiRequest::Overview(true));
@@ -1679,7 +1685,7 @@ impl Ui {
             let ids: Vec<u32> = switcher.entries.iter().map(|e| e.id).collect();
             self.capture_shots(&ids);
         }
-        let overlay = self.new_overlay("helix-switcher", KeyboardInteractivity::Exclusive, SwitcherState { switcher, hold, kind, thumbnails });
+        let overlay = self.new_overlay("helix-switcher", KeyboardInteractivity::Exclusive, SwitcherState { switcher, hold, kind, thumbnails, hover: None, pressed: None });
         self.switcher = Some(overlay);
     }
 
@@ -1893,9 +1899,9 @@ impl Ui {
         for (row, index) in (first..switcher.entries.len()).take(shown).enumerate() {
             let entry = &switcher.entries[index];
             let r = Rect { x: bx + 8, y: by + 8 + row as i32 * row_h, w: bw - 16, h: row_h };
-            if index == switcher.selected {
-                theme::row(&mut canvas, r.x, r.y, r.w, r.h, theme::Look { on: true, ..Default::default() });
-            }
+            let hit = OverlayHit::Window(entry.id);
+            let look = theme::Look { on: index == switcher.selected, hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit) };
+            theme::row(&mut canvas, r.x, r.y, r.w, r.h, look);
             let base = baseline(text, r.y, r.h, size::BODY);
             let detail_w = text.map_or(0.0, |t| t.width(&entry.detail, size::CAPTION).min(160.0));
             let mut label_x = r.x + 12;
@@ -1960,8 +1966,12 @@ impl Ui {
         for (slot, index) in (first..switcher.entries.len()).take(shown).enumerate() {
             let entry = &switcher.entries[index];
             let tile = Rect { x: bx + THUMB_GAP + slot as i32 * (THUMB_W + THUMB_GAP), y: by + THUMB_GAP, w: THUMB_W, h: THUMB_H + THUMB_TITLE_H };
+            let hit = OverlayHit::Window(entry.id);
             if index == switcher.selected {
-                canvas.round_rect(f64::from(tile.x - 4), f64::from(tile.y - 4), f64::from(tile.w + 8), f64::from(tile.h + 4), 8.0, accent());
+                canvas.round_rect(f64::from(tile.x - 4), f64::from(tile.y - 4), f64::from(tile.w + 8), f64::from(tile.h + 4), theme::RADIUS_BUTTON, accent());
+            } else {
+                let look = theme::Look { hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
+                theme::flat(&mut canvas, (f64::from(tile.x - 4), f64::from(tile.y - 4), f64::from(tile.w + 8), f64::from(tile.h + 4)), theme::RADIUS_BUTTON, look);
             }
             let pic = Rect { x: tile.x + 4, y: tile.y + 4, w: tile.w - 8, h: THUMB_H - 8 };
             match self.overview_shots.picture(entry.id) {
@@ -2089,9 +2099,8 @@ impl Ui {
         }
         for (row, &result) in shown.iter().enumerate() {
             let rect = Rect { x: bx + 4, y: list_top + 4 + row as i32 * row_h, w: bw - 8, h: row_h };
-            if result == view.model.selected {
-                theme::row(&mut canvas, rect.x, rect.y, rect.w, rect.h, theme::Look { on: true, ..Default::default() });
-            }
+            let look = theme::Look { on: result == view.model.selected, hovered: view.hover == Some(result), pressed: view.pressed == Some(result) };
+            theme::row(&mut canvas, rect.x, rect.y, rect.w, rect.h, look);
             let (name, _) = view.model.row_label(view.model.results[result]);
             let more = matches!(view.model.results[result], launcher::Hit::More(_));
             let more_label;
@@ -4243,56 +4252,15 @@ impl Ui {
                 self.lock_pointer(event);
                 continue;
             }
-            self.banner_hover(event);
-            if self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.quick_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) || self.panel_pointer(event) {
+            if self.banner_pointer(event) || self.overlay_pointer(event) || self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.quick_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) || self.panel_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
                 continue;
             };
             let (x, y) = event.position;
-            let hit_in = |hits: &[(Rect, OverlayHit)]| hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, h)| *h);
-            if let Some(hit) = self.dialog.as_ref().filter(|d| d.layer.wl_surface() == &event.surface).and_then(|d| hit_in(&d.hits)) {
-                match hit {
-                    OverlayHit::Confirm => self.answer_dialog(Choice::Confirmed),
-                    OverlayHit::Cancel => self.answer_dialog(Choice::Canceled),
-                    OverlayHit::Monitor(index) => self.share_monitor(index),
-                    OverlayHit::Toggle => self.prompt_toggle(),
-                    OverlayHit::EndInstall => self.end_toggle_install(),
-                    OverlayHit::Check(i) => self.prompt_check(i),
-                    OverlayHit::Row(i) => self.prompt_pick(i),
-                    OverlayHit::Place(i) => self.prompt_place(i),
-                    OverlayHit::Field(f) => self.prompt_focus(f),
-                    OverlayHit::ShowPassword(f) => self.prompt_show_password(f),
-                    _ => {}
-                }
-            } else if self.switcher.as_ref().is_some_and(|o| o.layer.wl_surface() == &event.surface) {
-                let hit = self.switcher.as_ref().and_then(|o| hit_in(&o.hits));
-                if let Some(OverlayHit::Window(id)) = hit {
-                    if let Some(open) = self.switcher.as_mut() {
-                        if let Some(pos) = open.state.switcher.entries.iter().position(|e| e.id == id) {
-                            open.state.switcher.selected = pos;
-                        }
-                    }
-                    self.finish_switching(true);
-                } else {
-                    self.finish_switching(false);
-                }
-            } else if self.break_screen.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
+            if self.break_screen.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
                 self.break_click(x, y);
-            } else if self.panel_editor.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
-                self.panel_editor_click(x, y);
-            } else if self.extensions_dialog.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
-                self.extensions_dialog_click(x, y);
-            } else if self.power_menu.as_ref().is_some_and(|m| m.layer.wl_surface() == &event.surface) {
-                let hit = self.power_menu.as_ref().and_then(|m| m.hits.iter().find(|(r, _)| r.contains(x, y)).copied());
-                tracing::debug!(x, y, hits = self.power_menu.as_ref().map_or(0, |m| m.hits.len()), "quick settings press");
-                let keep = hit.is_some_and(|(rect, hit)| self.quick_click(hit, x, rect));
-                if !keep {
-                    self.close_quick_settings();
-                }
-            } else if self.banner.as_ref().is_some_and(|b| b.layer.wl_surface() == &event.surface) {
-                self.banner_click(x, y);
             } else if &event.surface == self.panel.wl_surface() {
                 let hit = self.panel_placed.iter().copied().find(|&(_, px, pw)| x >= f64::from(px) && x < f64::from(px + pw));
                 if let Some((slot, px, _)) = hit {
@@ -4304,15 +4272,136 @@ impl Ui {
                         }
                     }
                 }
-            } else if let Some(view) = self.launcher.as_mut().filter(|v| v.layer.wl_surface() == &event.surface) {
-                if let Some(&(_, result)) = view.rows.iter().find(|(r, _)| r.contains(x, y)) {
-                    view.model.selected = result;
-                    self.launch_selected();
-                } else if !view.content.contains(x, y) {
-                    self.close_launcher(true);
-                }
             }
         }
+    }
+
+    /// Hover, press and click (on release, over what was pressed) on the
+    /// dialogs, quick settings, the switcher, the launcher's results, the
+    /// panel editor and the Extensions dialog; true if `event` was for
+    /// one of them.
+    fn overlay_pointer(&mut self, event: &PointerEvent) -> bool {
+        let (x, y) = event.position;
+        let kind = &event.kind;
+        let pressed_left = matches!(kind, PointerEventKind::Press { button: BTN_LEFT, .. });
+        let on = |layer: &LayerSurface| layer.wl_surface() == &event.surface;
+        let hit_in = |hits: &[(Rect, OverlayHit)]| hits.iter().find(|(r, _)| r.contains(x, y)).copied();
+        if let Some(d) = self.dialog.as_mut().filter(|d| on(&d.layer)) {
+            let hit = hit_in(&d.hits).map(|(_, h)| h);
+            let out = press::track(&mut d.state.hover, &mut d.state.pressed, kind, hit);
+            match out.click {
+                Some(hit) => self.dialog_click(hit),
+                None if out.redraw => self.draw_dialog(),
+                None => {}
+            }
+            return true;
+        }
+        if let Some(m) = self.power_menu.as_mut().filter(|m| on(&m.layer)) {
+            let found = hit_in(&m.hits);
+            if pressed_left && found.is_none_or(|(_, h)| h == OverlayHit::Outside) {
+                self.close_quick_settings();
+                return true;
+            }
+            let part = found.map(|(_, h)| h).filter(|h| !matches!(h, OverlayHit::Inside | OverlayHit::Outside));
+            let out = press::track(&mut m.state.hover, &mut m.state.pressed, kind, part);
+            // A slider follows the pointer from the press on, also when
+            // it moves off the bar while held.
+            let held_slider = m.state.pressed.filter(|h| quick::is_slider(*h));
+            let slider_rect = held_slider.and_then(|s| m.hits.iter().find(|(_, h)| *h == s).map(|(r, _)| *r));
+            if let (Some(slider), Some(rect)) = (held_slider, slider_rect) {
+                if matches!(kind, PointerEventKind::Motion { .. } | PointerEventKind::Press { .. }) {
+                    self.quick_click(slider, x, rect);
+                }
+            }
+            if let Some(hit) = out.click.filter(|h| !quick::is_slider(*h)) {
+                let rect = found.map_or_else(Rect::default, |(r, _)| r);
+                if !self.quick_click(hit, x, rect) {
+                    self.close_quick_settings();
+                }
+            } else if out.redraw {
+                self.draw_power_menu();
+            }
+            return true;
+        }
+        if let Some(o) = self.switcher.as_mut().filter(|o| on(&o.layer)) {
+            let hit = hit_in(&o.hits).map(|(_, h)| h);
+            if pressed_left && hit.is_none() {
+                self.finish_switching(false);
+                return true;
+            }
+            let out = press::track(&mut o.state.hover, &mut o.state.pressed, kind, hit);
+            if let Some(OverlayHit::Window(id)) = out.click {
+                if let Some(pos) = o.state.switcher.entries.iter().position(|e| e.id == id) {
+                    o.state.switcher.selected = pos;
+                }
+                self.finish_switching(true);
+            } else if out.redraw {
+                self.draw_switcher();
+            }
+            return true;
+        }
+        if let Some(view) = self.launcher.as_mut().filter(|v| on(&v.layer)) {
+            // The app grid has its own (`grid_pointer`).
+            if view.model.query.is_empty() {
+                return false;
+            }
+            let row = view.rows.iter().find(|(r, _)| r.contains(x, y)).map(|(_, i)| *i);
+            if pressed_left && row.is_none() && !view.content.contains(x, y) {
+                self.close_launcher(true);
+                return true;
+            }
+            let out = press::track(&mut view.hover, &mut view.pressed, kind, row);
+            if let Some(result) = out.click {
+                view.model.selected = result;
+                self.launch_selected();
+            } else if out.redraw {
+                self.draw_launcher();
+            }
+            return true;
+        }
+        if let Some(o) = self.panel_editor.as_mut().filter(|o| on(&o.layer)) {
+            let hit = hit_in(&o.hits).and_then(|(_, h)| if let OverlayHit::PanelEditor(e) = h { Some(e) } else { None });
+            let out = press::track(&mut o.state.hover, &mut o.state.pressed, kind, hit);
+            if let Some(hit) = out.click {
+                self.panel_editor_press(hit);
+            } else if out.redraw {
+                self.draw_panel_editor();
+            }
+            // (Drags of panel items go on in the panel editor's own handler.)
+            return !matches!(kind, PointerEventKind::Axis { .. });
+        }
+        if let Some(o) = self.extensions_dialog.as_mut().filter(|o| on(&o.layer)) {
+            let hit = hit_in(&o.hits).and_then(|(_, h)| if let OverlayHit::ExtDialog(e) = h { Some(e) } else { None });
+            if matches!(kind, PointerEventKind::Axis { .. }) {
+                return false;
+            }
+            let out = press::track(&mut o.state.hover, &mut o.state.pressed, kind, hit);
+            if let Some(hit) = out.click {
+                self.extensions_dialog_press(hit);
+            } else if out.redraw {
+                self.draw_extensions_dialog();
+            }
+            return true;
+        }
+        false
+    }
+
+    /// A click on a dialog's or prompt's part.
+    fn dialog_click(&mut self, hit: OverlayHit) {
+        match hit {
+            OverlayHit::Confirm => self.answer_dialog(Choice::Confirmed),
+            OverlayHit::Cancel => self.answer_dialog(Choice::Canceled),
+            OverlayHit::Monitor(index) => self.share_monitor(index),
+            OverlayHit::Toggle => self.prompt_toggle(),
+            OverlayHit::EndInstall => self.end_toggle_install(),
+            OverlayHit::Check(i) => self.prompt_check(i),
+            OverlayHit::Row(i) => self.prompt_pick(i),
+            OverlayHit::Place(i) => self.prompt_place(i),
+            OverlayHit::Field(f) => self.prompt_focus(f),
+            OverlayHit::ShowPassword(f) => self.prompt_show_password(f),
+            _ => {}
+        }
+        self.draw_dialog();
     }
 }
 
@@ -4511,6 +4600,9 @@ struct SwitcherState {
     /// Window pictures in tiles (`app-icon-mode` not `app-icon-only`), with
     /// the app's icon too (`both`).
     thumbnails: Option<crate::windows::IconMode>,
+    /// The entry under the pointer, and the one pressed.
+    hover: Option<OverlayHit>,
+    pressed: Option<OverlayHit>,
 }
 
 /// Window switcher tiles: the picture area and the title below.

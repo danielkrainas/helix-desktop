@@ -239,14 +239,12 @@ impl Ui {
     }
 
     /// A click on the editor: outside its buttons does nothing.
-    pub(super) fn panel_editor_click(&mut self, x: f64, y: f64) {
-        let hit = self.panel_editor.as_ref().and_then(|o| o.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, h)| *h));
-        if let Some(OverlayHit::PanelEditor(hit)) = hit {
-            if let Some(editor) = self.panel_editor.as_mut() {
-                editor.state.focus = None;
-            }
-            self.panel_editor_do(hit);
+    /// A click on one of the editor's buttons.
+    pub(super) fn panel_editor_press(&mut self, hit: EditorHit) {
+        if let Some(editor) = self.panel_editor.as_mut() {
+            editor.state.focus = None;
         }
+        self.panel_editor_do(hit);
     }
 
     /// Tab and Shift+Tab move between the buttons, Enter or Space presses

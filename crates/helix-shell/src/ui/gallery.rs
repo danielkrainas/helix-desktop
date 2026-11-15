@@ -203,6 +203,36 @@ fn quick_settings_look() {
     }
 }
 
+/// Hover and press (`press-…`): a notification under the pointer with
+/// Clear pressed, a calendar day and month arrow, a dialog's check box
+/// hovered with Cancel pressed, quick settings with a slider held and a
+/// list row lit.
+#[test]
+#[ignore]
+fn hover_and_press() {
+    use notify::tests::{paint_sample_pointer, sample, sample_calendar};
+    use notify::ListHit;
+    let Some(dir) = dir() else { return };
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    let entries = sample();
+    let cal = sample_calendar(true);
+    let (y, m, d) = cal.selected;
+    in_looks(&dir, "press-list", (1280, 720), &mut |canvas, size| {
+        paint_sample_pointer(canvas, (text.as_ref(), bold.as_ref()), size, &entries, &Default::default(), &cal, None, (Some(&ListHit::Entry(5)), Some(&ListHit::Clear)));
+    });
+    in_looks(&dir, "press-calendar", (1280, 720), &mut |canvas, size| {
+        paint_sample_pointer(canvas, (text.as_ref(), bold.as_ref()), size, &entries, &Default::default(), &cal, None, (Some(&ListHit::Day(y, m, d + 2)), Some(&ListHit::Month(1))));
+    });
+    in_looks(&dir, "press-dialog", (1280, 720), &mut |canvas, size| {
+        let state = DialogState { hover: Some(OverlayHit::EndInstall), pressed: Some(OverlayHit::Cancel), ..DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(false), upgrade: None }), 60) };
+        paint_question(canvas, (text.as_ref(), bold.as_ref()), size, &state);
+    });
+    in_looks(&dir, "press-quick", (1280, 720), &mut |canvas, size| {
+        let m = quick::QuickModel { hover: Some(OverlayHit::Network(1)), pressed: Some(OverlayHit::VolumeSlider), ..quick::tests::sample(Some(3)) };
+        quick::paint_quick(canvas, (text.as_ref(), bold.as_ref()), size, &m, None, &mut Default::default());
+    });
+}
+
 #[test]
 #[ignore]
 fn dialogs() {

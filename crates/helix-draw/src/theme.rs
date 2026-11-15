@@ -57,6 +57,8 @@ pub const WELL: u32 = 0xFF1E1E24;
 /// A notification (a row with secondary text on it) under the pointer:
 /// lighter than a popover only as far as Secondary text keeps 4.5:1 on it.
 pub const CARD_HOVER: u32 = 0xFF3A3A42;
+/// The same while pressed (only for the moment of a click).
+pub const CARD_PRESSED: u32 = 0xFF424249;
 /// What dims the screen behind a dialog.
 pub const SCRIM: u32 = 0xB00C0C10;
 /// A popover's shadow at its darkest (just outside the box), how far it
@@ -561,6 +563,12 @@ pub fn tooltip(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32) {
 /// (6 px) with its filled part, and a round knob (18 px across) at the
 /// value. High contrast: the track and knob are outlined in white.
 pub fn slider(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, fraction: f64, dim: bool) {
+    slider_look(canvas, (x, y, w, h), fraction, dim, Look::default());
+}
+
+/// [`slider`] in `look`: under the pointer a halo around the knob, while
+/// held a stronger one (high contrast: a white ring).
+pub fn slider_look(canvas: &mut Canvas, (x, y, w, h): (i32, i32, i32, i32), fraction: f64, dim: bool, look: Look) {
     let hc = crate::high_contrast();
     let knob = SLIDER_KNOB;
     // The knob's center travels between the track's ends.
@@ -575,6 +583,10 @@ pub fn slider(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, fraction: f64
     let fill = if dim { TEXT_DIM } else { accent() };
     canvas.round_rect(tx - track_h / 2.0, ty, at - tx + track_h, track_h, track_h / 2.0, fill);
     let cy = f64::from(y) + f64::from(h) / 2.0;
+    if look.hovered || look.pressed {
+        let halo = if hc { WHITE } else if look.pressed { 0x59FF_FFFF } else { 0x33FF_FFFF };
+        canvas.ring(at, cy, knob / 2.0 + 2.5, if hc { 1.5 } else { 5.0 }, halo);
+    }
     canvas.circle(at, cy, knob / 2.0, if hc { BLACK } else if dim { CONTROL_HOVER } else { TEXT });
     if hc {
         canvas.ring(at, cy, knob / 2.0 - 1.0, 2.0, WHITE);
