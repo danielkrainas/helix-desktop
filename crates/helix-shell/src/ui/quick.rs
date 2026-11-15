@@ -848,7 +848,7 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
             hits.push((name_r, OverlayHit::Mute));
             drawn.push((Rect { x: name_r.x - 4, y: y + 6, w: name_w - 4, h: row_h - 12 }, OverlayHit::Mute));
         }
-        let bar = Rect { x: mx + PAD + name_w + 4, y: y + row_h / 2 - 4, w: menu_w - 2 * PAD - name_w - 4 - value_w, h: 8 };
+        let bar = Rect { x: mx + PAD + name_w + 4, y: y + row_h / 2 - 9, w: menu_w - 2 * PAD - name_w - 4 - value_w, h: 18 };
         theme::slider(canvas, bar.x, bar.y, bar.w, bar.h, f64::from(s.value.min(s.max)) / f64::from(s.max.max(1)), s.dim);
         let pct = format!("{}%", s.value);
         label(text, canvas, &pct, (bar.x + bar.w + 10) as f32, baseline(text, y, row_h, 13.0), 13.0, DIM_FG, (value_w - 8) as f32);

@@ -199,17 +199,33 @@ pub fn well(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32) {
     }
 }
 
-/// A slider's bar at (x, y, w, h), filled to `fraction` (0 to 1); `dim`:
-/// it cannot be changed or is muted. High contrast: the track is outlined.
+/// A slider at (x, y, w, h) (the band it lies in), filled to `fraction`
+/// (0 to 1); `dim`: it cannot be changed or is muted. A rounded track
+/// (6 px) with its filled part, and a round knob (18 px across) at the
+/// value. High contrast: the track and knob are outlined in white.
 pub fn slider(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, fraction: f64, dim: bool) {
     let hc = crate::high_contrast();
-    canvas.rect(x, y, w, h, if hc { BLACK } else { TRACK });
-    let filled = (f64::from(w) * fraction.clamp(0.0, 1.0)).round() as i32;
-    canvas.rect(x, y, filled, h, if dim { TEXT_DIM } else { accent() });
+    let knob = SLIDER_KNOB;
+    // The knob's center travels between the track's ends.
+    let (tx, tw) = (f64::from(x) + knob / 2.0, (f64::from(w) - knob).max(1.0));
+    let track_h = 6.0;
+    let ty = f64::from(y) + f64::from(h) / 2.0 - track_h / 2.0;
+    canvas.round_rect(tx - track_h / 2.0, ty, tw + track_h, track_h, track_h / 2.0, if hc { BLACK } else { TRACK });
     if hc {
-        outline(canvas, x - 1, y - 1, w + 2, h + 2, 1, WHITE);
+        canvas.round_outline(tx - track_h / 2.0, ty, tw + track_h, track_h, track_h / 2.0, 1.0, WHITE);
+    }
+    let at = tx + tw * fraction.clamp(0.0, 1.0);
+    let fill = if dim { TEXT_DIM } else { accent() };
+    canvas.round_rect(tx - track_h / 2.0, ty, at - tx + track_h, track_h, track_h / 2.0, fill);
+    let cy = f64::from(y) + f64::from(h) / 2.0;
+    canvas.circle(at, cy, knob / 2.0, if hc { BLACK } else if dim { CONTROL_HOVER } else { TEXT });
+    if hc {
+        canvas.ring(at, cy, knob / 2.0 - 1.0, 2.0, WHITE);
     }
 }
+
+/// A slider's knob, across (logical px).
+pub const SLIDER_KNOB: f64 = 18.0;
 
 /// A workspace dot at (x, y): the active one wide and filled; in high
 /// contrast the others are hollow, so it is not told by width alone.
