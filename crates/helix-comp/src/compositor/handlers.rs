@@ -522,6 +522,7 @@ impl WlrLayerShellHandler for Helix {
             }
             layer_map_for_output(&output).unmap_layer(&layer);
         }
+        self.layer_released.forget(surface.wl_surface());
         // Give focus back if the layer surface had it.
         if self.focused_surface().as_ref() == Some(surface.wl_surface()) {
             self.layer_give_back_focus(surface.wl_surface());
@@ -565,9 +566,10 @@ impl Helix {
             // Top/overlay surfaces asking for exclusive keyboard focus (e.g.
             // the launcher, a menu opened from the keyboard) get it while
             // mapped, per wlr-layer-shell; one giving it up hands it back.
+            // One a click on a window took it from waits until asked anew.
             layer.map_or(helix_comp::layer_focus::Change::Keep, |l| {
                 let cached = l.cached_state();
-                helix_comp::layer_focus::on_commit(layer_interactivity(cached.keyboard_interactivity), layer_kind(cached.layer), focused)
+                self.layer_released.on_commit(surface, layer_interactivity(cached.keyboard_interactivity), layer_kind(cached.layer), focused)
             })
         };
         self.constrain_to_work_area();
@@ -591,7 +593,7 @@ impl Helix {
             let map = layer_map_for_output(o);
             [Layer::Overlay, Layer::Top].into_iter().find_map(|kind| {
                 map.layers_on(kind)
-                    .rfind(|l| l.wl_surface() != from && l.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive)
+                    .rfind(|l| l.wl_surface() != from && l.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive && !self.layer_released.contains(l.wl_surface()))
                     .map(|l| l.wl_surface().clone())
             })
         });
@@ -604,6 +606,22 @@ impl Helix {
                 Some(top) => self.focus_window(&top),
                 None => self.unfocus_all(),
             },
+        }
+    }
+
+    /// A button was pressed on a window or the desktop: a layer surface
+    /// that had the keyboard exclusively (the panel or dock after
+    /// `switch-panels`, a menu opened from the keyboard) loses it to what
+    /// was clicked and doesn't take it back on its next commit.
+    pub(super) fn layer_clicked_away(&mut self) {
+        let Some(focused) = self.focused_surface() else { return };
+        let interactivity = self.space.outputs().find_map(|o| {
+            layer_map_for_output(o)
+                .layer_for_surface(&focused, WindowSurfaceType::TOPLEVEL)
+                .map(|l| l.cached_state().keyboard_interactivity)
+        });
+        if let Some(interactivity) = interactivity {
+            self.layer_released.clicked_away(&focused, layer_interactivity(interactivity));
         }
     }
 
@@ -620,7 +638,7 @@ impl Helix {
         };
         let Some((surface, interactivity)) = target else { return };
         let focused = self.focused_surface().as_ref() == Some(&surface);
-        if helix_comp::layer_focus::on_click(layer_interactivity(interactivity), focused) == helix_comp::layer_focus::Change::Take {
+        if self.layer_released.on_click(&surface, layer_interactivity(interactivity), focused) == helix_comp::layer_focus::Change::Take {
             let keyboard = self.seat.get_keyboard().unwrap();
             keyboard.set_focus(self, Some(surface.into()), smithay::utils::SERIAL_COUNTER.next_serial());
         }

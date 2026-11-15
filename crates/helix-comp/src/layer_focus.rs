@@ -51,6 +51,58 @@ pub fn on_click(interactivity: Interactivity, focused: bool) -> Change {
     }
 }
 
+/// Layer surfaces whose `exclusive` keyboard grab a click elsewhere
+/// ended: the user pressed a button on a window or the desktop while one
+/// had the keyboard. Such a surface does not take the keyboard back on
+/// its next commit (the panel redrawing would otherwise steal it from
+/// the window just clicked); it takes it again when clicked, or after it
+/// stops asking for `exclusive` and asks anew.
+#[derive(Debug, Clone)]
+pub struct Released<S> {
+    surfaces: Vec<S>,
+}
+
+impl<S> Default for Released<S> {
+    fn default() -> Self {
+        Self { surfaces: Vec::new() }
+    }
+}
+
+impl<S: PartialEq + Clone> Released<S> {
+    /// A button press outside the shell's surfaces moved the keyboard
+    /// away from `surface`, which had it asking for `interactivity`.
+    pub fn clicked_away(&mut self, surface: &S, interactivity: Interactivity) {
+        if interactivity == Interactivity::Exclusive && !self.contains(surface) {
+            self.surfaces.push(surface.clone());
+        }
+    }
+
+    pub fn contains(&self, surface: &S) -> bool {
+        self.surfaces.contains(surface)
+    }
+
+    /// The surface went away.
+    pub fn forget(&mut self, surface: &S) {
+        self.surfaces.retain(|s| s != surface);
+    }
+
+    /// [`on_commit`], for a surface that may have been clicked away from.
+    pub fn on_commit(&mut self, surface: &S, interactivity: Interactivity, layer: Layer, focused: bool) -> Change {
+        if interactivity != Interactivity::Exclusive {
+            self.forget(surface);
+        } else if self.contains(surface) {
+            return Change::Keep;
+        }
+        on_commit(interactivity, layer, focused)
+    }
+
+    /// [`on_click`]: a click on the surface itself ends its release.
+    pub fn on_click(&mut self, surface: &S, interactivity: Interactivity, focused: bool) -> Change {
+        self.forget(surface);
+        on_click(interactivity, focused)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,5 +125,28 @@ mod tests {
         assert_eq!(on_click(Interactivity::OnDemand, false), Change::Take);
         assert_eq!(on_click(Interactivity::OnDemand, true), Change::Keep);
         assert_eq!(on_click(Interactivity::None, false), Change::Keep, "the panel never takes it by a click");
+    }
+
+    #[test]
+    fn clicked_away() {
+        let mut r = Released::default();
+        // The panel has the keyboard (switch-panels); a click on a window
+        // takes it. The panel's redraws don't take it back.
+        r.clicked_away(&"panel", Interactivity::Exclusive);
+        assert_eq!(r.on_commit(&"panel", Interactivity::Exclusive, Layer::Top, false), Change::Keep);
+        assert_eq!(r.on_commit(&"panel", Interactivity::Exclusive, Layer::Top, false), Change::Keep);
+        // It hands the keyboard back (none) and later asks again: it takes it.
+        assert_eq!(r.on_commit(&"panel", Interactivity::None, Layer::Top, false), Change::Keep);
+        assert_eq!(r.on_commit(&"panel", Interactivity::Exclusive, Layer::Top, false), Change::Take);
+        // Clicked away, then clicked: it takes it at once.
+        r.clicked_away(&"dock", Interactivity::Exclusive);
+        assert_eq!(r.on_click(&"dock", Interactivity::Exclusive, false), Change::Take);
+        assert_eq!(r.on_commit(&"dock", Interactivity::Exclusive, Layer::Top, true), Change::Keep);
+        assert!(!r.contains(&"dock"));
+        // On-demand surfaces simply lose it; nothing to remember.
+        r.clicked_away(&"menu", Interactivity::OnDemand);
+        assert!(!r.contains(&"menu"));
+        // Other surfaces are unaffected.
+        assert_eq!(r.on_commit(&"launcher", Interactivity::Exclusive, Layer::Overlay, false), Change::Take);
     }
 }

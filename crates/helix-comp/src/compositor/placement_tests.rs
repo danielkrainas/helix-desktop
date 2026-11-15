@@ -86,12 +86,30 @@ mod client {
     use wayland_client::{Connection, Dispatch, QueueHandle};
     use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
 
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
+
     #[derive(Default, Debug, Clone)]
     pub struct State {
         /// The last configure: size, maximized, and its serial.
         pub size: (i32, i32),
         pub maximized: bool,
+        pub fullscreen: bool,
         pub serial: Option<u32>,
+        /// How many `xdg_surface.configure` events came.
+        pub configures: u32,
+        /// The layer surface's last configure serial.
+        pub layer_serial: Option<u32>,
+    }
+
+    impl Dispatch<zwlr_layer_shell_v1::ZwlrLayerShellV1, ()> for State {
+        fn event(_: &mut Self, _: &zwlr_layer_shell_v1::ZwlrLayerShellV1, _: zwlr_layer_shell_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    }
+    impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for State {
+        fn event(state: &mut Self, _: &zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, event: zwlr_layer_surface_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+            if let zwlr_layer_surface_v1::Event::Configure { serial, .. } = event {
+                state.layer_serial = Some(serial);
+            }
+        }
     }
 
     macro_rules! quiet {
@@ -117,6 +135,7 @@ mod client {
         fn event(state: &mut Self, _: &xdg_surface::XdgSurface, event: xdg_surface::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
             if let xdg_surface::Event::Configure { serial } = event {
                 state.serial = Some(serial);
+                state.configures += 1;
             }
         }
     }
@@ -124,12 +143,9 @@ mod client {
         fn event(state: &mut Self, _: &xdg_toplevel::XdgToplevel, event: xdg_toplevel::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
             if let xdg_toplevel::Event::Configure { width, height, states } = event {
                 state.size = (width, height);
-                state.maximized = states
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|c| u32::from_ne_bytes(*c))
-                    .any(|s| matches!(xdg_toplevel::State::try_from(s), Ok(xdg_toplevel::State::Maximized)));
+                let has = |which: xdg_toplevel::State| states.as_chunks::<4>().0.iter().map(|c| u32::from_ne_bytes(*c)).any(|s| xdg_toplevel::State::try_from(s) == Ok(which));
+                state.maximized = has(xdg_toplevel::State::Maximized);
+                state.fullscreen = has(xdg_toplevel::State::Fullscreen);
             }
         }
     }
@@ -150,6 +166,8 @@ struct App {
     surface: wl_surface::WlSurface,
     xdg: xdg_surface::XdgSurface,
     toplevel: client_toplevel::XdgToplevel,
+    globals: wayland_client::globals::GlobalList,
+    compositor: wayland_client::protocol::wl_compositor::WlCompositor,
 }
 
 impl App {
@@ -165,7 +183,7 @@ impl App {
         let xdg = base.get_xdg_surface(&surface, &qh, ());
         let toplevel = xdg.get_toplevel(&qh, ());
         toplevel.set_app_id("org.example.Shadowed".into());
-        Self { queue, state: client::State::default(), qh, shm, surface, xdg, toplevel }
+        Self { queue, state: client::State::default(), qh, shm, surface, xdg, toplevel, globals, compositor }
     }
 
     fn roundtrip(&mut self) {
@@ -345,4 +363,80 @@ fn maximized_after_mapping() {
     assert!(maximized);
     assert_eq!(area, work_area());
     assert_eq!(inset, Point::from((0, 0)));
+}
+
+/// The panel (a top layer surface) has the keyboard exclusively, as after
+/// `switch-panels`; a click on a window gives that window the keyboard,
+/// and the panel's next redraws don't take it back until it asks anew.
+#[test]
+fn clicking_a_window_takes_the_keyboard_from_the_panel() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
+    let (mut event_loop, mut state) = start();
+    state.wm_settings.center_new_windows = true;
+    state.wm_settings.auto_maximize = false;
+    let (go, wait) = mpsc::channel::<()>();
+    let rx = connect(&mut state, move |stream, tx| {
+        let mut app = App::new(stream);
+        app.surface.commit();
+        app.roundtrip();
+        app.draw((640, 480));
+        tx.send(Step::Drawn(app.state.clone())).unwrap();
+        // The panel, asking for the keyboard exclusively.
+        let shell: zwlr_layer_shell_v1::ZwlrLayerShellV1 = app.globals.bind(&app.qh, 1..=4, ()).unwrap();
+        let surface = app.compositor.create_surface(&app.qh, ());
+        let panel = shell.get_layer_surface(&surface, None, zwlr_layer_shell_v1::Layer::Top, "helix-panel".into(), &app.qh, ());
+        panel.set_size(0, 32);
+        panel.set_anchor(zwlr_layer_surface_v1::Anchor::Top | zwlr_layer_surface_v1::Anchor::Left | zwlr_layer_surface_v1::Anchor::Right);
+        panel.set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::Exclusive);
+        surface.commit();
+        app.roundtrip();
+        let redraw = |app: &mut App| {
+            if let Some(serial) = app.state.layer_serial.take() {
+                panel.ack_configure(serial);
+            }
+            surface.attach(Some(&app.buffer(SIZE.0, 32)), 0, 0);
+            surface.commit();
+            app.roundtrip();
+        };
+        redraw(&mut app);
+        tx.send(Step::Drawn(app.state.clone())).unwrap();
+        // After the click: the panel redraws (a clock tick).
+        wait.recv().unwrap();
+        redraw(&mut app);
+        redraw(&mut app);
+        tx.send(Step::Drawn(app.state.clone())).unwrap();
+        // It gives up the keyboard, then asks again (switch-panels).
+        wait.recv().unwrap();
+        panel.set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::None);
+        redraw(&mut app);
+        panel.set_keyboard_interactivity(zwlr_layer_surface_v1::KeyboardInteractivity::Exclusive);
+        redraw(&mut app);
+        tx.send(Step::Drawn(app.state.clone())).unwrap();
+        std::thread::sleep(Duration::from_secs(1));
+    });
+    let Step::Drawn(_) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+    let window = state.space.elements().next().unwrap().clone();
+    let window_surface = window.toplevel().unwrap().wl_surface().clone();
+    assert_eq!(state.focused_surface().as_ref(), Some(&window_surface));
+    let Step::Drawn(_) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+    let output = state.space.outputs().next().unwrap().clone();
+    let panel_surface = smithay::desktop::layer_map_for_output(&output).layers().next().unwrap().wl_surface().clone();
+    assert_eq!(state.focused_surface().as_ref(), Some(&panel_surface), "the panel took the keyboard");
+
+    // A click in the middle of the window.
+    let area = state.space.element_geometry(&window).unwrap();
+    let at = Point::<f64, Logical>::from((f64::from(area.loc.x + area.size.w / 2), f64::from(area.loc.y + area.size.h / 2)));
+    assert!(!state.over_panel(at));
+    state.pointer_to(at, 1);
+    state.button_input(super::input::BTN_LEFT, smithay::backend::input::ButtonState::Pressed, 2);
+    state.button_input(super::input::BTN_LEFT, smithay::backend::input::ButtonState::Released, 3);
+    assert_eq!(state.focused_surface().as_ref(), Some(&window_surface), "the click focused the window");
+
+    go.send(()).unwrap();
+    let Step::Drawn(_) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+    assert_eq!(state.focused_surface().as_ref(), Some(&window_surface), "the panel's redraws don't take it back");
+
+    go.send(()).unwrap();
+    let Step::Drawn(_) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+    assert_eq!(state.focused_surface().as_ref(), Some(&panel_surface), "asking anew takes it");
 }

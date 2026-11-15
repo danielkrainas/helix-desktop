@@ -434,6 +434,7 @@ impl Helix {
             // Extensions' popovers close on a click outside them.
             self.popover_press(pos);
             if let Some((window, part)) = self.frame_under(pos) {
+                self.layer_clicked_away();
                 if self.frame_press(window, part, button, time, pos) {
                     return;
                 }
@@ -451,8 +452,10 @@ impl Helix {
                 if self.modifier_click(&window, button, pos) {
                     return;
                 }
+                self.layer_clicked_away();
                 self.focus_window_with(&window, self.wm_settings.raise_on_click);
             } else {
+                self.layer_clicked_away();
                 self.unfocus_all();
             }
         }
@@ -503,6 +506,9 @@ impl Helix {
         if !self.lock.locked {
             // A touch focuses the window it lands on, as a click does.
             if let Some(window) = self.window_under(pos).map(|(w, _)| w.clone()) {
+                if !self.over_panel(pos) {
+                    self.layer_clicked_away();
+                }
                 self.focus_window(&window);
             }
         }

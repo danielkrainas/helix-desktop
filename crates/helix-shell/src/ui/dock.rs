@@ -1161,6 +1161,11 @@ impl Ui {
 
     // ----- Keyboard (switch-panels) ---------------------------------------
 
+    /// Whether `surface` is the dock that has the keyboard.
+    pub(super) fn dock_keyboard_surface(&self, surface: &wl_surface::WlSurface) -> bool {
+        self.dock_keyboard_view().and_then(|i| self.dock.views[i].layer.as_ref()).is_some_and(|l| l.wl_surface() == surface)
+    }
+
     /// The dock view that has the keyboard, if one does.
     pub(super) fn dock_keyboard_view(&self) -> Option<usize> {
         self.dock.views.iter().position(|v| v.keyboard.is_some())

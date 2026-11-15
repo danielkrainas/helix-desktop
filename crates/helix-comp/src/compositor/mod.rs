@@ -226,6 +226,8 @@ pub struct Helix {
     pub workspaces: workspaces::WorkspaceState,
     /// Title bars of X11 windows.
     pub frames: frames::Frames,
+    /// Layer surfaces a click on a window took the keyboard from.
+    pub layer_released: helix_comp::layer_focus::Released<WlSurface>,
     pub wm_settings: helix_comp::wm_settings::WmSettings,
     /// Keyboard accessibility (sticky, slow, bounce, mouse keys…).
     pub access: helix_comp::a11y_keys::AccessX,
@@ -371,6 +373,7 @@ impl Helix {
             captures: Default::default(),
             workspaces: Default::default(),
             frames: Default::default(),
+            layer_released: Default::default(),
             wm_settings: Default::default(),
             access: Default::default(),
             keyboard_monitor: Default::default(),

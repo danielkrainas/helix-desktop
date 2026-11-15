@@ -4045,7 +4045,16 @@ impl SeatHandler for Ui {
 
 impl KeyboardHandler for Ui {
     fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32, _: &[u32], _: &[Keysym]) {}
-    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32) {}
+    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, surface: &wl_surface::WlSurface, _: u32) {
+        // The panel or dock lost the keyboard it had after switch-panels
+        // (a click on a window took it): end the keyboard mode and give
+        // up the grab, as Escape does.
+        if self.panel_focus.is_some() && self.panel.wl_surface() == surface {
+            self.leave_panel();
+        } else if self.dock_keyboard_surface(surface) {
+            self.leave_dock();
+        }
+    }
     fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
         if self.lock.session.is_some() {
             self.lock_key(&event);
