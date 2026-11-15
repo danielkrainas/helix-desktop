@@ -172,6 +172,9 @@ pub struct DockSettings {
     /// How long showing and hiding slide, in seconds (`animation-time`;
     /// 0 when `org.gnome.desktop.interface enable-animations` is off).
     pub animation_time: f64,
+    /// `org.gnome.desktop.a11y.interface reduced-motion` `reduce`: nothing
+    /// slides, grows or wiggles (highlights still fade).
+    pub reduced_motion: bool,
     /// The most of the edge the dock takes (`height-fraction`).
     pub height_fraction: f64,
     /// With `hot-keys` on: the dock's keys, used instead of GNOME's
@@ -236,6 +239,7 @@ impl Default for DockSettings {
             pressure_threshold: 100.0,
             hide_tooltip: false,
             animation_time: 0.2,
+            reduced_motion: false,
             height_fraction: 0.9,
             hot_keys: None,
             mounts_network: false,
@@ -263,8 +267,9 @@ pub fn read() -> DockSettings {
         let i = gio::Settings::new(INTERFACE);
         !i.settings_schema().is_some_and(|s| s.has_key("enable-animations")) || i.boolean("enable-animations")
     };
+    let reduced_motion = crate::item_feedback::motion() == helix_draw::motion::Motion::Reduced;
     if !has(SCHEMA) {
-        return DockSettings { enabled: !disabled, animation_time: if animations { d.animation_time } else { 0.0 }, ..d };
+        return DockSettings { enabled: !disabled, animation_time: if animations { d.animation_time } else { 0.0 }, reduced_motion, ..d };
     }
     let s = gio::Settings::new(SCHEMA);
     let schema = s.settings_schema();
@@ -334,6 +339,7 @@ pub fn read() -> DockSettings {
         pressure_threshold: num("pressure-threshold", d.pressure_threshold).clamp(0.0, 10000.0),
         hide_tooltip: b("hide-tooltip", d.hide_tooltip),
         animation_time: if animations { num("animation-time", d.animation_time).clamp(0.0, 2.0) } else { 0.0 },
+        reduced_motion,
         height_fraction: num("height-fraction", d.height_fraction).clamp(0.1, 1.0),
         mounts_network: b("show-mounts-network", d.mounts_network),
         mounts_only_mounted: b("show-mounts-only-mounted", d.mounts_only_mounted),

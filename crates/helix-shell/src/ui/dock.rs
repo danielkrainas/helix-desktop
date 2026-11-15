@@ -376,7 +376,7 @@ impl Ui {
         let installed: Vec<String> = gio::AppInfo::all().into_iter().filter(|a| a.should_show()).filter_map(|a| a.id().map(|i| i.to_string())).collect();
         let running: Vec<String> = self.dock_running().into_iter().map(|a| desktop_id(&a).map_or(a, |d| d.trim_end_matches(".desktop").to_owned())).collect();
         let items = logic::items(&s, &crate::favorites::favorites(), &installed, &running, self.dock.mounts.len(), if self.lock.session.is_some() { 0 } else { self.ext.dock.len() });
-        let room = logic::room(&s, if s.edge.vertical() { area.3 } else { area.2 }, PANEL_HEIGHT as i32);
+        let room = logic::room(&s, if s.edge.vertical() { area.3 } else { area.2 }, panel_height() as i32);
         let icon = logic::fit_icon_size(s.icon_size, s.icon_size_fixed, items.len(), room);
         let thickness = icon + icon / 3 + 8;
         let length = if s.extend { if s.edge.vertical() { area.3 } else { area.2 } } else { Self::dock_length(icon, &items).min(room) };
@@ -384,7 +384,7 @@ impl Ui {
         let (ax, ay, aw, ah) = area;
         let rect = match s.edge {
             Edge::Bottom => (ax + (aw - length) / 2, ay + ah - thickness, length, thickness),
-            Edge::Top => (ax + (aw - length) / 2, ay + PANEL_HEIGHT as i32, length, thickness),
+            Edge::Top => (ax + (aw - length) / 2, ay + panel_height() as i32, length, thickness),
             Edge::Left => (ax, ay + (ah - length) / 2, thickness, length),
             Edge::Right => (ax + aw - thickness, ay + (ah - length) / 2, thickness, length),
         };
@@ -447,8 +447,8 @@ impl Ui {
                 layer.set_keyboard_interactivity(KeyboardInteractivity::None);
                 self.dock.views[self.dock.cur].layer = Some(layer);
                 self.dock.views[self.dock.cur].configured = false;
-                // It slides in from beyond the edge.
-                self.dock.views[self.dock.cur].offset = if s.animation_time > 0.0 { f64::from(thickness) } else { 0.0 };
+                // It slides in from beyond the edge (not with reduced motion).
+                self.dock.views[self.dock.cur].offset = if s.animation_time > 0.0 && !s.reduced_motion { f64::from(thickness) } else { 0.0 };
                 self.dock.views[self.dock.cur].slide = None;
                 self.dock_set_margin();
                 if let Some(layer) = self.dock.views[self.dock.cur].layer.as_ref() {
@@ -524,7 +524,8 @@ impl Ui {
     /// Slide the current view to `target` (0: all in; its thickness: out,
     /// after which its surface goes), over `animation-time`.
     fn dock_slide_to(&mut self, target: f64) {
-        let total = self.dock.settings.animation_time;
+        // Reduced motion: shown and hidden at once.
+        let total = if self.dock.settings.reduced_motion { 0.0 } else { self.dock.settings.animation_time };
         let view = &mut self.dock.views[self.dock.cur];
         let heading = view.slide.map_or(view.offset, |(_, _, to)| to);
         if heading == target && (view.slide.is_some() || view.offset == target) {
@@ -818,7 +819,8 @@ impl Ui {
         });
         let (hover, drag) = (self.dock.views[self.dock.cur].hover, self.dock.views[self.dock.cur].drag);
         let now = std::time::Instant::now();
-        self.dock.views[self.dock.cur].feedback.animate = s.animation_time > 0.0;
+        let motion = helix_draw::motion::Motion::from_settings(s.animation_time > 0.0, s.reduced_motion);
+        self.dock.views[self.dock.cur].feedback.set_motion(motion);
         let feedback = self.dock.views[self.dock.cur].feedback.clone();
         let mut centers: Vec<(f64, f64)> = Vec::with_capacity(items.len());
 
@@ -970,7 +972,7 @@ impl Ui {
         };
         match self.dock.settings.edge {
             Edge::Bottom => (ax + (aw - len) / 2, ay + ah - t, len, t),
-            Edge::Top => (ax + (aw - len) / 2, ay + PANEL_HEIGHT as i32, len, t),
+            Edge::Top => (ax + (aw - len) / 2, ay + panel_height() as i32, len, t),
             Edge::Left => (ax, ay + (ah - len) / 2, t, len),
             Edge::Right => (ax + aw - t, ay + (ah - len) / 2, t, len),
         }
@@ -1360,13 +1362,13 @@ impl Ui {
             return;
         }
         // Above a bottom dock, beside a side dock.
-        let rows: i32 = items.iter().map(|i| if i.is_some() { 32 } else { 9 }).sum::<i32>() + 8;
+        let rows: i32 = items.iter().map(|i| if i.is_some() { window_menu::item_h() } else { 9 }).sum::<i32>() + 8;
         let (bx, by, bw, bh) = self.dock_layout_rect();
         let (mx, my) = match self.dock.settings.edge {
-            Edge::Bottom => (x - 120, by - rows - 8),
-            Edge::Top => (x - 120, by + bh + 8),
+            Edge::Bottom => (x - window_menu::menu_w() / 2, by - rows - 8),
+            Edge::Top => (x - window_menu::menu_w() / 2, by + bh + 8),
             Edge::Left => (bx + bw + 8, y - 16),
-            Edge::Right => (bx - 248, y - 16),
+            Edge::Right => (bx - window_menu::menu_w() - 8, y - 16),
         };
         self.open_menu(0, mx, my, items, Vec::new());
     }
@@ -1626,7 +1628,8 @@ impl Ui {
         if self.dock.settings.urgent_shows {
             self.dock_show_for(URGENT_SHOW);
         }
-        if self.dock.settings.urgent_dance && self.dock.settings.animation_time > 0.0 {
+        // (Reduced motion: no wiggle; the urgent mark shows it.)
+        if self.dock.settings.urgent_dance && self.dock.settings.animation_time > 0.0 && !self.dock.settings.reduced_motion {
             self.dock.dancing.insert(app.to_lowercase(), std::time::Instant::now() + DANCE);
             if self.dock.dance_timer.is_none() {
                 if let Some(handle) = self.loop_handle.as_ref() {

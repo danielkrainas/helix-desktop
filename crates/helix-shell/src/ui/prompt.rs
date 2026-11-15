@@ -6,7 +6,7 @@ use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym};
 use smithay_client_toolkit::shell::WaylandSurface;
 use tokio::sync::oneshot;
 
-use super::{baseline, caret, label, text_field, physical, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, ACCENT, BANNER_BG, BANNER_BORDER, DIM_FG, FG, FIELD_BG, SCRIM, SHARING};
+use super::{baseline, caret, label, text_field, physical, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, ACCENT, DIM_FG, FG, FIELD_BG, SCRIM, ACCENT_FILL, ERROR_TEXT};
 use crate::auth::Secret;
 use crate::prompt::{Answer, Prompt, Request};
 
@@ -126,7 +126,7 @@ impl Ui {
                 return;
             }
         }
-        self.show_dialog(DialogState { kind: DialogKind::Prompt(Box::new(view)), remaining: 0 });
+        self.show_dialog(DialogState::new(DialogKind::Prompt(Box::new(view)), 0));
     }
 
     /// The flow is over: close the prompt.
@@ -361,7 +361,9 @@ impl Ui {
         let text = self.text.as_ref();
         let p = &view.prompt;
         let side = if p.places.is_empty() { 0 } else { SIDEBAR_W };
-        let bw = (440 + side).min(w as i32 - 40);
+        // Lengths that hold text grow with the text scale.
+        let grow = helix_draw::theme::grow;
+        let bw = (grow(440) + side).min(w as i32 - 40);
         let inner = (bw - 48) as f32;
         let wrap = |s: &str, px: f32| -> Vec<String> {
             if s.is_empty() {
@@ -384,31 +386,30 @@ impl Ui {
         let first = view.selected.saturating_sub(LIST_SHOWN - 1).min(p.list.len().saturating_sub(shown));
         let places_shown = p.places.len().min(PLACES_SHOWN);
         let list_rows = shown.max(places_shown);
-        let list_h = if list_rows > 0 { list_rows as i32 * LIST_ROW + 8 } else { 0 };
+        let list_h = if list_rows > 0 { list_rows as i32 * grow(LIST_ROW) + 8 } else { 0 };
         // An icon above the title.
         let icon = p.icon.as_deref().filter(|i| i.width > 0 && i.height > 0);
         let top = if icon.is_some() { 60 } else { 0 };
         let preview_h = if p.previews.iter().any(|f| !f.is_empty()) { PREVIEW_H + 12 } else { 0 };
-        let bh = preview_h + top + 70 + message.len() as i32 * 19 + description.len() as i32 * 17 + 8 + picture_h + list_h + fields as i32 * 62 + if p.choice.is_some() { 34 } else { 0 } + p.checks.len() as i32 * 34 + 26 + 64;
+        let bh = preview_h + top + grow(70) + message.len() as i32 * grow(19) + description.len() as i32 * grow(17) + 8 + picture_h + list_h + fields as i32 * grow(62) + if p.choice.is_some() { grow(34) } else { 0 } + p.checks.len() as i32 * grow(34) + grow(26) + grow(64);
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
-        canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
-        canvas.rect(bx, by, bw, bh, BANNER_BG);
+        theme::popover(&mut canvas, bx, by, bw, bh);
         let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
         if let Some(icon) = icon {
             canvas.image(f64::from(bx + (bw - 48) / 2), f64::from(by + 20), 48.0, 48.0, icon);
         }
         // Below the icon, laid out as without it.
         let (by, bh) = (by + top, bh - top);
-        label(text, &mut canvas, &p.title, center(&p.title, 20.0), (by + 44) as f32, 20.0, FG, inner);
-        let mut y = by + 76;
+        label(text, &mut canvas, &p.title, center(&p.title, 20.0), (by + grow(44)) as f32, 20.0, FG, inner);
+        let mut y = by + grow(76);
         for line in &message {
             label(text, &mut canvas, line, center(line, 14.0), y as f32, 14.0, FG, inner);
-            y += 19;
+            y += grow(19);
         }
         for line in &description {
             label(text, &mut canvas, line, center(line, 13.0), y as f32, 13.0, DIM_FG, inner);
-            y += 17;
+            y += grow(17);
         }
         y += 8;
         if let Some((image, pw, ph)) = picture {
@@ -418,7 +419,7 @@ impl Ui {
         let mut hits = Vec::new();
         // The places, left of the list.
         for (i, name) in p.places.iter().enumerate().take(places_shown) {
-            let r = Rect { x: bx + 24, y: y + i as i32 * LIST_ROW, w: side - 12, h: LIST_ROW };
+            let r = Rect { x: bx + 24, y: y + i as i32 * grow(LIST_ROW), w: side - 12, h: grow(LIST_ROW) };
             if p.place_current == Some(i) {
                 canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
                 canvas.rect(r.x, r.y + 6, 3, r.h - 12, ACCENT);
@@ -427,12 +428,12 @@ impl Ui {
             hits.push((r, OverlayHit::Place(i)));
         }
         if shown > 0 {
-            canvas.rect(bx + 24 + side, y, bw - 48 - side, shown as i32 * LIST_ROW, FIELD_BG);
+            canvas.rect(bx + 24 + side, y, bw - 48 - side, shown as i32 * grow(LIST_ROW), FIELD_BG);
             for (i, name) in p.list.iter().enumerate().skip(first).take(shown) {
-                let r = Rect { x: bx + 24 + side, y: y + (i - first) as i32 * LIST_ROW, w: bw - 48 - side, h: LIST_ROW };
+                let r = Rect { x: bx + 24 + side, y: y + (i - first) as i32 * grow(LIST_ROW), w: bw - 48 - side, h: grow(LIST_ROW) };
                 if p.multiple {
                     if view.picked[i] {
-                        canvas.rect(r.x, r.y, r.w, r.h, ACCENT);
+                        canvas.rect(r.x, r.y, r.w, r.h, ACCENT_FILL);
                     }
                     if i == view.selected {
                         // The current row: an outline.
@@ -441,7 +442,7 @@ impl Ui {
                         }
                     }
                 } else if i == view.selected {
-                    canvas.rect(r.x, r.y, r.w, r.h, ACCENT);
+                    canvas.rect(r.x, r.y, r.w, r.h, ACCENT_FILL);
                 }
                 label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 24) as f32);
                 hits.push((r, OverlayHit::Row(i)));
@@ -473,8 +474,8 @@ impl Ui {
             y += preview_h;
         }
         if let Some((name, _)) = &p.entry {
-            label(text, &mut canvas, name, (bx + 24) as f32, (y + 14) as f32, 13.0, DIM_FG, inner);
-            let r = Rect { x: bx + 24, y: y + 22, w: bw - 48, h: 34 };
+            label(text, &mut canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, 13.0, DIM_FG, inner);
+            let r = Rect { x: bx + 24, y: y + grow(22), w: bw - 48, h: grow(34) };
             let focused = view.focus == 3 && !view.busy;
             text_field(&mut canvas, r, focused);
             // The end of the text when it does not fit, and a caret.
@@ -489,12 +490,12 @@ impl Ui {
                 caret(&mut canvas, r, r.x + 10 + text.map_or(0.0, |t| t.width(shown, 14.0)) as i32 + 1, 14.0);
             }
             hits.push((r, OverlayHit::Field(3)));
-            y += 62;
+            y += grow(62);
         }
         for (index, field) in [&p.password, &p.confirm].into_iter().enumerate() {
             let Some(name) = field else { continue };
-            label(text, &mut canvas, name, (bx + 24) as f32, (y + 14) as f32, 13.0, DIM_FG, inner);
-            let r = Rect { x: bx + 24, y: y + 22, w: bw - 48, h: 34 };
+            label(text, &mut canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, 13.0, DIM_FG, inner);
+            let r = Rect { x: bx + 24, y: y + grow(22), w: bw - 48, h: grow(34) };
             let focused = view.focus == index && !view.busy;
             text_field(&mut canvas, r, focused);
             let show_w = if view.can_show { SHOW_W } else { 0 };
@@ -521,43 +522,43 @@ impl Ui {
                 hits.push((b, OverlayHit::ShowPassword(index)));
             }
             hits.push((r, OverlayHit::Field(index)));
-            y += 62;
+            y += grow(62);
         }
         if let Some((name, _)) = &p.choice {
-            let r = Rect { x: bx + 24, y, w: bw - 48, h: 26 };
+            let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
             // Outlined, so an empty box shows.
-            canvas.rect(r.x - 1, r.y + 3, 20, 20, DIM_FG);
-            canvas.rect(r.x, r.y + 4, 18, 18, if view.choice { ACCENT } else { FIELD_BG });
+            canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
+            canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if view.choice { ACCENT } else { FIELD_BG });
             if view.focus == 2 {
-                canvas.rect(r.x, r.y + 23, 18, 2, ACCENT);
+                canvas.rect(r.x, r.y + (r.h + 18) / 2 + 1, 18, 2, ACCENT);
             }
             label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
             hits.push((r, OverlayHit::Toggle));
-            y += 34;
+            y += grow(34);
         }
         for (i, (name, _)) in p.checks.iter().enumerate() {
-            let r = Rect { x: bx + 24, y, w: bw - 48, h: 26 };
+            let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
             // Outlined, so an empty box shows.
-            canvas.rect(r.x - 1, r.y + 3, 20, 20, DIM_FG);
-            canvas.rect(r.x, r.y + 4, 18, 18, if view.checks[i] { ACCENT } else { FIELD_BG });
+            canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
+            canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if view.checks[i] { ACCENT } else { FIELD_BG });
             if view.focus == CHECK_FOCUS + i {
-                canvas.rect(r.x, r.y + 23, 18, 2, ACCENT);
+                canvas.rect(r.x, r.y + (r.h + 18) / 2 + 1, 18, 2, ACCENT);
             }
             label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
             hits.push((r, OverlayHit::Check(i)));
-            y += 34;
+            y += grow(34);
         }
         let status = if view.busy { "Authenticating…" } else { p.warning.as_str() };
         if !status.is_empty() {
-            let color = if view.busy { DIM_FG } else { SHARING };
-            label(text, &mut canvas, status, center(status, 13.0), (y + 14) as f32, 13.0, color, inner);
+            let color = if view.busy { DIM_FG } else { ERROR_TEXT };
+            label(text, &mut canvas, status, center(status, 13.0), (y + grow(14)) as f32, 13.0, color, inner);
         }
-        let by2 = by + bh - 56;
+        let by2 = by + bh - grow(56);
         let half = (bw - 24 * 2 - 12) / 2;
-        let cancel = Rect { x: bx + 24, y: by2, w: half, h: 36 };
-        let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: 36 };
-        canvas.rect(cancel.x, cancel.y, cancel.w, cancel.h, BANNER_BORDER);
-        canvas.rect(confirm.x, confirm.y, confirm.w, confirm.h, if view.busy { FIELD_BG } else { ACCENT });
+        let cancel = Rect { x: bx + 24, y: by2, w: half, h: grow(36) };
+        let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: grow(36) };
+        theme::control(&mut canvas, cancel.x, cancel.y, cancel.w, cancel.h, theme::Look::default());
+        theme::control(&mut canvas, confirm.x, confirm.y, confirm.w, confirm.h, theme::Look { on: !view.busy, ..Default::default() });
         let cancel_label = if p.cancel_label.is_empty() { "Cancel" } else { &p.cancel_label };
         let confirm_label = if p.continue_label.is_empty() { "Continue" } else { &p.continue_label };
         for (r, s) in [(cancel, cancel_label), (confirm, confirm_label)] {

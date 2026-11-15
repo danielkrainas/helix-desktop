@@ -46,7 +46,7 @@ pub(super) type GridShown<'a> = (&'a [(Rect, String)], &'a [(Rect, String)], Opt
 /// A dock shown: its surface, monitor area, size, and items' places.
 pub(super) type DockShown<'a> = (&'a WlSurface, (i32, i32, i32, i32), (u32, u32), Vec<(Rect, &'a crate::dock::Item)>);
 /// The notification list shown: its surface, size, and places.
-pub(super) type ListShown<'a> = (&'a WlSurface, (u32, u32), &'a [(Rect, ListHit)]);
+pub(super) type ListShown<'a> = (&'a WlSurface, (u32, u32), &'a [(Rect, ListHit)], Option<&'a ListHit>);
 
 #[derive(Default)]
 pub(super) struct AtSpi {
@@ -218,7 +218,7 @@ impl Ui {
                 let bounds = crate::a11y::Rect::new(view.origin.0, view.origin.1, view.width as i32, view.height as i32);
                 ("Lock Screen".to_owned(), bounds, self.recorded(view.surface.wl_surface()))
             }
-            PANEL => ("Top Bar".to_owned(), self.overlay_bounds(self.panel_width, PANEL_HEIGHT), self.panel_nodes()),
+            PANEL => ("Top Bar".to_owned(), self.overlay_bounds(self.panel_width, panel_height()), self.panel_nodes()),
             DIALOG => {
                 let o = self.dialog.as_ref()?;
                 let nodes = self.recorded(o.layer.wl_surface());
@@ -245,8 +245,8 @@ impl Ui {
                 ("Notification".to_owned(), bounds, vec![self.banner_node(view)])
             }
             NOTIFICATIONS => {
-                let (_, (w, h), hits) = self.notification_list_a11y()?;
-                ("Notifications".to_owned(), self.overlay_bounds(w, h), self.notification_list_nodes(hits))
+                let (_, (w, h), hits, focus) = self.notification_list_a11y()?;
+                ("Notifications".to_owned(), self.overlay_bounds(w, h), self.notification_list_nodes(hits, focus))
             }
             dock => {
                 let index: usize = dock.strip_prefix(DOCK)?.parse().ok()?;
@@ -275,7 +275,7 @@ impl Ui {
         let controls = panel_controls(&self.panel_placed, tray.len());
         let focus = self.panel_focus.and_then(|i| controls.get(i).copied());
         let focused = |slot: Slot, x: i32| focus.is_some_and(|(s, fx, _)| s == slot && fx == x);
-        let h = PANEL_HEIGHT as i32;
+        let h = panel_height() as i32;
         let mut out = Vec::new();
         for &(slot, x, w) in &self.panel_placed {
             if w <= 0 {
@@ -311,11 +311,11 @@ impl Ui {
                 Slot::Privacy => {
                     let mut ix = x;
                     if self.sharing {
-                        out.push(Node::label("Sharing").id("sharing").at(crate::a11y::Rect::new(ix, 0, SHARING_W, h)));
-                        ix += SHARING_W;
+                        out.push(Node::label("Sharing").id("sharing").at(crate::a11y::Rect::new(ix, 0, sharing_w(), h)));
+                        ix += sharing_w();
                     }
                     if self.recording {
-                        out.push(Node::button("Recording", crate::a11y::Rect::new(ix, 0, RECORDING_W, h)).id("recording").describe("Stop recording"));
+                        out.push(Node::button("Recording", crate::a11y::Rect::new(ix, 0, recording_w(), h)).id("recording").describe("Stop recording"));
                     }
                     continue;
                 }
@@ -418,38 +418,53 @@ impl Ui {
         note
     }
 
-    fn notification_list_nodes(&self, hits: &[(Rect, ListHit)]) -> Vec<Node> {
+    fn notification_list_nodes(&self, hits: &[(Rect, ListHit)], focus: Option<&ListHit>) -> Vec<Node> {
         let entries = &self.notify.list.entries;
         let summary = |id: u32| entries.iter().find(|e| e.id == id);
         let mut out = Vec::new();
         let mut list = Vec::new();
         // A notification's close button and links come before it.
         let mut pending = Vec::new();
+        // The calendar's month title before its buttons and days.
+        let mut month_said = false;
         for (r, hit) in hits {
             let r = crate::a11y::Rect::from(*r);
+            let focused = focus == Some(hit);
+            if matches!(hit, ListHit::Month(_) | ListHit::Day(..)) && !month_said {
+                out.push(Node::label(self.calendar.month_title()).id("month"));
+                month_said = true;
+            }
             match hit {
                 ListHit::Entry(id) => {
                     let Some(e) = summary(*id) else { continue };
                     let body = if e.markup { crate::markup::plain(&e.body) } else { e.body.clone() };
                     let name = if e.app_name.is_empty() { e.summary.clone() } else { format!("{}: {}", e.app_name, e.summary) };
-                    list.push(Node::new(Role::ListItem, name).id(format!("note:{id}")).describe(body).at(r).click().children(pending.drain(..)));
+                    list.push(Node::new(Role::ListItem, name).id(format!("note:{id}")).describe(body).at(r).click().focusable().focused(focused).children(pending.drain(..)));
                 }
-                ListHit::Dismiss(_) => pending.push(Node::button("Close", r).id("close")),
-                ListHit::Link(uri) => pending.push(Node::new(Role::Link, uri).at(r).click()),
-                ListHit::GroupClear(_) => pending.push(Node::button("Clear", r).id("clear")),
+                ListHit::Dismiss(_) => pending.push(Node::button("Close", r).id("close").focusable().focused(focused)),
+                ListHit::Link(uri) => pending.push(Node::new(Role::Link, uri).at(r).click().focusable().focused(focused)),
+                ListHit::GroupClear(_) => pending.push(Node::button("Clear", r).id("clear").focusable().focused(focused)),
                 ListHit::GroupToggle(key) => {
                     let count = entries.iter().filter(|e| notify::group_key(e) == *key).count();
                     let app = entries.iter().find(|e| notify::group_key(e) == *key).map_or_else(String::new, |e| e.app_name.clone());
-                    list.push(Node::button(format!("{app}, {count} notifications"), r).id(format!("group:{key}")).children(pending.drain(..)));
+                    list.push(Node::button(format!("{app}, {count} notifications"), r).id(format!("group:{key}")).focusable().focused(focused).children(pending.drain(..)));
                 }
-                ListHit::Month(delta) => out.push(Node::button(if *delta < 0 { "Previous Month" } else { "Next Month" }, r).id(format!("month:{delta}"))),
-                ListHit::Day(y, m, d) => out.push(Node::button(day_name(*y, *m, *d), r).id(format!("day:{y}-{m}-{d}"))),
-                ListHit::Media(command) => out.push(Node::button(playback_name(*command, self.lock_extras.media.as_ref().is_some_and(|p| p.playing)), r).id(format!("{command:?}"))),
-                ListHit::Clear => out.push(Node::button("Clear", r).id("clear-all")),
-                ListHit::DoNotDisturb => out.push(Node::new(Role::Switch, "Do Not Disturb").id("dnd").at(r).click().toggled(self.notify.do_not_disturb)),
+                ListHit::Month(delta) => out.push(Node::button(if *delta < 0 { "Previous Month" } else { "Next Month" }, r).id(format!("month:{delta}")).focusable().focused(focused)),
+                ListHit::Day(y, m, d) => {
+                    let selected = self.calendar.selected == (*y, *m, *d);
+                    out.push(Node::button(day_name(*y, *m, *d), r).id(format!("day:{y}-{m}-{d}")).selected(selected).focusable().focused(focused));
+                }
+                ListHit::Media(command) => out.push(Node::button(playback_name(*command, self.lock_extras.media.as_ref().is_some_and(|p| p.playing)), r).id(format!("{command:?}")).focusable().focused(focused)),
+                ListHit::Clear => out.push(Node::button("Clear", r).id("clear-all").focusable().focused(focused)),
+                ListHit::DoNotDisturb => out.push(Node::new(Role::Switch, "Do Not Disturb").id("dnd").at(r).click().toggled(self.notify.do_not_disturb).focusable().focused(focused)),
                 ListHit::Inside | ListHit::Outside => {}
             }
         }
+        // The selected day's events.
+        let events = self.calendar.selected_events();
+        let (y, m, d) = self.calendar.selected;
+        let events = if events.is_empty() { vec![Node::label("No Events")] } else { events.into_iter().map(Node::label).collect() };
+        out.push(Node::new(Role::List, format!("Events, {}", day_name(y, m, d))).id("events").children(events));
         let list = Node::new(Role::List, "Notifications").id("list").children(list);
         let list = if entries.is_empty() { list.child(Node::label("No Notifications")) } else { list };
         out.insert(0, list);
@@ -488,7 +503,7 @@ impl Ui {
 
 /// The question dialog (end session, display change, …) as painted: its
 /// title, message (or list of busy apps), check box and buttons.
-pub(super) fn dialog(title: &str, message: &str, list: Option<(&str, &[(String, String)])>, install: Option<bool>, hits: &[(Rect, OverlayHit)], (cancel, confirm): (&str, &str)) -> Node {
+pub(super) fn dialog(title: &str, message: &str, list: Option<(&str, &[(String, String)])>, install: Option<bool>, hits: &[(Rect, OverlayHit)], (cancel, confirm): (&str, &str), confirm_focused: bool) -> Node {
     let at = |hit: OverlayHit| hits.iter().find(|(_, h)| *h == hit).map(|(r, _)| crate::a11y::Rect::from(*r)).unwrap_or_default();
     let mut out = Node::new(Role::Dialog, title).id("dialog").modal();
     match list {
@@ -503,8 +518,8 @@ pub(super) fn dialog(title: &str, message: &str, list: Option<(&str, &[(String, 
     if let Some(on) = install {
         out = out.child(Node::new(Role::CheckBox, "Install pending software updates").id("install").at(at(OverlayHit::EndInstall)).click().toggled(on));
     }
-    // Enter answers with the action: it has the focus.
-    out.child(Node::button(cancel, at(OverlayHit::Cancel)).id("cancel")).child(Node::button(confirm, at(OverlayHit::Confirm)).id("confirm").focused(true))
+    // Enter answers with the button that has the focus.
+    out.child(Node::button(cancel, at(OverlayHit::Cancel)).id("cancel").focused(!confirm_focused)).child(Node::button(confirm, at(OverlayHit::Confirm)).id("confirm").focused(confirm_focused))
 }
 
 /// "Share your screen?" as painted: one row per monitor (picked or not),
@@ -590,7 +605,7 @@ mod tests {
 
     #[test]
     fn end_session_dialog() {
-        let node = dialog("Power Off", "The session will end automatically in 60 seconds.", None, Some(true), &hits(), ("Cancel", "Power Off"));
+        let node = dialog("Power Off", "The session will end automatically in 60 seconds.", None, Some(true), &hits(), ("Cancel", "Power Off"), true);
         assert_eq!((node.role, node.name.as_str(), node.modal), (Role::Dialog, "Power Off", true));
         let message = node.find(&|n| n.role == Role::Label).expect("message");
         assert_eq!(message.text.as_deref(), Some("The session will end automatically in 60 seconds."));
@@ -603,10 +618,14 @@ mod tests {
         assert!(cancel.clickable);
         // Busy apps instead of the message.
         let busy = [("Editor".to_owned(), "Unsaved work".to_owned())];
-        let node = dialog("Log Out", "ignored", Some(("Some applications are busy or have unsaved work:", &busy)), None, &hits(), ("Cancel", "Log Out Anyway"));
+        let node = dialog("Log Out", "ignored", Some(("Some applications are busy or have unsaved work:", &busy)), None, &hits(), ("Cancel", "Log Out Anyway"), true);
         let row = node.find(&|n| n.role == Role::ListItem).expect("row");
         assert_eq!((row.name.as_str(), row.description.as_str()), ("Editor", "Unsaved work"));
         assert!(node.find(&|n| n.text.as_deref() == Some("ignored")).is_none());
+        // A dialog whose default is Cancel reports Cancel focused.
+        let node = dialog("“Editor” is not responding.", "", None, None, &hits(), ("Wait", "Force Quit"), false);
+        assert_eq!(node.find(&|n| n.focused).map(|n| n.name.as_str()), Some("Wait"));
+        assert_eq!(node.find(&|n| n.name == "Force Quit").map(|n| n.focused), Some(false));
     }
 
     #[test]

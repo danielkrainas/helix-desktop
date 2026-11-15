@@ -376,7 +376,7 @@ impl XdgShellHandler for Helix {
     ) {
         let Some(window) = self.window_for_surface(surface.wl_surface()) else { return };
         let Some(at) = self.space.element_location(&window) else { return };
-        self.send_window_menu(&window, at - window.geometry().loc + location);
+        self.send_window_menu(&window, at - window.geometry().loc + location, false);
     }
 
     fn minimize_request(&mut self, surface: ToplevelSurface) {
@@ -514,12 +514,9 @@ impl WlrLayerShellHandler for Helix {
             }
             layer_map_for_output(&output).unmap_layer(&layer);
         }
-        // Give focus back to the windows if the layer surface had it.
+        // Give focus back if the layer surface had it.
         if self.focused_surface().as_ref() == Some(surface.wl_surface()) {
-            match self.top_window() {
-                Some(top) => self.focus_window(&top),
-                None => self.unfocus_all(),
-            }
+            self.layer_give_back_focus(surface.wl_surface());
         }
     }
 }
@@ -547,7 +544,8 @@ impl Helix {
                 .unwrap_or(true)
         });
         self.popover_commit(surface);
-        let wants_keyboard = {
+        let focused = self.focused_surface().as_ref() == Some(surface);
+        let change = {
             let mut map = layer_map_for_output(&output);
             map.arrange();
             let layer = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL);
@@ -557,19 +555,66 @@ impl Helix {
                 }
             }
             // Top/overlay surfaces asking for exclusive keyboard focus (e.g.
-            // the launcher) get it while mapped, per wlr-layer-shell.
-            layer.is_some_and(|l| {
+            // the launcher, a menu opened from the keyboard) get it while
+            // mapped, per wlr-layer-shell; one giving it up hands it back.
+            layer.map_or(helix_comp::layer_focus::Change::Keep, |l| {
                 let cached = l.cached_state();
-                cached.keyboard_interactivity == KeyboardInteractivity::Exclusive
-                    && matches!(cached.layer, Layer::Top | Layer::Overlay)
+                helix_comp::layer_focus::on_commit(layer_interactivity(cached.keyboard_interactivity), layer_kind(cached.layer), focused)
             })
         };
         self.constrain_to_work_area();
-        if initial_configure_sent && wants_keyboard && !self.lock.locked {
-            let keyboard = self.seat.get_keyboard().unwrap();
-            if self.focused_surface().as_ref() != Some(surface) {
-                keyboard.set_focus(self, Some(surface.clone().into()), smithay::utils::SERIAL_COUNTER.next_serial());
+        if initial_configure_sent && !self.lock.locked {
+            match change {
+                helix_comp::layer_focus::Change::Take => {
+                    let keyboard = self.seat.get_keyboard().unwrap();
+                    keyboard.set_focus(self, Some(surface.clone().into()), smithay::utils::SERIAL_COUNTER.next_serial());
+                }
+                helix_comp::layer_focus::Change::GiveBack => self.layer_give_back_focus(surface),
+                helix_comp::layer_focus::Change::Keep => {}
             }
+        }
+    }
+
+    /// The layer surface `from` had the keyboard focus and no longer
+    /// wants it: it goes to the topmost other top/overlay surface asking
+    /// for it exclusively, else to the top window.
+    pub(super) fn layer_give_back_focus(&mut self, from: &WlSurface) {
+        let exclusive = self.space.outputs().find_map(|o| {
+            let map = layer_map_for_output(o);
+            [Layer::Overlay, Layer::Top].into_iter().find_map(|kind| {
+                map.layers_on(kind)
+                    .rfind(|l| l.wl_surface() != from && l.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive)
+                    .map(|l| l.wl_surface().clone())
+            })
+        });
+        match exclusive {
+            Some(surface) => {
+                let keyboard = self.seat.get_keyboard().unwrap();
+                keyboard.set_focus(self, Some(surface.into()), smithay::utils::SERIAL_COUNTER.next_serial());
+            }
+            None => match self.top_window() {
+                Some(top) => self.focus_window(&top),
+                None => self.unfocus_all(),
+            },
+        }
+    }
+
+    /// A button was pressed over a top/overlay layer surface at `pos`: one
+    /// that may have the keyboard on demand (a menu opened by a click)
+    /// takes it.
+    pub(super) fn layer_click_focus(&mut self, pos: smithay::utils::Point<f64, smithay::utils::Logical>) {
+        let Some(output) = self.output_at(pos).cloned() else { return };
+        let Some(geo) = self.space.output_geometry(&output) else { return };
+        let target = {
+            let map = layer_map_for_output(&output);
+            let local = pos - geo.loc.to_f64();
+            map.layer_under(Layer::Overlay, local).or_else(|| map.layer_under(Layer::Top, local)).map(|l| (l.wl_surface().clone(), l.cached_state().keyboard_interactivity))
+        };
+        let Some((surface, interactivity)) = target else { return };
+        let focused = self.focused_surface().as_ref() == Some(&surface);
+        if helix_comp::layer_focus::on_click(layer_interactivity(interactivity), focused) == helix_comp::layer_focus::Change::Take {
+            let keyboard = self.seat.get_keyboard().unwrap();
+            keyboard.set_focus(self, Some(surface.into()), smithay::utils::SERIAL_COUNTER.next_serial());
         }
     }
 
@@ -775,3 +820,22 @@ smithay::delegate_presentation!(Helix);
 smithay::delegate_single_pixel_buffer!(Helix);
 smithay::delegate_fifo!(Helix);
 smithay::delegate_commit_timing!(Helix);
+
+fn layer_interactivity(i: KeyboardInteractivity) -> helix_comp::layer_focus::Interactivity {
+    use helix_comp::layer_focus::Interactivity;
+    match i {
+        KeyboardInteractivity::Exclusive => Interactivity::Exclusive,
+        KeyboardInteractivity::OnDemand => Interactivity::OnDemand,
+        _ => Interactivity::None,
+    }
+}
+
+fn layer_kind(layer: Layer) -> helix_comp::layer_focus::Layer {
+    use helix_comp::layer_focus::Layer as Kind;
+    match layer {
+        Layer::Background => Kind::Background,
+        Layer::Bottom => Kind::Bottom,
+        Layer::Top => Kind::Top,
+        Layer::Overlay => Kind::Overlay,
+    }
+}

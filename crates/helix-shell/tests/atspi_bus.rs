@@ -155,7 +155,52 @@ async fn windows_are_read_and_pressed_over_atspi() {
     let (surface, target, request) = publisher.event(event).expect("an action on a known node");
     assert_eq!((surface, target.bounds, request.action), ("lock surface", switch, accesskit::Action::Click));
 
-    // The surface goes away: so does its window.
+    // A menu whose keyboard focus moves (quick settings, the
+    // notification list): the focused control is the one reported
+    // focused, after each move.
+    let menu = |focus: usize| Window {
+        title: "System".into(),
+        bounds: Rect::new(0, 0, 1280, 800),
+        active: true,
+        children: ["Wi-Fi", "Bluetooth", "Night Light"]
+            .iter()
+            .enumerate()
+            .map(|(i, name)| Node::new(Role::Switch, *name).id(*name).at(Rect::new(900 + 100 * i as i32, 100, 92, 40)).click().toggled(i == 0).focusable().focused(i == focus))
+            .collect(),
+    };
+    let menu_shown = || vec![("menu".to_owned(), "menu surface")];
+    for focus in [0, 2] {
+        let m = menu(focus);
+        publisher.sync(menu_shown(), |_| Some(m.clone()));
+        // A new surface's adapter asks for its tree first.
+        while let Ok(event) = events.recv_timeout(Duration::from_millis(500)) {
+            assert!(publisher.event(event).is_none());
+            publisher.sync(menu_shown(), |_| Some(m.clone()));
+        }
+        let mut states = Vec::new();
+        for _ in 0..50 {
+            states.clear();
+            for window in children(&root).await {
+                let w = accessible(&client, &window.0, window.1).await;
+                if describe(&w).await.1 != "System" {
+                    continue;
+                }
+                for child in children(&w).await {
+                    let proxy = accessible(&client, &child.0, child.1.clone()).await;
+                    let state: Vec<u32> = proxy.call("GetState", &()).await.unwrap();
+                    states.push(state.first().is_some_and(|w| w & (1 << 12) != 0));
+                }
+            }
+            if states.iter().position(|f| *f) == Some(focus) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let expected: Vec<bool> = (0..3).map(|i| i == focus).collect();
+        assert_eq!(states, expected, "focus on control {focus}");
+    }
+
+    // The surfaces go away: so do their windows.
     publisher.sync(Vec::new(), |_| None);
     let mut left = children(&root).await;
     for _ in 0..50 {

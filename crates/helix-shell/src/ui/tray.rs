@@ -64,7 +64,7 @@ impl Ui {
 
     pub(super) fn tray_request(&mut self, key: String, action: Action, x: i32) {
         crate::click_feedback();
-        let _ = self.requests.send(UiRequest::Tray(Request { key, action, x, y: PANEL_HEIGHT as i32 }));
+        let _ = self.requests.send(UiRequest::Tray(Request { key, action, x, y: panel_height() as i32 }));
     }
 
     /// Pointer input on the panel's status icons; true if it was for them.
@@ -143,7 +143,7 @@ impl Ui {
     pub(super) fn show_tray_menu(&mut self, key: String, x: i32, entries: Vec<MenuEntry>) {
         let mut ids = Vec::new();
         let items = menu_items(&entries, &mut ids);
-        self.open_menu(0, x, PANEL_HEIGHT as i32, items, Vec::new());
+        self.open_menu(0, x, panel_height() as i32, items, Vec::new());
         self.tray_menu = Some((key, ids));
     }
 

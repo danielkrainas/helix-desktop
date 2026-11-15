@@ -8,6 +8,17 @@ mod shape_tests {
     use crate::Canvas;
 
     #[test]
+    fn clipping() {
+        let mut data = vec![0u8; 20 * 20 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 20, 20, 1.0);
+        canvas.clip(5, 5, 10, 10);
+        canvas.rect(0, 0, 20, 20, 0xFFFFFFFF);
+        canvas.unclip();
+        let alpha = |x: usize, y: usize| data[(y * 20 + x) * 4 + 3];
+        assert_eq!((alpha(4, 10), alpha(5, 10), alpha(14, 14), alpha(15, 10)), (0, 255, 255, 0));
+    }
+
+    #[test]
     fn arcs_and_outlines() {
         let mut data = vec![0u8; 40 * 40 * 4];
         let mut canvas = Canvas::scaled(&mut data, 40, 40, 1.0);
@@ -309,9 +320,10 @@ fn button_fill(kind: ButtonKind, state: ButtonState) -> u32 {
         (ButtonKind::Normal, true, _) => 0x59FFFFFF,
         (ButtonKind::Normal, false, true) => 0x40FFFFFF,
         (ButtonKind::Normal, false, false) => 0x26FFFFFF,
-        (ButtonKind::Suggested, true, _) => 0xFF2A6FC4,
-        (ButtonKind::Suggested, false, true) => 0xFF4A92EA,
-        (ButtonKind::Suggested, false, false) => ACCENT,
+        // The accent darkened: white text on it keeps 4.5:1.
+        (ButtonKind::Suggested, true, _) => 0xFF1856A8,
+        (ButtonKind::Suggested, false, true) => 0xFF1D69C6,
+        (ButtonKind::Suggested, false, false) => 0xFF1A64C0,
         // Darker than ERROR: white text on it keeps 4.5:1.
         (ButtonKind::Destructive, true, _) => 0xFFA51D2D,
         (ButtonKind::Destructive, false, true) => 0xFFC92A35,
@@ -400,7 +412,8 @@ mod tests {
 
     #[test]
     fn button_text_contrast() {
-        for fill in [DESTRUCTIVE, button_fill(ButtonKind::Destructive, ButtonState { hovered: true, ..Default::default() })] {
+        let hovered = ButtonState { hovered: true, ..Default::default() };
+        for fill in [DESTRUCTIVE, button_fill(ButtonKind::Destructive, hovered), button_fill(ButtonKind::Suggested, ButtonState::default()), button_fill(ButtonKind::Suggested, hovered)] {
             assert!(crate::backdrop::contrast(FG, fill) >= 4.5, "{fill:08x}: {}", crate::backdrop::contrast(FG, fill));
         }
     }

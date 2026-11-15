@@ -51,6 +51,7 @@ use smithay_client_toolkit::reexports::calloop::LoopHandle;
 use helix_protocols::client::helix_screenshot_manager_v1::HelixScreenshotManagerV1;
 use crate::windows::{SwitchEntry, SwitchMode, Switcher, WindowAction};
 use helix_draw::motion::{Motion, Tween};
+use helix_draw::theme;
 use std::collections::HashMap;
 
 mod app_grid;
@@ -66,6 +67,8 @@ mod dock;
 mod drops;
 mod ext_items;
 mod extensions_dialog;
+#[cfg(test)]
+mod gallery;
 mod ime;
 mod notify;
 mod osk;
@@ -83,24 +86,45 @@ mod window_menu;
 mod workspace_popup;
 use notify::BannerHit;
 
+/// The panel's height at text scale 1 (see [`panel_height`]).
 pub const PANEL_HEIGHT: u32 = 32;
+
+/// The panel's height: it grows with the text scale.
+pub fn panel_height() -> u32 {
+    helix_draw::theme::grow(PANEL_HEIGHT as i32) as u32
+}
+
 const OSD_DURATION: Duration = Duration::from_secs(2);
 const BTN_LEFT: u32 = 0x110;
 
-const PANEL_BG: u32 = 0xF01E1E24;
-const FG: u32 = 0xFFEDEDEF;
-const DIM_FG: u32 = 0xFF8A8A93;
-const TRACK: u32 = 0xFF44444C;
-const ACCENT: u32 = 0xFF3584E4;
+// The shell's colors (helix_draw::theme, under the names its surfaces
+// use).
+const PANEL_BG: u32 = theme::PANEL;
+const FG: u32 = theme::TEXT;
+/// Secondary text (on the panel, popovers and dialogs; not on controls).
+const DIM_FG: u32 = theme::TEXT_DIM;
+const TRACK: u32 = theme::TRACK;
+/// The accent: rings, indicators, a slider's filled part.
+const ACCENT: u32 = theme::ACCENT;
+/// The accent under text (selected rows, buttons, switches on).
+const ACCENT_FILL: u32 = theme::ACCENT_FILL;
+/// Accent-colored words (links, "Connected").
+const ACCENT_TEXT: u32 = theme::TEXT_ACCENT;
+/// Words in red: errors, "Sharing" and "Recording".
+const ERROR_TEXT: u32 = theme::TEXT_ERROR;
 const SCRIM: u32 = 0xB00C0C10;
 const BOX_BG: u32 = 0xF81E1E24;
-const FIELD_BG: u32 = 0xFF2C2C33;
-const HOVER_BG: u32 = 0xFF2C2C33;
-/// Screen sharing indicator.
-const SHARING: u32 = 0xFFE01B24;
+/// Controls at rest (off switches, keys, fields).
+const FIELD_BG: u32 = theme::CONTROL;
+/// A hovered or keyboard-selected row or button.
+const HOVER_BG: u32 = theme::CONTROL_HOVER;
+/// Screen sharing indicator (its dot; its words are `ERROR_TEXT`).
+const SHARING: u32 = theme::ERROR;
 
 const APPS_LABEL: &str = "Apps";
-const APPS_BUTTON_W: i32 = 72;
+fn apps_button_w() -> i32 {
+    helix_draw::theme::grow(72)
+}
 /// Size of a workspace dot in the panel.
 const WORKSPACE_DOT: i32 = 6;
 const ROW_H: i32 = 40;
@@ -198,6 +222,9 @@ struct Ui {
     cycle: Option<Cycle>,
     /// The panel control with keyboard focus (`switch-panels`).
     panel_focus: Option<usize>,
+    /// The next menu opened was asked for with a key: its first entry
+    /// starts selected (taken by `open_menu`).
+    menu_by_key: bool,
     /// Each window's input source (`per-window`).
     window_sources: HashMap<u32, crate::input_sources::Source>,
     /// Icons windows' apps set: theme name and image.
@@ -223,7 +250,7 @@ struct Ui {
     banner: Option<BannerView>,
     /// Full-screen overlays: the end-session dialog and the power menu.
     dialog: Option<Overlay<DialogState>>,
-    power_menu: Option<Overlay<()>>,
+    power_menu: Option<Overlay<quick::QuickNav>>,
     /// The break screen (break reminders).
     break_screen: Option<Overlay<crate::wellbeing::BreakView>>,
     /// "Customize Panel…".
@@ -390,6 +417,54 @@ enum OverlayHit {
 struct DialogState {
     kind: DialogKind,
     remaining: u32,
+    /// The button with the keyboard focus (Enter answers with it); `None`
+    /// until a key moves it: then it is the dialog's default.
+    focus: Option<Choice>,
+    /// When it was first drawn (keys before [`DIALOG_KEY_DELAY`] after
+    /// that are ignored).
+    shown: Option<Instant>,
+}
+
+impl DialogState {
+    fn new(kind: DialogKind, remaining: u32) -> Self {
+        Self { kind, remaining, focus: None, shown: None }
+    }
+
+    /// The button Enter chooses: whichever has the focus.
+    fn focused(&self) -> Choice {
+        self.focus.unwrap_or_else(|| self.kind.default_choice())
+    }
+}
+
+/// Keys pressed this soon after a dialog appears are ignored: they were on
+/// their way to what had the keyboard before.
+const DIALOG_KEY_DELAY: Duration = Duration::from_millis(300);
+
+/// Whether a key pressed at `now` reaches a dialog first drawn at `shown`.
+fn dialog_takes_key(shown: Option<Instant>, now: Instant) -> bool {
+    shown.is_some_and(|shown| now.saturating_duration_since(shown) >= DIALOG_KEY_DELAY)
+}
+
+/// What a key does in a question dialog whose focused button is `focus`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DialogKey {
+    Answer(Choice),
+    Focus(Choice),
+    ToggleInstall,
+}
+
+fn dialog_key_action(keysym: Keysym, focus: Choice) -> Option<DialogKey> {
+    let other = if focus == Choice::Confirmed { Choice::Canceled } else { Choice::Confirmed };
+    match keysym {
+        Keysym::Escape => Some(DialogKey::Answer(Choice::Canceled)),
+        Keysym::Return | Keysym::KP_Enter => Some(DialogKey::Answer(focus)),
+        Keysym::Tab | Keysym::ISO_Left_Tab => Some(DialogKey::Focus(other)),
+        // Cancel is on the left, the action on the right.
+        Keysym::Left => Some(DialogKey::Focus(Choice::Canceled)),
+        Keysym::Right => Some(DialogKey::Focus(Choice::Confirmed)),
+        Keysym::space => Some(DialogKey::ToggleInstall),
+        _ => None,
+    }
 }
 
 /// What the centered dialog asks.
@@ -425,12 +500,43 @@ enum DialogKind {
     Prompt(Box<prompt::PromptView>),
 }
 
+impl DialogKind {
+    /// The button that has the focus when the dialog appears, so Enter
+    /// chooses it: never one that loses work or grants a permission.
+    fn default_choice(&self) -> Choice {
+        match self {
+            DialogKind::End(_) | DialogKind::DisplayChange | DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) => Choice::Confirmed,
+            // Wait; Force Quit must be chosen.
+            DialogKind::NotResponding { .. } => Choice::Canceled,
+            // Deny, Cancel.
+            DialogKind::ShortcutsInhibit { .. } | DialogKind::RemoteControl { .. } | DialogKind::ApproveExtension { .. } => Choice::Canceled,
+        }
+    }
+
+    /// The action button's look: red when it loses work.
+    fn confirm_kind(&self) -> helix_draw::screen::ButtonKind {
+        use helix_draw::screen::ButtonKind;
+        match self {
+            DialogKind::NotResponding { .. } => ButtonKind::Destructive,
+            DialogKind::End(d) if !d.blockers.is_empty() => ButtonKind::Destructive,
+            _ if self.default_choice() == Choice::Confirmed => ButtonKind::Suggested,
+            _ => ButtonKind::Normal,
+        }
+    }
+}
+
 const POWER_LABEL: &str = "Power";
-const POWER_BUTTON_W: i32 = 80;
+fn power_button_w() -> i32 {
+    helix_draw::theme::grow(80)
+}
 /// The "Recording" indicator's width (clicking it stops the recording).
-const RECORDING_W: i32 = 104;
+fn recording_w() -> i32 {
+    helix_draw::theme::grow(104)
+}
 /// The "Sharing" indicator's width.
-const SHARING_W: i32 = 96;
+fn sharing_w() -> i32 {
+    helix_draw::theme::grow(96)
+}
 /// Space on each side of the clock (the unseen-notifications dot sits
 /// in the right one).
 const CLOCK_PAD: i32 = 24;
@@ -481,10 +587,13 @@ struct BannerView {
     focused: bool,
 }
 
-const BANNER_W: u32 = 440;
-const BANNER_BG: u32 = 0xFF2E2E36;
+/// A banner's width: it grows with the text scale.
+fn banner_w() -> u32 {
+    helix_draw::theme::grow(440) as u32
+}
+const BANNER_BG: u32 = theme::POPOVER;
 const MONITOR_LABEL_SIZE: u32 = 72;
-const BANNER_BORDER: u32 = 0xFF4A4A55;
+const BANNER_BORDER: u32 = theme::BORDER;
 const BANNER_PAD: i32 = 14;
 
 
@@ -627,6 +736,333 @@ fn label(text: Option<&Text>, canvas: &mut Canvas, s: &str, x: f32, base: f32, p
     }
 }
 
+/// What the panel shows.
+struct PanelModel<'a> {
+    pub layout: &'a crate::panel_layout::Layout,
+    pub clock: &'a str,
+    pub status_items: &'a [status::StatusItem],
+    /// Status icons: (icon, overlay, wants attention).
+    pub tray_images: &'a [(Option<helix_draw::Image>, Option<helix_draw::Image>, bool)],
+    pub tray_w: i32,
+    pub ext_items: &'a [crate::ext_host::PanelItemView],
+    pub ext_icons: &'a [Option<helix_draw::Image>],
+    pub ext_widths: &'a [i32],
+    pub locked: bool,
+    pub launcher_open: bool,
+    pub power_open: bool,
+    pub list_open: bool,
+    pub unseen_dot: bool,
+    /// (count, active)
+    pub workspaces: (u32, u32),
+    pub a11y_shown: bool,
+    pub source_label: Option<&'a str>,
+    pub sharing: bool,
+    pub recording: bool,
+    pub osd: Option<&'a Osd>,
+    /// Dragging in the panel editor: where the item would go.
+    pub drag_target: Option<i32>,
+    /// The control with the keyboard focus (`switch-panels`).
+    pub focus: Option<usize>,
+}
+
+/// Paint the panel (`m`) on a `w`×`h` canvas; returns where each item went.
+fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), m: &PanelModel) -> Vec<(crate::panel_layout::Slot, i32, i32)> {
+    canvas.fill(PANEL_BG);
+    // Measure, place, then draw each item (helix-desktop-spec
+    // `contracts/wayland/README.md`, "Panel layout").
+    use crate::panel_layout::{Item, Slot};
+    let px = 14.0;
+    let base = baseline(text, 0, h as i32, px);
+    let text_w = |s: &str| text.map_or(0.0, |t| t.width(s, px)) as i32;
+    let clock = m.clock;
+    let clock_w = match text {
+        Some(text) => text.width(clock, px) as i32,
+        None => font::text_width(clock, 2) as i32,
+    };
+    let status_w: i32 = m.status_items
+        .iter()
+        .map(|item| match item {
+            status::StatusItem::Icon(_) => status::ICON + 10,
+            status::StatusItem::Text(s) => text_w(s) + 4,
+        })
+        .sum();
+    let osd_shown = m.osd.is_some();
+    let size = |slot: Slot| match slot {
+        Slot::Item(Item::Apps) => apps_button_w(),
+        Slot::Item(Item::Workspaces) if m.workspaces.0 > 1 => m.workspaces.0.min(36) as i32 * (WORKSPACE_DOT + 6) + WORKSPACE_DOT + 4,
+        Slot::Item(Item::Workspaces) => 0,
+        Slot::Item(Item::Clock) => clock_w + 2 * CLOCK_PAD,
+        Slot::Item(Item::Tray) => m.tray_w,
+        Slot::Item(Item::Accessibility) if m.a11y_shown => A11Y_W,
+        Slot::Item(Item::Accessibility) => 0,
+        Slot::Item(Item::Keyboard) => m.source_label.map_or(0, |s| text_w(s) + 16),
+        Slot::Item(Item::Status) => status_w,
+        Slot::Item(Item::Power) => power_button_w(),
+        Slot::Privacy => (if m.sharing { sharing_w() } else { 0 }) + if m.recording { recording_w() } else { 0 },
+        // Nothing from extensions while locked.
+        Slot::Ext(_) if m.locked => 0,
+        Slot::Ext(i) => m.ext_widths.get(i).copied().unwrap_or(0),
+    };
+    let placed = crate::panel_layout::place(m.layout, w as i32, size);
+    for &(slot, x, iw) in &placed {
+        match slot {
+            Slot::Item(Item::Apps) => {
+                // Highlighted while the launcher is open.
+                if m.launcher_open {
+                    theme::row_highlight(canvas, x + 4, 4, iw - 8, h as i32 - 8);
+                }
+                if let Some(text) = text {
+                    let lw = text.width(APPS_LABEL, px);
+                    text.draw(canvas, APPS_LABEL, x as f32 + (iw as f32 - lw) / 2.0, base, Style { px, color: FG, max_width: (iw - 8) as f32 });
+                }
+            }
+            Slot::Item(Item::Workspaces) => {
+                // The active workspace's dot is wide.
+                let y = h as i32 / 2 - WORKSPACE_DOT / 2;
+                for i in 0..m.workspaces.0.min(36) as i32 {
+                    let dx = x + 2 + i * (WORKSPACE_DOT + 6);
+                    let active = i as u32 == m.workspaces.1;
+                    let dw = if active { WORKSPACE_DOT * 2 } else { WORKSPACE_DOT };
+                    let dx = if i as u32 > m.workspaces.1 { dx + WORKSPACE_DOT } else { dx };
+                    theme::workspace_dot(canvas, dx, y, dw, WORKSPACE_DOT, active);
+                }
+            }
+            Slot::Item(Item::Clock) if !osd_shown => {
+                let tx = x + CLOCK_PAD;
+                match text {
+                    Some(text) => {
+                        text.draw(canvas, clock, tx as f32, base, Style { px, color: FG, max_width: f32::MAX });
+                        // Unseen notifications: a dot after the clock.
+                        if m.unseen_dot {
+                            canvas.circle(f64::from(tx + clock_w + 9), f64::from(h as i32) / 2.0, 3.0, FG);
+                        }
+                        if m.list_open {
+                            canvas.rect(tx - 8, h as i32 - 3, clock_w + 16, 2, ACCENT);
+                        }
+                    }
+                    None => {
+                        let ty = (h - font::GLYPH_H * 2) / 2;
+                        font::render(clock, 2, |gx, gy| canvas.rect(tx + gx as i32, (ty + gy) as i32, 1, 1, FG));
+                    }
+                }
+            }
+            Slot::Item(Item::Clock) => {}
+            Slot::Item(Item::Tray) => {
+                let y = (h as i32 - status::ICON) / 2;
+                for (i, (image, overlay, attention)) in m.tray_images.iter().enumerate() {
+                    let ix = x + i as i32 * (status::ICON + tray::TRAY_GAP);
+                    if let Some(image) = image {
+                        canvas.image(f64::from(ix), f64::from(y), f64::from(status::ICON), f64::from(status::ICON), image);
+                    }
+                    // The overlay: half size, over the lower-right corner.
+                    if let Some(overlay) = overlay {
+                        let half = status::ICON / 2;
+                        canvas.image(f64::from(ix + half), f64::from(y + half), f64::from(half), f64::from(half), overlay);
+                    }
+                    if *attention {
+                        canvas.rect(ix, h as i32 - 4, status::ICON, 2, ACCENT);
+                    }
+                }
+            }
+            Slot::Item(Item::Accessibility) => draw_a11y_glyph(canvas, x + iw / 2, h as i32 / 2),
+            Slot::Item(Item::Keyboard) => {
+                if let Some(s) = m.source_label {
+                    label(text, canvas, s, (x + 8) as f32, base, px, FG, (iw - 15) as f32);
+                }
+            }
+            Slot::Item(Item::Status) => {
+                // The first item is the rightmost.
+                let mut sx = x + iw;
+                for item in m.status_items {
+                    match item {
+                        status::StatusItem::Icon(image) => {
+                            sx -= status::ICON;
+                            canvas.image(f64::from(sx), f64::from((h as i32 - status::ICON) / 2), f64::from(status::ICON), f64::from(status::ICON), image);
+                            sx -= 10;
+                        }
+                        status::StatusItem::Text(s) => {
+                            let tw = text_w(s);
+                            sx -= tw;
+                            label(text, canvas, s, sx as f32, base, px, FG, tw as f32 + 1.0);
+                            sx -= 4;
+                        }
+                    }
+                }
+            }
+            Slot::Item(Item::Power) => {
+                if m.power_open {
+                    theme::row_highlight(canvas, x + 4, 4, iw - 8, h as i32 - 8);
+                }
+                if let Some(text) = text {
+                    let pw = text.width(POWER_LABEL, px);
+                    text.draw(canvas, POWER_LABEL, x as f32 + (iw as f32 - pw) / 2.0, base, Style { px, color: FG, max_width: (iw - 8) as f32 });
+                }
+            }
+            Slot::Ext(i) => {
+                if let Some(item) = m.ext_items.get(i) {
+                    ext_items::draw_ext_item(text, canvas, item, m.ext_icons.get(i).and_then(Option::as_ref), x, iw, h as i32);
+                }
+            }
+            Slot::Privacy => {
+                let mut ix = x;
+                if m.sharing {
+                    canvas.rect(ix, h as i32 / 2 - 4, 8, 8, SHARING);
+                    label(text, canvas, "Sharing", (ix + 14) as f32, base, px, ERROR_TEXT, (sharing_w() - 16) as f32);
+                    ix += sharing_w();
+                }
+                if m.recording {
+                    canvas.rect(ix, h as i32 / 2 - 4, 8, 8, SHARING);
+                    label(text, canvas, "Recording", (ix + 14) as f32, base, px, ERROR_TEXT, (recording_w() - 16) as f32);
+                }
+            }
+        }
+    }
+    // Dragging in the editor: where the item would go.
+    if let Some(lx) = m.drag_target {
+        canvas.rect(lx - 1, 3, 3, h as i32 - 6, ACCENT);
+    }
+    // Keyboard focus ring (switch-panels).
+    let controls = panel_controls(&placed, m.tray_images.len());
+    if let Some(&(_, x, iw)) = m.focus.and_then(|i| controls.get(i)) {
+        let (y, bh) = (3, h as i32 - 6);
+        for (rx, ry, rw, rh) in [(x, y, iw, 2), (x, y + bh - 2, iw, 2), (x, y, 2, bh), (x + iw - 2, y, 2, bh)] {
+            canvas.rect(rx, ry, rw, rh, ACCENT);
+        }
+    }
+    if let Some(osd) = m.osd {
+        draw_osd(text, canvas, osd, w, h);
+    }
+    placed
+}
+
+/// A question dialog (not the share dialog or a prompt) over a scrim on a
+/// `w`×`h` surface: its clickable parts and its accessible node.
+fn paint_question(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), state: &DialogState) -> Option<(Vec<(Rect, OverlayHit)>, crate::a11y::Node)> {
+canvas.fill(SCRIM);
+    let remaining = state.remaining;
+    let no_blockers = Vec::new();
+    // The approval prompt lists what the extension will be able to do.
+    let approval_rows: Vec<(String, String)> = match &state.kind {
+        DialogKind::ApproveExtension { lines, .. } => lines.iter().map(|l| (l.clone(), String::new())).collect(),
+        _ => Vec::new(),
+    };
+    let list_header = if matches!(state.kind, DialogKind::ApproveExtension { .. }) {
+        "It will be able to:"
+    } else {
+        "Some applications are busy or have unsaved work:"
+    };
+    let (title, message, cancel_label, confirm_label, blockers): (String, String, &str, String, &Vec<_>) = match &state.kind {
+        DialogKind::End(d) => {
+            let (title, verb) = match d.kind {
+                SHUTDOWN => ("Power Off", "Power Off"),
+                REBOOT => ("Restart", "Restart"),
+                UPDATE_REBOOT => ("Restart & Install Updates", "Restart & Install"),
+                UPGRADE_REBOOT => ("Restart & Install Upgrade", "Restart & Install"),
+                _ => ("Log Out", "Log Out"),
+            };
+            let confirm = if d.blockers.is_empty() { verb.to_owned() } else { format!("{verb} Anyway") };
+            let message = match (d.kind, &d.upgrade) {
+                (UPDATE_REBOOT, _) => format!("The computer will restart and install updates in {remaining} seconds. Installing can take a while."),
+                (UPGRADE_REBOOT, Some(name)) => format!("{name} will be installed after the restart, in {remaining} seconds. Installing can take a long time."),
+                _ => format!("The session will end automatically in {remaining} seconds."),
+            };
+            (title.to_owned(), message, "Cancel", confirm, &d.blockers)
+        }
+        DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) => return None,
+        DialogKind::ApproveExtension { name, .. } => (format!("Turn on {name}?"), String::new(), "Cancel", "Turn On".to_owned(), &approval_rows),
+        DialogKind::RemoteControl { app, devices, .. } => (
+            "Allow remote control?".to_owned(),
+            format!("{app} wants to control your {}.", crate::screencast_chooser::device_list(devices)),
+            "Deny",
+            "Allow".to_owned(),
+            &no_blockers,
+        ),
+        DialogKind::ShortcutsInhibit { app, .. } => (
+            format!("Allow {app} to use all keyboard shortcuts?"),
+            "While it has the keyboard, the desktop's shortcuts go to it. Super+Escape gives them back.".to_owned(),
+            "Deny",
+            "Allow".to_owned(),
+            &no_blockers,
+        ),
+        DialogKind::NotResponding { title, .. } => (
+            format!("“{title}” is not responding."),
+            "You may choose to wait a short while for it to continue or force the app to quit entirely.".to_owned(),
+            "Wait",
+            "Force Quit".to_owned(),
+            &no_blockers,
+        ),
+        DialogKind::DisplayChange => (
+            "Keep the new display settings?".to_owned(),
+            format!("The previous settings come back in {remaining} seconds."),
+            "Revert",
+            "Keep".to_owned(),
+            &no_blockers,
+        ),
+    };
+    let blocked = !blockers.is_empty();
+    // Lengths that hold text grow with the text scale.
+    let grow = helix_draw::theme::grow;
+    let bw = grow(460).min(w as i32 - 40);
+    let rows = blockers.len().min(6) as i32;
+    let message_lines = text.map_or(1, |t| t.wrap(&message, 14.0, (bw - 48) as f32, 2).len().max(1)) as i32;
+    let install = match &state.kind {
+        DialogKind::End(d) => d.install,
+        _ => None,
+    };
+    // Rows with a second line (a blocking app's reason) are taller.
+    let row_h = if blockers.iter().any(|(_, r)| !r.is_empty()) { grow(40) } else { grow(26) };
+    let bh = if blocked { grow(150) + grow(26) + rows * row_h } else { grow(160) + (message_lines - 1) * grow(19) } + if install.is_some() { grow(34) } else { 0 };
+    let bx = (w as i32 - bw) / 2;
+    let by = (h as i32 - bh) / 3;
+    theme::popover(canvas, bx, by, bw, bh);
+    let inner = (bw - 48) as f32;
+    let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
+    label(text, canvas, &title, center(&title, 20.0), (by + grow(44)) as f32, 20.0, FG, inner);
+    let mut y = by + grow(78);
+    if blocked {
+        label(text, canvas, list_header, (bx + 24) as f32, y as f32, 14.0, DIM_FG, inner);
+        y += grow(16);
+        for (app, reason) in blockers.iter().take(6) {
+            label(text, canvas, app, (bx + 24) as f32, (y + grow(18)) as f32, 15.0, FG, inner);
+            label(text, canvas, reason, (bx + 24) as f32, (y + grow(36)) as f32, 13.0, DIM_FG, inner);
+            y += row_h;
+        }
+    } else {
+        let lines = text.map_or_else(|| vec![message.clone()], |t| t.wrap(&message, 14.0, inner, 2));
+        for (i, line) in lines.iter().enumerate() {
+            label(text, canvas, line, center(line, 14.0), (y + i as i32 * grow(19)) as f32, 14.0, DIM_FG, inner);
+        }
+    }
+    let mut extra_hits = Vec::new();
+    if let Some(on) = install {
+        let r = Rect { x: bx + 24, y: by + bh - grow(56) - grow(42), w: bw - 48, h: grow(26) };
+        // Outlined, so an empty box shows.
+        canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
+        canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if on { ACCENT } else { FIELD_BG });
+        let name = "Install pending software updates";
+        label(text, canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
+        extra_hits.push((r, OverlayHit::EndInstall));
+    }
+    // Buttons: Cancel and the action.
+    let by2 = by + bh - grow(56);
+    let half = (bw - 24 * 2 - 12) / 2;
+    let cancel = Rect { x: bx + 24, y: by2, w: half, h: grow(36) };
+    let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: grow(36) };
+    let focus = state.focused();
+    let at = |r: Rect| (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
+    let button = |canvas: &mut Canvas, r: Rect, s: &str, kind, choice| {
+        let look = helix_draw::screen::ButtonState { focused: focus == choice, ..Default::default() };
+        helix_draw::screen::push_button(canvas, text, at(r), s, kind, look, 1.0);
+    };
+    button(canvas, cancel, cancel_label, helix_draw::screen::ButtonKind::Normal, Choice::Canceled);
+    button(canvas, confirm, &confirm_label, state.kind.confirm_kind(), Choice::Confirmed);
+    let mut hits = vec![(cancel, OverlayHit::Cancel), (confirm, OverlayHit::Confirm)];
+    hits.extend(extra_hits);
+    let list = blocked.then_some((list_header, blockers.as_slice()));
+    let node = atspi::dialog(&title, &message, list, install, &hits, (cancel_label, &confirm_label), focus == Choice::Confirmed);
+    Some((hits, node))
+}
+
 /// Words for the OSD icons the shell uses itself.
 fn osd_caption(osd: &Osd) -> Option<String> {
     if let Some(label) = &osd.label {
@@ -687,16 +1123,13 @@ impl Ui {
         if !self.panel_configured || self.panel_width == 0 {
             return;
         }
-        let (w, h) = (self.panel_width as usize, PANEL_HEIGHT as usize);
-        let (unseen_dot, list_open) = (self.unseen_dot(), self.notify.view.is_some());
+        let (w, h) = (self.panel_width as usize, panel_height() as usize);
         let scale = self.scales.of(self.panel.wl_surface());
         let status_items = self.status_items(scale);
         let tray_images = self.tray_images(scale);
-        let tray_w = self.tray_width();
         let ext_icons: Vec<Option<helix_draw::Image>> = (0..self.ext.panel.len()).map(|i| self.ext_icon(i, scale)).collect();
         let ext_widths: Vec<i32> = ext_icons.iter().enumerate().map(|(i, icon)| self.ext_width(i, icon.is_some())).collect();
-        let locked = self.lock.session.is_some();
-        let ext_items = self.ext.panel.clone();
+        let (tray_w, unseen_dot) = (self.tray_width(), self.unseen_dot());
         let Ok((buffer, data)) =
             self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
@@ -704,176 +1137,35 @@ impl Ui {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
-        canvas.fill(PANEL_BG);
-
         if self.osd.as_ref().is_some_and(|(_, until)| Instant::now() >= *until) {
             self.osd = None;
         }
-
-        // Measure, place, then draw each item (helix-desktop-spec
-        // `contracts/wayland/README.md`, "Panel layout").
-        use crate::panel_layout::{Item, Slot};
-        let px = 14.0;
-        let base = baseline(self.text.as_ref(), 0, h as i32, px);
-        let text_w = |s: &str| self.text.as_ref().map_or(0.0, |t| t.width(s, px)) as i32;
         let clock = clock_text();
-        let clock_w = match &self.text {
-            Some(text) => text.width(&clock, px) as i32,
-            None => font::text_width(&clock, 2) as i32,
+        let model = PanelModel {
+            layout: &self.panel_layout,
+            clock: &clock,
+            status_items: &status_items,
+            tray_images: &tray_images,
+            tray_w,
+            ext_items: &self.ext.panel,
+            ext_icons: &ext_icons,
+            ext_widths: &ext_widths,
+            locked: self.lock.session.is_some(),
+            launcher_open: self.launcher.is_some(),
+            power_open: self.power_menu.is_some(),
+            list_open: self.notify.view.is_some(),
+            unseen_dot,
+            workspaces: (self.windows.count, self.windows.active),
+            a11y_shown: self.a11y.shown,
+            source_label: self.source_label.as_deref(),
+            sharing: self.sharing,
+            recording: self.recording,
+            osd: self.osd.as_ref().map(|(osd, _)| osd),
+            drag_target: self.panel_drag.as_ref().filter(|d| d.moving && !d.off_panel).and_then(|d| d.target.as_ref()).map(|t| t.2),
+            focus: self.panel_focus,
         };
-        let status_w: i32 = status_items
-            .iter()
-            .map(|item| match item {
-                status::StatusItem::Icon(_) => status::ICON + 10,
-                status::StatusItem::Text(s) => text_w(s) + 4,
-            })
-            .sum();
-        let osd_shown = self.osd.is_some();
-        let size = |slot: Slot| match slot {
-            Slot::Item(Item::Apps) => APPS_BUTTON_W,
-            Slot::Item(Item::Workspaces) if self.windows.count > 1 => self.windows.count.min(36) as i32 * (WORKSPACE_DOT + 6) + WORKSPACE_DOT + 4,
-            Slot::Item(Item::Workspaces) => 0,
-            Slot::Item(Item::Clock) => clock_w + 2 * CLOCK_PAD,
-            Slot::Item(Item::Tray) => tray_w,
-            Slot::Item(Item::Accessibility) if self.a11y.shown => A11Y_W,
-            Slot::Item(Item::Accessibility) => 0,
-            Slot::Item(Item::Keyboard) => self.source_label.as_deref().map_or(0, |s| text_w(s) + 16),
-            Slot::Item(Item::Status) => status_w,
-            Slot::Item(Item::Power) => POWER_BUTTON_W,
-            Slot::Privacy => (if self.sharing { SHARING_W } else { 0 }) + if self.recording { RECORDING_W } else { 0 },
-            // Nothing from extensions while locked.
-            Slot::Ext(_) if locked => 0,
-            Slot::Ext(i) => ext_widths.get(i).copied().unwrap_or(0),
-        };
-        let placed = crate::panel_layout::place(&self.panel_layout, w as i32, size);
-        for &(slot, x, iw) in &placed {
-            match slot {
-                Slot::Item(Item::Apps) => {
-                    // Highlighted while the launcher is open.
-                    if self.launcher.is_some() {
-                        canvas.rect(x + 4, 4, iw - 8, h as i32 - 8, HOVER_BG);
-                    }
-                    if let Some(text) = &self.text {
-                        let lw = text.width(APPS_LABEL, px);
-                        text.draw(&mut canvas, APPS_LABEL, x as f32 + (iw as f32 - lw) / 2.0, base, Style { px, color: FG, max_width: 64.0 });
-                    }
-                }
-                Slot::Item(Item::Workspaces) => {
-                    // The active workspace's dot is wide.
-                    let y = h as i32 / 2 - WORKSPACE_DOT / 2;
-                    for i in 0..self.windows.count.min(36) as i32 {
-                        let dx = x + 2 + i * (WORKSPACE_DOT + 6);
-                        let active = i as u32 == self.windows.active;
-                        let (dw, color) = if active { (WORKSPACE_DOT * 2, FG) } else { (WORKSPACE_DOT, DIM_FG) };
-                        let dx = if i as u32 > self.windows.active { dx + WORKSPACE_DOT } else { dx };
-                        canvas.rect(dx, y, dw, WORKSPACE_DOT, color);
-                    }
-                }
-                Slot::Item(Item::Clock) if !osd_shown => {
-                    let tx = x + CLOCK_PAD;
-                    match &self.text {
-                        Some(text) => {
-                            text.draw(&mut canvas, &clock, tx as f32, base, Style { px, color: FG, max_width: 280.0 });
-                            // Unseen notifications: a dot after the clock.
-                            if unseen_dot {
-                                canvas.circle(f64::from(tx + clock_w + 9), f64::from(h as i32) / 2.0, 3.0, FG);
-                            }
-                            if list_open {
-                                canvas.rect(tx - 8, h as i32 - 3, clock_w + 16, 2, ACCENT);
-                            }
-                        }
-                        None => {
-                            let ty = (h - font::GLYPH_H * 2) / 2;
-                            font::render(&clock, 2, |gx, gy| canvas.rect(tx + gx as i32, (ty + gy) as i32, 1, 1, FG));
-                        }
-                    }
-                }
-                Slot::Item(Item::Clock) => {}
-                Slot::Item(Item::Tray) => {
-                    let y = (h as i32 - status::ICON) / 2;
-                    for (i, (image, overlay, attention)) in tray_images.iter().enumerate() {
-                        let ix = x + i as i32 * (status::ICON + tray::TRAY_GAP);
-                        if let Some(image) = image {
-                            canvas.image(f64::from(ix), f64::from(y), f64::from(status::ICON), f64::from(status::ICON), image);
-                        }
-                        // The overlay: half size, over the lower-right corner.
-                        if let Some(overlay) = overlay {
-                            let half = status::ICON / 2;
-                            canvas.image(f64::from(ix + half), f64::from(y + half), f64::from(half), f64::from(half), overlay);
-                        }
-                        if *attention {
-                            canvas.rect(ix, h as i32 - 4, status::ICON, 2, ACCENT);
-                        }
-                    }
-                }
-                Slot::Item(Item::Accessibility) => draw_a11y_glyph(&mut canvas, x + iw / 2, h as i32 / 2),
-                Slot::Item(Item::Keyboard) => {
-                    if let Some(s) = &self.source_label {
-                        label(self.text.as_ref(), &mut canvas, s, (x + 8) as f32, base, px, FG, (iw - 15) as f32);
-                    }
-                }
-                Slot::Item(Item::Status) => {
-                    // The first item is the rightmost.
-                    let mut sx = x + iw;
-                    for item in &status_items {
-                        match item {
-                            status::StatusItem::Icon(image) => {
-                                sx -= status::ICON;
-                                canvas.image(f64::from(sx), f64::from((h as i32 - status::ICON) / 2), f64::from(status::ICON), f64::from(status::ICON), image);
-                                sx -= 10;
-                            }
-                            status::StatusItem::Text(s) => {
-                                let tw = text_w(s);
-                                sx -= tw;
-                                label(self.text.as_ref(), &mut canvas, s, sx as f32, base, px, FG, tw as f32 + 1.0);
-                                sx -= 4;
-                            }
-                        }
-                    }
-                }
-                Slot::Item(Item::Power) => {
-                    if self.power_menu.is_some() {
-                        canvas.rect(x + 4, 4, iw - 8, h as i32 - 8, HOVER_BG);
-                    }
-                    if let Some(text) = &self.text {
-                        let pw = text.width(POWER_LABEL, px);
-                        text.draw(&mut canvas, POWER_LABEL, x as f32 + (iw as f32 - pw) / 2.0, base, Style { px, color: FG, max_width: 72.0 });
-                    }
-                }
-                Slot::Ext(i) => {
-                    if let Some(item) = ext_items.get(i) {
-                        ext_items::draw_ext_item(self.text.as_ref(), &mut canvas, item, ext_icons.get(i).and_then(Option::as_ref), x, iw, h as i32);
-                    }
-                }
-                Slot::Privacy => {
-                    let mut ix = x;
-                    if self.sharing {
-                        canvas.rect(ix, h as i32 / 2 - 4, 8, 8, SHARING);
-                        label(self.text.as_ref(), &mut canvas, "Sharing", (ix + 14) as f32, base, px, SHARING, 80.0);
-                        ix += SHARING_W;
-                    }
-                    if self.recording {
-                        canvas.rect(ix, h as i32 / 2 - 4, 8, 8, SHARING);
-                        label(self.text.as_ref(), &mut canvas, "Recording", (ix + 14) as f32, base, px, SHARING, (RECORDING_W - 16) as f32);
-                    }
-                }
-            }
-        }
-        // Dragging in the editor: where the item would go.
-        if let Some((_, _, lx)) = self.panel_drag.as_ref().filter(|d| d.moving && !d.off_panel).and_then(|d| d.target.as_ref()) {
-            canvas.rect(*lx - 1, 3, 3, h as i32 - 6, ACCENT);
-        }
-        // Keyboard focus ring (switch-panels).
-        let controls = panel_controls(&placed, tray_images.len());
-        if let Some(&(_, x, iw)) = self.panel_focus.and_then(|i| controls.get(i)) {
-            let (y, bh) = (3, h as i32 - 6);
-            for (rx, ry, rw, rh) in [(x, y, iw, 2), (x, y + bh - 2, iw, 2), (x, y, 2, bh), (x + iw - 2, y, 2, bh)] {
-                canvas.rect(rx, ry, rw, rh, ACCENT);
-            }
-        }
-        if let Some((osd, _)) = &self.osd {
-            draw_osd(self.text.as_ref(), &mut canvas, osd, w, h);
-        } else {
+        let placed = paint_panel(&mut canvas, self.text.as_ref(), (w, h), &model);
+        if self.osd.is_none() {
             self.shown_minute = Some(clock);
         }
         self.panel_placed = placed;
@@ -928,7 +1220,7 @@ impl Ui {
             content: Rect { x: 0, y: 0, w: 0, h: 0 },
             rows: Vec::new(),
             icons: HashMap::new(),
-            grid: app_grid::GridView::new(crate::item_feedback::animations_enabled()),
+            grid: app_grid::GridView::new(crate::item_feedback::motion()),
             output: None,
         });
         if notify {
@@ -1127,8 +1419,21 @@ impl Ui {
         self.draw_panel();
     }
 
-    /// A click (or Enter) on panel item `slot`, drawn at `x`.
-    fn panel_activate(&mut self, slot: crate::panel_layout::Slot, x: i32) {
+    /// The panel item at `index` takes the keyboard focus again (a menu it
+    /// opened closed).
+    pub(super) fn refocus_panel(&mut self, index: usize) {
+        if self.lock.session.is_some() {
+            return;
+        }
+        self.panel_focus = Some(index);
+        self.panel.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+        self.panel.commit();
+        self.draw_panel();
+    }
+
+    /// A click on panel item `slot`, drawn at `x`, or Enter on it while it
+    /// is the `key`th focused control (what it opens takes the keyboard).
+    fn panel_activate(&mut self, slot: crate::panel_layout::Slot, x: i32, key: Option<usize>) {
         use crate::panel_layout::{Item, Slot};
         match slot {
             Slot::Item(Item::Apps) => {
@@ -1138,7 +1443,7 @@ impl Ui {
                     self.open_launcher(true);
                 }
             }
-            Slot::Item(Item::Clock) => self.toggle_notification_list(),
+            Slot::Item(Item::Clock) => self.toggle_notification_list(key.map_or(quick::Opened::Pointer, quick::Opened::Panel)),
             Slot::Item(Item::Keyboard) => {
                 if self.window_menu.take().is_none() {
                     self.show_sources_menu(x);
@@ -1150,7 +1455,7 @@ impl Ui {
                 }
             }
             Slot::Item(Item::Status) | Slot::Item(Item::Power) => {
-                self.toggle_power_menu();
+                self.toggle_power_menu(key.map_or(quick::Opened::Pointer, quick::Opened::Panel));
                 self.draw_panel();
             }
             Slot::Item(Item::Tray) => {
@@ -1195,10 +1500,13 @@ impl Ui {
             Keysym::Right | Keysym::Tab => self.focus_panel(false),
             Keysym::Left | Keysym::ISO_Left_Tab => self.focus_panel(true),
             Keysym::Return | Keysym::KP_Enter | Keysym::space => {
-                let control = self.panel_focus.and_then(|i| panel_controls(&self.panel_placed, self.tray_shown().len()).get(i).copied());
+                let index = self.panel_focus;
+                let control = index.and_then(|i| panel_controls(&self.panel_placed, self.tray_shown().len()).get(i).copied());
                 self.leave_panel();
                 if let Some((slot, x, _)) = control {
-                    self.panel_activate(slot, x);
+                    self.menu_by_key = true;
+                    self.panel_activate(slot, x, index);
+                    self.menu_by_key = false;
                 }
             }
             _ => {}
@@ -1302,6 +1610,25 @@ impl Ui {
     }
 
     /// Draw every open surface again (their scale changed).
+    /// `text-scaling-factor` changed: the panel grows (or shrinks) and
+    /// everything shown is drawn again at the new size.
+    fn text_scale_changed(&mut self, factor: f64) {
+        let before = helix_draw::theme::text_scale();
+        helix_draw::theme::set_text_scale(factor);
+        if helix_draw::theme::text_scale() == before {
+            return;
+        }
+        tracing::info!(factor, "text scale");
+        self.panel.set_size(0, panel_height());
+        self.panel.set_exclusive_zone(panel_height() as i32);
+        self.panel.commit();
+        if let Some(data) = self.banner.as_ref().map(|b| b.data.clone()) {
+            self.show_banner(Some(data));
+        }
+        self.redraw_all();
+        self.draw_overview();
+    }
+
     fn redraw_all(&mut self) {
         self.draw_panel();
         self.draw_launcher();
@@ -1377,7 +1704,7 @@ impl Ui {
             let entry = &switcher.entries[index];
             let r = Rect { x: bx + 8, y: by + 8 + row as i32 * ROW_H, w: bw - 16, h: ROW_H };
             if index == switcher.selected {
-                canvas.rect(r.x, r.y, r.w, r.h, ACCENT);
+                canvas.rect(r.x, r.y, r.w, r.h, ACCENT_FILL);
             }
             let base = baseline(text, r.y, r.h, 15.0);
             let detail_w = text.map_or(0.0, |t| t.width(&entry.detail, 13.0).min(160.0));
@@ -1518,12 +1845,15 @@ impl Ui {
         let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(SCRIM);
 
-        let bw = 600.min(w as i32 - 48);
+        // Lengths that hold text grow with the text scale.
+        let grow = helix_draw::theme::grow;
+        let row_h = grow(ROW_H);
+        let bw = grow(600).min(w as i32 - 48);
         let bx = (w as i32 - bw) / 2;
-        let by = (h as i32 / 6).max(PANEL_HEIGHT as i32 + 24);
+        let by = (h as i32 / 6).max(panel_height() as i32 + 24);
 
         // Search field.
-        let field = Rect { x: bx, y: by, w: bw, h: 48 };
+        let field = Rect { x: bx, y: by, w: bw, h: grow(48) };
         text_field(&mut canvas, field, true);
         let (q_text, q_color) = if view.model.query.is_empty() {
             (view.model.folder_name().unwrap_or("Type to search…"), DIM_FG)
@@ -1536,14 +1866,14 @@ impl Ui {
         label(self.text.as_ref(), &mut canvas, q_text, text_x as f32, base, 17.0, q_color, (bw - 40) as f32);
         if let Some(text) = &self.text {
             let caret_x = bx + 16 + text.width(&view.model.query, 17.0) as i32 + 1;
-            canvas.rect(caret_x, field.y + 13, 2, field.h - 26, ACCENT);
+            canvas.rect(caret_x, field.y + field.h * 13 / 48, 2, field.h - field.h * 26 / 48, ACCENT);
         }
 
         // An empty search: the app grid.
         if view.model.query.is_empty() {
             view.rows.clear();
             view.content = field;
-            app_grid::paint_grid(&mut app_grid::Paint { cache: &mut self.icon_cache, text: self.text.as_ref(), scale }, view, &mut canvas, w as i32, h as i32, by + 72);
+            app_grid::paint_grid(&mut app_grid::Paint { cache: &mut self.icon_cache, text: self.text.as_ref(), scale }, view, &mut canvas, w as i32, h as i32, by + field.h + 24);
             let moving = view.grid.feedback.moving(Instant::now());
             let surface = view.layer.wl_surface();
             self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -1556,22 +1886,22 @@ impl Ui {
             return;
         }
         // Results.
-        let list_top = by + 56;
-        let room = ((h as i32 - list_top - 24) / ROW_H).max(1) as usize;
+        let list_top = by + field.h + 8;
+        let room = ((h as i32 - list_top - 24) / row_h).max(1) as usize;
         let visible = MAX_ROWS.min(room);
         let first = view.model.selected.saturating_sub(visible - 1);
         let shown: Vec<usize> = (first..view.model.results.len()).take(visible).collect();
-        let list_h = (shown.len().max(1) as i32) * ROW_H + 8;
+        let list_h = (shown.len().max(1) as i32) * row_h + 8;
         canvas.rect(bx, list_top, bw, list_h, BOX_BG);
         view.rows.clear();
         if shown.is_empty() {
-            let base = baseline(self.text.as_ref(), list_top + 4, ROW_H, 15.0);
+            let base = baseline(self.text.as_ref(), list_top + 4, row_h, 15.0);
             label(self.text.as_ref(), &mut canvas, "No matching apps", (bx + 16) as f32, base, 15.0, DIM_FG, (bw - 32) as f32);
         }
         for (row, &result) in shown.iter().enumerate() {
-            let rect = Rect { x: bx + 4, y: list_top + 4 + row as i32 * ROW_H, w: bw - 8, h: ROW_H };
+            let rect = Rect { x: bx + 4, y: list_top + 4 + row as i32 * row_h, w: bw - 8, h: row_h };
             if result == view.model.selected {
-                canvas.rect(rect.x, rect.y, rect.w, rect.h, ACCENT);
+                canvas.rect(rect.x, rect.y, rect.w, rect.h, ACCENT_FILL);
             }
             let (name, _) = view.model.row_label(view.model.results[result]);
             let more = matches!(view.model.results[result], launcher::Hit::More(_));
@@ -2043,7 +2373,12 @@ impl Ui {
             switch_user: self.user_switch && crate::user_switch::allowed() && crate::user_switch::on_lock_screen(),
         };
         let fonts = lock::LockFonts { text: self.text.as_ref(), bold: self.bold.as_ref(), display: self.display.as_ref() };
+        // The lock screen keeps its own type scale (Large Text there is
+        // not done yet; helix-desktop-spec gaps.md).
+        let text_scale = helix_draw::theme::text_scale();
+        helix_draw::theme::set_text_scale(1.0);
         let painted = lock::paint(&mut canvas, &fonts, &model, w, h);
+        helix_draw::theme::set_text_scale(f64::from(text_scale));
         view.hits = painted.hits;
         // The same on the accessibility bus.
         self.atspi_record(view.surface.wl_surface(), painted.nodes);
@@ -2065,8 +2400,8 @@ impl Ui {
         let height = self.banner_height(&data);
         if let Some(view) = self.banner.as_mut().filter(|v| v.data.id == data.id) {
             view.data = data;
-            if view.height != height {
-                view.layer.set_size(BANNER_W, height);
+            if view.height != height || view.width != banner_w() {
+                view.layer.set_size(banner_w(), height);
                 view.layer.commit();
             } else {
                 self.draw_banner();
@@ -2077,7 +2412,7 @@ impl Ui {
         let layer = self.layer_shell.create_layer_surface(&self.qh, surface, Layer::Top, Some("helix-notification"), None);
         layer.set_anchor(Anchor::TOP);
         layer.set_margin(8, 0, 0, 0);
-        layer.set_size(BANNER_W, height);
+        layer.set_size(banner_w(), height);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.commit();
         self.banner = Some(BannerView { data, layer, width: 0, height: 0, configured: false, hits: Vec::new(), focused: false });
@@ -2108,7 +2443,7 @@ impl Ui {
         match dialog {
             Some(data) => {
                 let remaining = data.seconds;
-                self.show_dialog(DialogState { kind: DialogKind::End(data), remaining });
+                self.show_dialog(DialogState::new(DialogKind::End(data), remaining));
             }
             None => {
                 if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::End(_))) {
@@ -2120,7 +2455,7 @@ impl Ui {
 
     fn show_display_change(&mut self, seconds: Option<u32>) {
         match seconds {
-            Some(remaining) => self.show_dialog(DialogState { kind: DialogKind::DisplayChange, remaining }),
+            Some(remaining) => self.show_dialog(DialogState::new(DialogKind::DisplayChange, remaining)),
             None => {
                 if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::DisplayChange)) {
                     self.dialog = None;
@@ -2162,7 +2497,7 @@ impl Ui {
         let app = crate::windows::app_names()
             .remove(&app_id.to_lowercase())
             .unwrap_or_else(|| if app_id.is_empty() { entry.label().to_owned() } else { app_id.clone() });
-        self.show_dialog(DialogState { kind: DialogKind::ShortcutsInhibit { id, app_id, app }, remaining: 0 });
+        self.show_dialog(DialogState::new(DialogKind::ShortcutsInhibit { id, app_id, app }, 0));
     }
 
     /// Window `id`'s app answered (or the window went away): close its
@@ -2282,15 +2617,31 @@ impl Ui {
     }
 
     fn dialog_key(&mut self, event: &KeyEvent) {
-        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::Prompt(_))) {
-            self.prompt_key(event);
+        let Some(dialog) = self.dialog.as_mut() else { return };
+        let ready = dialog_takes_key(dialog.state.shown, Instant::now());
+        if matches!(dialog.state.kind, DialogKind::Prompt(_)) {
+            // Typing goes in at once; only Enter waits.
+            if ready || !matches!(event.keysym, Keysym::Return | Keysym::KP_Enter) {
+                self.prompt_key(event);
+            }
             return;
         }
-        match event.keysym {
-            Keysym::Escape => self.answer_dialog(Choice::Canceled),
-            Keysym::Return | Keysym::KP_Enter => self.answer_dialog(Choice::Confirmed),
-            Keysym::space => self.end_toggle_install(),
-            _ => {}
+        if !ready {
+            tracing::debug!("key too soon after the dialog appeared; ignored");
+            return;
+        }
+        match dialog_key_action(event.keysym, dialog.state.focused()) {
+            Some(DialogKey::Answer(choice)) => self.answer_dialog(choice),
+            // The share dialog has no buttons to move between.
+            Some(DialogKey::Focus(_)) if matches!(dialog.state.kind, DialogKind::ShareScreen { .. }) => {}
+            Some(DialogKey::Focus(choice)) => {
+                if dialog.state.focus != Some(choice) {
+                    dialog.state.focus = Some(choice);
+                    self.draw_dialog();
+                }
+            }
+            Some(DialogKey::ToggleInstall) => self.end_toggle_install(),
+            None => {}
         }
     }
 
@@ -2350,127 +2701,9 @@ impl Ui {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
-        canvas.fill(SCRIM);
-        let text = self.text.as_ref();
-        let remaining = overlay.state.remaining;
-        let no_blockers = Vec::new();
-        // The approval prompt lists what the extension will be able to do.
-        let approval_rows: Vec<(String, String)> = match &overlay.state.kind {
-            DialogKind::ApproveExtension { lines, .. } => lines.iter().map(|l| (l.clone(), String::new())).collect(),
-            _ => Vec::new(),
-        };
-        let list_header = if matches!(overlay.state.kind, DialogKind::ApproveExtension { .. }) {
-            "It will be able to:"
-        } else {
-            "Some applications are busy or have unsaved work:"
-        };
-        let (title, message, cancel_label, confirm_label, blockers): (String, String, &str, String, &Vec<_>) = match &overlay.state.kind {
-            DialogKind::End(d) => {
-                let (title, verb) = match d.kind {
-                    SHUTDOWN => ("Power Off", "Power Off"),
-                    REBOOT => ("Restart", "Restart"),
-                    UPDATE_REBOOT => ("Restart & Install Updates", "Restart & Install"),
-                    UPGRADE_REBOOT => ("Restart & Install Upgrade", "Restart & Install"),
-                    _ => ("Log Out", "Log Out"),
-                };
-                let confirm = if d.blockers.is_empty() { verb.to_owned() } else { format!("{verb} Anyway") };
-                let message = match (d.kind, &d.upgrade) {
-                    (UPDATE_REBOOT, _) => format!("The computer will restart and install updates in {remaining} seconds. Installing can take a while."),
-                    (UPGRADE_REBOOT, Some(name)) => format!("{name} will be installed after the restart, in {remaining} seconds. Installing can take a long time."),
-                    _ => format!("The session will end automatically in {remaining} seconds."),
-                };
-                (title.to_owned(), message, "Cancel", confirm, &d.blockers)
-            }
-            DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) => return,
-            DialogKind::ApproveExtension { name, .. } => (format!("Turn on {name}?"), String::new(), "Cancel", "Turn On".to_owned(), &approval_rows),
-            DialogKind::RemoteControl { app, devices, .. } => (
-                "Allow remote control?".to_owned(),
-                format!("{app} wants to control your {}.", crate::screencast_chooser::device_list(devices)),
-                "Deny",
-                "Allow".to_owned(),
-                &no_blockers,
-            ),
-            DialogKind::ShortcutsInhibit { app, .. } => (
-                format!("Allow {app} to use all keyboard shortcuts?"),
-                "While it has the keyboard, the desktop's shortcuts go to it. Super+Escape gives them back.".to_owned(),
-                "Deny",
-                "Allow".to_owned(),
-                &no_blockers,
-            ),
-            DialogKind::NotResponding { title, .. } => (
-                format!("“{title}” is not responding."),
-                "You may choose to wait a short while for it to continue or force the app to quit entirely.".to_owned(),
-                "Wait",
-                "Force Quit".to_owned(),
-                &no_blockers,
-            ),
-            DialogKind::DisplayChange => (
-                "Keep the new display settings?".to_owned(),
-                format!("The previous settings come back in {remaining} seconds."),
-                "Revert",
-                "Keep".to_owned(),
-                &no_blockers,
-            ),
-        };
-        let blocked = !blockers.is_empty();
-        let bw = 460.min(w as i32 - 40);
-        let rows = blockers.len().min(6) as i32;
-        let message_lines = text.map_or(1, |t| t.wrap(&message, 14.0, (bw - 48) as f32, 2).len().max(1)) as i32;
-        let install = match &overlay.state.kind {
-            DialogKind::End(d) => d.install,
-            _ => None,
-        };
-        // Rows with a second line (a blocking app's reason) are taller.
-        let row_h = if blockers.iter().any(|(_, r)| !r.is_empty()) { 40 } else { 26 };
-        let bh = if blocked { 150 + 26 + rows * row_h } else { 160 + (message_lines - 1) * 19 } + if install.is_some() { 34 } else { 0 };
-        let bx = (w as i32 - bw) / 2;
-        let by = (h as i32 - bh) / 3;
-        canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
-        canvas.rect(bx, by, bw, bh, BANNER_BG);
-        let inner = (bw - 48) as f32;
-        let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
-        label(text, &mut canvas, &title, center(&title, 20.0), (by + 44) as f32, 20.0, FG, inner);
-        let mut y = by + 78;
-        if blocked {
-            label(text, &mut canvas, list_header, (bx + 24) as f32, y as f32, 14.0, DIM_FG, inner);
-            y += 16;
-            for (app, reason) in blockers.iter().take(6) {
-                label(text, &mut canvas, app, (bx + 24) as f32, (y + 18) as f32, 15.0, FG, inner);
-                label(text, &mut canvas, reason, (bx + 24) as f32, (y + 36) as f32, 13.0, DIM_FG, inner);
-                y += row_h;
-            }
-        } else {
-            let lines = text.map_or_else(|| vec![message.clone()], |t| t.wrap(&message, 14.0, inner, 2));
-            for (i, line) in lines.iter().enumerate() {
-                label(text, &mut canvas, line, center(line, 14.0), (y + i as i32 * 19) as f32, 14.0, DIM_FG, inner);
-            }
-        }
-        let mut extra_hits = Vec::new();
-        if let Some(on) = install {
-            let r = Rect { x: bx + 24, y: by + bh - 56 - 42, w: bw - 48, h: 26 };
-            // Outlined, so an empty box shows.
-            canvas.rect(r.x - 1, r.y + 3, 20, 20, DIM_FG);
-            canvas.rect(r.x, r.y + 4, 18, 18, if on { ACCENT } else { FIELD_BG });
-            let name = "Install pending software updates";
-            label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
-            extra_hits.push((r, OverlayHit::EndInstall));
-        }
-        // Buttons: Cancel and the action.
-        let by2 = by + bh - 56;
-        let half = (bw - 24 * 2 - 12) / 2;
-        let cancel = Rect { x: bx + 24, y: by2, w: half, h: 36 };
-        let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: 36 };
-        canvas.rect(cancel.x, cancel.y, cancel.w, cancel.h, BANNER_BORDER);
-        canvas.rect(confirm.x, confirm.y, confirm.w, confirm.h, ACCENT);
-        for (r, s) in [(cancel, cancel_label), (confirm, confirm_label.as_str())] {
-            let lw = text.map_or(0.0, |t| t.width(s, 15.0));
-            let base = baseline(text, r.y, r.h, 15.0);
-            label(text, &mut canvas, s, r.x as f32 + (r.w as f32 - lw) / 2.0, base, 15.0, FG, r.w as f32);
-        }
-        overlay.hits = vec![(cancel, OverlayHit::Cancel), (confirm, OverlayHit::Confirm)];
-        overlay.hits.extend(extra_hits);
-        let list = blocked.then_some((list_header, blockers.as_slice()));
-        let node = atspi::dialog(&title, &message, list, install, &overlay.hits, (cancel_label, &confirm_label));
+        let Some((hits, node)) = paint_question(&mut canvas, self.text.as_ref(), (w, h), &overlay.state) else { return };
+        overlay.hits = hits;
+        overlay.state.shown.get_or_insert_with(Instant::now);
         self.atspi_record(overlay.layer.wl_surface(), vec![node]);
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -2516,7 +2749,7 @@ impl Ui {
         for (i, (_, name, connector)) in sources.iter().take(8).enumerate() {
             let r = Rect { x: bx + 24, y: top + i as i32 * (ROW_H + 8), w: bw - 48, h: ROW_H };
             let on = picked.contains(&i);
-            canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT } else { HOVER_BG });
+            canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT_FILL } else { HOVER_BG });
             let base = baseline(text, r.y, r.h, 15.0);
             let mut nx = r.x + 12;
             if *multiple {
@@ -2539,13 +2772,13 @@ impl Ui {
         // Cancel; with several to choose, Share beside it.
         let cw = if *multiple { (bw - 48 - 12) / 2 } else { bw - 48 };
         let cancel = Rect { x: bx + 24, y: by + bh - 56, w: cw, h: 36 };
-        canvas.rect(cancel.x, cancel.y, cancel.w, cancel.h, BANNER_BORDER);
+        theme::control(&mut canvas, cancel.x, cancel.y, cancel.w, cancel.h, theme::Look::default());
         let lw = text.map_or(0.0, |t| t.width("Cancel", 15.0));
         label(text, &mut canvas, "Cancel", cancel.x as f32 + (cancel.w as f32 - lw) / 2.0, baseline(text, cancel.y, cancel.h, 15.0), 15.0, FG, cancel.w as f32);
         hits.push((cancel, OverlayHit::Cancel));
         if *multiple {
             let share = Rect { x: cancel.x + cw + 12, y: cancel.y, w: cw, h: 36 };
-            canvas.rect(share.x, share.y, share.w, share.h, if picked.is_empty() { BANNER_BORDER } else { ACCENT });
+            theme::control(&mut canvas, share.x, share.y, share.w, share.h, theme::Look { on: !picked.is_empty(), ..Default::default() });
             let sw = text.map_or(0.0, |t| t.width("Share", 15.0));
             label(text, &mut canvas, "Share", share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, if picked.is_empty() { DIM_FG } else { FG }, share.w as f32);
             if !picked.is_empty() {
@@ -2581,7 +2814,7 @@ impl Ui {
                 Some(&output),
             );
             layer.set_anchor(Anchor::TOP | Anchor::LEFT);
-            layer.set_margin(PANEL_HEIGHT as i32 + 12, 0, 0, 12);
+            layer.set_margin(panel_height() as i32 + 12, 0, 0, 12);
             layer.set_size(MONITOR_LABEL_SIZE, MONITOR_LABEL_SIZE);
             layer.set_keyboard_interactivity(KeyboardInteractivity::None);
             layer.commit();
@@ -2733,7 +2966,7 @@ impl Ui {
                             let _ = q.reply.send(None);
                         } else {
                             let kind = DialogKind::ShareScreen { app: q.app, sources, remember: q.remember, control: q.control, multiple: q.multiple, picked: Vec::new(), reply: Some(q.reply) };
-                            self.show_dialog(DialogState { kind, remaining: 0 });
+                            self.show_dialog(DialogState::new(kind, 0));
                         }
                     }
                 }
@@ -2751,7 +2984,7 @@ impl Ui {
                     } else {
                         let lines = crate::ext_host::approval::lines(&q.can, q.sandboxed);
                         let kind = DialogKind::ApproveExtension { name: q.name, lines, reply: Some(q.reply) };
-                        self.show_dialog(DialogState { kind, remaining: 0 });
+                        self.show_dialog(DialogState::new(kind, 0));
                     }
                 }
             }
@@ -2761,7 +2994,7 @@ impl Ui {
                         let _ = q.reply.send(false);
                     } else {
                         let kind = DialogKind::RemoteControl { app: q.app, devices: q.devices, reply: Some(q.reply) };
-                        self.show_dialog(DialogState { kind, remaining: 0 });
+                        self.show_dialog(DialogState::new(kind, 0));
                     }
                 }
             }
@@ -2790,6 +3023,7 @@ impl Ui {
                     self.draw_power_menu();
                 }
             }
+            UiEvent::TextScale(factor) => self.text_scale_changed(factor),
             UiEvent::HighContrast(on) => {
                 if on != helix_draw::high_contrast() {
                     tracing::info!(on, "high contrast");
@@ -3030,7 +3264,7 @@ impl Ui {
                 (false, true, _) => self.close_overview(true),
                 _ => {}
             },
-            Some(Internal::MessageTray) => self.toggle_notification_list(),
+            Some(Internal::MessageTray) => self.toggle_notification_list(quick::Opened::Keyboard),
             Some(Internal::FocusNotification) => self.focus_banner(true),
             Some(Internal::DockApp(n, launch)) => self.switch_to_app(n, launch),
             Some(Internal::DockHotKey(n, which)) => self.dock_hot_key(n, which),
@@ -3041,7 +3275,7 @@ impl Ui {
                 }
             }
             Some(Internal::QuickSettings) => {
-                self.toggle_power_menu();
+                self.toggle_power_menu(quick::Opened::Keyboard);
                 self.draw_panel();
             }
             Some(Internal::Launcher) => {
@@ -3147,8 +3381,8 @@ fn make_panel(compositor: &CompositorState, layer_shell: &LayerShell, qh: &Queue
     let surface = compositor.create_surface(qh);
     let panel = layer_shell.create_layer_surface(qh, surface, Layer::Top, Some("helix-panel"), None);
     panel.set_anchor(Anchor::TOP | Anchor::LEFT | Anchor::RIGHT);
-    panel.set_size(0, PANEL_HEIGHT);
-    panel.set_exclusive_zone(PANEL_HEIGHT as i32);
+    panel.set_size(0, panel_height());
+    panel.set_exclusive_zone(panel_height() as i32);
     panel.set_keyboard_interactivity(KeyboardInteractivity::None);
     panel.commit();
     panel
@@ -3170,7 +3404,7 @@ pub fn run(
     let data_devices = smithay_client_toolkit::data_device_manager::DataDeviceManagerState::bind(&globals, &qh).ok();
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=9, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=10, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=6, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
@@ -3235,6 +3469,7 @@ pub fn run(
         switcher_mode: None,
         cycle: None,
         panel_focus: None,
+        menu_by_key: false,
         window_sources: HashMap::new(),
         window_icons: HashMap::new(),
         icon_cache: HashMap::new(),
@@ -3637,13 +3872,12 @@ impl KeyboardHandler for Ui {
             self.banner_key(&event);
         } else if self.overview.is_some() {
             self.overview_key(&event);
+        } else if self.power_menu.is_some() {
+            self.quick_key(&event);
+        } else if self.notify.view.is_some() && self.panel_focus.is_none() {
+            self.notification_list_key(&event);
         } else if self.panel_focus.is_some() {
             self.panel_key(&event);
-        } else if self.notify.view.is_some() && event.keysym == Keysym::Escape {
-            self.close_notification_list();
-        } else if self.power_menu.is_some() && event.keysym == Keysym::Escape {
-            self.power_menu = None;
-            self.draw_panel();
         } else if self.break_screen.is_some() {
             self.break_key(&event);
         } else if self.panel_editor.is_some() {
@@ -3657,6 +3891,15 @@ impl KeyboardHandler for Ui {
     fn repeat_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
         if self.lock.session.is_some() {
             self.lock_key(&event);
+        } else if self.notify.view.is_some() {
+            if matches!(event.keysym, Keysym::Left | Keysym::Right | Keysym::Up | Keysym::Down | Keysym::Page_Up | Keysym::Page_Down) {
+                self.notification_list_key(&event);
+            }
+        } else if self.power_menu.is_some() {
+            // Held arrows keep moving a slider.
+            if matches!(event.keysym, Keysym::Left | Keysym::Right | Keysym::Up | Keysym::Down | Keysym::Page_Up | Keysym::Page_Down) {
+                self.quick_key(&event);
+            }
         } else {
             self.launcher_key(&event);
         }
@@ -3731,7 +3974,7 @@ impl Ui {
                 self.lock_pointer(event);
                 continue;
             }
-            if self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
+            if self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.quick_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {
@@ -3776,8 +4019,7 @@ impl Ui {
                 tracing::debug!(x, y, hits = self.power_menu.as_ref().map_or(0, |m| m.hits.len()), "quick settings press");
                 let keep = hit.is_some_and(|(rect, hit)| self.quick_click(hit, x, rect));
                 if !keep {
-                    self.power_menu = None;
-                    self.draw_panel();
+                    self.close_quick_settings();
                 }
             } else if self.banner.as_ref().is_some_and(|b| b.layer.wl_surface() == &event.surface) {
                 self.banner_click(x, y);
@@ -3786,12 +4028,12 @@ impl Ui {
                 if let Some((slot, px, _)) = hit {
                     if slot == crate::panel_layout::Slot::Privacy {
                         // "Sharing" comes first; clicking "Recording" stops it.
-                        let recording_x = px + if self.sharing { SHARING_W } else { 0 };
+                        let recording_x = px + if self.sharing { sharing_w() } else { 0 };
                         if self.recording && x >= f64::from(recording_x) {
                             let _ = self.requests.send(UiRequest::StopRecording);
                         }
                     } else {
-                        self.panel_activate(slot, px);
+                        self.panel_activate(slot, px, None);
                     }
                 }
             } else if let Some(view) = self.launcher.as_mut().filter(|v| v.layer.wl_surface() == &event.surface) {
@@ -4132,7 +4374,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                     ui.close_not_responding(id);
                 } else if ui.lock.session.is_none() && ui.dialog.is_none() {
                     let title = ui.windows.mru().iter().find(|e| e.id == id).map_or_else(|| "The app".to_owned(), |e| e.label().to_owned());
-                    ui.show_dialog(DialogState { kind: DialogKind::NotResponding { id, title }, remaining: 0 });
+                    ui.show_dialog(DialogState::new(DialogKind::NotResponding { id, title }, 0));
                 }
             }
             helix_window_list_v1::Event::Attention { id, wanting } => ui.window_attention(id, wanting != 0),
@@ -4207,5 +4449,75 @@ mod tests {
         assert_eq!(names(all, false, false), ["Suspend", "Restart…", "Power Off…"]);
         let with_switch: Vec<_> = power_menu_items(Availability::default(), true, true, true).into_iter().map(|(n, _)| n).collect();
         assert_eq!(with_switch, ["Lock Screen", "Switch User…", "Log Out…"]);
+    }
+
+    fn end(blockers: usize) -> DialogKind {
+        let blockers = (0..blockers).map(|i| (format!("App {i}"), String::new())).collect();
+        DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers, install: None, upgrade: None })
+    }
+
+    #[test]
+    fn dialog_defaults() {
+        use helix_draw::screen::ButtonKind;
+        let not_responding = DialogKind::NotResponding { id: 1, title: "Editor".into() };
+        let remote = DialogKind::RemoteControl { app: "Remote".into(), devices: vec!["keyboard".into()], reply: None };
+        let shortcuts = DialogKind::ShortcutsInhibit { id: 1, app_id: "vm".into(), app: "VM".into() };
+        let extension = DialogKind::ApproveExtension { name: "Caffeine".into(), lines: Vec::new(), reply: None };
+        // Enter never force-quits or grants a permission.
+        for kind in [&not_responding, &remote, &shortcuts, &extension] {
+            assert_eq!(kind.default_choice(), Choice::Canceled);
+        }
+        assert_eq!(not_responding.confirm_kind(), ButtonKind::Destructive);
+        assert_eq!(remote.confirm_kind(), ButtonKind::Normal);
+        // Ending the session and keeping display settings: Enter confirms.
+        for kind in [end(0), end(1), DialogKind::DisplayChange] {
+            assert_eq!(kind.default_choice(), Choice::Confirmed);
+        }
+        assert_eq!(end(0).confirm_kind(), ButtonKind::Suggested);
+        assert_eq!(end(2).confirm_kind(), ButtonKind::Destructive, "Power Off Anyway");
+        // Enter answers with the focused button; Tab moves to the other.
+        let mut state = DialogState::new(not_responding, 0);
+        assert_eq!(dialog_key_action(Keysym::Return, state.focused()), Some(DialogKey::Answer(Choice::Canceled)));
+        assert_eq!(dialog_key_action(Keysym::Tab, state.focused()), Some(DialogKey::Focus(Choice::Confirmed)));
+        state.focus = Some(Choice::Confirmed);
+        assert_eq!(dialog_key_action(Keysym::KP_Enter, state.focused()), Some(DialogKey::Answer(Choice::Confirmed)), "an explicit choice");
+        assert_eq!(dialog_key_action(Keysym::Escape, state.focused()), Some(DialogKey::Answer(Choice::Canceled)));
+        assert_eq!(dialog_key_action(Keysym::Left, state.focused()), Some(DialogKey::Focus(Choice::Canceled)));
+    }
+
+    /// Every text color the shell paints, on every background it is
+    /// painted on, reaches WCAG AA (4.5:1).
+    #[test]
+    fn text_contrast() {
+        let opaque = |c: u32| c | 0xFF00_0000;
+        let pairs = [
+            (FG, BANNER_BG, "text on popovers and dialogs"),
+            (FG, opaque(PANEL_BG), "the panel"),
+            (FG, FIELD_BG, "text on controls"),
+            (FG, HOVER_BG, "the selected menu row"),
+            (FG, ACCENT_FILL, "switches on, selected rows, buttons"),
+            (DIM_FG, BANNER_BG, "secondary text: notification bodies, percentages, weekdays, dialog messages"),
+            (DIM_FG, opaque(PANEL_BG), "secondary text on the panel"),
+            (DIM_FG, opaque(BOX_BG), "the launcher's tags"),
+            (DIM_FG, theme::WELL, "\"No Networks\""),
+            (ERROR_TEXT, BANNER_BG, "a prompt's error"),
+            (ERROR_TEXT, opaque(PANEL_BG), "\"Sharing\", \"Recording\""),
+            (ACCENT_TEXT, BANNER_BG, "links in notifications"),
+            (ACCENT_TEXT, theme::WELL, "\"Connected\""),
+        ];
+        for (fg, bg, what) in pairs {
+            let ratio = helix_draw::backdrop::contrast(fg, bg);
+            assert!(ratio >= 4.5, "{what}: {fg:08x} on {bg:08x} is {ratio:.2}:1");
+        }
+    }
+
+    #[test]
+    fn early_keys_ignored() {
+        let now = Instant::now();
+        assert!(!dialog_takes_key(None, now), "not drawn yet");
+        assert!(!dialog_takes_key(Some(now), now + Duration::from_millis(100)));
+        assert!(!dialog_takes_key(Some(now), now + Duration::from_millis(299)));
+        assert!(dialog_takes_key(Some(now), now + DIALOG_KEY_DELAY));
+        assert!(dialog_takes_key(Some(now), now + Duration::from_secs(2)));
     }
 }

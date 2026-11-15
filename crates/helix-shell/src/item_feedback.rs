@@ -73,18 +73,24 @@ struct Move<K> {
 /// The feedback state of one surface's items (keyed by `K`).
 #[derive(Debug, Clone)]
 pub struct Feedback<K> {
-    /// Whether changes move (`enable-animations`).
+    /// Whether changes take time (`enable-animations`): fades, and with
+    /// `moves` growing and shrinking.
     pub animate: bool,
+    /// Whether icons change size (not with `reduced-motion` `reduce`):
+    /// without, hover and press show only the highlight and a launch is a
+    /// short highlight fade instead of a growing copy.
+    pub moves: bool,
     hover: Option<K>,
     focus: Option<K>,
     press: Option<K>,
-    moves: Vec<Move<K>>,
+    /// Items on their way to a new look.
+    steps: Vec<Move<K>>,
     ghosts: Vec<(K, Instant)>,
 }
 
 impl<K> Default for Feedback<K> {
     fn default() -> Self {
-        Self { animate: true, hover: None, focus: None, press: None, moves: Vec::new(), ghosts: Vec::new() }
+        Self { animate: true, moves: true, hover: None, focus: None, press: None, steps: Vec::new(), ghosts: Vec::new() }
     }
 }
 
@@ -108,6 +114,18 @@ impl<K: Clone + PartialEq> Feedback<K> {
         Self { animate, ..Self::default() }
     }
 
+    /// Feedback for how much may move (`item_feedback::motion()`): fades
+    /// unless off, size changes only with full motion.
+    pub fn with_motion(motion: helix_draw::motion::Motion) -> Self {
+        Self { animate: motion.fades(), moves: motion.moves(), ..Self::default() }
+    }
+
+    /// Follow a new motion setting.
+    pub fn set_motion(&mut self, motion: helix_draw::motion::Motion) {
+        self.animate = motion.fades();
+        self.moves = motion.moves();
+    }
+
     fn lit(&self, key: &K) -> bool {
         self.hover.as_ref() == Some(key) || self.focus.as_ref() == Some(key)
     }
@@ -117,7 +135,9 @@ impl<K: Clone + PartialEq> Feedback<K> {
     }
 
     fn target(&self, key: &K) -> (f64, f64) {
-        let scale = if self.pressed(key) {
+        let scale = if !self.moves {
+            1.0
+        } else if self.pressed(key) {
             PRESS_SCALE
         } else if self.lit(key) {
             HOVER_SCALE
@@ -137,7 +157,7 @@ impl<K: Clone + PartialEq> Feedback<K> {
     /// Scale and highlight of `key` at `now`.
     fn current(&self, key: &K, now: Instant) -> (f64, f64) {
         let (scale, highlight) = self.target(key);
-        let Some(m) = self.moves.iter().find(|m| m.key == *key) else { return (scale, highlight) };
+        let Some(m) = self.steps.iter().find(|m| m.key == *key) else { return (scale, highlight) };
         let fade = if highlight > m.from_highlight { FADE_IN } else { FADE_OUT };
         let h = lerp(m.from_highlight, highlight, self.elapsed(m.at, now, fade));
         let s = if m.spring {
@@ -154,9 +174,9 @@ impl<K: Clone + PartialEq> Feedback<K> {
         let before: Vec<(K, (f64, f64))> = keys.iter().flatten().map(|k| (k.clone(), self.current(k, now))).collect();
         change(self);
         for (key, (from_scale, from_highlight)) in before {
-            self.moves.retain(|m| m.key != key);
+            self.steps.retain(|m| m.key != key);
             if (from_scale, from_highlight) != self.target(&key) {
-                self.moves.push(Move { key, at: now, from_scale, from_highlight, spring });
+                self.steps.push(Move { key, at: now, from_scale, from_highlight, spring });
             }
         }
     }
@@ -206,14 +226,22 @@ impl<K: Clone + PartialEq> Feedback<K> {
     /// `key` launched or activated something: a growing, fading copy of
     /// its icon (only with animations).
     pub fn launch(&mut self, key: K, now: Instant) {
-        if self.animate {
+        if !self.animate {
+            return;
+        }
+        if self.moves {
             self.ghosts.push((key, now));
+        } else {
+            // Reduced motion: the highlight flashes and fades instead.
+            let (scale, _) = self.current(&key, now);
+            self.steps.retain(|m| m.key != key);
+            self.steps.push(Move { key, at: now, from_scale: scale, from_highlight: 1.0, spring: false });
         }
     }
 
     /// Forget everything (the items went away).
     pub fn reset(&mut self) {
-        *self = Self { animate: self.animate, ..Self::default() };
+        *self = Self { animate: self.animate, moves: self.moves, ..Self::default() };
     }
 
     /// How `key` looks at `now`.
@@ -238,9 +266,9 @@ impl<K: Clone + PartialEq> Feedback<K> {
     pub fn moving(&mut self, now: Instant) -> bool {
         let animate = self.animate;
         let done = |at: Instant, secs: f64| !animate || now.saturating_duration_since(at).as_secs_f64() >= secs;
-        self.moves.retain(|m| !done(m.at, FADE_OUT.max(SPRING)));
+        self.steps.retain(|m| !done(m.at, FADE_OUT.max(SPRING)));
         self.ghosts.retain(|(_, at)| !done(*at, GHOST));
-        !self.moves.is_empty() || !self.ghosts.is_empty()
+        !self.steps.is_empty() || !self.ghosts.is_empty()
     }
 }
 
@@ -319,6 +347,40 @@ mod tests {
         assert_eq!(f.look(&1, t0).scale, HOVER_SCALE);
         f.set_hover(None, t0);
         assert_eq!(f.look(&1, t0), Look { highlight: 0.0, pressed: false, scale: 1.0 });
+    }
+
+    #[test]
+    fn reduced_motion_only_fades() {
+        use helix_draw::motion::Motion;
+        let t0 = Instant::now();
+        let mut f: Feedback<u32> = Feedback::with_motion(Motion::Reduced);
+        f.set_hover(Some(1), t0);
+        // The highlight fades in; the icon keeps its size all along.
+        let mid = f.look(&1, at(t0, 60));
+        assert!(mid.highlight > 0.0 && mid.highlight < 1.0 && mid.scale == 1.0, "fades, does not grow: {mid:?}");
+        f.press(1, at(t0, 200));
+        let pressed = f.look(&1, at(t0, 250));
+        assert!(pressed.pressed && pressed.scale == 1.0, "pressing shows, without shrinking");
+        f.release(at(t0, 300));
+        for ms in (300..1000).step_by(10) {
+            assert_eq!(f.look(&1, at(t0, ms)).scale, 1.0, "no springing back at {ms} ms");
+        }
+        // A launch: no growing copy, a highlight fade.
+        f.set_hover(None, at(t0, 1000));
+        f.launch(1, at(t0, 1500));
+        assert!(f.ghosts(at(t0, 1500)).is_empty());
+        assert_eq!(f.look(&1, at(t0, 1500)).highlight, 1.0);
+        let fading = f.look(&1, at(t0, 1600));
+        assert!(fading.highlight > 0.0 && fading.highlight < 1.0 && fading.scale == 1.0, "{fading:?}");
+        assert!(f.moving(at(t0, 1600)));
+        assert_eq!(f.look(&1, at(t0, 2000)).highlight, 0.0);
+        // Motion off: no fades either.
+        let mut off: Feedback<u32> = Feedback::with_motion(Motion::None);
+        off.set_hover(Some(1), t0);
+        assert_eq!(off.look(&1, t0), Look { highlight: 1.0, pressed: false, scale: 1.0 });
+        // Full motion grows.
+        let full: Feedback<u32> = Feedback::with_motion(Motion::Full);
+        assert!(full.moves && full.animate);
     }
 
     #[test]

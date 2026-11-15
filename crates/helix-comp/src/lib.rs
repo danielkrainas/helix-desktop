@@ -31,6 +31,7 @@ pub mod edid;
 pub mod icc;
 pub mod tablet;
 pub mod focus_tracking;
+pub mod layer_focus;
 pub mod input_capture;
 pub mod frames;
 pub mod idle;

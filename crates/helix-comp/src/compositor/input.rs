@@ -357,7 +357,9 @@ impl Helix {
                 return;
             }
             if self.over_panel(pos) {
-                // Clicks on panels don't change window focus.
+                // Clicks on panels don't change window focus; a menu
+                // that may have the keyboard on demand takes it.
+                self.layer_click_focus(pos);
             } else if let Some(window) = self.window_under(pos).map(|(w, _)| w.clone()) {
                 // `mouse-button-modifier` clicks move, resize or open
                 // the window menu, and are not passed to the app.

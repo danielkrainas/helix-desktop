@@ -134,7 +134,7 @@ impl Ui {
         });
         let Some((i, px)) = under else { return false };
         let Some(full_id) = self.ext.panel.get(i).map(|p| p.full_id.clone()) else { return false };
-        let y = PANEL_HEIGHT as i32;
+        let y = panel_height() as i32;
         match event.kind {
             PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
                 self.panel_hover(Some(full_id), px);
@@ -182,11 +182,11 @@ impl Ui {
     /// moved left so 480 pixels fit), else `Activate`.
     fn primary_action(&self, i: usize, x: i32) -> Action {
         if !self.ext.panel.get(i).is_some_and(|p| p.popover) {
-            return Action::Primary { x, y: PANEL_HEIGHT as i32 };
+            return Action::Primary { x, y: panel_height() as i32 };
         }
         let width = self.panel_width as i32;
         let px = x.min(width - 480 - 4).max(4);
-        Action::Popover { x: px, y: PANEL_HEIGHT as i32 + 4, output: self.panel_output_name() }
+        Action::Popover { x: px, y: panel_height() as i32 + 4, output: self.panel_output_name() }
     }
 
     /// The connector of the monitor the panel is on (the primary one).
@@ -217,7 +217,7 @@ impl Ui {
         // A dock item's menu opens as dock menus do.
         match self.ext_dock_menu_at.take().filter(|_| self.ext.dock.iter().any(|d| d.full_id == full_id)) {
             Some((lx, ly)) => self.open_dock_menu(lx, ly, items),
-            None => self.open_menu(0, x, PANEL_HEIGHT as i32, items, Vec::new()),
+            None => self.open_menu(0, x, panel_height() as i32, items, Vec::new()),
         }
         self.ext_menu = Some((full_id, menu, ids));
     }

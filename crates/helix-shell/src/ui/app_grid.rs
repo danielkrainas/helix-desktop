@@ -9,8 +9,13 @@ use crate::item_feedback::{Feedback, Look, GHOST_SCALE, LAUNCH_LINGER};
 use super::*;
 use crate::app_grid::{self as layout, Pages};
 
-const CELL_W: i32 = 120;
-const CELL_H: i32 = 118;
+/// A cell's size: its label's room grows with the text scale.
+fn cell_w() -> i32 {
+    helix_draw::theme::grow(120)
+}
+fn cell_h() -> i32 {
+    118 - 22 + helix_draw::theme::grow(22)
+}
 const ICON: i32 = 64;
 const MINI: i32 = 26;
 const DOT: i32 = 10;
@@ -69,9 +74,9 @@ pub(super) struct GridView {
 }
 
 impl GridView {
-    /// A grid whose feedback moves when `animate`.
-    pub(super) fn new(animate: bool) -> Self {
-        Self { feedback: Feedback::new(animate), ..Self::default() }
+    /// A grid whose feedback moves as `motion` allows.
+    pub(super) fn new(motion: helix_draw::motion::Motion) -> Self {
+        Self { feedback: Feedback::with_motion(motion), ..Self::default() }
     }
 
     /// The item under (x, y): in the open folder's box, else on the page.
@@ -290,6 +295,8 @@ impl Ui {
         let items = self.app_menu_items(&app, favorite, false);
         self.dock.menu_over_launcher = true;
         self.dock.menu_from_grid = true;
+        // Shift+F10 or Menu (no pointer position): a keyboard menu.
+        self.menu_by_key = at.is_none();
         self.open_menu(0, origin.0 + x as i32, origin.1 + y as i32, items, Vec::new());
     }
 
@@ -598,18 +605,18 @@ fn paint_cell(p: &mut Paint, model: &Launcher, canvas: &mut Canvas, cell: Rect, 
         }
     }
     let tw = text.map_or(0.0, |t| t.width(&name, 13.0)).min((cell.w - 12) as f32);
-    label(text, canvas, &name, cell.x as f32 + (cell.w as f32 - tw) / 2.0, (iy + ICON + 22) as f32, 13.0, FG, (cell.w - 12) as f32);
+    label(text, canvas, &name, cell.x as f32 + (cell.w as f32 - tw) / 2.0, (iy + ICON + helix_draw::theme::grow(22)) as f32, 13.0, FG, (cell.w - 12) as f32);
 }
 
 /// Paint the grid below the search field (from `top`).
 pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Canvas, w: i32, h: i32, top: i32) {
     let (text, scale) = (p.text, p.scale);
-    let cols = ((w - 96) / CELL_W).clamp(3, 8) as usize;
-    let rows = ((h - top - 72) / CELL_H).clamp(2, 5) as usize;
+    let cols = ((w - 96) / cell_w()).clamp(3, 8) as usize;
+    let rows = ((h - top - 72) / cell_h()).clamp(2, 5) as usize;
     if view.grid.cols != cols || view.grid.per_page != cols * rows {
         Ui::grid_refresh(view, cols, rows);
     }
-    let gw = cols as i32 * CELL_W;
+    let gw = cols as i32 * cell_w();
     let gx = (w - gw) / 2;
     let items: Vec<String> = view.grid.page_items().to_vec();
     let (selected, drag, open_folder) = (view.grid.selected, view.grid.drag.clone(), view.model.open_folder);
@@ -637,7 +644,7 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
     };
     let mut cells = Vec::new();
     for (i, id) in items.iter().enumerate() {
-        let cell = Rect { x: gx + (i % cols) as i32 * CELL_W, y: top + (i / cols) as i32 * CELL_H, w: CELL_W, h: CELL_H };
+        let cell = Rect { x: gx + (i % cols) as i32 * cell_w(), y: top + (i / cols) as i32 * cell_h(), w: cell_w(), h: cell_h() };
         cells.push((cell, id.clone()));
         if drag.as_ref().is_some_and(|d| d.id == *id && d.from_folder.is_none()) {
             continue;
@@ -649,12 +656,12 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
     if let Some(Drop::Insert { page, index }) = &target {
         if *page == current {
             let i = (*index).min(items.len());
-            let (cx, cy) = (gx + (i % cols) as i32 * CELL_W, top + (i / cols) as i32 * CELL_H);
-            canvas.rect(cx - 2, cy + 8, 3, CELL_H - 16, ACCENT);
+            let (cx, cy) = (gx + (i % cols) as i32 * cell_w(), top + (i / cols) as i32 * cell_h());
+            canvas.rect(cx - 2, cy + 8, 3, cell_h() - 16, ACCENT);
         }
     }
     // Page dots.
-    let dots_y = top + rows as i32 * CELL_H + 18;
+    let dots_y = top + rows as i32 * cell_h() + 18;
     let dots_x = (w - pages as i32 * (DOT + 10)) / 2;
     let mut dots = Vec::new();
     for p in 0..pages {
@@ -663,14 +670,14 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         canvas.circle(f64::from(r.x + 5 + DOT / 2), f64::from(dots_y), f64::from(DOT) / 2.0, color);
         dots.push((r, p));
     }
-    let area = Rect { x: gx, y: top, w: gw, h: rows as i32 * CELL_H };
+    let area = Rect { x: gx, y: top, w: gw, h: rows as i32 * cell_h() };
     // An open folder: a box over the dimmed grid.
     let (mut folder_box, mut folder_title, mut folder_cells) = (None, None, Vec::new());
     if let Some(folder) = open_folder.and_then(|i| view.model.folders.get(i).cloned()) {
         canvas.rect(0, top - 8, w, h - top + 8, 0x80000000);
         let fcols = folder.apps.len().clamp(1, 6) as i32;
         let n = folder.apps.len() as i32;
-        let rows_fit = ((h - top - 16 - 52 - 40) / CELL_H).max(1);
+        let rows_fit = ((h - top - 16 - 52 - 40) / cell_h()).max(1);
         let frows = ((n + fcols - 1) / fcols).min(rows_fit);
         let per = (fcols * rows_fit).max(1) as usize;
         let fpages = folder.apps.len().div_ceil(per).max(1);
@@ -681,8 +688,8 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         view.grid.folder_page = fpage;
         view.grid.folder_pages = fpages;
         let dots_h = if fpages > 1 { 30 } else { 0 };
-        let bw = fcols * CELL_W + 32;
-        let bh = frows * CELL_H + 72 + dots_h;
+        let bw = fcols * cell_w() + 32;
+        let bh = frows * cell_h() + 72 + dots_h;
         let b = Rect { x: (w - bw) / 2, y: top + 8, w: bw, h: bh };
         canvas.round_rect(f64::from(b.x), f64::from(b.y), f64::from(b.w), f64::from(b.h), 14.0, BOX_BG);
         let tw = text.map_or(0.0, |t| t.width(&folder.name, 17.0));
@@ -690,7 +697,7 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         label(text, canvas, &folder.name, (title.x + 8) as f32, baseline(text, title.y, title.h, 17.0), 17.0, FG, (b.w - 32) as f32);
         for (k, id) in folder.apps.iter().enumerate().skip(fpage * per).take(per) {
             let i = k - fpage * per;
-            let cell = Rect { x: b.x + 16 + (i as i32 % fcols) * CELL_W, y: b.y + 52 + (i as i32 / fcols) * CELL_H, w: CELL_W, h: CELL_H };
+            let cell = Rect { x: b.x + 16 + (i as i32 % fcols) * cell_w(), y: b.y + 52 + (i as i32 / fcols) * cell_h(), w: cell_w(), h: cell_h() };
             folder_cells.push((cell, id.clone()));
             if drag.as_ref().is_some_and(|d| d.id == *id) {
                 continue;

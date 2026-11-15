@@ -68,7 +68,7 @@ impl Ui {
         self.leave_panel();
         let overlay = self.new_overlay("helix-panel-editor", KeyboardInteractivity::Exclusive, EditorState::default());
         // The panel stays uncovered: its items can be dragged.
-        overlay.layer.set_margin(PANEL_HEIGHT as i32, 0, 0, 0);
+        overlay.layer.set_margin(panel_height() as i32, 0, 0, 0);
         overlay.layer.commit();
         self.panel_editor = Some(overlay);
     }
@@ -176,7 +176,7 @@ impl Ui {
         y += 16;
         for (hit, name, x) in [(EditorHit::Reset, "Reset", bx + PAD), (EditorHit::Done, "Done", bx + bw - PAD - BOTTOM_W)] {
             let r = Rect { x, y, w: BOTTOM_W, h: BOTTOM_H };
-            canvas.rect(r.x, r.y, r.w, r.h, if hit == EditorHit::Done { ACCENT } else { BANNER_BORDER });
+            theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look { on: hit == EditorHit::Done, ..Default::default() });
             let tw = text.map_or(0.0, |t| t.width(name, 15.0));
             label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
             hits.push((r, hit));
@@ -280,7 +280,7 @@ impl Ui {
         let PointerEventKind::Press { button: 0x111, .. } = event.kind else { return false };
         let item = |label: &str, choice| Some(super::window_menu::Item { label: label.into(), choice, checked: None, active: false, sub: Vec::new() });
         let items = vec![item("Customize Panel…", super::window_menu::Choice::CustomizePanel), item("Extensions…", super::window_menu::Choice::Extensions)];
-        self.open_menu(0, event.position.0 as i32, PANEL_HEIGHT as i32, items, Vec::new());
+        self.open_menu(0, event.position.0 as i32, panel_height() as i32, items, Vec::new());
         true
     }
 }
@@ -366,7 +366,7 @@ impl Ui {
                 let target = match &self.panel_drag {
                     Some(drag) => {
                         let moving = drag.moving || (x - drag.start_x).hypot(y - drag.start_y) >= 8.0;
-                        let off = y > f64::from(PANEL_HEIGHT);
+                        let off = y > f64::from(panel_height());
                         (moving, off, if off { None } else { self.drag_target(&drag.id.clone(), x) })
                     }
                     None => return false,

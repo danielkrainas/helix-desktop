@@ -589,7 +589,7 @@ impl Helix {
             TitleAction::Lower => self.lower_window(window),
             TitleAction::Menu => {
                 let pos = self.seat.get_pointer().unwrap().current_location().to_i32_round();
-                self.send_window_menu(window, pos);
+                self.send_window_menu(window, pos, false);
             }
             TitleAction::ToggleShade => {
                 if let Some(i) = self.frames.shaded.iter().position(|w| w == window) {

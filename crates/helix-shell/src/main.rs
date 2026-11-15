@@ -106,6 +106,26 @@ fn main() -> ExitCode {
             }
         }
     });
+    // Large Text: `text-scaling-factor` scales the shell's text.
+    let scale_ui = service.ui_sender();
+    runtime.spawn(async move {
+        const SCHEMA: &str = "org.gnome.desktop.interface";
+        let read = || {
+            use gio::prelude::*;
+            match gio::SettingsSchemaSource::default().and_then(|s| s.lookup(SCHEMA, true)) {
+                Some(schema) if schema.has_key("text-scaling-factor") => gio::Settings::new(SCHEMA).double("text-scaling-factor"),
+                _ => 1.0,
+            }
+        };
+        let watched = helix_settings::GSettings::new(&[SCHEMA]);
+        let (mut changes, _watch) = watched.watch();
+        loop {
+            let _ = scale_ui.send(helix_shell::UiEvent::TextScale(read()));
+            if changes.recv().await.is_none() {
+                break;
+            }
+        }
+    });
     // Counts and progress apps put on their dock icons.
     {
         let (conn, ui) = (service.connection().clone(), service.ui_sender());
@@ -131,7 +151,8 @@ fn main() -> ExitCode {
     // The dock's settings (Ubuntu's Dash to Dock schema, when installed).
     let dock_ui = service.ui_sender();
     runtime.spawn(async move {
-        let schemas: Vec<&str> = [helix_shell::dock::SCHEMA, "org.gnome.shell", helix_shell::dock::INTERFACE].into_iter().filter(|s| helix_settings::has_schema(s)).collect();
+        // (reduced-motion too: nothing slides, grows or wiggles with it.)
+        let schemas: Vec<&str> = [helix_shell::dock::SCHEMA, "org.gnome.shell", helix_shell::dock::INTERFACE, "org.gnome.desktop.a11y.interface"].into_iter().filter(|s| helix_settings::has_schema(s)).collect();
         let watched = helix_settings::GSettings::new(&schemas);
         let (mut changes, _watch) = watched.watch();
         loop {

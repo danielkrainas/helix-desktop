@@ -169,7 +169,7 @@ impl Helix {
             let grab = ResizeGrab { start_data, window: window.clone(), edges, initial, last_size: initial.size, follow: false };
             pointer.set_grab(self, grab, serial, Focus::Clear);
         } else if button == menu_button {
-            self.send_window_menu(window, pos.to_i32_round());
+            self.send_window_menu(window, pos.to_i32_round(), false);
         } else {
             return false;
         }

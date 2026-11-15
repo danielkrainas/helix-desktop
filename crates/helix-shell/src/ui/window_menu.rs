@@ -7,8 +7,14 @@ use helix_protocols::client::helix_window_list_v1::MenuState;
 use super::*;
 use crate::windows::{WindowAction, ALL_WORKSPACES};
 
-const MENU_W: i32 = 240;
-const ITEM_H: i32 = 32;
+/// A menu's width and an entry's height: they grow with the text scale.
+pub(super) fn menu_w() -> i32 {
+    helix_draw::theme::grow(240)
+}
+
+pub(super) fn item_h() -> i32 {
+    helix_draw::theme::grow(32)
+}
 const SEPARATOR_H: i32 = 9;
 /// Window previews: a tile's width, its picture's height, the title below.
 pub(super) const TILE_W: i32 = 220;
@@ -178,6 +184,8 @@ pub(super) fn previews_size(count: usize) -> (i32, i32) {
 impl Ui {
     /// The compositor asks for the menu of window `id` at (x, y).
     pub(super) fn show_window_menu(&mut self, id: u32, x: i32, y: i32, state: MenuState) {
+        // Alt+Space: the first entry starts selected.
+        self.menu_by_key = state.contains(MenuState::Keyboard);
         let workspace = self.windows.workspace_of(id);
         let items = items(state, workspace, self.windows.count);
         self.open_menu(id, x, y, items, Vec::new());
@@ -213,7 +221,7 @@ impl Ui {
             }
             items.extend(props);
         }
-        self.open_menu(0, x, PANEL_HEIGHT as i32, items, sources);
+        self.open_menu(0, x, panel_height() as i32, items, sources);
     }
 
     /// The panel's accessibility menu, below its indicator at `x`.
@@ -224,10 +232,14 @@ impl Ui {
             .enumerate()
             .filter_map(|(i, (s, state))| Some(Some(Item { label: s.label.to_owned(), choice: Choice::A11y(i), checked: Some((*state)?), active: false, sub: Vec::new() })))
             .collect();
-        self.open_menu(0, x, PANEL_HEIGHT as i32, items, Vec::new());
+        self.open_menu(0, x, panel_height() as i32, items, Vec::new());
     }
 
+    /// Open a menu at (x, y); when it was asked for with a key
+    /// (`menu_by_key`, set just before) its first enabled entry is
+    /// selected, else none until the pointer or a key moves.
     pub(super) fn open_menu(&mut self, id: u32, x: i32, y: i32, items: Vec<Option<Item>>, sources: Vec<crate::input_sources::Source>) {
+        let selected = if std::mem::take(&mut self.menu_by_key) { first_enabled(&items) } else { None };
         // A menu of the app grid's opens over the launcher.
         if !std::mem::take(&mut self.dock.menu_over_launcher) {
             self.close_launcher(true);
@@ -263,7 +275,7 @@ impl Ui {
             id,
             at: (x - origin.0, y - origin.1),
             items,
-            selected: None,
+            selected,
             hits: Vec::new(),
             bounds: Rect { x: 0, y: 0, w: 0, h: 0 },
             sources,
@@ -317,70 +329,10 @@ impl Ui {
             }
             return;
         }
-        let mh: i32 = 8 + menu.items.iter().map(|i| if i.is_some() { ITEM_H } else { SEPARATOR_H }).sum::<i32>();
-        // Keep it on the output.
-        let mx = menu.at.0.clamp(0, (w as i32 - MENU_W).max(0));
-        let my = menu.at.1.clamp(0, (h as i32 - mh).max(0));
-        canvas.rect(mx - 1, my - 1, MENU_W + 2, mh + 2, BANNER_BORDER);
-        canvas.rect(mx, my, MENU_W, mh, BANNER_BG);
-        menu.bounds = Rect { x: mx, y: my, w: MENU_W, h: mh };
-        menu.hits.clear();
-        let text = self.text.as_ref();
-        let mut y = my + 4;
-        // Radio items show which one is on.
-        let radio_marks = menu.items.iter().flatten().any(|i| i.active);
-        for (i, item) in menu.items.iter().enumerate() {
-            let Some(item) = item else {
-                canvas.rect(mx + 8, y + SEPARATOR_H / 2, MENU_W - 16, 1, BANNER_BORDER);
-                y += SEPARATOR_H;
-                continue;
-            };
-            let r = Rect { x: mx + 4, y, w: MENU_W - 8, h: ITEM_H };
-            if menu.selected == Some(i) && !menu.focus_hidden {
-                canvas.rect(r.x, r.y, r.w, r.h, HOVER_BG);
-            }
-            let base = baseline(text, r.y, r.h, 14.0);
-            let mut x = r.x + 12;
-            if let Some(checked) = item.checked {
-                let (bx, by) = (x, r.y + (r.h - 14) / 2);
-                if checked {
-                    canvas.rect(bx, by, 14, 14, ACCENT);
-                    canvas.line((f64::from(bx) + 3.0, f64::from(by) + 7.5), (f64::from(bx) + 6.0, f64::from(by) + 10.5), 1.8, FG);
-                    canvas.line((f64::from(bx) + 6.0, f64::from(by) + 10.5), (f64::from(bx) + 11.0, f64::from(by) + 3.5), 1.8, FG);
-                } else {
-                    for (rx, ry, rw, rh) in [(bx, by, 14, 1), (bx, by + 13, 14, 1), (bx, by, 1, 14), (bx + 13, by, 1, 14)] {
-                        canvas.rect(rx, ry, rw, rh, DIM_FG);
-                    }
-                }
-                x += 22;
-            }
-            if !menu.sources.is_empty() || radio_marks {
-                if item.active {
-                    canvas.circle(f64::from(x) + 4.0, f64::from(r.y + r.h / 2), 3.5, ACCENT);
-                }
-                x += 16;
-            }
-            // A submenu: an arrow at the end; "Back": one at the start.
-            let cy = f64::from(r.y + r.h / 2);
-            match item.choice {
-                Choice::Submenu => {
-                    let ax = f64::from(r.x + r.w - 14);
-                    canvas.line((ax - 3.0, cy - 4.0), (ax + 1.0, cy), 1.6, DIM_FG);
-                    canvas.line((ax + 1.0, cy), (ax - 3.0, cy + 4.0), 1.6, DIM_FG);
-                }
-                Choice::Back => {
-                    let ax = f64::from(x);
-                    canvas.line((ax + 4.0, cy - 4.0), (ax, cy), 1.6, DIM_FG);
-                    canvas.line((ax, cy), (ax + 4.0, cy + 4.0), 1.6, DIM_FG);
-                    x += 14;
-                }
-                _ => {}
-            }
-            let color = if item.choice == Choice::Disabled { DIM_FG } else { FG };
-            label(text, &mut canvas, &item.label, x as f32, base, 14.0, color, (r.x + r.w - x - 24) as f32);
-            menu.hits.push((r, i));
-            y += ITEM_H;
-        }
+        let selected = menu.selected.filter(|_| !menu.focus_hidden);
+        let (bounds, hits) = paint_menu(&mut canvas, self.text.as_ref(), (w as i32, h as i32), menu.at, &menu.items, selected, !menu.sources.is_empty());
+        menu.bounds = bounds;
+        menu.hits = hits;
         let surface = menu.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
@@ -483,6 +435,8 @@ impl Ui {
         let under = menu.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, i)| *i);
         match event.kind {
             PointerEventKind::Motion { .. } => {
+                // Disabled entries do not light up.
+                let under = under.filter(|i| menu.items.get(*i).and_then(|i| i.as_ref()).is_some_and(enabled));
                 if menu.selected != under || (under.is_some() && menu.focus_hidden) {
                     menu.selected = under;
                     menu.focus_hidden = false;
@@ -521,34 +475,149 @@ impl Ui {
         }
     }
 
-    /// Keys while the menu is open: arrows, Return, Escape.
+    /// Keys while the menu is open.
     pub(super) fn window_menu_key(&mut self, event: &KeyEvent) {
         let Some(menu) = self.window_menu.as_mut() else { return };
-        let selectable: Vec<usize> = menu.items.iter().enumerate().filter(|(_, i)| i.is_some()).map(|(n, _)| n).collect();
-        let pos = menu.selected.and_then(|s| selectable.iter().position(|n| *n == s));
-        match event.keysym {
-            Keysym::Escape => self.window_menu = None,
-            Keysym::Left if !menu.parents.is_empty() => self.window_submenu(None),
-            Keysym::Right if menu.selected.and_then(|s| menu.items.get(s)).and_then(|i| i.as_ref()).is_some_and(|i| i.choice == Choice::Submenu) => {
-                let index = menu.selected;
-                self.window_submenu(index);
-            }
-            Keysym::Down | Keysym::Right if !selectable.is_empty() => {
-                menu.selected = Some(selectable[pos.map_or(0, |p| (p + 1) % selectable.len())]);
+        let typed = event.utf8.as_deref().and_then(|s| s.chars().next()).filter(|c| c.is_alphanumeric());
+        match menu_key(&menu.items, menu.selected, event.keysym, typed, !menu.parents.is_empty()) {
+            MenuKey::None => {}
+            MenuKey::Close => self.window_menu = None,
+            MenuKey::Back => self.window_submenu(None),
+            MenuKey::Open(index) => self.window_submenu(Some(index)),
+            MenuKey::Choose(index) => self.choose_window_menu(index),
+            MenuKey::Select(index) => {
+                menu.selected = Some(index);
                 self.draw_window_menu();
                 self.hide_focus_later();
             }
-            Keysym::Up | Keysym::Left if !selectable.is_empty() => {
-                menu.selected = Some(selectable[pos.map_or(selectable.len() - 1, |p| (p + selectable.len() - 1) % selectable.len())]);
-                self.draw_window_menu();
-                self.hide_focus_later();
-            }
-            Keysym::Return | Keysym::KP_Enter | Keysym::space => {
-                if let Some(index) = menu.selected {
-                    self.choose_window_menu(index);
+        }
+    }
+}
+
+/// Paint a menu of `items` at `at` (kept on the `w`×`h` surface) with
+/// `selected` lit; `sources`: an input source menu (dots for the current
+/// one). Returns its box and each entry's place.
+pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32, i32), at: (i32, i32), items: &[Option<Item>], selected: Option<usize>, sources: bool) -> (Rect, Vec<(Rect, usize)>) {
+    let (menu_w, item_h) = (menu_w(), item_h());
+    let mh: i32 = 8 + items.iter().map(|i| if i.is_some() { item_h } else { SEPARATOR_H }).sum::<i32>();
+    // Keep it on the output.
+    let mx = at.0.clamp(0, (w - menu_w).max(0));
+    let my = at.1.clamp(0, (h - mh).max(0));
+    theme::popover(canvas, mx, my, menu_w, mh);
+    let bounds = Rect { x: mx, y: my, w: menu_w, h: mh };
+    let mut hits = Vec::new();
+    let mut y = my + 4;
+    // Radio items show which one is on.
+    let radio_marks = sources || items.iter().flatten().any(|i| i.active);
+    for (i, item) in items.iter().enumerate() {
+        let Some(item) = item else {
+            theme::separator(canvas, mx + 8, y + SEPARATOR_H / 2, menu_w - 16);
+            y += SEPARATOR_H;
+            continue;
+        };
+        let r = Rect { x: mx + 4, y, w: menu_w - 8, h: item_h };
+        if selected == Some(i) {
+            theme::row_highlight(canvas, r.x, r.y, r.w, r.h);
+        }
+        let base = baseline(text, r.y, r.h, 14.0);
+        let mut x = r.x + 12;
+        if let Some(checked) = item.checked {
+            let (bx, by) = (x, r.y + (r.h - 14) / 2);
+            if checked {
+                canvas.rect(bx, by, 14, 14, ACCENT);
+                canvas.line((f64::from(bx) + 3.0, f64::from(by) + 7.5), (f64::from(bx) + 6.0, f64::from(by) + 10.5), 1.8, FG);
+                canvas.line((f64::from(bx) + 6.0, f64::from(by) + 10.5), (f64::from(bx) + 11.0, f64::from(by) + 3.5), 1.8, FG);
+            } else {
+                for (rx, ry, rw, rh) in [(bx, by, 14, 1), (bx, by + 13, 14, 1), (bx, by, 1, 14), (bx + 13, by, 1, 14)] {
+                    canvas.rect(rx, ry, rw, rh, DIM_FG);
                 }
             }
+            x += 22;
+        }
+        if radio_marks {
+            if item.active {
+                canvas.circle(f64::from(x) + 4.0, f64::from(r.y + r.h / 2), 3.5, ACCENT);
+            }
+            x += 16;
+        }
+        // A submenu: an arrow at the end; "Back": one at the start.
+        let cy = f64::from(r.y + r.h / 2);
+        match item.choice {
+            Choice::Submenu => {
+                let ax = f64::from(r.x + r.w - 14);
+                canvas.line((ax - 3.0, cy - 4.0), (ax + 1.0, cy), 1.6, DIM_FG);
+                canvas.line((ax + 1.0, cy), (ax - 3.0, cy + 4.0), 1.6, DIM_FG);
+            }
+            Choice::Back => {
+                let ax = f64::from(x);
+                canvas.line((ax + 4.0, cy - 4.0), (ax, cy), 1.6, DIM_FG);
+                canvas.line((ax, cy), (ax + 4.0, cy + 4.0), 1.6, DIM_FG);
+                x += 14;
+            }
             _ => {}
+        }
+        let color = if item.choice == Choice::Disabled { DIM_FG } else { FG };
+        label(text, canvas, &item.label, x as f32, base, 14.0, color, (r.x + r.w - x - 24) as f32);
+        hits.push((r, i));
+        y += item_h;
+    }
+    (bounds, hits)
+}
+
+/// Whether an entry can be chosen.
+pub(super) fn enabled(item: &Item) -> bool {
+    item.choice != Choice::Disabled
+}
+
+/// The first entry that can be chosen.
+pub(super) fn first_enabled(items: &[Option<Item>]) -> Option<usize> {
+    items.iter().position(|i| i.as_ref().is_some_and(enabled))
+}
+
+/// What a key does in a menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MenuKey {
+    None,
+    Close,
+    /// Select an entry.
+    Select(usize),
+    /// Choose an entry (Return).
+    Choose(usize),
+    /// Show an entry's submenu; back from a submenu.
+    Open(usize),
+    Back,
+}
+
+/// What `keysym` (typing `typed`) does with `selected` of `items`;
+/// `in_submenu`: a submenu is shown.
+pub(super) fn menu_key(items: &[Option<Item>], selected: Option<usize>, keysym: Keysym, typed: Option<char>, in_submenu: bool) -> MenuKey {
+    let choosable: Vec<usize> = items.iter().enumerate().filter(|(_, i)| i.as_ref().is_some_and(enabled)).map(|(n, _)| n).collect();
+    let pos = selected.and_then(|s| choosable.iter().position(|n| *n == s));
+    let item = selected.and_then(|s| items.get(s)).and_then(|i| i.as_ref());
+    let n = choosable.len();
+    match keysym {
+        Keysym::Escape => MenuKey::Close,
+        Keysym::Left | Keysym::KP_Left if in_submenu => MenuKey::Back,
+        Keysym::Right | Keysym::KP_Right => match (selected, item) {
+            (Some(index), Some(i)) if i.choice == Choice::Submenu => MenuKey::Open(index),
+            _ => MenuKey::None,
+        },
+        _ if n == 0 => MenuKey::None,
+        Keysym::Down | Keysym::KP_Down => MenuKey::Select(choosable[pos.map_or(0, |p| (p + 1) % n)]),
+        Keysym::Up | Keysym::KP_Up => MenuKey::Select(choosable[pos.map_or(n - 1, |p| (p + n - 1) % n)]),
+        Keysym::Home | Keysym::KP_Home | Keysym::Page_Up => MenuKey::Select(choosable[0]),
+        Keysym::End | Keysym::KP_End | Keysym::Page_Down => MenuKey::Select(choosable[n - 1]),
+        Keysym::Return | Keysym::KP_Enter | Keysym::space => match (selected, item) {
+            (Some(index), Some(i)) if enabled(i) => MenuKey::Choose(index),
+            _ => MenuKey::None,
+        },
+        _ => {
+            // Type-ahead: the next entry (after the selected one, wrapping)
+            // starting with the letter typed.
+            let Some(c) = typed else { return MenuKey::None };
+            let starts = |index: &usize| items[*index].as_ref().and_then(|i| i.label.chars().next()).is_some_and(|f| f.to_lowercase().eq(c.to_lowercase()));
+            let from = pos.map_or(0, |p| p + 1);
+            (0..n).map(|k| choosable[(from + k) % n]).find(starts).map_or(MenuKey::None, MenuKey::Select)
         }
     }
 }
@@ -604,6 +673,46 @@ mod tests {
 
     fn p(key: &str, kind: crate::ibus::PropKind, visible: bool, sub: Vec<crate::ibus::Prop>) -> crate::ibus::Prop {
         crate::ibus::Prop { key: key.into(), kind, label: key.into(), state: 0, sensitive: true, visible, symbol: String::new(), sub }
+    }
+
+    fn item(label: &str, choice: Choice) -> Option<Item> {
+        Some(Item { label: label.into(), choice, checked: None, active: false, sub: Vec::new() })
+    }
+
+    #[test]
+    fn keyboard() {
+        let items = vec![
+            item("Not available", Choice::Disabled),
+            item("Minimize", Choice::Action(WindowAction::Minimize)),
+            None,
+            item("Move to Monitor", Choice::Submenu),
+            item("Disabled too", Choice::Disabled),
+            item("Close", Choice::Action(WindowAction::Close)),
+        ];
+        assert_eq!(first_enabled(&items), Some(1), "keyboard-opened menus start on the first enabled entry");
+        let key = |selected, k| menu_key(&items, selected, k, None, false);
+        assert_eq!(key(None, Keysym::Down), MenuKey::Select(1));
+        assert_eq!(key(None, Keysym::Up), MenuKey::Select(5));
+        assert_eq!(key(Some(3), Keysym::Down), MenuKey::Select(5), "disabled entries are skipped");
+        assert_eq!(key(Some(5), Keysym::Down), MenuKey::Select(1), "wrapping, past the disabled first entry");
+        assert_eq!(key(Some(1), Keysym::Up), MenuKey::Select(5));
+        assert_eq!(key(Some(3), Keysym::Home), MenuKey::Select(1));
+        assert_eq!(key(Some(1), Keysym::End), MenuKey::Select(5));
+        // Right only opens submenus; Left only goes back.
+        assert_eq!(key(Some(3), Keysym::Right), MenuKey::Open(3));
+        assert_eq!(key(Some(1), Keysym::Right), MenuKey::None);
+        assert_eq!(key(Some(1), Keysym::Left), MenuKey::None);
+        assert_eq!(menu_key(&items, Some(1), Keysym::Left, None, true), MenuKey::Back);
+        assert_eq!(key(Some(5), Keysym::Return), MenuKey::Choose(5));
+        assert_eq!(key(Some(0), Keysym::Return), MenuKey::None, "a disabled entry does nothing");
+        assert_eq!(key(None, Keysym::Return), MenuKey::None);
+        // Type-ahead.
+        let typed = |selected, c| menu_key(&items, selected, Keysym::c, Some(c), false);
+        assert_eq!(typed(None, 'c'), MenuKey::Select(5));
+        assert_eq!(typed(Some(1), 'M'), MenuKey::Select(3), "the next one starting with M");
+        assert_eq!(typed(Some(3), 'm'), MenuKey::Select(1), "wrapping");
+        assert_eq!(typed(Some(1), 'd'), MenuKey::None, "disabled ones are not reached");
+        assert_eq!(key(Some(1), Keysym::Escape), MenuKey::Close);
     }
 
     #[test]

@@ -10,6 +10,7 @@ use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
 pub mod backdrop;
 pub mod motion;
 pub mod screen;
+pub mod theme;
 
 /// An ARGB8888 (premultiplied, little-endian) pixel buffer. Drawing takes
 /// logical coordinates (surface-local); `scale` turns them into the
@@ -20,6 +21,8 @@ pub struct Canvas<'a> {
     pub width: usize,
     pub height: usize,
     pub scale: f64,
+    /// Drawing outside this (physical x0, y0, x1, y1) is dropped.
+    clip: Option<[i32; 4]>,
 }
 
 /// Pixels for `logical` units at `scale` (rounded, as the fractional-scale
@@ -69,6 +72,10 @@ fn contrast_shape(color: u32) -> u32 {
     if saturated(color) {
         return color;
     }
+    // Edges and separators are lines: white.
+    if color == theme::BORDER {
+        return 0xFFFF_FFFF;
+    }
     let alpha = color & 0xFF00_0000;
     if luminance(color) >= 0.4 { alpha | 0x00FF_FFFF } else { alpha }
 }
@@ -98,12 +105,28 @@ impl<'a> Canvas<'a> {
     /// A canvas for a `width`×`height` (logical) surface at `scale`; `data`
     /// holds the physical pixels.
     pub fn scaled(data: &'a mut [u8], width: usize, height: usize, scale: f64) -> Self {
-        Self { data, width: physical(width, scale), height: physical(height, scale), scale }
+        Self { data, width: physical(width, scale), height: physical(height, scale), scale, clip: None }
+    }
+
+    /// Draw only inside the logical rectangle (x, y, w, h) until
+    /// [`Self::unclip`] (a scrolled part of a surface).
+    pub fn clip(&mut self, x: i32, y: i32, w: i32, h: i32) {
+        let edge = |v: i32| (f64::from(v) * self.scale).round() as i32;
+        self.clip = Some([edge(x), edge(y), edge(x + w), edge(y + h)]);
+    }
+
+    pub fn unclip(&mut self) {
+        self.clip = None;
+    }
+
+    /// Whether physical pixel (x, y) is outside the clip.
+    fn clipped(&self, x: i32, y: i32) -> bool {
+        self.clip.is_some_and(|[x0, y0, x1, y1]| x < x0 || y < y0 || x >= x1 || y >= y1)
     }
 
     /// Blend `color` over the buffer pixel at (x, y) with extra coverage `cov`.
     pub fn blend_px(&mut self, x: i32, y: i32, color: u32, cov: f32) {
-        if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height {
+        if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height || self.clipped(x, y) {
             return;
         }
         let [r, g, b, a] = rgba(color);
@@ -278,8 +301,10 @@ impl Text {
         text.chars().all(|c| self.font.glyph_id(c).0 != 0)
     }
 
+    /// The width of `text` at `px` (times the text scale, see
+    /// [`theme::set_text_scale`]).
     pub fn width(&self, text: &str, px: f32) -> f32 {
-        let font = self.font.as_scaled(PxScale::from(px));
+        let font = self.font.as_scaled(PxScale::from(px * theme::text_scale()));
         let mut width = 0.0;
         let mut prev = None;
         for c in text.chars() {
@@ -295,7 +320,7 @@ impl Text {
 
     /// Height of the font's ascent at `px`, for vertical centering.
     pub fn ascent(&self, px: f32) -> f32 {
-        self.font.as_scaled(PxScale::from(px)).ascent()
+        self.font.as_scaled(PxScale::from(px * theme::text_scale())).ascent()
     }
 
     /// Draw `text` with its baseline at `y` (logical units; the glyphs are
@@ -305,7 +330,7 @@ impl Text {
         let color = text_color(color);
         let text = self.fit(text, px, max_width);
         let scale = canvas.scale as f32;
-        let (px, x, y) = (px * scale, x * scale, y * scale);
+        let (px, x, y) = (px * theme::text_scale() * scale, x * scale, y * scale);
         let font = self.font.as_scaled(PxScale::from(px));
         let mut caret = x;
         let mut prev = None;
@@ -517,6 +542,9 @@ impl Canvas<'_> {
                 let (fx, fy) = ((sx - x0 as f64) as f32, (sy - y0 as f64) as f32);
                 let mix = |a: [f32; 4], b: [f32; 4], t: f32| [0, 1, 2, 3].map(|k| a[k] + (b[k] - a[k]) * t);
                 let [cr, cg, cb, ca] = mix(mix(texel(x0, y0), texel(x1, y0), fx), mix(texel(x0, y1), texel(x1, y1), fx), fy).map(|c| c * cov);
+                if self.clipped(px, py) {
+                    continue;
+                }
                 let i = (py as usize * self.width + px as usize) * 4;
                 let dst = &mut self.data[i..i + 4];
                 let inv = 1.0 - ca / 255.0;
@@ -595,6 +623,9 @@ impl Canvas<'_> {
                     continue;
                 }
                 // Premultiplied source over the (premultiplied BGRA) pixel.
+                if self.clipped(px, py) {
+                    continue;
+                }
                 let i = (py as usize * self.width + px as usize) * 4;
                 let dst = &mut self.data[i..i + 4];
                 let inv = 1.0 - a / 255.0;

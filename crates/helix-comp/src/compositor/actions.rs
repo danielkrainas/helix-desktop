@@ -111,7 +111,7 @@ impl Helix {
             Action::ShowMenu => {
                 let top = frame_top(&window);
                 if let Some(loc) = self.space.element_location(&window) {
-                    self.send_window_menu(&window, (loc.x, loc.y - top).into());
+                    self.send_window_menu(&window, (loc.x, loc.y - top).into(), true);
                 }
             }
             Action::MoveToMonitorLeft => self.move_to_monitor(&window, Direction::Left),
@@ -146,8 +146,9 @@ impl Helix {
         self.sync_window_list();
     }
 
-    /// Tell the shell to show `window`'s menu at `at` (layout coordinates).
-    pub fn send_window_menu(&mut self, window: &Window, at: Point<i32, Logical>) {
+    /// Tell the shell to show `window`'s menu at `at` (layout coordinates);
+    /// `keyboard`: asked for with a key (its first entry starts selected).
+    pub fn send_window_menu(&mut self, window: &Window, at: Point<i32, Logical>, keyboard: bool) {
         self.sync_window_list();
         let Some(id) = self.window_list.ids.iter().find(|(w, _)| w == window).map(|(_, id)| *id) else { return };
         let mut state = MenuState::empty();
@@ -177,6 +178,7 @@ impl Helix {
             }
         }
         for listener in self.window_list.listeners.iter().filter(|l| l.version() >= 4) {
+            let state = if keyboard && listener.version() >= 10 { state | MenuState::Keyboard } else { state };
             listener.menu(id, at.x, at.y, state);
         }
     }

@@ -414,7 +414,7 @@ impl Ui {
                 let r = Rect { x: x as i32 + GAP / 2, y: y + GAP / 2, w: kw as i32 - GAP, h: ROW_H - GAP };
                 let lit = matches!(key.kind, KeyKind::Special(Special::Shift)) && view.shift;
                 let dark = matches!(key.kind, KeyKind::Special(s) if s != Special::Space);
-                canvas.rect(r.x, r.y, r.w, r.h, if lit { ACCENT } else if dark { BANNER_BG } else { FIELD_BG });
+                canvas.rect(r.x, r.y, r.w, r.h, if lit { ACCENT_FILL } else if dark { BANNER_BG } else { FIELD_BG });
                 let caption = match &key.kind {
                     KeyKind::Char(normal, shifted) => Some(if view.shift { shifted.clone() } else { normal.clone() }),
                     KeyKind::Special(Special::Shift) => Some("Shift".into()),

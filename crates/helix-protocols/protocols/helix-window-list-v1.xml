@@ -10,7 +10,7 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="9">
+  <interface name="helix_window_list_v1" version="10">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
       open window, topmost first, then a focused event (and, since version
@@ -134,6 +134,7 @@
       <entry name="monitor_right" value="32"/>
       <entry name="monitor_up" value="64"/>
       <entry name="monitor_down" value="128"/>
+      <entry name="keyboard" value="256" since="10" summary="opened from the keyboard: its first entry starts selected"/>
     </enum>
     <event name="not_responding" since="5">
       <description summary="an app stopped (or resumed) answering">

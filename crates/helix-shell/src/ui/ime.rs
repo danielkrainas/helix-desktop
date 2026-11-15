@@ -276,7 +276,7 @@ impl Ui {
         let mut x = 4;
         for (i, (label_text, width)) in labels.iter().zip(&widths).enumerate() {
             if i == selected {
-                canvas.rect(x, 4, *width, POPUP_ROW_H, ACCENT);
+                canvas.rect(x, 4, *width, POPUP_ROW_H, ACCENT_FILL);
             }
             let base = baseline(text, 4, POPUP_ROW_H, 15.0);
             label(text, &mut canvas, label_text, (x + 8) as f32, base, 15.0, FG, *width as f32);

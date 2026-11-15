@@ -14,10 +14,27 @@ use crate::notifications::{Banner, List};
 pub(super) const ICON: i32 = 32;
 /// Icons are decoded at this many pixels, sharp up to scale 2.
 const ICON_PX: u32 = 64;
-const LIST_W: i32 = 420;
 const LIST_PAD: i32 = 10;
 const BODY_PX: f32 = 14.0;
-const BODY_LINE: i32 = 19;
+
+/// The list column's width, a body line's height and a group header's:
+/// they grow with the text scale.
+fn list_w() -> i32 {
+    helix_draw::theme::grow(420)
+}
+
+fn body_line() -> i32 {
+    helix_draw::theme::grow(19)
+}
+
+fn group_header() -> i32 {
+    helix_draw::theme::grow(30)
+}
+
+/// A notification's height above its body: app name and summary.
+fn heading_h() -> i32 {
+    helix_draw::theme::grow(16) + helix_draw::theme::grow(26)
+}
 
 /// What a click on the banner hit.
 #[derive(Debug, Clone, PartialEq)]
@@ -60,10 +77,19 @@ pub(super) struct ListView {
     scroll: usize,
     /// Groups opened to show all their notifications.
     expanded: HashSet<String>,
+    /// How it was opened (from the keyboard it takes the keyboard).
+    opened: super::quick::Opened,
+    /// What has the keyboard focus.
+    focus: Option<ListHit>,
+    /// The controls the keyboard reaches, in Tab order, where the last
+    /// paint put them.
+    stops: Vec<(Rect, ListHit)>,
+    /// Logical px of the calendar column scrolled past (when it is taller
+    /// than the screen), and where it was shown.
+    cal_scroll: i32,
+    cal_area: Rect,
 }
 
-/// Height of a group's header row.
-const GROUP_HEADER: i32 = 30;
 
 /// A row of the notification list.
 #[derive(Debug, Clone, PartialEq)]
@@ -153,23 +179,24 @@ fn paint_notification(
         }
         None => canvas.circle(f64::from(x + ICON / 2), f64::from(y + 4 + ICON / 2), f64::from(ICON) / 2.0 - 2.0, BANNER_BORDER),
     }
-    label(text, canvas, &banner.app_name, text_x as f32, (y + 12) as f32, 12.0, DIM_FG, text_w - 24.0);
-    let mut bottom = y + 16;
+    let grow = helix_draw::theme::grow;
+    label(text, canvas, &banner.app_name, text_x as f32, (y + grow(12)) as f32, 12.0, DIM_FG, text_w - 24.0);
+    let mut bottom = y + grow(16);
     match bold {
-        Some(bold) => bold.draw(canvas, &banner.summary, text_x as f32, (bottom + 20) as f32, Style { px: 16.0, color: FG, max_width: text_w }),
-        None => label(text, canvas, &banner.summary, text_x as f32, (bottom + 20) as f32, 16.0, FG, text_w),
+        Some(bold) => bold.draw(canvas, &banner.summary, text_x as f32, (bottom + grow(20)) as f32, Style { px: 16.0, color: FG, max_width: text_w }),
+        None => label(text, canvas, &banner.summary, text_x as f32, (bottom + grow(20)) as f32, 16.0, FG, text_w),
     }
-    bottom += 26;
+    bottom += grow(26);
     let mut links = Vec::new();
     if let (Some(regular), false) = (text, banner.body.is_empty()) {
         let fonts = Fonts { regular, bold };
         let spans = spans(banner);
         let lines = wrap_spans(&fonts, &spans, BODY_PX, text_w, max_lines);
-        let areas = draw_lines(canvas, &fonts, &spans, &lines, (text_x as f32, (bottom + 14) as f32), BODY_PX, BODY_LINE as f32, (DIM_FG, ACCENT));
+        let areas = draw_lines(canvas, &fonts, &spans, &lines, (text_x as f32, (bottom + grow(14)) as f32), BODY_PX, body_line() as f32, (DIM_FG, ACCENT_TEXT));
         for ((lx, ly, lw, lh), uri) in areas {
             links.push((Rect { x: lx as i32, y: ly as i32, w: lw.ceil() as i32, h: lh as i32 }, uri));
         }
-        bottom += lines.len() as i32 * BODY_LINE;
+        bottom += lines.len() as i32 * body_line();
     }
     (links, bottom.max(y + ICON + 4))
 }
@@ -202,10 +229,10 @@ impl Ui {
 
     /// Banner height for its content.
     pub(super) fn banner_height(&self, banner: &Banner) -> u32 {
-        let text_w = (BANNER_W as i32 - 2 * BANNER_PAD - ICON - 12) as f32;
+        let text_w = (banner_w() as i32 - 2 * BANNER_PAD - ICON - 12) as f32;
         let body = self.body_lines(banner, text_w, banner_lines(banner)) as i32;
         let buttons = if banner.buttons.is_empty() { 0 } else { 44 };
-        let content = (16 + 26 + body * BODY_LINE).max(ICON + 4);
+        let content = (heading_h() + body * body_line()).max(ICON + 4);
         (BANNER_PAD + content + buttons + BANNER_PAD) as u32
     }
 
@@ -243,7 +270,7 @@ impl Ui {
             let bw = (w as i32 - 2 * BANNER_PAD - gap * (n - 1)) / n;
             for (i, (key, button_label)) in view.data.buttons.iter().enumerate() {
                 let r = Rect { x: BANNER_PAD + i as i32 * (bw + gap), y, w: bw, h: 32 };
-                canvas.rect(r.x, r.y, r.w, r.h, BANNER_BORDER);
+                theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
                 let lw = text.map_or(0.0, |t| t.width(button_label, 14.0)).min((bw - 12) as f32);
                 let base = baseline(text, r.y, r.h, 14.0);
                 label(text, &mut canvas, button_label, r.x as f32 + (bw as f32 - lw) / 2.0, base, 14.0, FG, (bw - 12) as f32);
@@ -331,33 +358,31 @@ impl Ui {
     /// surface, size and what its places do.
     pub(super) fn notification_list_a11y(&self) -> Option<super::atspi::ListShown<'_>> {
         let view = self.notify.view.as_ref().filter(|v| v.configured)?;
-        Some((view.layer.wl_surface(), (view.width, view.height), &view.hits))
+        Some((view.layer.wl_surface(), (view.width, view.height), &view.hits, view.focus.as_ref()))
     }
 
-    pub(super) fn toggle_notification_list(&mut self) {
-        if self.notify.view.take().is_some() {
-            self.draw_panel();
+    /// Open the list (from the keyboard: taking the keyboard, the first
+    /// notification focused), or close it.
+    pub(super) fn toggle_notification_list(&mut self, opened: super::quick::Opened) {
+        if self.notify.view.is_some() {
+            self.close_notification_list();
             return;
         }
         self.close_launcher(true);
-        self.power_menu = None;
+        self.close_quick_settings();
         let surface = self.compositor.create_surface(&self.qh);
         let layer = self.layer_shell.create_layer_surface(&self.qh, surface, Layer::Overlay, Some("helix-notification-list"), None);
         layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
         layer.set_exclusive_zone(-1);
-        layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+        layer.set_keyboard_interactivity(opened.interactivity());
         layer.set_size(0, 0);
         layer.commit();
-        self.notify.view = Some(ListView { layer, width: 0, height: 0, configured: false, hits: Vec::new(), scroll: 0, expanded: HashSet::new() });
+        // (`Inside`: the first notification, once painted.)
+        let focus = opened.keyboard().then_some(ListHit::Inside);
+        self.notify.view = Some(ListView { layer, width: 0, height: 0, configured: false, hits: Vec::new(), scroll: 0, expanded: HashSet::new(), opened, focus, stops: Vec::new(), cal_scroll: 0, cal_area: Rect::default() });
         let _ = self.requests.send(UiRequest::NotificationListOpened);
         self.calendar_open();
         self.draw_panel();
-    }
-
-    pub(super) fn close_notification_list(&mut self) {
-        if self.notify.view.take().is_some() {
-            self.draw_panel();
-        }
     }
 
     pub(super) fn notify_configured(&mut self, layer: &LayerSurface, size: (u32, u32)) -> bool {
@@ -378,13 +403,6 @@ impl Ui {
         false
     }
 
-    /// Height of one list entry.
-    fn entry_height(&self, banner: &Banner) -> i32 {
-        let text_w = (LIST_W - 2 * LIST_PAD - ICON - 12 - 24) as f32;
-        let body = self.body_lines(banner, text_w, 2) as i32;
-        (16 + 26 + body * BODY_LINE).max(ICON + 4) + 2 * LIST_PAD
-    }
-
     pub(super) fn draw_notification_list(&mut self) {
         let Some(mut view) = self.notify.view.take() else { return };
         if view.configured && view.width > 0 && view.height > 0 {
@@ -399,11 +417,13 @@ impl Ui {
         view.expanded.retain(|key| entries.iter().any(|e| group_key(e) == *key));
         let rows = list_rows(&entries, &view.expanded);
         view.scroll = view.scroll.min(rows.len().saturating_sub(1));
+        let indents = row_indents(&entries, &rows);
         let heights: Vec<i32> = rows
             .iter()
-            .map(|row| match row {
-                Row::Header { .. } => GROUP_HEADER,
-                Row::Entry(i) => self.entry_height(&entries[*i]),
+            .zip(&indents)
+            .map(|(row, indent)| match row {
+                Row::Header { .. } => group_header(),
+                Row::Entry(i) => entry_height(self.fonts().as_ref(), &entries[*i], *indent),
             })
             .collect();
         let icons: Vec<Option<Image>> = rows
@@ -414,7 +434,6 @@ impl Ui {
                 Row::Header { .. } => None,
             })
             .collect();
-        let do_not_disturb = self.notify.do_not_disturb;
         let scale = self.scales.of(view.layer.wl_surface());
         let media_icons = self.calendar_media_icons(scale);
         let cal_h = self.calendar_height();
@@ -424,115 +443,66 @@ impl Ui {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
-        canvas.fill(0x00000000);
-        view.hits.clear();
-        let total_w = LIST_W + super::calendar::CAL_W;
-        let bx = (w as i32 - total_w) / 2;
-        let by = PANEL_HEIGHT as i32 + 4;
-        let max_h = h as i32 - by - 8;
-        // Entries that fit, from the scroll position.
-        let header = 44;
-        let mut used = header;
-        let mut shown = Vec::new();
-        for ((row, eh), icon) in rows.iter().zip(&heights).skip(view.scroll).zip(&icons) {
-            if used + eh > max_h && !shown.is_empty() {
-                break;
-            }
-            used += eh;
-            shown.push((row, *eh, icon.as_ref()));
+        // A focus that is not there (yet, or any more) moves to the first
+        // notification, else Do Not Disturb.
+        let targets = row_targets(&entries, &rows);
+        let model = ListModel { entries: &entries, rows: &rows, heights: &heights, icons: &icons, scroll: view.scroll, do_not_disturb: self.notify.do_not_disturb, calendar: &self.calendar, media_icons: &media_icons, cal_h, cal_scroll: view.cal_scroll };
+        let fonts = (self.text.as_ref(), self.bold.as_ref());
+        let mut painted = paint_list(&mut canvas, fonts, (w, h), &model, view.focus.as_ref());
+        let lost = view.focus.as_ref().is_some_and(|f| !painted.stops.iter().any(|(_, s)| s == f) && !targets.contains(f));
+        if lost || view.focus == Some(ListHit::Inside) {
+            view.focus = Some(targets.first().cloned().unwrap_or(ListHit::DoNotDisturb));
+            painted = paint_list(&mut canvas, fonts, (w, h), &model, view.focus.as_ref());
         }
-        let empty_h = if entries.is_empty() { 60 } else { 0 };
-        let bh = (used + empty_h).max(cal_h);
-        canvas.rect(bx - 1, by - 1, total_w + 2, bh + 2, BANNER_BORDER);
-        canvas.rect(bx, by, total_w, bh, BANNER_BG);
-        canvas.rect(bx + LIST_W, by + LIST_PAD, 1, bh - 2 * LIST_PAD, BANNER_BORDER);
-        super::calendar::paint_calendar(&self.calendar, (self.text.as_ref(), self.bold.as_ref()), &mut canvas, (bx + LIST_W, by), &media_icons, &mut view.hits);
-        let text = self.text.as_ref();
-        // Header: Do Not Disturb switch and Clear.
-        let switch = Rect { x: bx + LIST_PAD, y: by + 10, w: 40, h: 22 };
-        let on = do_not_disturb;
-        let track = if on { ACCENT } else { TRACK };
-        canvas.circle(f64::from(switch.x + 11), f64::from(switch.y + 11), 11.0, track);
-        canvas.circle(f64::from(switch.x + switch.w - 11), f64::from(switch.y + 11), 11.0, track);
-        canvas.rect(switch.x + 11, switch.y, switch.w - 22, switch.h, track);
-        let knob = if on { switch.x + switch.w - 11 } else { switch.x + 11 };
-        canvas.circle(f64::from(knob), f64::from(switch.y + 11), 9.0, FG);
-        label(text, &mut canvas, "Do Not Disturb", (switch.x + switch.w + 10) as f32, (switch.y + 16) as f32, 14.0, FG, 160.0);
-        view.hits.push((Rect { x: switch.x, y: switch.y, w: switch.w + 140, h: switch.h }, ListHit::DoNotDisturb));
-        if !entries.is_empty() {
-            let clear = Rect { x: bx + LIST_W - LIST_PAD - 64, y: by + 8, w: 64, h: 26 };
-            canvas.rect(clear.x, clear.y, clear.w, clear.h, BANNER_BORDER);
-            let cw = text.map_or(0.0, |t| t.width("Clear", 14.0));
-            label(text, &mut canvas, "Clear", clear.x as f32 + (clear.w as f32 - cw) / 2.0, baseline(text, clear.y, clear.h, 14.0), 14.0, FG, 60.0);
-            view.hits.push((clear, ListHit::Clear));
-        }
-        let mut y = by + header;
-        if entries.is_empty() {
-            let message = "No Notifications";
-            let mw = text.map_or(0.0, |t| t.width(message, 15.0));
-            label(text, &mut canvas, message, bx as f32 + (LIST_W as f32 - mw) / 2.0, (y + 30) as f32, 15.0, DIM_FG, LIST_W as f32);
-        }
-        // Entries of an open group are indented under its header.
-        let mut in_group: Option<String> = None;
-        for (row, eh, icon) in shown {
-            let entry = match row {
-                Row::Header { key, app, count, open } => {
-                    canvas.rect(bx + LIST_PAD, y, LIST_W - 2 * LIST_PAD, 1, BANNER_BORDER);
-                    let head = app.clone();
-                    let tail = format!("{count} notifications");
-                    // A chevron: down when open, right when closed.
-                    let (cx, cy) = (f64::from(bx + LIST_PAD + 8), f64::from(y + 15));
-                    let (a, b, c) = if *open { ((cx - 4.0, cy - 2.0), (cx, cy + 2.0), (cx + 4.0, cy - 2.0)) } else { ((cx - 2.0, cy - 4.0), (cx + 2.0, cy), (cx - 2.0, cy + 4.0)) };
-                    canvas.line(a, b, 1.5, DIM_FG);
-                    canvas.line(b, c, 1.5, DIM_FG);
-                    let hb = self.bold.as_ref().or(text);
-                    label(hb, &mut canvas, &head, (bx + LIST_PAD + 20) as f32, (y + 20) as f32, 14.0, FG, 200.0);
-                    let hw = hb.map_or(0.0, |t| t.width(&head, 14.0).min(200.0));
-                    label(text, &mut canvas, &tail, bx as f32 + (LIST_PAD + 32) as f32 + hw, (y + 20) as f32, 13.0, DIM_FG, 140.0);
-                    let close = Rect { x: bx + LIST_W - LIST_PAD - 22, y: y + 4, w: 22, h: 22 };
-                    label(text, &mut canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
-                    view.hits.push((close, ListHit::GroupClear(key.clone())));
-                    view.hits.push((Rect { x: bx, y, w: LIST_W, h: eh }, ListHit::GroupToggle(key.clone())));
-                    in_group = Some(key.clone());
-                    y += eh;
-                    continue;
-                }
-                Row::Entry(i) => &entries[*i],
-            };
-            let grouped = in_group.as_ref().is_some_and(|k| *k == group_key(entry));
-            if !grouped {
-                in_group = None;
-            }
-            let indent = if grouped { 12 } else { 0 };
-            if !grouped {
-                canvas.rect(bx + LIST_PAD, y, LIST_W - 2 * LIST_PAD, 1, BANNER_BORDER);
-            } else {
-                canvas.rect(bx + LIST_PAD + 4, y + 4, 2, eh - 8, BANNER_BORDER);
-            }
-            let (links, _) = paint_notification(
-                &mut canvas,
-                (text, self.bold.as_ref()),
-                icon,
-                entry,
-                (bx + LIST_PAD + indent, y + LIST_PAD),
-                LIST_W - 2 * LIST_PAD - 24 - indent,
-                2,
-            );
-            let close = Rect { x: bx + LIST_W - LIST_PAD - 22, y: y + LIST_PAD - 2, w: 22, h: 22 };
-            label(text, &mut canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
-            view.hits.push((close, ListHit::Dismiss(entry.id)));
-            for (rect, uri) in links {
-                view.hits.push((rect, ListHit::Link(uri)));
-            }
-            view.hits.push((Rect { x: bx, y, w: LIST_W, h: eh }, ListHit::Entry(entry.id)));
-            y += eh;
-        }
-        view.hits.push((Rect { x: bx, y: by, w: total_w, h: bh }, ListHit::Inside));
-        view.hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, ListHit::Outside));
+        view.hits = painted.hits;
+        view.stops = painted.stops;
+        view.cal_scroll = painted.cal_scroll;
+        view.cal_area = painted.cal_area;
         let surface = view.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             view.layer.commit();
+        }
+    }
+
+    /// Do what a click on `hit` does.
+    fn list_activate(&mut self, hit: ListHit) {
+        let Some(view) = self.notify.view.as_mut() else { return };
+        match hit {
+            ListHit::Entry(id) => {
+                let _ = self.requests.send(UiRequest::NotificationActivated { id, action: None });
+                self.close_notification_list();
+            }
+            ListHit::Dismiss(id) => {
+                let _ = self.requests.send(UiRequest::NotificationDismissed { id });
+            }
+            ListHit::Link(uri) => {
+                let _ = self.requests.send(UiRequest::OpenUri(uri));
+                self.close_notification_list();
+            }
+            ListHit::Clear => {
+                let _ = self.requests.send(UiRequest::NotificationsCleared);
+            }
+            ListHit::GroupToggle(key) => {
+                if !view.expanded.remove(&key) {
+                    view.expanded.insert(key);
+                }
+                self.draw_notification_list();
+            }
+            ListHit::GroupClear(key) => {
+                for e in self.notify.list.entries.iter().filter(|e| group_key(e) == key) {
+                    let _ = self.requests.send(UiRequest::NotificationDismissed { id: e.id });
+                }
+            }
+            ListHit::DoNotDisturb => {
+                let on = !self.notify.do_not_disturb;
+                self.notify.do_not_disturb = on;
+                let _ = self.requests.send(UiRequest::SetDoNotDisturb(on));
+                self.draw_notification_list();
+            }
+            hit @ (ListHit::Month(_) | ListHit::Day(..) | ListHit::Media(_)) => self.calendar_click(&hit),
+            ListHit::Inside => {}
+            ListHit::Outside => self.close_notification_list(),
         }
     }
 
@@ -542,54 +512,456 @@ impl Ui {
         match event.kind {
             PointerEventKind::Axis { vertical, .. } if vertical.absolute != 0.0 || vertical.discrete != 0 => {
                 let down = vertical.absolute > 0.0 || vertical.discrete > 0;
-                let count = list_rows(&self.notify.list.entries, &view.expanded).len();
-                view.scroll = if down { (view.scroll + 1).min(count.saturating_sub(1)) } else { view.scroll.saturating_sub(1) };
+                if view.cal_area.contains(event.position.0, event.position.1) {
+                    // The calendar column (when it does not fit).
+                    view.cal_scroll = (view.cal_scroll + if down { 48 } else { -48 }).max(0);
+                } else {
+                    let count = list_rows(&self.notify.list.entries, &view.expanded).len();
+                    view.scroll = if down { (view.scroll + 1).min(count.saturating_sub(1)) } else { view.scroll.saturating_sub(1) };
+                }
                 self.draw_notification_list();
             }
             PointerEventKind::Press { button: BTN_LEFT, .. } => {
                 let (x, y) = event.position;
                 let hit = view.hits.iter().find(|(r, _)| r.contains(x, y)).map(|(_, h)| h.clone());
-                match hit {
-                    Some(ListHit::Entry(id)) => {
-                        let _ = self.requests.send(UiRequest::NotificationActivated { id, action: None });
-                        self.close_notification_list();
-                    }
-                    Some(ListHit::Dismiss(id)) => {
-                        let _ = self.requests.send(UiRequest::NotificationDismissed { id });
-                    }
-                    Some(ListHit::Link(uri)) => {
-                        let _ = self.requests.send(UiRequest::OpenUri(uri));
-                        self.close_notification_list();
-                    }
-                    Some(ListHit::Clear) => {
-                        let _ = self.requests.send(UiRequest::NotificationsCleared);
-                    }
-                    Some(ListHit::GroupToggle(key)) => {
-                        if !view.expanded.remove(&key) {
-                            view.expanded.insert(key);
-                        }
-                        self.draw_notification_list();
-                    }
-                    Some(ListHit::GroupClear(key)) => {
-                        for e in self.notify.list.entries.iter().filter(|e| group_key(e) == key) {
-                            let _ = self.requests.send(UiRequest::NotificationDismissed { id: e.id });
-                        }
-                    }
-                    Some(ListHit::DoNotDisturb) => {
-                        let on = !self.notify.do_not_disturb;
-                        self.notify.do_not_disturb = on;
-                        let _ = self.requests.send(UiRequest::SetDoNotDisturb(on));
-                        self.draw_notification_list();
-                    }
-                    Some(hit @ (ListHit::Month(_) | ListHit::Day(..) | ListHit::Media(_))) => self.calendar_click(&hit),
-                    Some(ListHit::Inside) => {}
-                    Some(ListHit::Outside) | None => self.close_notification_list(),
-                }
+                self.list_activate(hit.unwrap_or(ListHit::Outside));
             }
             _ => {}
         }
         true
     }
+
+    /// Close the list; the panel's clock gets the focus back when it was
+    /// opened from there.
+    pub(super) fn close_notification_list(&mut self) {
+        let Some(view) = self.notify.view.take() else { return };
+        if let super::quick::Opened::Panel(i) = view.opened {
+            self.refocus_panel(i);
+        }
+        drop(view);
+        self.draw_panel();
+    }
+
+    /// Focus `hit`, scrolling the list so a notification row shows.
+    fn list_focus(&mut self, hit: ListHit) {
+        let Some(view) = self.notify.view.as_mut() else { return };
+        view.focus = Some(hit.clone());
+        let rows = list_rows(&self.notify.list.entries, &view.expanded);
+        let targets = row_targets(&self.notify.list.entries, &rows);
+        if let Some(index) = targets.iter().position(|t| *t == hit) {
+            if index < view.scroll {
+                view.scroll = index;
+            }
+        }
+        self.draw_notification_list();
+        // Further down than what fits: scroll until it shows.
+        for _ in 0..targets.len() {
+            let Some(view) = self.notify.view.as_mut() else { return };
+            if view.hits.iter().any(|(_, h)| *h == hit) || !targets.contains(&hit) {
+                break;
+            }
+            view.scroll += 1;
+            self.draw_notification_list();
+        }
+    }
+
+    /// A key while the list is open.
+    pub(super) fn notification_list_key(&mut self, event: &KeyEvent) {
+        let Some(view) = self.notify.view.as_ref() else { return };
+        let rows = list_rows(&self.notify.list.entries, &view.expanded);
+        let targets = row_targets(&self.notify.list.entries, &rows);
+        let action = list_key_action(event.keysym, self.ctrl_held, &view.stops, view.focus.as_ref(), &targets, &self.notify.list.entries);
+        match action {
+            ListKey::None => {}
+            ListKey::Close => self.close_notification_list(),
+            ListKey::Focus(hit) => self.list_focus(hit),
+            ListKey::Activate(hit) => self.list_activate(hit),
+            ListKey::Expand(key, open) => {
+                if let Some(view) = self.notify.view.as_mut() {
+                    if open {
+                        view.expanded.insert(key.clone());
+                    } else {
+                        view.expanded.remove(&key);
+                    }
+                }
+                self.list_focus(ListHit::GroupToggle(key));
+            }
+            ListKey::Day(days) => self.calendar_move(super::calendar::CalendarMove::Days(days)),
+            ListKey::Month(months) => self.calendar_move(super::calendar::CalendarMove::Months(months)),
+            ListKey::Today => self.calendar_move(super::calendar::CalendarMove::Today),
+        }
+    }
+}
+
+/// The keyboard moved the calendar's selected day: it keeps the focus.
+pub(super) fn view_focus_day(view: &mut ListView, (y, m, d): (i32, i32, i32)) {
+    if matches!(view.focus, Some(ListHit::Day(..))) {
+        view.focus = Some(ListHit::Day(y, m, d));
+    }
+}
+
+/// The notification column's rows as the keyboard reaches them: a
+/// notification, or a group's header.
+pub(super) fn row_targets(entries: &[Banner], rows: &[Row]) -> Vec<ListHit> {
+    rows.iter()
+        .filter_map(|row| match row {
+            Row::Header { key, .. } => Some(ListHit::GroupToggle(key.clone())),
+            Row::Entry(i) => entries.get(*i).map(|e| ListHit::Entry(e.id)),
+        })
+        .collect()
+}
+
+/// Whether `hit` is in the calendar column.
+fn in_calendar(hit: &ListHit) -> bool {
+    matches!(hit, ListHit::Month(_) | ListHit::Day(..) | ListHit::Media(_))
+}
+
+/// What a key does in the open list.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum ListKey {
+    None,
+    Close,
+    Focus(ListHit),
+    Activate(ListHit),
+    /// Open or close a group.
+    Expand(String, bool),
+    /// Move the selected day, change the month, go to today.
+    Day(i32),
+    Month(i32),
+    Today,
+}
+
+/// What `keysym` does with the keyboard on `focus`; `stops` are the
+/// controls painted (in Tab order), `targets` every notification row.
+pub(super) fn list_key_action(keysym: Keysym, ctrl: bool, stops: &[(Rect, ListHit)], focus: Option<&ListHit>, targets: &[ListHit], entries: &[Banner]) -> ListKey {
+    if keysym == Keysym::Escape {
+        return ListKey::Close;
+    }
+    let order: Vec<&ListHit> = stops.iter().map(|(_, h)| h).collect();
+    let Some(focus) = focus.filter(|f| order.contains(f)) else {
+        // Nothing focused yet (opened by a click).
+        return match keysym {
+            Keysym::Tab | Keysym::Down | Keysym::Up | Keysym::ISO_Left_Tab => ListKey::Focus(targets.first().cloned().unwrap_or(ListHit::DoNotDisturb)),
+            _ => ListKey::None,
+        };
+    };
+    let at = order.iter().position(|h| *h == focus).unwrap_or(0);
+    let n = order.len();
+    let calendar = in_calendar(focus);
+    match keysym {
+        // Ctrl+Tab: the other column.
+        Keysym::Tab | Keysym::ISO_Left_Tab if ctrl => {
+            let other = order.iter().find(|h| in_calendar(h) != calendar);
+            return other.map_or(ListKey::None, |h| ListKey::Focus((*h).clone()));
+        }
+        Keysym::Tab => return ListKey::Focus(order[(at + 1) % n].clone()),
+        Keysym::ISO_Left_Tab => return ListKey::Focus(order[(at + n - 1) % n].clone()),
+        _ => {}
+    }
+    // The notification a focused part (close button, link) belongs to:
+    // the row before it in Tab order.
+    let owner = || order[..=at].iter().rev().find(|h| targets.contains(h)).map(|h| (*h).clone());
+    let row = targets.iter().position(|t| t == focus).or_else(|| owner().and_then(|o| targets.iter().position(|t| *t == o)));
+    let activate = || ListKey::Activate(focus.clone());
+    if let ListHit::Day(..) = focus {
+        return match keysym {
+            Keysym::Left | Keysym::KP_Left => ListKey::Day(-1),
+            Keysym::Right | Keysym::KP_Right => ListKey::Day(1),
+            Keysym::Up | Keysym::KP_Up => ListKey::Day(-7),
+            Keysym::Down | Keysym::KP_Down => ListKey::Day(7),
+            Keysym::Page_Up => ListKey::Month(-1),
+            Keysym::Page_Down => ListKey::Month(1),
+            Keysym::Home => ListKey::Today,
+            _ => ListKey::None,
+        };
+    }
+    if calendar {
+        // The month and media buttons: Left/Right along them, Up/Down
+        // to the days.
+        let day = order.iter().find(|h| matches!(h, ListHit::Day(..))).map(|h| (*h).clone());
+        let same = |h: &&&ListHit| std::mem::discriminant(**h) == std::mem::discriminant(focus);
+        return match keysym {
+            Keysym::Left | Keysym::KP_Left => order[..at].iter().rev().find(same).map_or(ListKey::None, |h| ListKey::Focus((*h).clone())),
+            Keysym::Right | Keysym::KP_Right => order[at + 1..].iter().find(same).map_or(ListKey::None, |h| ListKey::Focus((*h).clone())),
+            Keysym::Down | Keysym::KP_Down if matches!(focus, ListHit::Month(_)) => day.map_or(ListKey::None, ListKey::Focus),
+            Keysym::Up | Keysym::KP_Up if matches!(focus, ListHit::Media(_)) => day.map_or(ListKey::None, ListKey::Focus),
+            Keysym::Page_Up => ListKey::Month(-1),
+            Keysym::Page_Down => ListKey::Month(1),
+            Keysym::Return | Keysym::KP_Enter | Keysym::space => activate(),
+            _ => ListKey::None,
+        };
+    }
+    match keysym {
+        Keysym::Down | Keysym::KP_Down => match row {
+            Some(r) => targets.get(r + 1).map_or(ListKey::None, |t| ListKey::Focus(t.clone())),
+            None => targets.first().map_or(ListKey::None, |t| ListKey::Focus(t.clone())),
+        },
+        Keysym::Up | Keysym::KP_Up => match row {
+            Some(0) => ListKey::Focus(ListHit::DoNotDisturb),
+            Some(r) => ListKey::Focus(targets[r - 1].clone()),
+            None => ListKey::None,
+        },
+        Keysym::Right | Keysym::KP_Right => match focus {
+            ListHit::GroupToggle(key) => ListKey::Expand(key.clone(), true),
+            ListHit::DoNotDisturb if order.contains(&&ListHit::Clear) => ListKey::Focus(ListHit::Clear),
+            _ => ListKey::None,
+        },
+        Keysym::Left | Keysym::KP_Left => match focus {
+            ListHit::GroupToggle(key) => ListKey::Expand(key.clone(), false),
+            ListHit::Clear => ListKey::Focus(ListHit::DoNotDisturb),
+            // A grouped notification: back to (and closing) its group.
+            _ => {
+                let key = owner().and_then(|o| match o {
+                    ListHit::Entry(id) => entries.iter().find(|e| e.id == id).map(group_key),
+                    _ => None,
+                });
+                match key.filter(|k| targets.contains(&ListHit::GroupToggle(k.clone()))) {
+                    Some(k) => ListKey::Expand(k, false),
+                    None => ListKey::None,
+                }
+            }
+        },
+        Keysym::Delete | Keysym::KP_Delete => match owner() {
+            Some(ListHit::Entry(id)) => ListKey::Activate(ListHit::Dismiss(id)),
+            Some(ListHit::GroupToggle(key)) => ListKey::Activate(ListHit::GroupClear(key)),
+            _ => ListKey::None,
+        },
+        Keysym::Return | Keysym::KP_Enter | Keysym::space => activate(),
+        Keysym::Home => targets.first().map_or(ListKey::None, |t| ListKey::Focus(t.clone())),
+        Keysym::End => targets.last().map_or(ListKey::None, |t| ListKey::Focus(t.clone())),
+        _ => ListKey::None,
+    }
+}
+
+/// How far a group's notifications are indented under its header.
+const GROUP_INDENT: i32 = 12;
+
+/// How far each row is indented: a notification under its group's
+/// header by [`GROUP_INDENT`].
+pub(super) fn row_indents(entries: &[Banner], rows: &[Row]) -> Vec<i32> {
+    let mut group: Option<String> = None;
+    rows.iter()
+        .map(|row| match row {
+            Row::Header { key, .. } => {
+                group = Some(key.clone());
+                0
+            }
+            Row::Entry(i) => {
+                let key = entries.get(*i).map(group_key);
+                if key.is_some() && key == group {
+                    GROUP_INDENT
+                } else {
+                    group = None;
+                    0
+                }
+            }
+        })
+        .collect()
+}
+
+/// The width a list entry indented by `indent` is painted at (its icon,
+/// then its text), left of its ×.
+fn entry_w(indent: i32) -> i32 {
+    list_w() - 2 * LIST_PAD - 24 - indent
+}
+
+/// Height of one list entry indented by `indent`: its body wraps at the
+/// width it is painted at.
+pub(super) fn entry_height(fonts: Option<&Fonts>, banner: &Banner, indent: i32) -> i32 {
+    let text_w = (entry_w(indent) - ICON - 12) as f32;
+    let body = match fonts {
+        Some(fonts) if !banner.body.is_empty() => wrap_spans(fonts, &spans(banner), BODY_PX, text_w, 2).len(),
+        Some(_) => 0,
+        None => usize::from(!banner.body.is_empty()),
+    } as i32;
+    (heading_h() + body * body_line()).max(ICON + 4) + 2 * LIST_PAD
+}
+
+/// What the list shows.
+pub(super) struct ListModel<'a> {
+    pub entries: &'a [Banner],
+    pub rows: &'a [Row],
+    /// Each row's height.
+    pub heights: &'a [i32],
+    /// Icons of the rows from `scroll` on.
+    pub icons: &'a [Option<Image>],
+    /// Rows scrolled past.
+    pub scroll: usize,
+    pub do_not_disturb: bool,
+    pub calendar: &'a super::calendar::CalendarState,
+    pub media_icons: &'a super::calendar::MediaIcons,
+    pub cal_h: i32,
+    /// Logical px of the calendar column scrolled past.
+    pub cal_scroll: i32,
+}
+
+/// What painting the list gives back: what clicks hit, and the controls
+/// the keyboard reaches in Tab order.
+pub(super) struct ListPainted {
+    pub hits: Vec<(Rect, ListHit)>,
+    pub stops: Vec<(Rect, ListHit)>,
+    /// The calendar's scroll (kept in range, moved to show the focus) and
+    /// where the column shows.
+    pub cal_scroll: i32,
+    pub cal_area: Rect,
+}
+
+/// Paint the list and calendar (`m`) on a `w`×`h` overlay, the focus ring
+/// on `focus`.
+pub(super) fn paint_list(canvas: &mut Canvas, fonts: (Option<&Text>, Option<&Text>), (w, h): (usize, usize), m: &ListModel, focus: Option<&ListHit>) -> ListPainted {
+    let painted = paint_list_at(canvas, fonts, (w, h), m, focus, m.cal_scroll);
+    // A focused calendar control out of sight: scroll to it.
+    let area = painted.cal_area;
+    let Some((r, _)) = focus.filter(|f| in_calendar(f)).and_then(|f| painted.stops.iter().find(|(_, h)| h == f)) else { return painted };
+    let scroll = if r.y < area.y {
+        painted.cal_scroll - (area.y - r.y) - 8
+    } else if r.y + r.h > area.y + area.h {
+        painted.cal_scroll + (r.y + r.h - area.y - area.h) + 8
+    } else {
+        return painted;
+    };
+    paint_list_at(canvas, fonts, (w, h), m, focus, scroll)
+}
+
+fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text>), (w, h): (usize, usize), m: &ListModel, focus: Option<&ListHit>, cal_scroll: i32) -> ListPainted {
+    canvas.fill(0x00000000);
+    let mut hits: Vec<(Rect, ListHit)> = Vec::new();
+    let total_w = list_w() + super::calendar::cal_w();
+    let bx = (w as i32 - total_w) / 2;
+    let by = panel_height() as i32 + 4;
+    let max_h = h as i32 - by - 8;
+    // Entries that fit, from the scroll position.
+    let header = helix_draw::theme::grow(44);
+    let mut used = header;
+    let mut shown = Vec::new();
+    for ((row, eh), icon) in m.rows.iter().zip(m.heights).skip(m.scroll).zip(m.icons) {
+        if used + eh > max_h && !shown.is_empty() {
+            break;
+        }
+        used += eh;
+        shown.push((row, *eh, icon.as_ref()));
+    }
+    let empty_h = if m.entries.is_empty() { helix_draw::theme::grow(60) } else { 0 };
+    // No taller than the screen: the calendar column scrolls instead.
+    let bh = (used + empty_h).max(m.cal_h).min(max_h);
+    let cal_scroll = cal_scroll.clamp(0, (m.cal_h - bh).max(0));
+    let cal_area = Rect { x: bx + list_w(), y: by, w: super::calendar::cal_w(), h: bh };
+    theme::popover(canvas, bx, by, total_w, bh);
+    canvas.rect(bx + list_w(), by + LIST_PAD, 1, bh - 2 * LIST_PAD, BANNER_BORDER);
+    let mut calendar_hits = Vec::new();
+    canvas.clip(cal_area.x, cal_area.y, cal_area.w, cal_area.h);
+    super::calendar::paint_calendar(m.calendar, (text, bold), canvas, (bx + list_w(), by - cal_scroll), m.media_icons, &mut calendar_hits);
+    canvas.unclip();
+    if m.cal_h > bh {
+        // Where the column is, when it scrolls.
+        let thumb = (bh * bh / m.cal_h).max(16);
+        let at = (bh - thumb) * cal_scroll / (m.cal_h - bh).max(1);
+        canvas.rect(cal_area.x + cal_area.w - 4, by + at, 3, thumb, theme::TEXT_DIM);
+    }
+    // Header: Do Not Disturb switch and Clear.
+    let switch = Rect { x: bx + LIST_PAD, y: by + 10, w: 40, h: 22 };
+    let on = m.do_not_disturb;
+    let track = if on { ACCENT } else { TRACK };
+    canvas.circle(f64::from(switch.x + 11), f64::from(switch.y + 11), 11.0, track);
+    canvas.circle(f64::from(switch.x + switch.w - 11), f64::from(switch.y + 11), 11.0, track);
+    canvas.rect(switch.x + 11, switch.y, switch.w - 22, switch.h, track);
+    if helix_draw::high_contrast() {
+        // Off is black on black: outlined.
+        canvas.round_outline(f64::from(switch.x), f64::from(switch.y), f64::from(switch.w), f64::from(switch.h), 11.0, 1.0, 0xFFFFFFFF);
+    }
+    let knob = if on { switch.x + switch.w - 11 } else { switch.x + 11 };
+    canvas.circle(f64::from(knob), f64::from(switch.y + 11), 9.0, FG);
+    label(text, canvas, "Do Not Disturb", (switch.x + switch.w + 10) as f32, baseline(text, switch.y, switch.h, 14.0), 14.0, FG, helix_draw::theme::grow(160) as f32);
+    hits.push((Rect { x: switch.x, y: switch.y, w: switch.w + 10 + text.map_or(130, |t| t.width("Do Not Disturb", 14.0) as i32), h: switch.h }, ListHit::DoNotDisturb));
+    if !m.entries.is_empty() {
+        let clear_w = helix_draw::theme::grow(64);
+        let clear = Rect { x: bx + list_w() - LIST_PAD - clear_w, y: by + 8, w: clear_w, h: helix_draw::theme::grow(26) };
+        theme::control(canvas, clear.x, clear.y, clear.w, clear.h, theme::Look::default());
+        let cw = text.map_or(0.0, |t| t.width("Clear", 14.0));
+        label(text, canvas, "Clear", clear.x as f32 + (clear.w as f32 - cw) / 2.0, baseline(text, clear.y, clear.h, 14.0), 14.0, FG, (clear_w - 4) as f32);
+        hits.push((clear, ListHit::Clear));
+    }
+    // Tab order: the header's controls, then each row followed by its
+    // buttons (which come before it in `hits`, being on top).
+    let mut stops: Vec<(Rect, ListHit)> = hits.clone();
+    let mut y = by + header;
+    if m.entries.is_empty() {
+        let message = "No Notifications";
+        let mw = text.map_or(0.0, |t| t.width(message, 15.0));
+        label(text, canvas, message, bx as f32 + (list_w() as f32 - mw) / 2.0, (y + 30) as f32, 15.0, DIM_FG, list_w() as f32);
+    }
+    // Entries of a group are indented under its header.
+    let indents = row_indents(m.entries, m.rows);
+    for (n, (row, eh, icon)) in shown.into_iter().enumerate() {
+        let indent = indents.get(m.scroll + n).copied().unwrap_or(0);
+        let entry = match row {
+            Row::Header { key, app, count, open } => {
+                canvas.rect(bx + LIST_PAD, y, list_w() - 2 * LIST_PAD, 1, BANNER_BORDER);
+                let head = app.clone();
+                let tail = format!("{count} notifications");
+                // A chevron: down when open, right when closed.
+                let (cx, cy) = (f64::from(bx + LIST_PAD + 8), f64::from(y + 15));
+                let (a, b, c) = if *open { ((cx - 4.0, cy - 2.0), (cx, cy + 2.0), (cx + 4.0, cy - 2.0)) } else { ((cx - 2.0, cy - 4.0), (cx + 2.0, cy), (cx - 2.0, cy + 4.0)) };
+                canvas.line(a, b, 1.5, DIM_FG);
+                canvas.line(b, c, 1.5, DIM_FG);
+                let hb = bold.or(text);
+                label(hb, canvas, &head, (bx + LIST_PAD + 20) as f32, (y + 20) as f32, 14.0, FG, 200.0);
+                let hw = hb.map_or(0.0, |t| t.width(&head, 14.0).min(200.0));
+                label(text, canvas, &tail, bx as f32 + (LIST_PAD + 32) as f32 + hw, (y + 20) as f32, 13.0, DIM_FG, 140.0);
+                let close = Rect { x: bx + list_w() - LIST_PAD - 22, y: y + 4, w: 22, h: 22 };
+                label(text, canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
+                let row_r = Rect { x: bx, y, w: list_w(), h: eh };
+                hits.push((close, ListHit::GroupClear(key.clone())));
+                hits.push((row_r, ListHit::GroupToggle(key.clone())));
+                stops.push((row_r, ListHit::GroupToggle(key.clone())));
+                stops.push((close, ListHit::GroupClear(key.clone())));
+                y += eh;
+                continue;
+            }
+            Row::Entry(i) => &m.entries[*i],
+        };
+        let grouped = indent > 0;
+        if !grouped {
+            canvas.rect(bx + LIST_PAD, y, list_w() - 2 * LIST_PAD, 1, BANNER_BORDER);
+        } else {
+            canvas.rect(bx + LIST_PAD + 4, y + 4, 2, eh - 8, BANNER_BORDER);
+        }
+        let (links, _) = paint_notification(canvas, (text, bold), icon, entry, (bx + LIST_PAD + indent, y + LIST_PAD), entry_w(indent), 2);
+        let close = Rect { x: bx + list_w() - LIST_PAD - 22, y: y + LIST_PAD - 2, w: 22, h: 22 };
+        label(text, canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
+        let row_r = Rect { x: bx, y, w: list_w(), h: eh };
+        hits.push((close, ListHit::Dismiss(entry.id)));
+        stops.push((row_r, ListHit::Entry(entry.id)));
+        stops.push((close, ListHit::Dismiss(entry.id)));
+        for (rect, uri) in links {
+            hits.push((rect, ListHit::Link(uri.clone())));
+            stops.push((rect, ListHit::Link(uri)));
+        }
+        hits.push((row_r, ListHit::Entry(entry.id)));
+        y += eh;
+    }
+    // The calendar column: month buttons, the selected day, media.
+    let selected = m.calendar.selected;
+    for (r, hit) in &calendar_hits {
+        if !matches!(hit, ListHit::Day(..)) || *hit == ListHit::Day(selected.0, selected.1, selected.2) {
+            stops.push((*r, hit.clone()));
+        }
+    }
+    // Clicks only on what shows.
+    hits.extend(calendar_hits.into_iter().filter(|(r, _)| r.y >= cal_area.y && r.y + r.h <= cal_area.y + cal_area.h));
+    // The focus ring: a circle around a day, a box around anything else.
+    if let Some((r, hit)) = focus.and_then(|f| stops.iter().find(|(_, h)| h == f)) {
+        if matches!(hit, ListHit::Day(..)) {
+            canvas.ring(f64::from(r.x) + f64::from(r.w) / 2.0, f64::from(r.y) + f64::from(r.h) / 2.0, 16.5, 2.0, helix_draw::theme::FOCUS);
+        } else if matches!(hit, ListHit::Entry(_) | ListHit::GroupToggle(_)) {
+            helix_draw::theme::focus_ring(canvas, r.x + LIST_PAD / 2, r.y + 2, r.w - LIST_PAD, r.h - 3);
+        } else {
+            helix_draw::theme::focus_ring(canvas, r.x, r.y, r.w, r.h);
+        }
+    }
+    hits.push((Rect { x: bx, y: by, w: total_w, h: bh }, ListHit::Inside));
+    hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, ListHit::Outside));
+    ListPainted { hits, stops, cal_scroll, cal_area }
 }
 
 /// Body lines a banner shows: 2, or 8 for apps with `force-expanded`.
@@ -602,11 +974,159 @@ fn banner_lines(banner: &Banner) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
+    use crate::shell_keys::Playback;
 
-    fn note(id: u32, app: &str, app_id: &str) -> Banner {
+    pub(in crate::ui) fn note(id: u32, app: &str, app_id: &str) -> Banner {
         Banner { id, app_name: app.into(), app_id: app_id.into(), summary: String::new(), body: String::new(), buttons: Vec::new(), icon: None, markup: false, expanded: false }
+    }
+
+    /// A list to look at: a group of chat messages, mail, an update.
+    pub(in crate::ui) fn sample() -> Vec<Banner> {
+        let with = |id, app: &str, app_id: &str, summary: &str, body: &str| Banner { summary: summary.into(), body: body.into(), ..note(id, app, app_id) };
+        vec![
+            with(6, "Chat", "org.example.Chat", "Alice", "Are we still on for lunch? I booked the place on 5th street for 12:30."),
+            with(5, "Mail", "", "Invoice 2041", "Your invoice is ready to download."),
+            with(4, "Chat", "org.example.Chat", "Bob", "sent a photo"),
+            with(3, "Software", "", "Updates available", "3 updates are ready to install."),
+        ]
+    }
+
+    /// The calendar with an event today and a player.
+    pub(in crate::ui) fn sample_calendar(player: bool) -> super::super::calendar::CalendarState {
+        let mut cal = super::super::calendar::CalendarState::default();
+        let now = gio::glib::DateTime::now_local().unwrap().to_unix();
+        let events = vec![crate::ical::Occurrence { start: now - now.rem_euclid(3600), end: now + 1800, all_day: false, summary: "Standup".into() }];
+        let player = player.then(|| crate::calendar::Player { identity: "Music".into(), title: "Clair de Lune".into(), artist: "Claude Debussy".into(), ..Default::default() });
+        cal.data = Some(crate::calendar::CalendarData { events, player, clocks: vec![("Tokyo".into(), "Asia/Tokyo".into())], ..Default::default() });
+        cal
+    }
+
+    /// Paint `entries` (as ListView would) on a `w`×`h` surface.
+    pub(in crate::ui) fn paint_sample(canvas: &mut Canvas, fonts: (Option<&Text>, Option<&Text>), (w, h): (usize, usize), entries: &[Banner], expanded: &HashSet<String>, cal: &super::super::calendar::CalendarState, focus: Option<&ListHit>) -> ListPainted {
+        let rows = list_rows(entries, expanded);
+        let f = fonts.0.map(|regular| Fonts { regular, bold: fonts.1 });
+        let indents = row_indents(entries, &rows);
+        let heights: Vec<i32> = rows.iter().zip(&indents).map(|(row, indent)| match row { Row::Header { .. } => group_header(), Row::Entry(i) => entry_height(f.as_ref(), &entries[*i], *indent) }).collect();
+        let icons = vec![None; rows.len()];
+        let media_icons: super::super::calendar::MediaIcons = [None, None, None, None];
+        let cal_h = super::super::calendar::height(cal);
+        let model = ListModel { entries, rows: &rows, heights: &heights, icons: &icons, scroll: 0, do_not_disturb: false, calendar: cal, media_icons: &media_icons, cal_h, cal_scroll: 0 };
+        paint_list(canvas, fonts, (w, h), &model, focus)
+    }
+
+    /// On a short screen the calendar column scrolls: nothing is drawn
+    /// below the edge and its media buttons can be reached.
+    #[test]
+    fn short_screens() {
+        let entries = sample();
+        let cal = sample_calendar(true);
+        let (w, h) = (853, 480);
+        let mut data = vec![0u8; w * h * 4];
+        let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
+        let painted = paint_sample(&mut canvas, (None, None), (w, h), &entries, &HashSet::new(), &cal, None);
+        let area = painted.cal_area;
+        assert!(area.y + area.h <= h as i32 - 8, "{area:?}");
+        for (r, hit) in &painted.hits {
+            assert!(*hit == ListHit::Outside || r.y + r.h <= h as i32 - 8, "{hit:?} at {r:?}");
+        }
+        assert!(!painted.hits.iter().any(|(_, hit)| matches!(hit, ListHit::Media(_))), "the media buttons start out of sight");
+        let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
+        let play = ListHit::Media(Playback::PlayPause);
+        let painted = paint_sample(&mut canvas, (None, None), (w, h), &entries, &HashSet::new(), &cal, Some(&play));
+        assert!(painted.cal_scroll > 0);
+        assert!(painted.hits.iter().any(|(_, hit)| *hit == play), "focusing them scrolls them into sight");
+    }
+
+    /// A grouped notification is measured at the width it is painted at:
+    /// a body whose width lies between the grouped and ungrouped widths
+    /// wraps the same in both, and nothing is painted below the row.
+    #[test]
+    fn grouped_rows_fit() {
+        let Some(regular) = Text::load() else { return };
+        let fonts = Fonts { regular: &regular, bold: None };
+        let (narrow, wide) = ((entry_w(GROUP_INDENT) - ICON - 12) as f32, (entry_w(0) - ICON - 12) as f32);
+        // A body just wider than the indented text: one line at the full
+        // width, two indented.
+        let mut body = String::from("Are we still on for lunch? I booked the place on");
+        for word in ["5th", "street", "for", "12:30.", "OK", "see", "you", "there", "then"] {
+            if regular.width(&body, BODY_PX) > narrow {
+                break;
+            }
+            body = format!("{body} {word}");
+        }
+        let width = regular.width(&body, BODY_PX);
+        assert!(width > narrow && width <= wide, "{width} between {narrow} and {wide}");
+        let entries = vec![
+            Banner { summary: "Alice".into(), body: body.clone(), ..note(2, "Chat", "org.example.Chat") },
+            Banner { summary: "Bob".into(), body, ..note(1, "Chat", "org.example.Chat") },
+        ];
+        let expanded: HashSet<String> = ["app:org.example.Chat".to_owned()].into();
+        let rows = list_rows(&entries, &expanded);
+        let indents = row_indents(&entries, &rows);
+        assert_eq!(indents, [0, GROUP_INDENT, GROUP_INDENT]);
+        for (row, indent) in rows.iter().zip(&indents) {
+            let Row::Entry(i) = row else { continue };
+            let measured = entry_height(Some(&fonts), &entries[*i], *indent);
+            let (w, h) = (entry_w(*indent) + 40, 400);
+            let mut data = vec![0u8; w as usize * h * 4];
+            let mut canvas = Canvas::scaled(&mut data, w as usize, h, 1.0);
+            let (_, bottom) = paint_notification(&mut canvas, (Some(&regular), None), None, &entries[*i], (0, LIST_PAD), entry_w(*indent), 2);
+            assert!(bottom + LIST_PAD <= measured, "painted to {bottom}, measured {measured}");
+            assert_eq!(measured, entry_height(Some(&fonts), &entries[*i], GROUP_INDENT), "two body lines measured");
+        }
+    }
+
+    #[test]
+    fn keyboard() {
+        let entries = sample();
+        let cal = sample_calendar(true);
+        let expanded: HashSet<String> = ["app:org.example.Chat".to_owned()].into();
+        let mut data = vec![0u8; 1280 * 900 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 1280, 900, 1.0);
+        let painted = paint_sample(&mut canvas, (None, None), (1280, 900), &entries, &expanded, &cal, None);
+        let rows = list_rows(&entries, &expanded);
+        let targets = row_targets(&entries, &rows);
+        let group = ListHit::GroupToggle("app:org.example.Chat".into());
+        assert_eq!(targets, [group.clone(), ListHit::Entry(6), ListHit::Entry(4), ListHit::Entry(5), ListHit::Entry(3)]);
+        let order: Vec<ListHit> = painted.stops.iter().map(|(_, h)| h.clone()).collect();
+        assert_eq!(order[..5], [ListHit::DoNotDisturb, ListHit::Clear, group.clone(), ListHit::GroupClear("app:org.example.Chat".into()), ListHit::Entry(6)]);
+        assert_eq!(order[5], ListHit::Dismiss(6), "a row's buttons follow it");
+        let (y, m, d) = cal.selected;
+        assert!(order.contains(&ListHit::Day(y, m, d)), "the selected day");
+        assert_eq!(order.iter().filter(|h| matches!(h, ListHit::Day(..))).count(), 1, "one stop for the days");
+        assert!(order.contains(&ListHit::Media(Playback::PlayPause)));
+        let key = |k: Keysym, focus: &ListHit| list_key_action(k, false, &painted.stops, Some(focus), &targets, &entries);
+        // Opened by a click: the first move focuses the first row.
+        assert_eq!(list_key_action(Keysym::Down, false, &painted.stops, None, &targets, &entries), ListKey::Focus(group.clone()));
+        // Rows with Up and Down; Do Not Disturb above them.
+        assert_eq!(key(Keysym::Down, &group), ListKey::Focus(ListHit::Entry(6)));
+        assert_eq!(key(Keysym::Down, &ListHit::Dismiss(6)), ListKey::Focus(ListHit::Entry(4)), "from a row's button");
+        assert_eq!(key(Keysym::Up, &group), ListKey::Focus(ListHit::DoNotDisturb));
+        assert_eq!(key(Keysym::Right, &ListHit::DoNotDisturb), ListKey::Focus(ListHit::Clear));
+        // Enter activates, Delete dismisses, Left/Right close/open groups.
+        assert_eq!(key(Keysym::Return, &ListHit::Entry(5)), ListKey::Activate(ListHit::Entry(5)));
+        assert_eq!(key(Keysym::Delete, &ListHit::Entry(5)), ListKey::Activate(ListHit::Dismiss(5)));
+        assert_eq!(key(Keysym::Delete, &group), ListKey::Activate(ListHit::GroupClear("app:org.example.Chat".into())));
+        assert_eq!(key(Keysym::Left, &group), ListKey::Expand("app:org.example.Chat".into(), false));
+        assert_eq!(key(Keysym::Right, &group), ListKey::Expand("app:org.example.Chat".into(), true));
+        assert_eq!(key(Keysym::Left, &ListHit::Entry(4)), ListKey::Expand("app:org.example.Chat".into(), false), "back to the group");
+        // Tab goes on through the calendar; Ctrl+Tab jumps there.
+        assert_eq!(key(Keysym::Tab, &ListHit::DoNotDisturb), ListKey::Focus(ListHit::Clear));
+        assert_eq!(list_key_action(Keysym::Tab, true, &painted.stops, Some(&ListHit::Entry(6)), &targets, &entries), ListKey::Focus(ListHit::Month(-1)));
+        assert_eq!(list_key_action(Keysym::Tab, true, &painted.stops, Some(&ListHit::Month(1)), &targets, &entries), ListKey::Focus(ListHit::DoNotDisturb));
+        // The calendar.
+        let day = ListHit::Day(y, m, d);
+        assert_eq!(key(Keysym::Right, &day), ListKey::Day(1));
+        assert_eq!(key(Keysym::Up, &day), ListKey::Day(-7));
+        assert_eq!(key(Keysym::Page_Down, &day), ListKey::Month(1));
+        assert_eq!(key(Keysym::Home, &day), ListKey::Today);
+        assert_eq!(key(Keysym::Right, &ListHit::Month(-1)), ListKey::Focus(ListHit::Month(1)));
+        assert_eq!(key(Keysym::Down, &ListHit::Month(1)), ListKey::Focus(day.clone()));
+        assert_eq!(key(Keysym::Up, &ListHit::Media(Playback::Next)), ListKey::Focus(day));
+        assert_eq!(key(Keysym::space, &ListHit::Media(Playback::PlayPause)), ListKey::Activate(ListHit::Media(Playback::PlayPause)));
+        assert_eq!(key(Keysym::Escape, &ListHit::Clear), ListKey::Close);
     }
 
     #[test]

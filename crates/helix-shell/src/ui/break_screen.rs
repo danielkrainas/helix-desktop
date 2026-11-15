@@ -62,7 +62,7 @@ impl Ui {
         let bx = w as i32 / 2 - BUTTON_W - 8;
         for (i, (name, hit)) in [("Delay", OverlayHit::Cancel), ("Skip", OverlayHit::Confirm)].into_iter().enumerate() {
             let r = Rect { x: bx + i as i32 * (BUTTON_W + 16), y, w: BUTTON_W, h: BUTTON_H };
-            canvas.rect(r.x, r.y, r.w, r.h, BANNER_BORDER);
+theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
             let tw = text.map_or(0.0, |t| t.width(name, 15.0));
             label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
             overlay.hits.push((r, hit));

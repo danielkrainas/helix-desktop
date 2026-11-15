@@ -113,8 +113,8 @@ impl Ui {
         canvas.fill(0x9900_0000);
         let (text, bold) = (self.text.as_ref(), self.bold.as_ref());
         let bw = BOX_W.min(w as i32 - 32);
-        let bh = (h as i32 - PANEL_HEIGHT as i32 - 64).min(720);
-        let (bx, by) = ((w as i32 - bw) / 2, PANEL_HEIGHT as i32 + 32);
+        let bh = (h as i32 - panel_height() as i32 - 64).min(720);
+        let (bx, by) = ((w as i32 - bw) / 2, panel_height() as i32 + 32);
         canvas.rect(bx, by, bw, bh, BANNER_BG);
         for (rx, ry, rw, rh) in [(bx, by, bw, 1), (bx, by + bh - 1, bw, 1), (bx, by, 1, bh), (bx + bw - 1, by, 1, bh)] {
             canvas.rect(rx, ry, rw, rh, BANNER_BORDER);
@@ -157,7 +157,7 @@ impl Ui {
             if info.kind != crate::ext_host::store::Kind::Development && !matches!(info.state, State::Invalid(_)) {
                 let on = info.enabled && info.approved;
                 let r = Rect { x: bx + bw - PAD - 12 - SWITCH_W, y: y + 12, w: SWITCH_W, h: 22 };
-                canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT } else { FIELD_BG });
+                canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT_FILL } else { FIELD_BG });
                 let knob = if on { r.x + r.w - 20 } else { r.x + 2 };
                 canvas.rect(knob, r.y + 2, 18, 18, FG);
                 hits.push((r, DialogHit::Switch(n)));
@@ -176,7 +176,7 @@ impl Ui {
                 let name = if expanded { "Hide Settings" } else { "Settings" };
                 let tw = text.map_or(0.0, |t| t.width(name, 12.0)) as i32;
                 let r = Rect { x: bx + bw - PAD - 12 - tw - 16, y: y + 46, w: tw + 16, h: 24 };
-                canvas.rect(r.x, r.y, r.w, r.h, BANNER_BORDER);
+                theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
                 label(text, &mut canvas, name, (r.x + 8) as f32, baseline(text, r.y, r.h, 12.0), 12.0, FG, tw as f32 + 1.0);
                 hits.push((r, DialogHit::Settings(n)));
             }
@@ -189,7 +189,7 @@ impl Ui {
                         SettingType::Bool => {
                             let on = *value == SettingValue::Bool(true);
                             let r = Rect { x: right - SWITCH_W, y: sy + 7, w: SWITCH_W, h: 22 };
-                            canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT } else { FIELD_BG });
+                            canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT_FILL } else { FIELD_BG });
                             canvas.rect(if on { r.x + r.w - 20 } else { r.x + 2 }, r.y + 2, 18, 18, FG);
                             hits.push((r, DialogHit::Flip(n, s)));
                         }
@@ -197,7 +197,7 @@ impl Ui {
                             let shown = value.display();
                             let tw = text.map_or(0.0, |t| t.width(&shown, 13.0)) as i32;
                             let r = Rect { x: right - tw - 24, y: sy + 5, w: tw + 24, h: 26 };
-                            canvas.rect(r.x, r.y, r.w, r.h, BANNER_BORDER);
+                            theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
                             label(text, &mut canvas, &shown, (r.x + 12) as f32, baseline(text, r.y, r.h, 13.0), 13.0, FG, tw as f32 + 1.0);
                             hits.push((r, DialogHit::Next(n, s)));
                         }
@@ -205,7 +205,7 @@ impl Ui {
                             let plus = Rect { x: right - SMALL, y: sy + 4, w: SMALL, h: SMALL };
                             let minus = Rect { x: right - 3 * SMALL - 60, y: sy + 4, w: SMALL, h: SMALL };
                             for (r, glyph) in [(minus, "-"), (plus, "+")] {
-                                canvas.rect(r.x, r.y, r.w, r.h, BANNER_BORDER);
+                                theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
                                 let gw = text.map_or(0.0, |t| t.width(glyph, 15.0));
                                 label(text, &mut canvas, glyph, r.x as f32 + (r.w as f32 - gw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
                             }
@@ -233,7 +233,7 @@ impl Ui {
             label(text, &mut canvas, hint, (bx + PAD) as f32, baseline(text, bottom, 36, 12.0), 12.0, DIM_FG, 200.0);
         }
         let done = Rect { x: bx + bw - PAD - 110, y: bottom, w: 110, h: 36 };
-        canvas.rect(done.x, done.y, done.w, done.h, ACCENT);
+        canvas.rect(done.x, done.y, done.w, done.h, ACCENT_FILL);
         let tw = text.map_or(0.0, |t| t.width("Done", 15.0));
         label(text, &mut canvas, "Done", done.x as f32 + (done.w as f32 - tw) / 2.0, baseline(text, done.y, done.h, 15.0), 15.0, FG, done.w as f32);
         hits.push((done, DialogHit::Done));
