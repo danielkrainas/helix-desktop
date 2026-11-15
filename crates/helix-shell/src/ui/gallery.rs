@@ -288,6 +288,52 @@ fn overview_look() {
     });
 }
 
+/// The launcher searching "note" (`launcher-…`): an open window, apps,
+/// and two search providers' results under their headings, with icons on
+/// every row; the second app under the pointer; in every look.
+#[test]
+#[ignore]
+fn launcher_results() {
+    use crate::launcher::{App, Hit, Launcher, SearchHit};
+    let Some(dir) = dir() else { return };
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    let app = |id: &str, name: &str| App { id: format!("{id}.desktop"), name: name.into(), search: "note notes".into(), categories: Vec::new() };
+    let apps = vec![app("org.gnome.TextEditor", "Text Editor"), app("org.gnome.Notes", "Notes"), app("org.gnome.Nautilus", "Files"), app("org.gnome.Characters", "Characters")];
+    let window = crate::windows::WindowEntry { id: 7, app_id: "org.gnome.TextEditor".into(), title: "notes.txt — ~/Documents".into(), workspace: 0 };
+    let mut model = Launcher::with_windows(apps.clone(), vec![window]);
+    model.type_text("note");
+    let hit = |provider, app: &str, name: &str, description: &str| SearchHit { provider, app: app.into(), id: name.into(), name: name.into(), description: description.into(), icon: None, clipboard: None };
+    model.set_search(0, vec![hit(0, "Files", "notes.txt", "~/Documents"), hit(0, "Files", "Notebook", "~/Pictures")]);
+    model.set_search(1, vec![hit(1, "Characters", "♪", "Eighth Note")]);
+    in_looks(&dir, "launcher", (1280, 720), &mut |canvas, (w, h)| {
+        canvas.fill(SCRIM);
+        let px = (32.0 * canvas.scale).ceil() as u32;
+        let icon_of = |id: &str| crate::icons::app_icon(id, px);
+        let rows: HashMap<usize, Option<helix_draw::Image>> = model
+            .results
+            .iter()
+            .enumerate()
+            .map(|(i, hit)| {
+                let icon = match *hit {
+                    Hit::Window(_) => icon_of("org.gnome.TextEditor"),
+                    Hit::App(a) => icon_of(model.apps[a].id.trim_end_matches(".desktop")),
+                    Hit::Search(e) => apps.iter().find(|a| a.name == model.external[e].app).and_then(|a| icon_of(a.id.trim_end_matches(".desktop"))),
+                    _ => None,
+                };
+                (i, icon)
+            })
+            .collect();
+        let small = (16.0 * canvas.scale).ceil() as u32;
+        let headings: HashMap<usize, Option<helix_draw::Image>> = [(0, crate::icons::app_icon("org.gnome.Nautilus", small)), (2, crate::icons::app_icon("org.gnome.Characters", small))].into();
+        let bw = helix_draw::theme::grow(SEARCH_W).min(w as i32 - 48);
+        let bx = (w as i32 - bw) / 2;
+        let by = (h as i32 / 6).max(panel_height() as i32 + 24);
+        let field = Rect { x: bx, y: by, w: bw, h: helix_draw::theme::grow(SEARCH_H) };
+        search_field(canvas, text.as_ref(), field, &model.query, "", true);
+        paint_results(canvas, (text.as_ref(), bold.as_ref()), &model, (&rows, &headings), (bx, by + field.h + 8, bw, h as i32 - 24), (Some(3), None));
+    });
+}
+
 #[test]
 #[ignore]
 fn dialogs() {

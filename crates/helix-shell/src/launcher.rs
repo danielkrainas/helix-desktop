@@ -117,6 +117,33 @@ pub enum Hit {
     More(usize),
 }
 
+/// A part of the result list: a section's heading or a row (by result
+/// index).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListItem {
+    Heading(Section),
+    Row(usize),
+}
+
+/// A section of the result list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Section {
+    Windows,
+    Apps,
+    /// A search provider's results: the index of its first one.
+    Provider(usize),
+}
+
+/// The first item of `heights` (each item's height) to show so that item
+/// `keep` shows in `room` (and as many before it as fit).
+pub fn list_start(heights: &[i32], keep: usize, room: i32) -> usize {
+    let mut start = 0;
+    while start < keep && heights[start..=keep.min(heights.len().saturating_sub(1))].iter().sum::<i32>() > room {
+        start += 1;
+    }
+    start
+}
+
 /// A search provider's result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchHit {
@@ -279,6 +306,31 @@ impl Launcher {
         }
     }
 
+    /// The results in sections, each under its heading: open windows,
+    /// apps, then each search provider's results (with its "Search in"
+    /// row last).
+    pub fn sections(&self) -> Vec<ListItem> {
+        let mut out = Vec::new();
+        let mut current: Option<Section> = None;
+        for (i, hit) in self.results.iter().enumerate() {
+            let section = match hit {
+                Hit::Window(_) => Section::Windows,
+                Hit::App(_) | Hit::Folder(_) => Section::Apps,
+                Hit::Search(e) | Hit::More(e) => {
+                    let provider = self.external.get(*e).map(|h| h.provider);
+                    let first = self.external.iter().position(|h| Some(h.provider) == provider).unwrap_or(*e);
+                    Section::Provider(first)
+                }
+            };
+            if current != Some(section) {
+                out.push(ListItem::Heading(section));
+                current = Some(section);
+            }
+            out.push(ListItem::Row(i));
+        }
+        out
+    }
+
     pub fn selected(&self) -> Option<Hit> {
         self.results.get(self.selected).copied()
     }
@@ -336,6 +388,25 @@ impl Launcher {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn sections() {
+        use super::*;
+        let app = |name: &str| App { id: format!("{name}.desktop"), name: name.into(), search: String::new(), categories: Vec::new() };
+        let mut l = Launcher::with_windows(vec![app("Notes"), app("Notebook")], vec![WindowEntry { id: 7, app_id: "notes".into(), title: "Notes".into(), workspace: 0 }]);
+        l.type_text("note");
+        let hit = |provider, name: &str| SearchHit { provider, app: format!("P{provider}"), id: name.into(), name: name.into(), description: String::new(), icon: None, clipboard: None };
+        l.set_search(1, vec![hit(1, "a.txt"), hit(1, "b.txt")]);
+        l.set_search(0, vec![hit(0, "x")]);
+        let s = l.sections();
+        use ListItem::{Heading as H, Row as R};
+        assert_eq!(s, [H(Section::Windows), R(0), H(Section::Apps), R(1), R(2), H(Section::Provider(0)), R(3), R(4), H(Section::Provider(1)), R(5), R(6), R(7)]);
+        assert!(matches!(l.results[4], Hit::More(0)) && matches!(l.results[7], Hit::More(_)), "Search in … ends each provider's section");
+        // The window shown keeps the selection in sight.
+        assert_eq!(list_start(&[30, 48, 48, 48], 3, 200), 0);
+        assert_eq!(list_start(&[30, 48, 48, 48], 3, 100), 2);
+        assert_eq!(list_start(&[30, 48, 48, 48], 0, 10), 0);
+    }
 
     #[test]
     fn used_apps_first() {

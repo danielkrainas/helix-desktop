@@ -144,6 +144,11 @@ const SCRIM: u32 = theme::SCRIM;
 const SHARING: u32 = theme::ERROR;
 
 const APPS_LABEL: &str = "Apps";
+/// The launcher's result rows and section headings, and the rows' icons
+/// (logical px).
+const RESULT_H: i32 = 48;
+const HEADING_H: i32 = 30;
+const RESULT_ICON: i32 = 32;
 const ROW_H: i32 = 40;
 const MAX_ROWS: usize = 10;
 
@@ -2079,6 +2084,41 @@ impl Ui {
         }
     }
 
+    /// The launcher results' icons by result index (the first ones), and
+    /// each search provider's app icon by its first result's index.
+    #[allow(clippy::type_complexity)]
+    fn result_icons(&mut self, model: &Launcher, scale: f64) -> (HashMap<usize, Option<helix_draw::Image>>, HashMap<usize, Option<helix_draw::Image>>) {
+        let px = (f64::from(RESULT_ICON) * scale).ceil() as u32;
+        let small = (16.0 * scale).ceil() as u32;
+        let app_icon = |cache: &mut crate::icon_cache::IconCache, id: &str, px: u32| {
+            let app = id.strip_suffix(".desktop").unwrap_or(id).to_owned();
+            cache.get(format!("app:{app}@{px}"), move || crate::icons::app_icon(&app, px))
+        };
+        let mut rows = HashMap::new();
+        let mut headings = HashMap::new();
+        for (i, hit) in model.results.iter().enumerate().take(80) {
+            let icon = match *hit {
+                launcher::Hit::Window(w) => model.windows.get(w).and_then(|e| self.window_icon(e.id, px)),
+                launcher::Hit::App(a) => model.apps.get(a).and_then(|app| app_icon(&mut self.icon_cache, &app.id, px)),
+                launcher::Hit::Search(e) => {
+                    let found = model.external.get(e);
+                    // Its own icon, else its provider's app's.
+                    let own = found.and_then(|h| h.icon.clone()).and_then(|source| source_icon(&mut self.icon_cache, source, px));
+                    own.or_else(|| found.and_then(|h| model.apps.iter().find(|a| a.name == h.app)).and_then(|app| app_icon(&mut self.icon_cache, &app.id, px)))
+                }
+                launcher::Hit::Folder(_) | launcher::Hit::More(_) => None,
+            };
+            rows.insert(i, icon);
+        }
+        for item in model.sections() {
+            if let launcher::ListItem::Heading(launcher::Section::Provider(first)) = item {
+                let app = model.external.get(first).and_then(|h| model.apps.iter().find(|a| a.name == h.app));
+                headings.insert(first, app.and_then(|app| app_icon(&mut self.icon_cache, &app.id, small)));
+            }
+        }
+        (rows, headings)
+    }
+
     /// Window `id`'s icon at `px` pixels: its own, else its app's.
     fn window_icon(&mut self, id: u32, px: u32) -> Option<helix_draw::Image> {
         if let Some((name, image)) = self.window_icons.get(&id) {
@@ -2114,6 +2154,9 @@ impl Ui {
     fn paint_launcher(&mut self, view: &mut LauncherView) {
         let (w, h) = (view.width as usize, view.height as usize);
         let scale = self.scales.of(view.layer.wl_surface());
+        // The results' icons (and the search providers' apps' icons for
+        // their headings), asked for before drawing.
+        let (row_icons, heading_icons) = if view.model.query.is_empty() { Default::default() } else { self.result_icons(&view.model, scale) };
         let Ok((buffer, data)) =
             self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
@@ -2125,7 +2168,6 @@ impl Ui {
 
         // Lengths that hold text grow with the text scale.
         let grow = helix_draw::theme::grow;
-        let row_h = grow(ROW_H);
         let bw = grow(SEARCH_W).min(w as i32 - 48);
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 / 6).max(panel_height() as i32 + 24);
@@ -2152,68 +2194,11 @@ impl Ui {
             }
             return;
         }
-        // Results.
+        // Results, in sections: open windows, apps, each search provider.
         let list_top = by + field.h + 8;
-        let room = ((h as i32 - list_top - 24) / row_h).max(1) as usize;
-        let visible = MAX_ROWS.min(room);
-        let first = view.model.selected.saturating_sub(visible - 1);
-        let shown: Vec<usize> = (first..view.model.results.len()).take(visible).collect();
-        let list_h = (shown.len().max(1) as i32) * row_h + 8;
-        theme::popover(&mut canvas, bx, list_top, bw, list_h);
-        view.rows.clear();
-        if shown.is_empty() {
-            let base = baseline(self.text.as_ref(), list_top + 4, row_h, size::BODY);
-            label(self.text.as_ref(), &mut canvas, tr("No matching apps"), (bx + 16) as f32, base, size::BODY, DIM_FG, (bw - 32) as f32);
-        }
-        for (row, &result) in shown.iter().enumerate() {
-            let rect = Rect { x: bx + 4, y: list_top + 4 + row as i32 * row_h, w: bw - 8, h: row_h };
-            let look = theme::Look { on: result == view.model.selected, hovered: view.hover == Some(result), pressed: view.pressed == Some(result) };
-            theme::row(&mut canvas, rect.x, rect.y, rect.w, rect.h, look);
-            let (name, _) = view.model.row_label(view.model.results[result]);
-            let more = matches!(view.model.results[result], launcher::Hit::More(_));
-            let more_label;
-            let name = if more {
-                more_label = trf!("Search for “{query}” in {name}", query = view.model.query.trim(), name = name);
-                more_label.as_str()
-            } else {
-                name
-            };
-            let base = baseline(self.text.as_ref(), rect.y, rect.h, size::BODY);
-            let found = view.model.search_hit(view.model.results[result]).filter(|_| !more);
-            // A search result's icon at the row's start.
-            let mut text_x = rect.x + 12;
-            if let Some(hit) = found {
-                let icon = hit.icon.clone().and_then(|source| source_icon(&mut self.icon_cache, source, 40));
-                if let Some(icon) = icon {
-                    canvas.image(f64::from(text_x), f64::from(rect.y + (rect.h - 20) / 2), 20.0, 20.0, &icon);
-                    text_x += 28;
-                }
-            }
-            let tag_text = match view.model.results[result] {
-                launcher::Hit::Window(_) => Some(tr("Open window")),
-                launcher::Hit::Folder(_) => Some(tr("Folder")),
-                launcher::Hit::App(i) if view.model.is_favorite(i) => Some(tr("Favorite")),
-                _ => found.map(|h| h.app.as_str()),
-            };
-            let tag_w = tag_text.map_or(0.0, |t| self.text.as_ref().map_or(96.0, |f| f.width(t, size::CAPTION)).min(160.0) + 8.0);
-            let name_max = rect.w as f32 - 24.0 - tag_w - (text_x - rect.x - 12) as f32;
-            let name_color = if result == view.model.selected { on_accent() } else if more { DIM_FG } else { FG };
-            label(self.text.as_ref(), &mut canvas, name, text_x as f32, base, size::BODY, name_color, name_max);
-            // A search result's description after its name, dimmer.
-            if let Some(hit) = found.filter(|h| !h.description.is_empty()) {
-                let nw = self.text.as_ref().map_or(0.0, |t| t.width(name, size::BODY)) + 12.0;
-                if nw < name_max - 40.0 {
-                    let color = if result == view.model.selected { on_accent() } else { DIM_FG };
-                    label(self.text.as_ref(), &mut canvas, &hit.description, text_x as f32 + nw, base, size::CAPTION, color, name_max - nw);
-                }
-            }
-            if let Some(tag) = tag_text {
-                let tw = self.text.as_ref().map_or(0.0, |t| t.width(tag, size::CAPTION));
-                let color = if result == view.model.selected { on_accent() } else { DIM_FG };
-                label(self.text.as_ref(), &mut canvas, tag, rect.x as f32 + rect.w as f32 - 12.0 - tw, base, size::CAPTION, color, tag_w);
-            }
-            view.rows.push((rect, result));
-        }
+        let fonts = (self.text.as_ref(), self.bold.as_ref());
+        let (rows, list_h) = paint_results(&mut canvas, fonts, &view.model, (&row_icons, &heading_icons), (bx, list_top, bw, h as i32 - 24), (view.hover, view.pressed));
+        view.rows = rows;
         view.content = Rect { x: bx, y: by, w: bw, h: list_top + list_h - by };
 
         let surface = view.layer.wl_surface();
@@ -4678,6 +4663,124 @@ struct SwitcherState {
     /// The entry under the pointer, and the one pressed.
     hover: Option<OverlayHit>,
     pressed: Option<OverlayHit>,
+}
+
+/// Paint the launcher's results in sections (open windows, apps, each
+/// search provider under a heading with its app's icon and name, "Search
+/// for … in <app>" last) in a popover at (bx, list_top), `bw` wide, down
+/// to `bottom` at most, scrolled to keep the selection in sight; every
+/// row with an icon. Returns the rows' places (with their result
+/// indexes) and the list's height.
+#[allow(clippy::type_complexity)]
+fn paint_results(
+    canvas: &mut Canvas,
+    (text, bold): (Option<&Text>, Option<&Text>),
+    model: &Launcher,
+    (row_icons, heading_icons): (&HashMap<usize, Option<helix_draw::Image>>, &HashMap<usize, Option<helix_draw::Image>>),
+    (bx, list_top, bw, bottom): (i32, i32, i32, i32),
+    (hover, pressed): (Option<usize>, Option<usize>),
+) -> (Vec<(Rect, usize)>, i32) {
+    let grow = helix_draw::theme::grow;
+    let items = model.sections();
+    let (row_h, head_h) = (grow(RESULT_H), grow(HEADING_H));
+    let heights: Vec<i32> = items.iter().map(|i| if matches!(i, launcher::ListItem::Heading(_)) { head_h } else { row_h }).collect();
+    let room = (bottom - list_top - 8).max(row_h + head_h);
+    let keep = items.iter().position(|i| *i == launcher::ListItem::Row(model.selected)).unwrap_or(0);
+    let start = launcher::list_start(&heights, keep, room);
+    let mut shown = Vec::new();
+    let mut used = 0;
+    for (item, ih) in items.iter().zip(&heights).skip(start) {
+        if used + ih > room {
+            break;
+        }
+        used += ih;
+        shown.push((*item, *ih));
+    }
+    // A heading left alone at the end goes.
+    if matches!(shown.last(), Some((launcher::ListItem::Heading(_), _))) {
+        let (_, ih) = shown.pop().unwrap_or((launcher::ListItem::Row(0), 0));
+        used -= ih;
+    }
+    let list_h = used.max(row_h) + 8;
+    theme::popover(canvas, bx, list_top, bw, list_h);
+    let mut rows = Vec::new();
+    if shown.is_empty() {
+        let base = baseline(text, list_top + 4, row_h, size::BODY);
+        label(text, canvas, tr("No matching apps"), (bx + 16) as f32, base, size::BODY, DIM_FG, (bw - 32) as f32);
+    }
+    let mut y = list_top + 4;
+    for (item, ih) in shown {
+        let result = match item {
+            launcher::ListItem::Heading(section) => {
+                let (title, icon) = match section {
+                    launcher::Section::Windows => (tr("Open Windows").to_owned(), None),
+                    launcher::Section::Apps => (tr("Apps").to_owned(), None),
+                    launcher::Section::Provider(first) => {
+                        let app = model.external.get(first).map(|h| h.app.clone()).unwrap_or_default();
+                        let icon = heading_icons.get(&first).cloned().flatten();
+                        (app, icon)
+                    }
+                };
+                let mut tx = bx + 16;
+                if let Some(icon) = icon {
+                    canvas.image(f64::from(tx), f64::from(y + (ih - 16) / 2 + 2), 16.0, 16.0, &icon);
+                    tx += 22;
+                }
+                let face = bold.or(text);
+                label(face, canvas, &title, tx as f32, baseline(face, y + 2, ih, size::CAPTION), size::CAPTION, DIM_FG, (bw - 32) as f32);
+                y += ih;
+                continue;
+            }
+            launcher::ListItem::Row(result) => result,
+        };
+        let rect = Rect { x: bx + 4, y, w: bw - 8, h: ih };
+        y += ih;
+        let hit = model.results[result];
+        let look = theme::Look { on: result == model.selected, hovered: hover == Some(result), pressed: pressed == Some(result) };
+        theme::row(canvas, rect.x, rect.y, rect.w, rect.h, look);
+        let fg = theme::control_text(look);
+        let dim = if look.on { fg } else { DIM_FG };
+        let (name, _) = model.row_label(hit);
+        let more = matches!(hit, launcher::Hit::More(_));
+        let more_label;
+        let name = if more {
+            more_label = trf!("Search for “{query}” in {name}", query = model.query.trim(), name = name);
+            more_label.as_str()
+        } else {
+            name
+        };
+        let base = baseline(text, rect.y, rect.h, size::BODY);
+        // Every row's icon at its start: the app's, the window's (with
+        // a small window sign), the result's; a search symbol for
+        // "Search in".
+        let icon = RESULT_ICON;
+        let (ix, iy) = (f64::from(rect.x + 10), f64::from(rect.y + (rect.h - icon) / 2));
+        match row_icons.get(&result).cloned().flatten() {
+            _ if more => theme::search_symbol(canvas, ix + f64::from(icon) / 2.0, iy + f64::from(icon) / 2.0, 18.0, dim),
+            Some(image) => canvas.image(ix, iy, f64::from(icon), f64::from(icon), &image),
+            None => theme::control_round(canvas, (ix + 2.0, iy + 2.0, f64::from(icon - 4), f64::from(icon - 4)), theme::RADIUS_ROW, theme::Look::default()),
+        }
+        if matches!(hit, launcher::Hit::Window(_)) {
+            // The open-window sign: a small framed window on the
+            // icon's bottom right corner.
+            let (ex, ey, e) = (ix + f64::from(icon) - 11.0, iy + f64::from(icon) - 11.0, 13.0);
+            canvas.round_rect(ex, ey, e, e, 3.0, if helix_draw::high_contrast() { 0xFF00_0000 } else { theme::POPOVER });
+            canvas.round_outline(ex + 1.5, ey + 1.5, e - 3.0, e - 3.0, 1.5, 1.4, FG);
+            canvas.rect((ex + 2.5) as i32, (ey + 2.5) as i32, (e - 5.0) as i32, 2, FG);
+        }
+        let text_x = rect.x + 10 + icon + 12;
+        let name_max = (rect.x + rect.w - text_x - 12) as f32;
+        label(text, canvas, name, text_x as f32, base, size::BODY, if more && !look.on { DIM_FG } else { fg }, name_max);
+        // A search result's description after its name, dimmer.
+        if let Some(found) = model.search_hit(hit).filter(|h| !more && !h.description.is_empty()) {
+            let nw = text.map_or(0.0, |t| t.width(name, size::BODY)) + 12.0;
+            if nw < name_max - 40.0 {
+                label(text, canvas, &found.description, text_x as f32 + nw, base, size::CAPTION, dim, name_max - nw);
+            }
+        }
+        rows.push((rect, result));
+    }
+    (rows, list_h)
 }
 
 /// The application switcher's icons: as large as fit `n` of them on a
