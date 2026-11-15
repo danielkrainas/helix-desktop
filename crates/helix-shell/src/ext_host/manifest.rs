@@ -1,6 +1,7 @@
 //! Extension manifests (helix-desktop-spec `contracts/extensions/README.md`,
 //! "Manifest").
 
+use helix_i18n::n_;
 use zbus::zvariant::{OwnedValue, Value};
 
 /// The API 1 minor version this Helix supports.
@@ -8,22 +9,22 @@ pub const API_MINOR: u32 = 2;
 
 /// Permissions, with how the user sees them.
 pub const PERMISSIONS: [(&str, &str); 14] = [
-    ("notifications", "show notifications"),
-    ("inhibit-idle", "keep the screen on"),
-    ("launch-apps", "start apps"),
+    ("notifications", n_("show notifications")),
+    ("inhibit-idle", n_("keep the screen on")),
+    ("launch-apps", n_("start apps")),
     // 1.1
-    ("popover", "show its own panels"),
+    ("popover", n_("show its own panels")),
     // 1.2: what a sandbox may reach.
-    ("network", "use the network"),
-    ("files:home", "read and change all your files"),
-    ("files:documents", "read and change your Documents"),
-    ("files:downloads", "read and change your Downloads"),
-    ("files:music", "read and change your Music"),
-    ("files:pictures", "read and change your Pictures"),
-    ("files:videos", "read and change your Videos"),
-    ("files:desktop", "read and change your Desktop"),
-    ("session-bus", "talk to your other programs"),
-    ("system-bus", "talk to system services"),
+    ("network", n_("use the network")),
+    ("files:home", n_("read and change all your files")),
+    ("files:documents", n_("read and change your Documents")),
+    ("files:downloads", n_("read and change your Downloads")),
+    ("files:music", n_("read and change your Music")),
+    ("files:pictures", n_("read and change your Pictures")),
+    ("files:videos", n_("read and change your Videos")),
+    ("files:desktop", n_("read and change your Desktop")),
+    ("session-bus", n_("talk to your other programs")),
+    ("system-bus", n_("talk to system services")),
 ];
 
 /// The system permissions (1.2): meaningful in a sandbox only.
@@ -32,7 +33,7 @@ pub fn is_system_permission(name: &str) -> bool {
 }
 
 pub fn permission_text(name: &str) -> &str {
-    PERMISSIONS.iter().find(|(n, _)| *n == name).map_or(name, |(_, t)| t)
+    PERMISSIONS.iter().find(|(n, _)| *n == name).map_or(name, |(_, t)| helix_i18n::tr(t))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

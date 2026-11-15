@@ -3,6 +3,9 @@
 //! settings (`org.gnome.shell.extensions.dash-to-dock`) when they are
 //! installed.
 
+use helix_i18n::tr;
+use helix_i18n::{trf, trnf};
+
 pub const SCHEMA: &str = "org.gnome.shell.extensions.dash-to-dock";
 const SHELL: &str = "org.gnome.shell";
 pub const INTERFACE: &str = "org.gnome.desktop.interface";
@@ -501,20 +504,20 @@ pub struct ItemState {
 }
 
 /// An item's accessible description: what the dock paints on it, in
-/// words ("2 windows, 4 new, 45 % done, needs attention"). Empty when
+/// words ("2 windows, 4 new, 45% done, needs attention"). Empty when
 /// nothing is shown.
 pub fn describe_item(s: &ItemState) -> String {
     let mut parts = Vec::new();
     match s.windows {
         0 => {}
-        1 => parts.push("1 window".to_owned()),
-        n => parts.push(format!("{n} windows")),
+        n => parts.push(trnf!("{n} window", "{n} windows", n)),
     }
     if s.badge > 0 {
-        parts.push(format!("{} new", s.badge));
+        // Translators: unread items counted on a dock icon's badge.
+        parts.push(trnf!("{n} new", "{n} new", s.badge));
     }
     if let Some(p) = s.progress {
-        parts.push(format!("{} % done", (p.clamp(0.0, 1.0) * 100.0).round()));
+        parts.push(trf!("{percent} done", percent = helix_i18n::format_percent((p.clamp(0.0, 1.0) * 100.0).round())));
     }
     if s.urgent {
         parts.push("needs attention".to_owned());
@@ -528,10 +531,10 @@ pub fn describe_item(s: &ItemState) -> String {
 pub fn tooltip_lines(name: &str, titles: &[String]) -> Vec<String> {
     let mut out = vec![name.to_owned()];
     for t in titles.iter().take(MAX_TITLES) {
-        out.push(if t.trim().is_empty() { "Untitled".into() } else { t.trim().to_owned() });
+        out.push(if t.trim().is_empty() { tr("Untitled").into() } else { t.trim().to_owned() });
     }
     if titles.len() > MAX_TITLES {
-        out.push(format!("{} more", titles.len() - MAX_TITLES));
+        out.push(trf!("{} more", titles.len() - MAX_TITLES));
     }
     out
 }
@@ -748,9 +751,9 @@ mod tests {
     fn item_descriptions() {
         assert_eq!(describe_item(&ItemState::default()), "");
         let s = ItemState { windows: 2, badge: 4, progress: Some(0.454), urgent: true, focused: true };
-        assert_eq!(describe_item(&s), "2 windows, 4 new, 45 % done, needs attention");
+        assert_eq!(describe_item(&s), "2 windows, 4 new, 45% done, needs attention");
         assert_eq!(describe_item(&ItemState { windows: 1, ..Default::default() }), "1 window");
-        assert_eq!(describe_item(&ItemState { progress: Some(0.0), ..Default::default() }), "0 % done");
+        assert_eq!(describe_item(&ItemState { progress: Some(0.0), ..Default::default() }), "0% done");
     }
 
     #[test]

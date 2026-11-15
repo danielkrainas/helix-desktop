@@ -53,6 +53,8 @@ use crate::windows::{SwitchEntry, SwitchMode, Switcher, WindowAction};
 use helix_draw::motion::{Motion, Tween};
 use helix_draw::theme;
 use std::collections::HashMap;
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 mod app_grid;
 mod atspi;
@@ -979,12 +981,12 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
                 let mut ix = x;
                 if m.sharing {
                     canvas.rect(ix, h as i32 / 2 - 4, 8, 8, SHARING);
-                    label(text, canvas, "Sharing", (ix + 14) as f32, base, px, ERROR_TEXT, (sharing_w() - 16) as f32);
+                    label(text, canvas, tr("Sharing"), (ix + 14) as f32, base, px, ERROR_TEXT, (sharing_w() - 16) as f32);
                     ix += sharing_w();
                 }
                 if m.recording {
                     canvas.rect(ix, h as i32 / 2 - 4, 8, 8, SHARING);
-                    label(text, canvas, "Recording", (ix + 14) as f32, base, px, ERROR_TEXT, (recording_w() - 16) as f32);
+                    label(text, canvas, tr("Recording"), (ix + 14) as f32, base, px, ERROR_TEXT, (recording_w() - 16) as f32);
                 }
             }
         }
@@ -1014,55 +1016,55 @@ canvas.fill(SCRIM);
         _ => Vec::new(),
     };
     let list_header = if matches!(state.kind, DialogKind::ApproveExtension { .. }) {
-        "It will be able to:"
+        tr("It will be able to:")
     } else {
-        "Some applications are busy or have unsaved work:"
+        tr("Some applications are busy or have unsaved work:")
     };
     let (title, message, cancel_label, confirm_label, blockers): (String, String, &str, String, &Vec<_>) = match &state.kind {
         DialogKind::End(d) => {
             let (title, verb) = match d.kind {
-                SHUTDOWN => ("Power Off", "Power Off"),
-                REBOOT => ("Restart", "Restart"),
-                UPDATE_REBOOT => ("Restart & Install Updates", "Restart & Install"),
-                UPGRADE_REBOOT => ("Restart & Install Upgrade", "Restart & Install"),
-                _ => ("Log Out", "Log Out"),
+                SHUTDOWN => (tr("Power Off"), tr("Power Off")),
+                REBOOT => (tr("Restart"), tr("Restart")),
+                UPDATE_REBOOT => (tr("Restart & Install Updates"), tr("Restart & Install")),
+                UPGRADE_REBOOT => (tr("Restart & Install Upgrade"), tr("Restart & Install")),
+                _ => (tr("Log Out"), tr("Log Out")),
             };
-            let confirm = if d.blockers.is_empty() { verb.to_owned() } else { format!("{verb} Anyway") };
+            let confirm = if d.blockers.is_empty() { verb.to_owned() } else { trf!("{verb} Anyway", verb = verb) };
             let message = match (d.kind, &d.upgrade) {
-                (UPDATE_REBOOT, _) => format!("The computer will restart and install updates in {remaining} seconds. Installing can take a while."),
-                (UPGRADE_REBOOT, Some(name)) => format!("{name} will be installed after the restart, in {remaining} seconds. Installing can take a long time."),
-                _ => format!("The session will end automatically in {remaining} seconds."),
+                (UPDATE_REBOOT, _) => trf!("The computer will restart and install updates in {remaining} seconds. Installing can take a while.", remaining = remaining),
+                (UPGRADE_REBOOT, Some(name)) => trf!("{name} will be installed after the restart, in {remaining} seconds. Installing can take a long time.", name = name, remaining = remaining),
+                _ => trf!("The session will end automatically in {remaining} seconds.", remaining = remaining),
             };
-            (title.to_owned(), message, "Cancel", confirm, &d.blockers)
+            (title.to_owned(), message, tr("Cancel"), confirm, &d.blockers)
         }
         DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) => return None,
-        DialogKind::ApproveExtension { name, .. } => (format!("Turn on {name}?"), String::new(), "Cancel", "Turn On".to_owned(), &approval_rows),
+        DialogKind::ApproveExtension { name, .. } => (trf!("Turn on {name}?", name = name), String::new(), tr("Cancel"), tr("Turn On").to_owned(), &approval_rows),
         DialogKind::RemoteControl { app, devices, .. } => (
-            "Allow remote control?".to_owned(),
-            format!("{app} wants to control your {}.", crate::screencast_chooser::device_list(devices)),
-            "Deny",
-            "Allow".to_owned(),
+            tr("Allow remote control?").to_owned(),
+            trf!("{app} wants to control your {devices}.", app = app, devices = crate::screencast_chooser::device_list(devices)),
+            tr("Deny"),
+            tr("Allow").to_owned(),
             &no_blockers,
         ),
         DialogKind::ShortcutsInhibit { app, .. } => (
-            format!("Allow {app} to use all keyboard shortcuts?"),
-            "While it has the keyboard, the desktop's shortcuts go to it. Super+Escape gives them back.".to_owned(),
-            "Deny",
-            "Allow".to_owned(),
+            trf!("Allow {app} to use all keyboard shortcuts?", app = app),
+            tr("While it has the keyboard, the desktop's shortcuts go to it. Super+Escape gives them back.").to_owned(),
+            tr("Deny"),
+            tr("Allow").to_owned(),
             &no_blockers,
         ),
         DialogKind::NotResponding { title, .. } => (
-            format!("“{title}” is not responding."),
-            "You may choose to wait a short while for it to continue or force the app to quit entirely.".to_owned(),
-            "Wait",
-            "Force Quit".to_owned(),
+            trf!("“{title}” is not responding.", title = title),
+            tr("You may choose to wait a short while for it to continue or force the app to quit entirely.").to_owned(),
+            tr("Wait"),
+            tr("Force Quit").to_owned(),
             &no_blockers,
         ),
         DialogKind::DisplayChange => (
-            "Keep the new display settings?".to_owned(),
-            format!("The previous settings come back in {remaining} seconds."),
-            "Revert",
-            "Keep".to_owned(),
+            tr("Keep the new display settings?").to_owned(),
+            trf!("The previous settings come back in {remaining} seconds.", remaining = remaining),
+            tr("Revert"),
+            tr("Keep").to_owned(),
             &no_blockers,
         ),
     };
@@ -1106,7 +1108,7 @@ canvas.fill(SCRIM);
         // Outlined, so an empty box shows.
         canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
         canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if on { accent() } else { FIELD_BG });
-        let name = "Install pending software updates";
+        let name = tr("Install pending software updates");
         label(text, canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
         extra_hits.push((r, OverlayHit::EndInstall));
     }
@@ -1136,11 +1138,11 @@ fn osd_caption(osd: &Osd) -> Option<String> {
         return Some(label.clone());
     }
     let caption = match osd.icon.as_deref()? {
-        "audio-volume-muted-symbolic" => "Muted",
-        i if i.starts_with("audio-volume-") => "Volume",
-        "display-brightness-symbolic" => "Brightness",
-        "microphone-sensitivity-muted-symbolic" => "Microphone off",
-        i if i.starts_with("microphone-sensitivity-") => "Microphone on",
+        "audio-volume-muted-symbolic" => tr("Muted"),
+        i if i.starts_with("audio-volume-") => tr("Volume"),
+        "display-brightness-symbolic" => tr("Brightness"),
+        "microphone-sensitivity-muted-symbolic" => tr("Microphone off"),
+        i if i.starts_with("microphone-sensitivity-") => tr("Microphone on"),
         _ => return None,
     };
     Some(caption.to_owned())
@@ -1985,7 +1987,7 @@ impl Ui {
         let field = Rect { x: bx, y: by, w: bw, h: grow(48) };
         text_field(&mut canvas, field, true);
         let (q_text, q_color) = if view.model.query.is_empty() {
-            (view.model.folder_name().unwrap_or("Type to search…"), DIM_FG)
+            (view.model.folder_name().unwrap_or(tr("Type to search…")), DIM_FG)
         } else {
             (view.model.query.as_str(), FG)
         };
@@ -2025,7 +2027,7 @@ impl Ui {
         view.rows.clear();
         if shown.is_empty() {
             let base = baseline(self.text.as_ref(), list_top + 4, row_h, 15.0);
-            label(self.text.as_ref(), &mut canvas, "No matching apps", (bx + 16) as f32, base, 15.0, DIM_FG, (bw - 32) as f32);
+            label(self.text.as_ref(), &mut canvas, tr("No matching apps"), (bx + 16) as f32, base, 15.0, DIM_FG, (bw - 32) as f32);
         }
         for (row, &result) in shown.iter().enumerate() {
             let rect = Rect { x: bx + 4, y: list_top + 4 + row as i32 * row_h, w: bw - 8, h: row_h };
@@ -2036,7 +2038,7 @@ impl Ui {
             let more = matches!(view.model.results[result], launcher::Hit::More(_));
             let more_label;
             let name = if more {
-                more_label = format!("Search for “{}” in {name}", view.model.query.trim());
+                more_label = trf!("Search for “{query}” in {name}", query = view.model.query.trim(), name = name);
                 more_label.as_str()
             } else {
                 name
@@ -2053,9 +2055,9 @@ impl Ui {
                 }
             }
             let tag_text = match view.model.results[result] {
-                launcher::Hit::Window(_) => Some("Open window"),
-                launcher::Hit::Folder(_) => Some("Folder"),
-                launcher::Hit::App(i) if view.model.is_favorite(i) => Some("Favorite"),
+                launcher::Hit::Window(_) => Some(tr("Open window")),
+                launcher::Hit::Folder(_) => Some(tr("Folder")),
+                launcher::Hit::App(i) if view.model.is_favorite(i) => Some(tr("Favorite")),
                 _ => found.map(|h| h.app.as_str()),
             };
             let tag_w = tag_text.map_or(0.0, |t| self.text.as_ref().map_or(96.0, |f| f.width(t, 13.0)).min(160.0) + 8.0);
@@ -2262,7 +2264,7 @@ impl Ui {
         self.lock.checking = true;
         self.lock.checking_since = Instant::now();
         self.lock.failed = false;
-        self.lock.message = Some("Checking…".into());
+        self.lock.message = Some(tr("Checking…").into());
         let auth = self.lock.auth.clone();
         let user = self.lock.user.clone();
         let results = self.lock.results.clone();
@@ -2304,7 +2306,7 @@ impl Ui {
                 self.draw_lock();
             }
             Err(AuthError::Denied) => {
-                self.lock.message = Some("Incorrect password. Try again.".into());
+                self.lock.message = Some(tr("Incorrect password. Try again.").into());
                 self.lock.failed = true;
                 if self.lock.motion.moves() {
                     self.lock.shaken = Some(Instant::now());
@@ -2314,7 +2316,7 @@ impl Ui {
             }
             Err(AuthError::Unavailable(err)) => {
                 tracing::error!(%err, "cannot check passwords");
-                self.lock.message = Some(format!("Cannot check password: {err}"));
+                self.lock.message = Some(trf!("Cannot check password: {err}", err = err));
                 self.lock.failed = true;
                 self.draw_lock();
             }
@@ -2874,16 +2876,16 @@ impl Ui {
         canvas.rect(bx, by, bw, bh, BANNER_BG);
         let inner = (bw - 48) as f32;
         let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
-        let title = "Share your screen?";
+        let title = tr("Share your screen?");
         label(text, &mut canvas, title, center(title, 20.0), (by + helix_draw::theme::grow(44)) as f32, 20.0, FG, inner);
         let message = if control.is_empty() {
-            format!("{app} wants to see your screen. Choose what to share.")
+            trf!("{app} wants to see your screen. Choose what to share.", app = app)
         } else {
-            format!("{app} wants to see your screen and control your {}.", crate::screencast_chooser::device_list(control))
+            trf!("{app} wants to see your screen and control your {devices}.", app = app, devices = crate::screencast_chooser::device_list(control))
         };
         label(text, &mut canvas, &message, center(&message, 14.0), (by + helix_draw::theme::grow(78)) as f32, 14.0, DIM_FG, inner);
         if *remember {
-            let note = "It will be able to share the same screen again without asking.";
+            let note = tr("It will be able to share the same screen again without asking.");
             label(text, &mut canvas, note, center(note, 13.0), (by + helix_draw::theme::grow(96)) as f32, 13.0, DIM_FG, inner);
         }
         let mut hits = Vec::new();
@@ -2916,14 +2918,14 @@ impl Ui {
         let cw = if *multiple { (bw - 48 - 12) / 2 } else { bw - 48 };
         let cancel = Rect { x: bx + 24, y: by + bh - helix_draw::theme::grow(56), w: cw, h: helix_draw::theme::grow(36) };
         theme::control(&mut canvas, cancel.x, cancel.y, cancel.w, cancel.h, theme::Look::default());
-        let lw = text.map_or(0.0, |t| t.width("Cancel", 15.0));
-        label(text, &mut canvas, "Cancel", cancel.x as f32 + (cancel.w as f32 - lw) / 2.0, baseline(text, cancel.y, cancel.h, 15.0), 15.0, FG, cancel.w as f32);
+        let lw = text.map_or(0.0, |t| t.width(tr("Cancel"), 15.0));
+        label(text, &mut canvas, tr("Cancel"), cancel.x as f32 + (cancel.w as f32 - lw) / 2.0, baseline(text, cancel.y, cancel.h, 15.0), 15.0, FG, cancel.w as f32);
         hits.push((cancel, OverlayHit::Cancel));
         if *multiple {
             let share = Rect { x: cancel.x + cw + 12, y: cancel.y, w: cw, h: cancel.h };
             theme::control(&mut canvas, share.x, share.y, share.w, share.h, theme::Look { on: !picked.is_empty(), ..Default::default() });
-            let sw = text.map_or(0.0, |t| t.width("Share", 15.0));
-            label(text, &mut canvas, "Share", share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, if picked.is_empty() { DIM_FG } else { on_accent() }, share.w as f32);
+            let sw = text.map_or(0.0, |t| t.width(tr("Share"), 15.0));
+            label(text, &mut canvas, tr("Share"), share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, if picked.is_empty() { DIM_FG } else { on_accent() }, share.w as f32);
             if !picked.is_empty() {
                 hits.push((share, OverlayHit::Confirm));
             }
@@ -3104,7 +3106,7 @@ impl Ui {
                             sources.extend(self.windows.mru().iter().map(|w| (Shared::Window(w.id), w.label().to_owned(), w.app_id.clone())));
                         }
                         if q.virtual_monitor {
-                            sources.push((Shared::Virtual, "New virtual monitor".to_owned(), String::new()));
+                            sources.push((Shared::Virtual, tr("New virtual monitor").to_owned(), String::new()));
                         }
                         if sources.is_empty() {
                             let _ = q.reply.send(None);
@@ -4459,22 +4461,22 @@ fn read_icon(data: std::os::fd::OwnedFd, size: u32) -> Option<helix_draw::Image>
 fn power_menu_items(power: crate::logind::Availability, lock: bool, log_out: bool, switch_user: bool) -> Vec<(&'static str, PowerAction)> {
     let mut items = Vec::new();
     if lock {
-        items.push(("Lock Screen", PowerAction::Lock));
+        items.push((tr("Lock Screen"), PowerAction::Lock));
     }
     if switch_user {
-        items.push(("Switch User…", PowerAction::SwitchUser));
+        items.push((tr("Switch User…"), PowerAction::SwitchUser));
     }
     if power.suspend {
-        items.push(("Suspend", PowerAction::Suspend));
+        items.push((tr("Suspend"), PowerAction::Suspend));
     }
     if log_out {
-        items.push(("Log Out…", PowerAction::LogOut));
+        items.push((tr("Log Out…"), PowerAction::LogOut));
     }
     if power.restart {
-        items.push(("Restart…", PowerAction::Restart));
+        items.push((tr("Restart…"), PowerAction::Restart));
     }
     if power.power_off {
-        items.push(("Power Off…", PowerAction::PowerOff));
+        items.push((tr("Power Off…"), PowerAction::PowerOff));
     }
     items
 }
@@ -4553,7 +4555,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                 if responding != 0 {
                     ui.close_not_responding(id);
                 } else if ui.lock.session.is_none() && ui.dialog.is_none() {
-                    let title = ui.windows.mru().iter().find(|e| e.id == id).map_or_else(|| "The app".to_owned(), |e| e.label().to_owned());
+                    let title = ui.windows.mru().iter().find(|e| e.id == id).map_or_else(|| tr("The app").to_owned(), |e| e.label().to_owned());
                     ui.show_dialog(DialogState::new(DialogKind::NotResponding { id, title }, 0));
                 }
             }

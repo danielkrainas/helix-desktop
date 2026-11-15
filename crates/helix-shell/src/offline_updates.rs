@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use zbus::zvariant::OwnedValue;
 use zbus::Connection;
+use helix_i18n::tr;
 
 const SERVICE: &str = "org.freedesktop.PackageKit";
 const PATH: &str = "/org/freedesktop/PackageKit";
@@ -45,7 +46,7 @@ pub fn upgrade_name(details: &HashMap<String, OwnedValue>) -> String {
     let get = |key: &str| details.get(key).and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default();
     let name = [get("name"), get("version")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" ");
     if name.is_empty() {
-        "A new version of the system".to_owned()
+        tr("A new version of the system").to_owned()
     } else {
         name
     }

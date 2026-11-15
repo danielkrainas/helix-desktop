@@ -13,6 +13,8 @@ use gio::prelude::*;
 use crate::notifications::{open_uri, Center};
 use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 pub const SCHEMA: &str = "org.gnome.desktop.media-handling";
 
@@ -224,7 +226,7 @@ thread_local! {
 pub fn program_list(names: &[String]) -> String {
     let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
     match names.len() {
-        n if n > 5 => format!("{shown} and {} more", n - 5),
+        n if n > 5 => helix_i18n::trnf!("{shown} and {n} more", "{shown} and {n} more", n - 5, shown = shown),
         _ => shown,
     }
 }
@@ -282,7 +284,7 @@ fn ask(id: u64, prompt: Prompt, answer: impl FnOnce(Answer) -> Reply + Send + 's
 }
 
 pub(crate) fn process_name(pid: i32) -> String {
-    std::fs::read_to_string(format!("/proc/{pid}/comm")).map(|s| s.trim().to_owned()).unwrap_or_else(|_| format!("process {pid}"))
+    std::fs::read_to_string(format!("/proc/{pid}/comm")).map(|s| s.trim().to_owned()).unwrap_or_else(|_| trf!("process {pid}", pid = pid))
 }
 
 /// A choice question: `name` titles it, `description` explains it.
@@ -316,9 +318,9 @@ fn mount_operation(name: &str) -> (gio::MountOperation, u64) {
         };
         let has_user = prompt.entry.is_some();
         crate::mount_handler::add_extras(&mut prompt, bits);
-        prompt.title = format!("Unlock {title}");
+        prompt.title = trf!("Unlock {title}", title = title);
         prompt.message = message.to_owned();
-        prompt.continue_label = "Unlock".into();
+        prompt.continue_label = tr("Unlock").into();
         let (user, domain) = (user.to_owned(), domain.to_owned());
         ask(id, prompt, move |answer| match answer {
             Answer::Continue { entry, password, choice, checks, .. } => {
@@ -360,7 +362,7 @@ fn mount_operation(name: &str) -> (gio::MountOperation, u64) {
         let pids = values.get(2).map(pids_of).unwrap_or_default();
         let choices: Vec<String> = values.get(3).and_then(|v| v.get::<Vec<String>>().ok()).unwrap_or_default();
         let names: Vec<String> = pids.iter().map(|p| process_name(*p)).collect();
-        let description = if names.is_empty() { String::new() } else { format!("In use by: {}", program_list(&names)) };
+        let description = if names.is_empty() { String::new() } else { trf!("In use by: {}", program_list(&names)) };
         ask_choice(id, &title, &message, description, choices);
         None
     });
@@ -371,7 +373,7 @@ fn mount_operation(name: &str) -> (gio::MountOperation, u64) {
         let shown = WRITING.with(|w| w.borrow().get(&id).copied());
         match (shown, bytes_left > 0) {
             (None, true) => {
-                let n = center.notice("Removable Media", &format!("Writing to {title}"), "Do not unplug until finished.", "media-removable-symbolic", false);
+                let n = center.notice(tr("Removable Media"), &trf!("Writing to {title}", title = title), tr("Do not unplug until finished."), "media-removable-symbolic", false);
                 WRITING.with(|w| w.borrow_mut().insert(id, n));
             }
             (Some(n), false) => {
@@ -485,7 +487,7 @@ fn mount_added(mount: &gio::Mount) {
             Arrival::Notify => STATE.with(|s| {
                 let mut s = s.borrow_mut();
                 if let Some(center) = s.center.clone() {
-                    let id = center.media_notice(&m.name(), "Removable medium connected", Some(root.clone()));
+                    let id = center.media_notice(&m.name(), tr("Removable medium connected"), Some(root.clone()));
                     s.notices.insert(root, id);
                 }
             }),
@@ -513,11 +515,11 @@ fn eject(state: &State, root: &str) {
         finish_op(op_id);
         match result {
             Ok(()) => {
-                center.media_notice(&format!("{name} can be removed"), "", None);
+                center.media_notice(&trf!("{name} can be removed", name = name), "", None);
             }
             Err(err) => {
                 tracing::info!(%err, name, "cannot eject");
-                center.media_notice(&format!("Cannot eject {name}"), err.message(), None);
+                center.media_notice(&trf!("Cannot eject {name}", name = name), err.message(), None);
             }
         }
     };
@@ -560,7 +562,7 @@ pub fn eject_drive() {
             drive.eject_with_operation(gio::MountUnmountFlags::NONE, Some(&op), None::<&gio::Cancellable>, move |result| {
                 finish_op(op_id);
                 if let (Err(err), Some(center)) = (result, center) {
-                    center.media_notice(&format!("Cannot eject {name}"), err.message(), None);
+                    center.media_notice(&trf!("Cannot eject {name}", name = name), err.message(), None);
                 }
             });
         });

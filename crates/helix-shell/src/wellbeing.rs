@@ -13,6 +13,8 @@ use zbus::Connection;
 use crate::notifications::Center;
 use crate::sound::{self, Sound};
 use crate::UiEvent;
+use helix_i18n::tr;
+use helix_i18n::{trf, trnf};
 
 const BREAKS: &str = "org.gnome.desktop.break-reminders";
 const LIMITS: &str = "org.gnome.desktop.screen-time-limits";
@@ -39,15 +41,15 @@ impl Kind {
 
     pub fn title(self) -> &'static str {
         match self {
-            Kind::Eyesight => "Eyesight Break",
-            Kind::Movement => "Movement Break",
+            Kind::Eyesight => tr("Eyesight Break"),
+            Kind::Movement => tr("Movement Break"),
         }
     }
 
     pub fn message(self) -> &'static str {
         match self {
-            Kind::Eyesight => "Look at something far away",
-            Kind::Movement => "Stand up and move around",
+            Kind::Eyesight => tr("Look at something far away"),
+            Kind::Movement => tr("Stand up and move around"),
         }
     }
 
@@ -233,11 +235,13 @@ pub fn format_history(history: &BTreeMap<String, u64>) -> String {
 /// "H hours and M minutes".
 pub fn duration_text(secs: u64) -> String {
     let (h, m) = (secs / 3600, secs % 3600 / 60);
-    let plural = |n: u64, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
+    let hours = || trnf!("{n} hour", "{n} hours", h);
+    let minutes = || trnf!("{n} minute", "{n} minutes", m);
     match (h, m) {
-        (0, m) => plural(m, "minute"),
-        (h, 0) => plural(h, "hour"),
-        (h, m) => format!("{} and {}", plural(h, "hour"), plural(m, "minute")),
+        (0, _) => minutes(),
+        (_, 0) => hours(),
+        // Translators: a duration, "2 hours and 5 minutes".
+        _ => trf!("{hours} and {minutes}", hours = hours(), minutes = minutes()),
     }
 }
 
@@ -359,13 +363,13 @@ pub async fn run(conn: Connection, center: Center, ui: mpsc::UnboundedSender<UiE
             tracing::debug!(?out, "break reminders");
             match out {
                 Out::Upcoming(kind) => {
-                    center.notice("Break Reminders", &format!("{} Soon", kind.title()), "A break starts in one minute.", "alarm-symbolic", false);
+                    center.notice(tr("Break Reminders"), &trf!("{} Soon", kind.title()), tr("A break starts in one minute."), "alarm-symbolic", false);
                 }
                 Out::Start { kind, overdue } => {
                     let Some(s) = setting(kind) else { continue };
                     if overdue && s.notify_overdue {
                         let minutes = s.interval / 60;
-                        center.notice("Break Reminders", "Break Overdue", &format!("You have been working for {minutes} minutes without a break."), "alarm-symbolic", false);
+                        center.notice(tr("Break Reminders"), tr("Break Overdue"), &trf!("You have been working for {minutes} minutes without a break.", minutes = minutes), "alarm-symbolic", false);
                     }
                     if s.sound {
                         sound::play(&Sound::Name("alarm-clock-elapsed".into()));
@@ -376,7 +380,7 @@ pub async fn run(conn: Connection, center: Center, ui: mpsc::UnboundedSender<UiE
                         }
                     }
                     if !s.fade && s.notify && !overdue {
-                        center.notice("Break Reminders", kind.title(), kind.message(), "alarm-symbolic", false);
+                        center.notice(tr("Break Reminders"), kind.title(), kind.message(), "alarm-symbolic", false);
                     }
                 }
                 Out::Progress { kind, left: l } => left[kind.index()] = Some(l),
@@ -420,7 +424,7 @@ pub async fn run(conn: Connection, center: Center, ui: mpsc::UnboundedSender<UiE
         if reached && notified_day != day {
             notified_day = day.clone();
             tracing::info!(total, limit = l.limit, "screen time limit reached");
-            center.notice("Screen Time", "Screen Time Limit Reached", &format!("You have used the computer for {} today.", duration_text(total)), "preferences-system-time-symbolic", false);
+            center.notice(tr("Screen Time"), tr("Screen Time Limit Reached"), &trf!("You have used the computer for {} today.", duration_text(total)), "preferences-system-time-symbolic", false);
         }
         let want_gray = reached && l.grayscale;
         if want_gray != gray {

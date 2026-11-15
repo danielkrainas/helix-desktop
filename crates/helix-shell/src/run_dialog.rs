@@ -6,6 +6,8 @@ use tokio::sync::mpsc;
 
 use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 const SHELL: &str = "org.gnome.shell";
 /// Commands kept in the history.
@@ -91,7 +93,7 @@ fn execute(text: &str) -> Result<(), String> {
             let argv = gio::glib::shell_parse_argv(&line).map_err(|e| e.message().to_owned())?;
             let program = argv.first().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
             if gio::glib::find_program_in_path(&program).is_none() {
-                return Err(format!("Command not found: {program}"));
+                return Err(trf!("Command not found: {program}", program = program));
             }
             let app = gio::AppInfo::create_from_commandline(&line, None, gio::AppInfoCreateFlags::NONE).map_err(|e| e.message().to_owned())?;
             app.launch(&[], None::<&gio::AppLaunchContext>).map_err(|e| e.message().to_owned())
@@ -172,13 +174,13 @@ pub async fn run(ui: mpsc::UnboundedSender<UiEvent>, extensions: crate::ext_host
     let mut warning = String::new();
     loop {
         let p = Prompt {
-            title: "Run a Command".into(),
-            entry: Some(("Enter a Command".into(), text.clone())),
+            title: tr("Run a Command").into(),
+            entry: Some((tr("Enter a Command").into(), text.clone())),
             history: history(),
             complete_commands: true,
             warning: warning.clone(),
-            continue_label: "Run".into(),
-            cancel_label: "Cancel".into(),
+            continue_label: tr("Run").into(),
+            cancel_label: tr("Cancel").into(),
             ..Default::default()
         };
         let Answer::Continue { entry: Some(typed), .. } = prompt::ask(&ui, p).await else { break };

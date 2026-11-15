@@ -12,13 +12,15 @@ use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind};
 use crate::status::Toggle;
 use helix_draw::Image;
 use crate::{QuickChange, UiRequest};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 /// A power profile as the user knows it.
 fn profile_label(name: &str) -> String {
     match name {
-        "power-saver" => "Power Saver".into(),
-        "balanced" => "Balanced".into(),
-        "performance" => "Performance".into(),
+        "power-saver" => tr("Power Saver").into(),
+        "balanced" => tr("Balanced").into(),
+        "performance" => tr("Performance").into(),
         other => other.into(),
     }
 }
@@ -320,19 +322,19 @@ impl Ui {
         // The switches there are, with their labels and states.
         let mut switches: Vec<(Switch, String)> = Vec::new();
         if let Some((on, ssid)) = &self.status.wifi {
-            let name = ssid.as_ref().filter(|_| *on).cloned().unwrap_or_else(|| "Wi-Fi".into());
+            let name = ssid.as_ref().filter(|_| *on).cloned().unwrap_or_else(|| tr("Wi-Fi").into());
             switches.push((Switch::Wifi, name));
         }
         if self.status.bluetooth.is_some() {
-            switches.push((Switch::Bluetooth, "Bluetooth".into()));
+            switches.push((Switch::Bluetooth, tr("Bluetooth").into()));
         }
         if self.status.wifi.is_some() || self.status.bluetooth.is_some() {
-            switches.push((Switch::Airplane, "Airplane Mode".into()));
+            switches.push((Switch::Airplane, tr("Airplane Mode").into()));
         }
         if self.status.accelerometer {
-            switches.push((Switch::AutoRotate, "Auto Rotate".into()));
+            switches.push((Switch::AutoRotate, tr("Auto Rotate").into()));
         }
-        switches.extend([(Switch::NightLight, "Night Light".into()), (Switch::DarkStyle, "Dark Style".into()), (Switch::DoNotDisturb, "Do Not Disturb".into())]);
+        switches.extend([(Switch::NightLight, tr("Night Light").into()), (Switch::DarkStyle, tr("Dark Style").into()), (Switch::DoNotDisturb, tr("Do Not Disturb").into())]);
         let mut available: Vec<(Switch, String, String)> = switches.into_iter().map(|(s, name)| (s, name, s.id().to_owned())).collect();
         // Nothing from extensions while locked.
         let locked = self.lock.session.is_some();
@@ -359,10 +361,10 @@ impl Ui {
         };
         let mut sliders = Vec::new();
         if let Some((percent, muted, max)) = self.quick.volume {
-            sliders.push(Slider { label: if muted { "Muted" } else { "Volume" }.into(), name: "Volume".into(), id: "volume".into(), value: percent, max, dim: muted, hit: Some(OverlayHit::VolumeSlider), mute: Some(muted) });
+            sliders.push(Slider { label: if muted { tr("Muted") } else { tr("Volume") }.into(), name: tr("Volume").into(), id: "volume".into(), value: percent, max, dim: muted, hit: Some(OverlayHit::VolumeSlider), mute: Some(muted) });
         }
         if let Some(percent) = self.quick.brightness {
-            sliders.push(Slider { label: "Brightness".into(), name: "Brightness".into(), id: "brightness".into(), value: percent, max: 100, dim: false, hit: Some(OverlayHit::BrightnessSlider), mute: None });
+            sliders.push(Slider { label: tr("Brightness").into(), name: tr("Brightness").into(), id: "brightness".into(), value: percent, max: 100, dim: false, hit: Some(OverlayHit::BrightnessSlider), mute: None });
         }
         for &i in &ext_sliders {
             let Some(s) = self.ext.sliders.get(i) else { continue };
@@ -375,9 +377,9 @@ impl Ui {
                 let ext = if let Switch::Ext(i) = switch { self.ext.toggles.get(*i) } else { None };
                 let key = if switch.id().is_empty() { ext.map_or_else(String::new, |t| t.full_id.clone()) } else { switch.id().to_owned() };
                 let more = match switch {
-                    Switch::Wifi => Some((OverlayHit::Expand(*switch), "Wi-Fi Networks".to_owned())),
-                    Switch::Bluetooth => Some((OverlayHit::Expand(*switch), format!("{name} Devices"))),
-                    Switch::Ext(i) if ext.is_some_and(|t| t.has_details && t.sensitive) => Some((OverlayHit::ExtDetails(*i), format!("{name} Settings"))),
+                    Switch::Wifi => Some((OverlayHit::Expand(*switch), tr("Wi-Fi Networks").to_owned())),
+                    Switch::Bluetooth => Some((OverlayHit::Expand(*switch), trf!("{name} Devices", name = name))),
+                    Switch::Ext(i) if ext.is_some_and(|t| t.has_details && t.sensitive) => Some((OverlayHit::ExtDetails(*i), trf!("{name} Settings", name = name))),
                     _ => None,
                 };
                 SwitchTile { switch: *switch, name: name.clone(), on: self.switch_on(*switch), dim: ext.is_some_and(|t| !t.sensitive), subtitle: ext.map_or_else(String::new, |t| t.subtitle.clone()), more, key }
@@ -399,16 +401,16 @@ impl Ui {
             Some(Switch::Bluetooth) => {
                 let mut rows: Vec<ListRow> = self.status.devices.iter().enumerate().map(|(i, d)| ListRow { connected: d.connected, ..row(d.name.clone(), Some(OverlayHit::BtDevice(i))) }).collect();
                 if !self.status.devices.is_empty() {
-                    rows.push(row("Send Files…".into(), Some(OverlayHit::BtSendFiles)));
+                    rows.push(row(tr("Send Files…").into(), Some(OverlayHit::BtSendFiles)));
                 }
                 if self.bt_discovery || self.status.discovering {
-                    rows.push(row("Nearby Devices".into(), None));
+                    rows.push(row(tr("Nearby Devices").into(), None));
                     if self.status.nearby.is_empty() {
-                        rows.push(row("Searching…".into(), None));
+                        rows.push(row(tr("Searching…").into(), None));
                     }
                     rows.extend(self.status.nearby.iter().enumerate().map(|(i, d)| row(d.name.clone(), Some(OverlayHit::BtNearby(i)))));
                 } else {
-                    rows.push(row("Pair New Device…".into(), Some(OverlayHit::PairNew)));
+                    rows.push(row(tr("Pair New Device…").into(), Some(OverlayHit::PairNew)));
                 }
                 rows
             }
@@ -850,7 +852,7 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
         }
         let bar = Rect { x: mx + PAD + name_w + 4, y: y + row_h / 2 - 9, w: menu_w - 2 * PAD - name_w - 4 - value_w, h: 18 };
         theme::slider(canvas, bar.x, bar.y, bar.w, bar.h, f64::from(s.value.min(s.max)) / f64::from(s.max.max(1)), s.dim);
-        let pct = format!("{}%", s.value);
+        let pct = helix_i18n::format_percent(f64::from(s.value));
         label(text, canvas, &pct, (bar.x + bar.w + 10) as f32, baseline(text, y, row_h, 13.0), 13.0, DIM_FG, (value_w - 8) as f32);
         if let Some(hit) = s.hit {
             // The whole row height is clickable on the bar.
@@ -913,7 +915,7 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
         // shows the window.
         let mut ry = y + 8 - scroll.list as i32 * list_row_h;
         if m.rows.is_empty() {
-            let empty = if open == Switch::Wifi { "No Networks" } else { "No Devices" };
+            let empty = if open == Switch::Wifi { tr("No Networks") } else { tr("No Devices") };
             label(text, canvas, empty, (lx + 12) as f32, baseline(text, ry, list_row_h, 13.0), 13.0, DIM_FG, (lw - 24) as f32);
         }
         let list_area = Rect { x: lx, y: y + 4, w: lw, h: list_h - 8 };
@@ -935,7 +937,7 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
                 }
             }
             if *connected {
-                label(text, canvas, "Connected", (r.x + r.w - state_w) as f32, baseline(text, r.y, r.h, 12.0), 12.0, theme::text_accent(), (state_w - 8) as f32);
+                label(text, canvas, tr("Connected"), (r.x + r.w - state_w) as f32, baseline(text, r.y, r.h, 12.0), 12.0, theme::text_accent(), (state_w - 8) as f32);
             }
             if let Some(hit) = hit {
                 hits.push((r, *hit));
@@ -955,7 +957,7 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
     }
     // Power mode: one button per profile.
     if !m.profiles.is_empty() {
-        label(text, canvas, "Power Mode", (mx + PAD) as f32, (y + grow(18)) as f32, 13.0, DIM_FG, (menu_w - 2 * PAD) as f32);
+        label(text, canvas, tr("Power Mode"), (mx + PAD) as f32, (y + grow(18)) as f32, 13.0, DIM_FG, (menu_w - 2 * PAD) as f32);
         let n = m.profiles.len() as i32;
         let bw = (menu_w - 2 * PAD - (n - 1) * 8) / n;
         for (i, (name, active)) in m.profiles.iter().enumerate() {
@@ -1012,7 +1014,7 @@ fn quick_node(m: &QuickModel, hits: &[(Rect, OverlayHit)], bounds: Rect, focus: 
     use crate::a11y::{Node, Role};
     let at = |hit: OverlayHit| hits.iter().find(|(_, h)| *h == hit).map(|(r, _)| crate::a11y::Rect::from(*r)).unwrap_or_default();
     let focused = |hit: OverlayHit| focus == Some(hit);
-    let mut menu = Node::new(Role::Menu, "System").id("menu").at(bounds.into());
+    let mut menu = Node::new(Role::Menu, tr("System")).id("menu").at(bounds.into());
     for s in &m.sliders {
         let slider = Node::new(Role::Slider, &s.name).id(s.id.clone()).range(f64::from(s.value), 0.0, f64::from(s.max), f64::from(slider_step(s.max)));
         menu = menu.child(match s.hit {
@@ -1020,7 +1022,7 @@ fn quick_node(m: &QuickModel, hits: &[(Rect, OverlayHit)], bounds: Rect, focus: 
             None => slider.disabled(true),
         });
         if let Some(muted) = s.mute {
-            menu = menu.child(Node::button("Mute", at(OverlayHit::Mute)).id("mute").toggled(muted).focusable().focused(focused(OverlayHit::Mute)));
+            menu = menu.child(Node::button(tr("Mute"), at(OverlayHit::Mute)).id("mute").toggled(muted).focusable().focused(focused(OverlayHit::Mute)));
         }
     }
     for t in &m.toggles {
@@ -1034,7 +1036,7 @@ fn quick_node(m: &QuickModel, hits: &[(Rect, OverlayHit)], bounds: Rect, focus: 
     }
     if m.list_open.is_some() {
         let entries = m.rows.iter().enumerate().map(|(i, row)| {
-            let state = [(row.connected, "Connected"), (row.secured, "Secured")].iter().filter(|(on, _)| *on).map(|(_, s)| *s).collect::<Vec<_>>().join(", ");
+            let state = [(row.connected, tr("Connected")), (row.secured, tr("Secured"))].iter().filter(|(on, _)| *on).map(|(_, s)| *s).collect::<Vec<_>>().join(", ");
             match row.hit.and_then(|hit| hits.iter().find(|(_, h)| *h == hit)) {
                 Some((r, hit)) => Node::new(Role::MenuItem, &row.name).id(format!("row:{i}")).at((*r).into()).click().describe(state).focusable().focused(focused(*hit)),
                 None => Node::label(&row.name),
@@ -1044,7 +1046,7 @@ fn quick_node(m: &QuickModel, hits: &[(Rect, OverlayHit)], bounds: Rect, focus: 
     }
     if !m.profiles.is_empty() {
         let modes = m.profiles.iter().enumerate().map(|(i, (name, active))| Node::new(Role::RadioButton, name).at(at(OverlayHit::Profile(i))).click().toggled(*active).focusable().focused(focused(OverlayHit::Profile(i))));
-        menu = menu.child(Node::new(Role::Group, "Power Mode").id("profiles").children(modes));
+        menu = menu.child(Node::new(Role::Group, tr("Power Mode")).id("profiles").children(modes));
     }
     for (name, action) in &m.items {
         let hit = OverlayHit::Power(*action);

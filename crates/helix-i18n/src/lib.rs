@@ -232,20 +232,24 @@ macro_rules! trf {
     ($msg:literal $(,)?) => {
         $crate::tr($msg).to_string()
     };
-    ($msg:literal, $($name:ident = $value:expr),+ $(,)?) => {
-        $crate::fill(
+    // (The `let` ends the borrows of the arguments there, so the macro
+    // can stand in an `async` expression that awaits later.)
+    ($msg:literal, $($name:ident = $value:expr),+ $(,)?) => {{
+        let text = $crate::fill(
             $crate::tr($msg),
             &[],
             &[$((stringify!($name), &$value as &dyn ::std::fmt::Display)),+],
-        )
-    };
-    ($msg:literal, $($value:expr),+ $(,)?) => {
-        $crate::fill(
+        );
+        text
+    }};
+    ($msg:literal, $($value:expr),+ $(,)?) => {{
+        let text = $crate::fill(
             $crate::tr($msg),
             &[$(&$value as &dyn ::std::fmt::Display),+],
             &[],
-        )
-    };
+        );
+        text
+    }};
 }
 
 /// Like [`trf!`], with singular and plural messages chosen by `n` (which
@@ -259,11 +263,12 @@ macro_rules! trf {
 macro_rules! trnf {
     ($one:literal, $many:literal, $n:expr $(, $name:ident = $value:expr)* $(,)?) => {{
         let n: u64 = ($n) as u64;
-        $crate::fill(
+        let text = $crate::fill(
             &$crate::plural_template($one, $many, n),
             &[&n as &dyn ::std::fmt::Display],
             &[("n", &n as &dyn ::std::fmt::Display) $(, (stringify!($name), &$value as &dyn ::std::fmt::Display))*],
-        )
+        );
+        text
     }};
 }
 

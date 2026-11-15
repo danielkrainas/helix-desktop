@@ -11,6 +11,7 @@ use zbus::zvariant::OwnedValue;
 use zbus::Connection;
 
 use crate::UiEvent;
+use helix_i18n::tr;
 
 pub const INTERFACE: &str = "com.canonical.Unity.LauncherEntry";
 pub const DBUSMENU: &str = "com.canonical.dbusmenu";
@@ -73,7 +74,7 @@ pub fn quick_items(root: &Node) -> Vec<QuickItem> {
             if get("children-display").and_then(|v| String::try_from(v).ok()).as_deref() == Some("submenu") {
                 let items = walk(&child);
                 if items.iter().any(|i| *i != QuickItem::Separator) {
-                    out.push(QuickItem::Submenu { label: if label.is_empty() { "More".into() } else { label }, items });
+                    out.push(QuickItem::Submenu { label: if label.is_empty() { tr("More").into() } else { label }, items });
                 }
                 continue;
             }

@@ -3,6 +3,8 @@
 //! (helix-desktop-spec `contracts/wayland/README.md`, "Window switching").
 
 use gio::prelude::*;
+use helix_i18n::tr;
+use helix_i18n::trnf;
 
 const KEYBINDINGS: &str = "org.gnome.desktop.wm.keybindings";
 const MUTTER_KEYBINDINGS: &str = "org.gnome.mutter.keybindings";
@@ -261,7 +263,7 @@ impl WindowEntry {
         match (self.title.is_empty(), self.app_id.is_empty()) {
             (false, _) => &self.title,
             (true, false) => &self.app_id,
-            (true, true) => "Untitled window",
+            (true, true) => tr("Untitled window"),
         }
     }
 }
@@ -424,7 +426,7 @@ impl Switcher {
                     .map(|(e, count)| SwitchEntry {
                         id: e.id,
                         label: names(&e.app_id).unwrap_or_else(|| if e.app_id.is_empty() { e.label().to_owned() } else { e.app_id.clone() }),
-                        detail: if count == 1 { "1 window".into() } else { format!("{count} windows") },
+                        detail: trnf!("{n} window", "{n} windows", count),
                     })
                     .collect();
                 Self::new(entries, current_first, backward)

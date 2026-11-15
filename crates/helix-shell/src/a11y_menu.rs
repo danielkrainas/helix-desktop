@@ -2,6 +2,8 @@
 //! `contracts/wayland/README.md`, "Accessibility menu"): switches for the
 //! accessibility features, shown when asked for or when one is on.
 
+use helix_i18n::n_;
+
 const A11Y: &str = "org.gnome.desktop.a11y";
 const APPS: &str = "org.gnome.desktop.a11y.applications";
 const KEYBOARD: &str = "org.gnome.desktop.a11y.keyboard";
@@ -23,16 +25,16 @@ pub struct Switch {
 }
 
 pub const SWITCHES: [Switch; 10] = [
-    Switch { label: "High Contrast", schema: INTERFACE_A11Y, key: "high-contrast" },
-    Switch { label: "Zoom", schema: APPS, key: "screen-magnifier-enabled" },
-    Switch { label: "Large Text", schema: INTERFACE, key: "text-scaling-factor" },
-    Switch { label: "Screen Reader", schema: APPS, key: "screen-reader-enabled" },
-    Switch { label: "Screen Keyboard", schema: APPS, key: "screen-keyboard-enabled" },
-    Switch { label: "Visual Alerts", schema: WM, key: "visual-bell" },
-    Switch { label: "Sticky Keys", schema: KEYBOARD, key: "stickykeys-enable" },
-    Switch { label: "Slow Keys", schema: KEYBOARD, key: "slowkeys-enable" },
-    Switch { label: "Bounce Keys", schema: KEYBOARD, key: "bouncekeys-enable" },
-    Switch { label: "Mouse Keys", schema: KEYBOARD, key: "mousekeys-enable" },
+    Switch { label: n_("High Contrast"), schema: INTERFACE_A11Y, key: "high-contrast" },
+    Switch { label: n_("Zoom"), schema: APPS, key: "screen-magnifier-enabled" },
+    Switch { label: n_("Large Text"), schema: INTERFACE, key: "text-scaling-factor" },
+    Switch { label: n_("Screen Reader"), schema: APPS, key: "screen-reader-enabled" },
+    Switch { label: n_("Screen Keyboard"), schema: APPS, key: "screen-keyboard-enabled" },
+    Switch { label: n_("Visual Alerts"), schema: WM, key: "visual-bell" },
+    Switch { label: n_("Sticky Keys"), schema: KEYBOARD, key: "stickykeys-enable" },
+    Switch { label: n_("Slow Keys"), schema: KEYBOARD, key: "slowkeys-enable" },
+    Switch { label: n_("Bounce Keys"), schema: KEYBOARD, key: "bouncekeys-enable" },
+    Switch { label: n_("Mouse Keys"), schema: KEYBOARD, key: "mousekeys-enable" },
 ];
 
 /// What the menu shows.

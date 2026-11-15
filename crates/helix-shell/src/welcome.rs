@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
+use helix_i18n::tr;
 
 const SHELL: &str = "org.gnome.shell";
 const KEY: &str = "welcome-dialog-last-shown-version";
@@ -43,10 +44,10 @@ pub async fn run(ui: mpsc::UnboundedSender<UiEvent>) {
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     let _turn = prompt::turn().await;
     let p = Prompt {
-        title: "Welcome".into(),
-        message: "Would you like a short tour of the desktop?".into(),
-        continue_label: "Take Tour".into(),
-        cancel_label: "No Thanks".into(),
+        title: tr("Welcome").into(),
+        message: tr("Would you like a short tour of the desktop?").into(),
+        continue_label: tr("Take Tour").into(),
+        cancel_label: tr("No Thanks").into(),
         ..Default::default()
     };
     let answer = prompt::ask(&ui, p).await;

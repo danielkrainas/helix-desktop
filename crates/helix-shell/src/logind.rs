@@ -8,6 +8,7 @@ use std::future::Future;
 use futures_util::StreamExt;
 use zbus::zvariant::OwnedFd;
 use zbus::{Connection, MatchRule, MessageStream};
+use helix_i18n::tr;
 
 const BUS_NAME: &str = "org.freedesktop.login1";
 const MANAGER_PATH: &str = "/org/freedesktop/login1";
@@ -51,7 +52,7 @@ async fn take_delay(conn: &Connection) -> Option<OwnedFd> {
             MANAGER_PATH,
             Some(MANAGER_IFACE),
             "Inhibit",
-            &("sleep", "Helix", "Lock the screen before suspending", "delay"),
+            &("sleep", "Helix", tr("Lock the screen before suspending"), "delay"),
         )
         .await;
     match reply.and_then(|r| r.body().deserialize::<OwnedFd>()) {

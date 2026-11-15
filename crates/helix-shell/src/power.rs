@@ -8,6 +8,8 @@ use futures_util::StreamExt;
 use gio::prelude::*;
 use zbus::zvariant::OwnedFd;
 use zbus::Connection;
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 pub const POWER: &str = "org.gnome.settings-daemon.plugins.power";
 const SESSION: &str = "org.gnome.desktop.session";
@@ -306,14 +308,14 @@ pub async fn run_logind_locks(session: Connection) {
         return;
     }
     let Ok(system) = Connection::system().await else { return };
-    let _power_key = take_lock(&system, "handle-power-key", "The power button follows the power settings").await;
+    let _power_key = take_lock(&system, "handle-power-key", tr("The power button follows the power settings")).await;
     let Ok(display) = zbus::Proxy::new(&session, DISPLAY_CONFIG, DISPLAY_PATH, DISPLAY_CONFIG).await else { return };
     let mut changes = display.receive_property_changed::<bool>("HasExternalMonitor").await;
     let mut lid: Option<OwnedFd> = None;
     let mut external = display.get_property::<bool>("HasExternalMonitor").await.unwrap_or(false);
     loop {
         match (external, lid.is_some()) {
-            (true, false) => lid = take_lock(&system, "handle-lid-switch", "An external monitor is connected").await,
+            (true, false) => lid = take_lock(&system, "handle-lid-switch", tr("An external monitor is connected")).await,
             (false, true) => lid = None,
             _ => {}
         }
@@ -340,9 +342,9 @@ pub async fn run_battery(center: crate::notifications::Center) {
             announced = level;
             let critical = level >= 4;
             let (summary, body) = if critical {
-                ("Battery critically low", format!("{percent} % remaining. Plug in soon, or the computer will take action."))
+                (tr("Battery critically low"), trf!("{percent} remaining. Plug in soon, or the computer will take action.", percent = helix_i18n::format_percent(percent as f64)))
             } else {
-                ("Battery low", format!("{percent} % remaining"))
+                (tr("Battery low"), trf!("{percent} remaining", percent = helix_i18n::format_percent(percent as f64)))
             };
             center.system_notice(summary, &body, critical);
             if read().saver_on_low && saved_profile.is_none() {

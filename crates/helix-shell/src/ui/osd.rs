@@ -82,8 +82,8 @@ pub(super) fn paint_osd(canvas: &mut Canvas, text: Option<&Text>, icon: Option<&
     };
     let max = osd.max_level.max(f64::EPSILON);
     let fraction = (level / max).clamp(0.0, 1.0);
-    let percent = format!("{}%", (level * 100.0).round() as i64);
-    let pw = text.map_or(36.0, |t| t.width("100%", px)) as i32 + 8;
+    let percent = helix_i18n::format_percent((level * 100.0).round());
+    let pw = text.map_or(36.0, |t| t.width(&helix_i18n::format_percent(100.0), px)) as i32 + 8;
     let bar_w = (w - x - pad - pw - 10).max(20);
     canvas.round_rect(f64::from(x), f64::from(bar_y), f64::from(bar_w), 6.0, 3.0, if helix_draw::high_contrast() { 0xFF000000 } else { theme::TRACK });
     if helix_draw::high_contrast() {
@@ -200,7 +200,7 @@ impl Ui {
     pub(super) fn osd_words(&self) -> Option<String> {
         let (osd, _) = self.osd.as_ref()?;
         let caption = osd_caption(osd);
-        let level = osd.level.map(|l| format!("{} %", (l * 100.0).round() as i64));
+        let level = osd.level.map(|l| helix_i18n::format_percent((l * 100.0).round()));
         match (caption, level) {
             (Some(c), Some(l)) => Some(format!("{c} {l}")),
             (Some(c), None) => Some(c),

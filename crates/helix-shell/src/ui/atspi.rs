@@ -22,6 +22,8 @@ use super::notify::ListHit;
 use super::*;
 use crate::a11y::publish::{Event, Publisher};
 use crate::a11y::{Node, Role, Window};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 impl From<Rect> for crate::a11y::Rect {
     fn from(r: Rect) -> Self {
@@ -226,18 +228,18 @@ impl Ui {
             LOCK => {
                 let view = self.lock_primary()?;
                 let bounds = crate::a11y::Rect::new(view.origin.0, view.origin.1, view.width as i32, view.height as i32);
-                ("Lock Screen".to_owned(), bounds, self.recorded(view.surface.wl_surface()))
+                (tr("Lock Screen").to_owned(), bounds, self.recorded(view.surface.wl_surface()))
             }
-            PANEL => ("Top Bar".to_owned(), self.overlay_bounds(self.panel_width, panel_height()), self.panel_nodes()),
+            PANEL => (tr("Top Bar").to_owned(), self.overlay_bounds(self.panel_width, panel_height()), self.panel_nodes()),
             DIALOG => {
                 let o = self.dialog.as_ref()?;
                 let nodes = self.recorded(o.layer.wl_surface());
-                let title = nodes.first().map_or_else(|| "Dialog".to_owned(), |n| n.name.clone());
+                let title = nodes.first().map_or_else(|| tr("Dialog").to_owned(), |n| n.name.clone());
                 (title, self.overlay_bounds(o.width, o.height), nodes)
             }
             QUICK => {
                 let o = self.power_menu.as_ref()?;
-                ("System Menu".to_owned(), self.overlay_bounds(o.width, o.height), self.recorded(o.layer.wl_surface()))
+                (tr("System Menu").to_owned(), self.overlay_bounds(o.width, o.height), self.recorded(o.layer.wl_surface()))
             }
             SWITCHER => {
                 let o = self.switcher.as_ref()?;
@@ -246,7 +248,7 @@ impl Ui {
             }
             LAUNCHER => {
                 let view = self.launcher.as_ref()?;
-                ("Overview".to_owned(), self.overlay_bounds(view.width, view.height), self.launcher_nodes(view))
+                (tr("Overview").to_owned(), self.overlay_bounds(view.width, view.height), self.launcher_nodes(view))
             }
             OSD => {
                 // A live status: each new level or label is announced.
@@ -254,17 +256,17 @@ impl Ui {
                 let (x, y, aw, ah) = self.primary_area;
                 let bounds = crate::a11y::Rect::new(x + (aw - w as i32) / 2, y + ah - h as i32 - 72, w as i32, h as i32);
                 let words = self.osd_words().unwrap_or_default();
-                ("On-screen display".to_owned(), bounds, vec![Node::new(Role::Status, words).id("osd").live()])
+                (tr("On-screen display").to_owned(), bounds, vec![Node::new(Role::Status, words).id("osd").live()])
             }
             BANNER => {
                 let view = self.banner.as_ref()?;
                 let (x, y, w, _) = self.primary_area;
                 let bounds = crate::a11y::Rect::new(x + (w - view.width as i32) / 2, y + 8, view.width as i32, view.height as i32);
-                ("Notification".to_owned(), bounds, vec![self.banner_node(view)])
+                (tr("Notification").to_owned(), bounds, vec![self.banner_node(view)])
             }
             NOTIFICATIONS => {
                 let (_, (w, h), hits, focus) = self.notification_list_a11y()?;
-                ("Notifications".to_owned(), self.overlay_bounds(w, h), self.notification_list_nodes(hits, focus))
+                (tr("Notifications").to_owned(), self.overlay_bounds(w, h), self.notification_list_nodes(hits, focus))
             }
             dock => {
                 let index: usize = dock.strip_prefix(DOCK)?.parse().ok()?;
@@ -278,7 +280,7 @@ impl Ui {
                     crate::dock::Edge::Left => (ax, ay + (ah - h) / 2),
                     crate::dock::Edge::Right => (ax + aw - w, ay + (ah - h) / 2),
                 };
-                ("Dock".to_owned(), crate::a11y::Rect::new(x, y, w, h), self.dock_nodes(items, *keyboard))
+                (tr("Dock").to_owned(), crate::a11y::Rect::new(x, y, w, h), self.dock_nodes(items, *keyboard))
             }
         };
         Some(Window { title, bounds, active, children })
@@ -302,13 +304,13 @@ impl Ui {
             let r = crate::a11y::Rect::new(x, 0, w, h);
             let node = match slot {
                 Slot::Item(Item::Apps) | Slot::Item(Item::Workspaces) => {
-                    let which = format!("Workspace {} of {}", self.windows.active + 1, self.windows.count.max(1));
-                    let name = if slot == Slot::Item(Item::Apps) { APPS_LABEL.to_owned() } else { "Workspaces".to_owned() };
+                    let which = trf!("Workspace {} of {}", self.windows.active + 1, self.windows.count.max(1));
+                    let name = if slot == Slot::Item(Item::Apps) { APPS_LABEL.to_owned() } else { tr("Workspaces").to_owned() };
                     Node::button(name, r).toggled(self.launcher.is_some()).describe(which)
                 }
                 Slot::Item(Item::Clock) => {
                     let clock = self.shown_minute.clone().unwrap_or_else(clock_text);
-                    let what = if self.unseen_dot() { "Notifications and calendar, unread notifications" } else { "Notifications and calendar" };
+                    let what = if self.unseen_dot() { tr("Notifications and calendar, unread notifications") } else { tr("Notifications and calendar") };
                     Node::button(clock, r).expanded(self.notify.view.is_some()).describe(what)
                 }
                 Slot::Item(Item::Tray) => {
@@ -320,10 +322,10 @@ impl Ui {
                     }
                     continue;
                 }
-                Slot::Item(Item::Accessibility) => Node::button("Accessibility", r),
-                Slot::Item(Item::Keyboard) => Node::button(self.source_label.clone().unwrap_or_default(), r).describe("Input source"),
+                Slot::Item(Item::Accessibility) => Node::button(tr("Accessibility"), r),
+                Slot::Item(Item::Keyboard) => Node::button(self.source_label.clone().unwrap_or_default(), r).describe(tr("Input source")),
                 // One system button (status icons and power).
-                Slot::Item(Item::Status) | Slot::Item(Item::Power) => Node::button("System", r).describe(status_words(&self.status)).expanded(self.power_menu.is_some()),
+                Slot::Item(Item::Status) | Slot::Item(Item::Power) => Node::button(tr("System"), r).describe(status_words(&self.status)).expanded(self.power_menu.is_some()),
                 Slot::Ext(i) => {
                     let Some(item) = self.ext.panel.get(i) else { continue };
                     let name = [&item.accessible_name, &item.label, &item.tooltip, &item.name].into_iter().find(|s| !s.is_empty()).cloned().unwrap_or_default();
@@ -332,11 +334,11 @@ impl Ui {
                 Slot::Privacy => {
                     let mut ix = x;
                     if self.sharing {
-                        out.push(Node::label("Sharing").id("sharing").at(crate::a11y::Rect::new(ix, 0, sharing_w(), h)));
+                        out.push(Node::label(tr("Sharing")).id("sharing").at(crate::a11y::Rect::new(ix, 0, sharing_w(), h)));
                         ix += sharing_w();
                     }
                     if self.recording {
-                        out.push(Node::button("Recording", crate::a11y::Rect::new(ix, 0, recording_w(), h)).id("recording").describe("Stop recording"));
+                        out.push(Node::button(tr("Recording"), crate::a11y::Rect::new(ix, 0, recording_w(), h)).id("recording").describe(tr("Stop recording")));
                     }
                     continue;
                 }
@@ -356,9 +358,9 @@ impl Ui {
     fn switcher_nodes(&self, o: &Overlay<SwitcherState>) -> (String, Vec<Node>) {
         let switcher = &o.state.switcher;
         let title = match &o.state.kind {
-            SwitchKind::InputSources(_) => "Input Sources",
-            SwitchKind::Windows { apps: None } if self.switcher_mode == Some(SwitchMode::Apps) => "Applications",
-            SwitchKind::Windows { .. } => "Windows",
+            SwitchKind::InputSources(_) => tr("Input Sources"),
+            SwitchKind::Windows { apps: None } if self.switcher_mode == Some(SwitchMode::Apps) => tr("Applications"),
+            SwitchKind::Windows { .. } => tr("Windows"),
         };
         let entries = o.hits.iter().filter_map(|(r, hit)| {
             let OverlayHit::Window(id) = hit else { return None };
@@ -378,7 +380,7 @@ impl Ui {
         let results = !model.query.is_empty();
         let (cells, folder_cells, selected, dots, page) = view.grid.a11y();
         let grid_focus = !results && selected.is_some();
-        let search = Node::text_field(Role::SearchInput, "Search", &model.query, field.into()).id("search");
+        let search = Node::text_field(Role::SearchInput, tr("Search"), &model.query, field.into()).id("search");
         let mut out = vec![search.focused(!results && !grid_focus)];
         let name = |id: &str| model.apps.iter().find(|a| a.id == id).map(|a| a.name.clone()).or_else(|| model.folders.iter().find(|f| f.id == id).map(|f| f.name.clone())).unwrap_or_default();
         if results {
@@ -386,30 +388,30 @@ impl Ui {
                 let hit = model.results[result];
                 let (label, _) = model.row_label(hit);
                 let label = match hit {
-                    launcher::Hit::More(_) => format!("Search for “{}” in {label}", model.query.trim()),
+                    launcher::Hit::More(_) => trf!("Search for “{query}” in {label}", query = model.query.trim(), label = label),
                     _ => label.to_owned(),
                 };
                 let tag = match hit {
-                    launcher::Hit::Window(_) => "Open window".to_owned(),
-                    launcher::Hit::Folder(_) => "Folder".to_owned(),
-                    launcher::Hit::App(i) if model.is_favorite(i) => "Favorite".to_owned(),
+                    launcher::Hit::Window(_) => tr("Open window").to_owned(),
+                    launcher::Hit::Folder(_) => tr("Folder").to_owned(),
+                    launcher::Hit::App(i) if model.is_favorite(i) => tr("Favorite").to_owned(),
                     _ => model.search_hit(hit).map(|h| if h.description.is_empty() { h.app.clone() } else { format!("{}, {}", h.description, h.app) }).unwrap_or_default(),
                 };
                 let on = result == model.selected;
                 Node::new(Role::ListBoxOption, label).id(format!("{hit:?}")).describe(tag).at(r.into()).click().selected(on).focused(on)
             });
-            let list = Node::new(Role::ListBox, "Search Results").id("results").children(rows);
-            out.push(if view.rows.is_empty() { list.child(Node::label("No matching apps")) } else { list });
+            let list = Node::new(Role::ListBox, tr("Search Results")).id("results").children(rows);
+            out.push(if view.rows.is_empty() { list.child(Node::label(tr("No matching apps"))) } else { list });
         } else if let Some(folder) = model.open_folder.and_then(|i| model.folders.get(i)) {
             let current = selected.and_then(|k| folder.apps.get(k));
             let apps = folder_cells.iter().map(|(r, id)| Node::button(name(id), (*r).into()).id(id.clone()).selected(current == Some(id)).focused(current == Some(id)));
             out.push(Node::new(Role::Group, &folder.name).id(format!("folder:{}", folder.id)).children(apps));
         } else {
             let apps = cells.iter().enumerate().map(|(i, (r, id))| Node::button(name(id), (*r).into()).id(id.clone()).selected(selected == Some(i)).focused(selected == Some(i)));
-            out.push(Node::new(Role::Group, "Applications").id("grid").children(apps));
+            out.push(Node::new(Role::Group, tr("Applications")).id("grid").children(apps));
             if dots.len() > 1 {
-                let pages = dots.iter().map(|(r, p)| Node::button(format!("Page {}", p + 1), (*r).into()).selected(*p == page));
-                out.push(Node::new(Role::Group, "Pages").id("pages").children(pages));
+                let pages = dots.iter().map(|(r, p)| Node::button(trf!("Page {}", p + 1), (*r).into()).selected(*p == page));
+                out.push(Node::new(Role::Group, tr("Pages")).id("pages").children(pages));
             }
         }
         out
@@ -431,7 +433,7 @@ impl Ui {
                 continue;
             }
             note = note.child(match hit {
-                BannerHit::Body | BannerHit::Close => Node::button("Close", r).id("close"),
+                BannerHit::Body | BannerHit::Close => Node::button(tr("Close"), r).id("close"),
                 BannerHit::Button(key) => Node::button(d.buttons.iter().find(|(k, _)| k == key).map_or(key.as_str(), |(_, l)| l.as_str()), r).id(format!("button:{key}")),
                 BannerHit::Link(uri) => Node::new(Role::Link, uri).at(r).click(),
             });
@@ -465,32 +467,32 @@ impl Ui {
                     let body = if when.is_empty() { body } else if body.is_empty() { when } else { format!("{when}. {body}") };
                     list.push(Node::new(Role::ListItem, name).id(format!("note:{id}")).describe(body).at(r).click().focusable().focused(focused).children(pending.drain(..)));
                 }
-                ListHit::Dismiss(_) => pending.push(Node::button("Close", r).id("close").focusable().focused(focused)),
+                ListHit::Dismiss(_) => pending.push(Node::button(tr("Close"), r).id("close").focusable().focused(focused)),
                 ListHit::Link(uri) => pending.push(Node::new(Role::Link, uri).at(r).click().focusable().focused(focused)),
-                ListHit::GroupClear(_) => pending.push(Node::button("Clear", r).id("clear").focusable().focused(focused)),
+                ListHit::GroupClear(_) => pending.push(Node::button(tr("Clear"), r).id("clear").focusable().focused(focused)),
                 ListHit::GroupToggle(key) => {
                     let count = entries.iter().filter(|e| notify::group_key(e) == *key).count();
                     let app = entries.iter().find(|e| notify::group_key(e) == *key).map_or_else(String::new, |e| e.app_name.clone());
-                    list.push(Node::button(format!("{app}, {count} notifications"), r).id(format!("group:{key}")).focusable().focused(focused).children(pending.drain(..)));
+                    list.push(Node::button(trf!("{app}, {count} notifications", app = app, count = count), r).id(format!("group:{key}")).focusable().focused(focused).children(pending.drain(..)));
                 }
-                ListHit::Month(delta) => out.push(Node::button(if *delta < 0 { "Previous Month" } else { "Next Month" }, r).id(format!("month:{delta}")).focusable().focused(focused)),
+                ListHit::Month(delta) => out.push(Node::button(if *delta < 0 { tr("Previous Month") } else { tr("Next Month") }, r).id(format!("month:{delta}")).focusable().focused(focused)),
                 ListHit::Day(y, m, d) => {
                     let selected = self.calendar.selected == (*y, *m, *d);
                     out.push(Node::button(day_name(*y, *m, *d), r).id(format!("day:{y}-{m}-{d}")).selected(selected).focusable().focused(focused));
                 }
                 ListHit::Media(command) => out.push(Node::button(playback_name(*command, self.lock_extras.media.as_ref().is_some_and(|p| p.playing)), r).id(format!("{command:?}")).focusable().focused(focused)),
-                ListHit::Clear => out.push(Node::button("Clear", r).id("clear-all").focusable().focused(focused)),
-                ListHit::DoNotDisturb => out.push(Node::new(Role::Switch, "Do Not Disturb").id("dnd").at(r).click().toggled(self.notify.do_not_disturb).focusable().focused(focused)),
+                ListHit::Clear => out.push(Node::button(tr("Clear"), r).id("clear-all").focusable().focused(focused)),
+                ListHit::DoNotDisturb => out.push(Node::new(Role::Switch, tr("Do Not Disturb")).id("dnd").at(r).click().toggled(self.notify.do_not_disturb).focusable().focused(focused)),
                 ListHit::Inside | ListHit::Outside => {}
             }
         }
         // The selected day's events.
         let events = self.calendar.selected_events();
         let (y, m, d) = self.calendar.selected;
-        let events = if events.is_empty() { vec![Node::label("No Events")] } else { events.into_iter().map(Node::label).collect() };
-        out.push(Node::new(Role::List, format!("Events, {}", day_name(y, m, d))).id("events").children(events));
-        let list = Node::new(Role::List, "Notifications").id("list").children(list);
-        let list = if entries.is_empty() { list.child(Node::label("No Notifications")) } else { list };
+        let events = if events.is_empty() { vec![Node::label(tr("No Events"))] } else { events.into_iter().map(Node::label).collect() };
+        out.push(Node::new(Role::List, trf!("Events, {}", day_name(y, m, d))).id("events").children(events));
+        let list = Node::new(Role::List, tr("Notifications")).id("list").children(list);
+        let list = if entries.is_empty() { list.child(Node::label(tr("No Notifications"))) } else { list };
         out.insert(0, list);
         out
     }
@@ -516,13 +518,13 @@ impl Ui {
                     let name = self.ext.dock.get(*i).map_or_else(String::new, |d| if d.label.is_empty() { d.name.clone() } else { d.label.clone() });
                     Node::button(name, r).id(format!("ext:{i}"))
                 }
-                Item::Trash => Node::button("Trash", r).id("trash"),
-                Item::ShowApps => Node::button("Show Apps", r).id("show-apps").toggled(self.launcher.is_some()),
+                Item::Trash => Node::button(tr("Trash"), r).id("trash"),
+                Item::ShowApps => Node::button(tr("Show Apps"), r).id("show-apps").toggled(self.launcher.is_some()),
             };
             let node = node.describe(crate::dock::describe_item(state)).focusable().focused(keyboard == Some(n));
             if matches!(item, Item::ShowApps) { node } else { node.selected(state.focused) }
         });
-        vec![Node::new(Role::Toolbar, "Dock").id("dock").children(buttons)]
+        vec![Node::new(Role::Toolbar, tr("Dock")).id("dock").children(buttons)]
     }
 }
 
@@ -541,7 +543,7 @@ pub(super) fn dialog(title: &str, message: &str, list: Option<(&str, &[(String, 
         None => {}
     }
     if let Some(on) = install {
-        out = out.child(Node::new(Role::CheckBox, "Install pending software updates").id("install").at(at(OverlayHit::EndInstall)).click().toggled(on));
+        out = out.child(Node::new(Role::CheckBox, tr("Install pending software updates")).id("install").at(at(OverlayHit::EndInstall)).click().toggled(on));
     }
     // Enter answers with the button that has the focus.
     out.child(Node::button(cancel, at(OverlayHit::Cancel)).id("cancel").focused(!confirm_focused)).child(Node::button(confirm, at(OverlayHit::Confirm)).id("confirm").focused(confirm_focused))
@@ -550,9 +552,9 @@ pub(super) fn dialog(title: &str, message: &str, list: Option<(&str, &[(String, 
 /// "Share your screen?" as painted: one row per monitor (picked or not),
 /// Cancel, and Share when several may be picked.
 pub(super) fn share_dialog(message: &str, remember: bool, sources: &[(crate::screencast_chooser::Shared, String, String)], multiple: bool, picked: &[usize], hits: &[(Rect, OverlayHit)]) -> Node {
-    let mut out = Node::new(Role::Dialog, "Share your screen?").id("share").modal().child(Node::label(message).id("message"));
+    let mut out = Node::new(Role::Dialog, tr("Share your screen?")).id("share").modal().child(Node::label(message).id("message"));
     if remember {
-        out = out.child(Node::label("It will be able to share the same screen again without asking."));
+        out = out.child(Node::label(tr("It will be able to share the same screen again without asking.")));
     }
     let rows = hits.iter().filter_map(|(r, hit)| {
         let OverlayHit::Monitor(i) = hit else { return None };
@@ -563,8 +565,8 @@ pub(super) fn share_dialog(message: &str, remember: bool, sources: &[(crate::scr
     out = out.child(Node::new(Role::ListBox, "").id("monitors").children(rows));
     for (r, hit) in hits {
         match hit {
-            OverlayHit::Cancel => out = out.child(Node::button("Cancel", (*r).into()).id("cancel")),
-            OverlayHit::Confirm => out = out.child(Node::button("Share", (*r).into()).id("share")),
+            OverlayHit::Cancel => out = out.child(Node::button(tr("Cancel"), (*r).into()).id("cancel")),
+            OverlayHit::Confirm => out = out.child(Node::button(tr("Share"), (*r).into()).id("share")),
             _ => {}
         }
     }
@@ -576,20 +578,21 @@ fn status_words(s: &crate::status::Status) -> String {
     let mut words: Vec<String> = Vec::new();
     match (&s.wifi, &s.network) {
         (Some((true, Some(ssid))), _) => words.push(format!("Wi-Fi {ssid}")),
-        (_, Some(icon)) if icon.contains("offline") || icon.contains("disconnected") || icon.contains("no-route") => words.push("No network".into()),
-        (_, Some(icon)) if icon.contains("wired") => words.push("Wired network".into()),
+        (_, Some(icon)) if icon.contains("offline") || icon.contains("disconnected") || icon.contains("no-route") => words.push(tr("No network").into()),
+        (_, Some(icon)) if icon.contains("wired") => words.push(tr("Wired network").into()),
         (_, Some(icon)) if icon.contains("vpn") => words.push("VPN".into()),
-        (_, Some(_)) => words.push("Network".into()),
+        (_, Some(_)) => words.push(tr("Network").into()),
         _ => {}
     }
     if let Some(icon) = &s.volume {
-        words.push(if icon.contains("muted") { "Volume muted".into() } else { "Volume".into() });
+        words.push(if icon.contains("muted") { tr("Volume muted").into() } else { tr("Volume").into() });
     }
     if let Some((icon, percent)) = &s.battery {
         let charging = icon.contains("charging") && !icon.contains("discharging");
-        words.push(format!("Battery {}%{}", percent.round() as i64, if charging { ", charging" } else { "" }));
+        let percent = helix_i18n::format_percent(percent.round());
+        words.push(if charging { trf!("Battery {percent}, charging", percent = percent) } else { trf!("Battery {percent}", percent = percent) });
     }
-    for (on, what) in [(s.location, "Location in use"), (s.microphone, "Microphone in use"), (s.camera, "Camera in use")] {
+    for (on, what) in [(s.location, tr("Location in use")), (s.microphone, tr("Microphone in use")), (s.camera, tr("Camera in use"))] {
         if on {
             words.push(what.into());
         }
@@ -600,16 +603,16 @@ fn status_words(s: &crate::status::Status) -> String {
 pub(super) fn playback_name(command: crate::shell_keys::Playback, playing: bool) -> &'static str {
     use crate::shell_keys::Playback;
     match command {
-        Playback::PlayPause if playing => "Pause",
-        Playback::PlayPause => "Play",
-        Playback::Pause => "Pause",
-        Playback::Stop => "Stop",
-        Playback::Next => "Next Track",
-        Playback::Previous => "Previous Track",
-        Playback::Rewind => "Rewind",
-        Playback::Forward => "Fast Forward",
-        Playback::Repeat => "Repeat",
-        Playback::Shuffle => "Shuffle",
+        Playback::PlayPause if playing => tr("Pause"),
+        Playback::PlayPause => tr("Play"),
+        Playback::Pause => tr("Pause"),
+        Playback::Stop => tr("Stop"),
+        Playback::Next => tr("Next Track"),
+        Playback::Previous => tr("Previous Track"),
+        Playback::Rewind => tr("Rewind"),
+        Playback::Forward => tr("Fast Forward"),
+        Playback::Repeat => tr("Repeat"),
+        Playback::Shuffle => tr("Shuffle"),
     }
 }
 

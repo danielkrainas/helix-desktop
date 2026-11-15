@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::wellbeing::{Answer, BreakView};
+use helix_i18n::tr;
 
 const BUTTON_W: i32 = 120;
 const BUTTON_H: i32 = 40;
@@ -60,7 +61,7 @@ impl Ui {
         y += 48;
         overlay.hits.clear();
         let bx = w as i32 / 2 - BUTTON_W - 8;
-        for (i, (name, hit)) in [("Delay", OverlayHit::Cancel), ("Skip", OverlayHit::Confirm)].into_iter().enumerate() {
+        for (i, (name, hit)) in [(tr("Delay"), OverlayHit::Cancel), (tr("Skip"), OverlayHit::Confirm)].into_iter().enumerate() {
             let r = Rect { x: bx + i as i32 * (BUTTON_W + 16), y, w: BUTTON_W, h: BUTTON_H };
 theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
             let tw = text.map_or(0.0, |t| t.width(name, 15.0));

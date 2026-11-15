@@ -6,6 +6,7 @@ use helix_protocols::client::helix_window_list_v1::MenuState;
 
 use super::*;
 use crate::windows::{WindowAction, ALL_WORKSPACES};
+use helix_i18n::tr;
 
 /// A menu's width and an entry's height: they grow with the text scale.
 pub(super) fn menu_w() -> i32 {
@@ -71,34 +72,34 @@ pub(super) fn items(state: MenuState, workspace: Option<u32>, count: u32) -> Vec
     let item = |label: &str, choice| Some(Item { label: label.to_owned(), choice, checked: None, active: false, sub: Vec::new() });
     let maximized = state.contains(MenuState::Maximized);
     let fixed = maximized || state.contains(MenuState::Fullscreen);
-    let mut out = vec![item("Minimize", Choice::Action(WindowAction::Minimize))];
+    let mut out = vec![item(tr("Minimize"), Choice::Action(WindowAction::Minimize))];
     out.push(if maximized {
-        item("Restore", Choice::Action(WindowAction::Unmaximize))
+        item(tr("Restore"), Choice::Action(WindowAction::Unmaximize))
     } else {
-        item("Maximize", Choice::Action(WindowAction::Maximize))
+        item(tr("Maximize"), Choice::Action(WindowAction::Maximize))
     });
     if !fixed {
-        out.push(item("Move", Choice::Action(WindowAction::BeginMove)));
-        out.push(item("Resize", Choice::Action(WindowAction::BeginResize)));
+        out.push(item(tr("Move"), Choice::Action(WindowAction::BeginMove)));
+        out.push(item(tr("Resize"), Choice::Action(WindowAction::BeginResize)));
     }
     out.push(None);
     let above = state.contains(MenuState::Above);
-    out.push(Some(Item { label: "Always on Top".into(), choice: Choice::Action(WindowAction::ToggleAbove), checked: Some(above), active: false, sub: Vec::new() }));
+    out.push(Some(Item { label: tr("Always on Top").into(), choice: Choice::Action(WindowAction::ToggleAbove), checked: Some(above), active: false, sub: Vec::new() }));
     let all = state.contains(MenuState::OnAllWorkspaces);
-    out.push(Some(Item { label: "Always on Visible Workspace".into(), choice: Choice::OnAllWorkspaces(!all), checked: Some(all), active: false, sub: Vec::new() }));
+    out.push(Some(Item { label: tr("Always on Visible Workspace").into(), choice: Choice::OnAllWorkspaces(!all), checked: Some(all), active: false, sub: Vec::new() }));
     if let Some(ws) = workspace.filter(|w| !all && *w != ALL_WORKSPACES) {
         if ws > 0 {
-            out.push(item("Move to Workspace Left", Choice::Workspace(ws - 1)));
+            out.push(item(tr("Move to Workspace Left"), Choice::Workspace(ws - 1)));
         }
         if ws + 1 < count {
-            out.push(item("Move to Workspace Right", Choice::Workspace(ws + 1)));
+            out.push(item(tr("Move to Workspace Right"), Choice::Workspace(ws + 1)));
         }
     }
     let monitors = [
-        (MenuState::MonitorLeft, "Move to Monitor Left", WindowAction::MoveToMonitorLeft),
-        (MenuState::MonitorRight, "Move to Monitor Right", WindowAction::MoveToMonitorRight),
-        (MenuState::MonitorUp, "Move to Monitor Up", WindowAction::MoveToMonitorUp),
-        (MenuState::MonitorDown, "Move to Monitor Down", WindowAction::MoveToMonitorDown),
+        (MenuState::MonitorLeft, tr("Move to Monitor Left"), WindowAction::MoveToMonitorLeft),
+        (MenuState::MonitorRight, tr("Move to Monitor Right"), WindowAction::MoveToMonitorRight),
+        (MenuState::MonitorUp, tr("Move to Monitor Up"), WindowAction::MoveToMonitorUp),
+        (MenuState::MonitorDown, tr("Move to Monitor Down"), WindowAction::MoveToMonitorDown),
     ];
     if monitors.iter().any(|(bit, _, _)| state.contains(*bit)) {
         out.push(None);
@@ -109,7 +110,7 @@ pub(super) fn items(state: MenuState, workspace: Option<u32>, count: u32) -> Vec
         }
     }
     out.push(None);
-    out.push(item("Close", Choice::Action(WindowAction::Close)));
+    out.push(item(tr("Close"), Choice::Action(WindowAction::Close)));
     out
 }
 
@@ -232,7 +233,7 @@ impl Ui {
             .iter()
             .zip(&self.a11y.switches)
             .enumerate()
-            .filter_map(|(i, (s, state))| Some(Some(Item { label: s.label.to_owned(), choice: Choice::A11y(i), checked: Some((*state)?), active: false, sub: Vec::new() })))
+            .filter_map(|(i, (s, state))| Some(Some(Item { label: tr(s.label).to_owned(), choice: Choice::A11y(i), checked: Some((*state)?), active: false, sub: Vec::new() })))
             .collect();
         self.open_menu(0, x, panel_height() as i32, items, Vec::new());
     }
@@ -350,7 +351,7 @@ impl Ui {
         match index {
             Some(index) => {
                 let Some(Some(item)) = menu.items.get(index).cloned() else { return };
-                let mut items = vec![Some(Item { label: "Back".into(), choice: Choice::Back, checked: None, active: false, sub: Vec::new() }), None];
+                let mut items = vec![Some(Item { label: tr("Back").into(), choice: Choice::Back, checked: None, active: false, sub: Vec::new() }), None];
                 items.extend(item.sub);
                 let parent = std::mem::replace(&mut menu.items, items);
                 menu.parents.push((parent, Some(index)));

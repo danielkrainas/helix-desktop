@@ -84,7 +84,7 @@ msgid "left-to-right"
 msgstr "right-to-left"
 
 msgid "{}%"
-msgstr "{} %"
+msgstr "%{}"
 "#;
 
 /// A catalogue in `HELIX_LOCALEDIR` is used, with the language's plural
@@ -126,6 +126,6 @@ fn translations_are_used() {
     assert_eq!(helix_i18n::trn("{n} update", "{n} updates", 5), "5 aktualizacji");
     assert_eq!(helix_i18n::trf!("Open {name}", name = "x"), "x otwórz");
     assert!(helix_i18n::is_rtl(), "the catalogue names right-to-left");
-    assert_eq!(helix_i18n::format_percent(45.0), "45 %");
+    assert_eq!(helix_i18n::format_percent(45.0), "%45");
     assert_eq!(helix_i18n::tr("Not in the catalogue"), "Not in the catalogue");
 }

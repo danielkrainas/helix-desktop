@@ -5,6 +5,9 @@
 //! - Requests that need UI (OSD, overview) are published as [`UiEvent`]s for
 //!   the shell UI.
 
+use helix_i18n::tr;
+use helix_i18n::trf;
+
 pub mod accel;
 pub mod ambient;
 pub mod app_grid;
@@ -927,7 +930,7 @@ impl UiBridge {
                 let object = dialog.get().await;
                 let failed = object.answer(choice, install, dialog.signal_emitter()).await?;
                 if let Some(err) = failed {
-                    self.center.notice("Software", "Updates could not be scheduled", &format!("Nothing was turned off or restarted. {err}"), "software-update-urgent-symbolic", false);
+                    self.center.notice(tr("Software"), tr("Updates could not be scheduled"), &trf!("Nothing was turned off or restarted. {err}", err = err), "software-update-urgent-symbolic", false);
                 }
                 Ok(())
             }
@@ -1071,7 +1074,7 @@ impl UiBridge {
                                             zbus::Error::MethodError(_, Some(text), _) => text.clone(),
                                             other => other.to_string(),
                                         };
-                                        center.notice("Bluetooth", &format!("Cannot pair with {name}"), &reason, "bluetooth-active-symbolic", false);
+                                        center.notice(tr("Bluetooth"), &trf!("Cannot pair with {name}", name = name), &reason, "bluetooth-active-symbolic", false);
                                     }
                                 }
                             }
@@ -1158,7 +1161,7 @@ impl UiBridge {
                             let locked = extra_keys::orientation_locked();
                             Some(Osd {
                                 icon: Some(if locked { "rotation-locked-symbolic" } else { "rotation-allowed-symbolic" }.into()),
-                                label: Some(if locked { "Rotation Locked" } else { "Auto Rotate" }.into()),
+                                label: Some(if locked { tr("Rotation Locked") } else { tr("Auto Rotate") }.into()),
                                 level: None,
                                 max_level: 1.0,
                                 connector: None,
@@ -1254,10 +1257,10 @@ impl UiBridge {
                 tokio::spawn(async move {
                     let _turn = prompt::turn().await;
                     let p = prompt::Prompt {
-                        title: "Rename Folder".into(),
-                        entry: Some(("Folder name".into(), name)),
-                        continue_label: "Rename".into(),
-                        cancel_label: "Cancel".into(),
+                        title: tr("Rename Folder").into(),
+                        entry: Some((tr("Folder name").into(), name)),
+                        continue_label: tr("Rename").into(),
+                        cancel_label: tr("Cancel").into(),
                         ..Default::default()
                     };
                     let answer = prompt::ask(&ui, p).await;
@@ -1342,10 +1345,10 @@ impl UiBridge {
                 let ui = self.ui.clone();
                 tokio::spawn(async move {
                     let prompt = prompt::Prompt {
-                        title: "Empty Trash?".into(),
-                        message: "All items in the Trash will be permanently deleted.".into(),
-                        continue_label: "Empty Trash".into(),
-                        cancel_label: "Cancel".into(),
+                        title: tr("Empty Trash?").into(),
+                        message: tr("All items in the Trash will be permanently deleted.").into(),
+                        continue_label: tr("Empty Trash").into(),
+                        cancel_label: tr("Cancel").into(),
                         ..prompt::Prompt::default()
                     };
                     let _turn = prompt::turn().await;

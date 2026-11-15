@@ -9,6 +9,8 @@ use super::notify::ListHit;
 use super::*;
 use crate::calendar::CalendarData;
 use crate::shell_keys::Playback;
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 /// The column's width: it grows with the text scale.
 pub(super) fn cal_w() -> i32 {
@@ -111,7 +113,7 @@ impl CalendarState {
         self.day_events(self.selected)
             .iter()
             .map(|e| {
-                let when = if e.all_day { "All Day".to_owned() } else { DateTime::from_unix_local(e.start).map(|d| crate::clock::time_of_day(crate::clock::current(), &d)).unwrap_or_default() };
+                let when = if e.all_day { tr("All Day").to_owned() } else { DateTime::from_unix_local(e.start).map(|d| crate::clock::time_of_day(crate::clock::current(), &d)).unwrap_or_default() };
                 format!("{when}: {}", e.summary)
             })
             .collect()
@@ -327,8 +329,8 @@ pub(super) fn paint_calendar(
     // The chosen day's events.
     let (sy, sm, sd) = cal.selected;
     let heading = match local_date(sy, sm, sd) {
-        Some(day) if day.ymd() == today => "Today".to_owned(),
-        Some(day) if now.add_days(1).is_ok_and(|t| t.ymd() == day.ymd()) => "Tomorrow".to_owned(),
+        Some(day) if day.ymd() == today => tr("Today").to_owned(),
+        Some(day) if now.add_days(1).is_ok_and(|t| t.ymd() == day.ymd()) => tr("Tomorrow").to_owned(),
         Some(day) => fmt(&day, "%A, %B %e"),
         None => String::new(),
     };
@@ -337,12 +339,12 @@ pub(super) fn paint_calendar(
     y += grow(SECTION_H);
     let events = cal.day_events(cal.selected);
     if events.is_empty() {
-        label(text, canvas, "No Events", (x + PAD) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
+        label(text, canvas, tr("No Events"), (x + PAD) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
         y += grow(LINE_H);
     }
     for e in events.iter().take(MAX_EVENTS) {
         let when = if e.all_day {
-            "All Day".to_owned()
+            tr("All Day").to_owned()
         } else {
             DateTime::from_unix_local(e.start).map(|d| crate::clock::time_of_day(crate::clock::current(), &d)).unwrap_or_default()
         };
@@ -351,7 +353,7 @@ pub(super) fn paint_calendar(
         y += grow(LINE_H);
     }
     if events.len() > MAX_EVENTS {
-        label(text, canvas, &format!("{} more", events.len() - MAX_EVENTS), (x + PAD + grow(62)) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
+        label(text, canvas, &trf!("{} more", events.len() - MAX_EVENTS), (x + PAD + grow(62)) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
         y += grow(LINE_H);
     }
     let Some(data) = &cal.data else { return };
@@ -359,7 +361,7 @@ pub(super) fn paint_calendar(
     if !data.clocks.is_empty() {
         y += GAP;
         canvas.rect(x + PAD, y, inner, 1, BANNER_BORDER);
-        label(bold.or(text), canvas, "World Clocks", (x + PAD) as f32, (y + grow(19)) as f32, 13.0, FG, inner as f32);
+        label(bold.or(text), canvas, tr("World Clocks"), (x + PAD) as f32, (y + grow(19)) as f32, 13.0, FG, inner as f32);
         y += grow(SECTION_H);
         for (name, zone) in &data.clocks {
             let there = crate::ical::zone(zone).and_then(|tz| DateTime::now(&tz).ok());
@@ -378,7 +380,7 @@ pub(super) fn paint_calendar(
     if let Some(weather) = &data.weather {
         y += GAP;
         canvas.rect(x + PAD, y, inner, 1, BANNER_BORDER);
-        label(bold.or(text), canvas, "Weather", (x + PAD) as f32, (y + grow(19)) as f32, 13.0, FG, inner as f32);
+        label(bold.or(text), canvas, tr("Weather"), (x + PAD) as f32, (y + grow(19)) as f32, 13.0, FG, inner as f32);
         y += grow(SECTION_H);
         let unit = data.unit.unwrap_or(crate::weather::Unit::Celsius);
         match weather {
@@ -399,7 +401,7 @@ pub(super) fn paint_calendar(
                 y += grow(LINE_H);
             }
             None => {
-                label(text, canvas, "Weather unavailable", (x + PAD) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
+                label(text, canvas, tr("Weather unavailable"), (x + PAD) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
                 y += 2 * grow(LINE_H) + 6;
             }
         }
@@ -409,7 +411,7 @@ pub(super) fn paint_calendar(
         y += GAP;
         canvas.rect(x + PAD, y, inner, 1, BANNER_BORDER);
         label(text, canvas, &player.identity, (x + PAD) as f32, (y + grow(18)) as f32, 12.0, DIM_FG, inner as f32);
-        let title = if player.title.is_empty() { "Unknown Title" } else { player.title.as_str() };
+        let title = if player.title.is_empty() { tr("Unknown Title") } else { player.title.as_str() };
         label(bold.or(text), canvas, title, (x + PAD) as f32, (y + grow(38)) as f32, 14.0, FG, inner as f32);
         label(text, canvas, &player.artist, (x + PAD) as f32, (y + grow(57)) as f32, 13.0, DIM_FG, inner as f32);
         let by = y + 64;

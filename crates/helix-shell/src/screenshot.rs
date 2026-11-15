@@ -18,6 +18,7 @@ use zbus::zvariant::{OwnedValue, Value};
 use zbus::{interface, Connection};
 
 use crate::UiEvent;
+use helix_i18n::trf;
 
 pub const OBJECT_PATH: &str = "/org/gnome/Shell/Screenshot";
 
@@ -311,7 +312,7 @@ pub fn screenshot_path() -> PathBuf {
 }
 
 pub fn screenshot_name(stamp: &str) -> String {
-    format!("Screenshot From {stamp}.png")
+    trf!("Screenshot From {stamp}.png", stamp = stamp)
 }
 
 /// Whether the caller owns one of [`ALLOWED_CALLERS`].

@@ -3,6 +3,7 @@
 //! when a key switches workspaces.
 
 use super::*;
+use helix_i18n::trf;
 
 /// How long it stays after the last switch.
 const SHOWN: Duration = Duration::from_millis(750);
@@ -18,7 +19,7 @@ pub(super) fn workspace_name(names: &[String], n: u32) -> String {
         .get(n as usize)
         .filter(|name| !name.trim().is_empty())
         .cloned()
-        .unwrap_or_else(|| format!("Workspace {}", n + 1))
+        .unwrap_or_else(|| trf!("Workspace {}", n + 1))
 }
 
 fn read_names() -> Vec<String> {

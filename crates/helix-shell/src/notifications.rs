@@ -18,6 +18,8 @@ use crate::notify_store::{CloseReason, IgnoreTimeouts, Notification, Origin, Sto
 use crate::sound::Sound;
 use crate::screensaver::{self, SharedStatus};
 use crate::UiEvent;
+use helix_i18n::tr;
+use helix_i18n::{trf, trnf};
 
 pub const FDO_BUS_NAME: &str = "org.freedesktop.Notifications";
 pub const FDO_PATH: &str = "/org/freedesktop/Notifications";
@@ -73,31 +75,35 @@ impl From<&Notification> for Banner {
 pub fn arrival(arrived: i64, now: &gio::glib::DateTime, long: bool) -> String {
     let Some(then) = gio::glib::DateTime::from_unix_local(arrived).ok().filter(|_| arrived > 0) else { return String::new() };
     let secs = (now.to_unix() - arrived).max(0);
-    let plural = |n: i64, one: &str, many: &str| if n == 1 { format!("1 {one} ago") } else { format!("{n} {many} ago") };
     let day = |d: &gio::glib::DateTime| (d.year(), d.day_of_year());
     let yesterday = now.add_days(-1).ok();
     if secs < 60 {
-        return if long { "just now".into() } else { "now".into() };
+        return if long { tr("just now").into() } else { tr("now").into() };
     }
     if secs < 3600 {
         let m = secs / 60;
-        return if long { plural(m, "minute", "minutes") } else { format!("{m} min") };
+        // Translators: how long ago a notification came, for a screen reader.
+        return if long { trnf!("{n} minute ago", "{n} minutes ago", m) } else { trf!("{m} min", m = m) };
     }
     if day(&then) == day(now) {
         let h = secs / 3600;
-        return if long { plural(h, "hour", "hours") } else { format!("{h} h") };
+        // Translators: "h" is short for hours; how long ago a notification came.
+        return if long { trnf!("{n} hour ago", "{n} hours ago", h) } else { trf!("{h} h", h = h) };
     }
     if yesterday.as_ref().is_some_and(|y| day(y) == day(&then)) {
-        return "Yesterday".into();
+        return tr("Yesterday").into();
     }
+    // Translators: GLib date formats (strftime-like) for notifications
+    // older than yesterday: a weekday, then day and month, then with the
+    // year; the long forms are read out by screen readers.
     let format = if secs < 6 * 86_400 {
-        "%A"
+        tr("%A")
     } else if then.year() == now.year() {
-        if long { "%-d %B" } else { "%-d %b" }
+        if long { tr("%-d %B") } else { tr("%-d %b") }
     } else if long {
-        "%-d %B %Y"
+        tr("%-d %B %Y")
     } else {
-        "%-d %b %Y"
+        tr("%-d %b %Y")
     };
     then.format(format).map(|s| s.to_string()).unwrap_or_default()
 }
@@ -217,10 +223,10 @@ impl Center {
     pub fn screenshot_captured(&self, path: std::path::PathBuf) -> u32 {
         self.post(Notification {
             id: 0,
-            app_name: "Screenshot".into(),
-            summary: "Screenshot captured".into(),
-            body: "You can paste the image from the clipboard.".into(),
-            actions: vec![("default".into(), "Open".into()), ("show-in-files".into(), "Show in Files".into())],
+            app_name: tr("Screenshot").into(),
+            summary: tr("Screenshot captured").into(),
+            body: tr("You can paste the image from the clipboard.").into(),
+            actions: vec![("default".into(), tr("Open").into()), ("show-in-files".into(), tr("Show in Files").into())],
             has_default: true,
             urgency: Urgency::Normal,
             timeout: Notification::timeout_from(-1, Urgency::Normal),
@@ -245,10 +251,10 @@ impl Center {
     /// About removable media; with `root`, "Open with Files" and "Eject"
     /// buttons for that mount.
     pub fn media_notice(&self, summary: &str, body: &str, root: Option<String>) -> u32 {
-        let actions = if root.is_some() { vec![("open".into(), "Open with Files".into()), ("eject".into(), "Eject".into())] } else { Vec::new() };
+        let actions = if root.is_some() { vec![("open".into(), tr("Open with Files").into()), ("eject".into(), tr("Eject").into())] } else { Vec::new() };
         self.post(Notification {
             id: 0,
-            app_name: "Removable Media".into(),
+            app_name: tr("Removable Media").into(),
             summary: summary.into(),
             body: body.into(),
             actions,
@@ -266,7 +272,7 @@ impl Center {
     /// A notice from the system itself (battery warnings).
     pub fn system_notice(&self, summary: &str, body: &str, critical: bool) -> u32 {
         let icon = if critical { "battery-caution-symbolic" } else { "battery-low-symbolic" };
-        self.notice("Power", summary, body, icon, critical)
+        self.notice(tr("Power"), summary, body, icon, critical)
     }
 
     /// One of the shell's own notices, as `app` with an icon by name.
@@ -310,7 +316,7 @@ impl Center {
             Notification {
                 id: 0,
                 app_name,
-                summary: format!("{title} is ready"),
+                summary: trf!("{title} is ready", title = title),
                 body: String::new(),
                 actions: Vec::new(),
                 has_default: true,
@@ -332,10 +338,10 @@ impl Center {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         self.post(Notification {
             id: 0,
-            app_name: "Screencast".into(),
-            summary: "Screencast recorded".into(),
-            body: format!("Saved as {name}."),
-            actions: vec![("default".into(), "Open".into()), ("show-in-files".into(), "Show in Files".into())],
+            app_name: tr("Screencast").into(),
+            summary: tr("Screencast recorded").into(),
+            body: trf!("Saved as {name}.", name = name),
+            actions: vec![("default".into(), tr("Open").into()), ("show-in-files".into(), tr("Show in Files").into())],
             has_default: true,
             urgency: Urgency::Normal,
             timeout: Notification::timeout_from(-1, Urgency::Normal),
@@ -487,12 +493,12 @@ impl Center {
                 let (center, conn) = (self.clone(), conn.clone());
                 tokio::spawn(async move {
                     let prompt = crate::prompt::Prompt {
-                        title: format!("Reply to {}", n.app_name),
+                        title: trf!("Reply to {}", n.app_name),
                         message: n.summary.clone(),
                         description: crate::markup::plain(&n.body),
-                        entry: Some(("Reply".into(), String::new())),
-                        continue_label: "Send".into(),
-                        cancel_label: "Cancel".into(),
+                        entry: Some((tr("Reply").into(), String::new())),
+                        continue_label: tr("Send").into(),
+                        cancel_label: tr("Cancel").into(),
                         ..Default::default()
                     };
                     let answer = crate::prompt::ask(&center.ui, prompt).await;
@@ -638,7 +644,7 @@ async fn activate_app(
 /// The name of app `app_id` from its desktop file, else the id.
 fn app_display_name(app_id: &str) -> String {
     if app_id.is_empty() {
-        return "Application".into();
+        return tr("Application").into();
     }
     let wanted = format!("{app_id}.desktop");
     gio::AppInfo::all().into_iter().find(|a| a.id().is_some_and(|i| i == wanted)).map_or_else(|| app_id.to_owned(), |a| a.display_name().to_string())
@@ -782,12 +788,12 @@ pub fn button_label(label: Option<&str>, purpose: &str) -> Option<String> {
         return Some(label.to_owned());
     }
     let named = match purpose {
-        REPLY_PURPOSE => "Reply",
-        "call.accept" => "Accept",
-        "call.decline" => "Decline",
-        "call.hang-up" => "Hang Up",
-        "call.enable-speakerphone" => "Speaker On",
-        "call.disable-speakerphone" => "Speaker Off",
+        REPLY_PURPOSE => tr("Reply"),
+        "call.accept" => tr("Accept"),
+        "call.decline" => tr("Decline"),
+        "call.hang-up" => tr("Hang Up"),
+        "call.enable-speakerphone" => tr("Speaker On"),
+        "call.disable-speakerphone" => tr("Speaker Off"),
         _ => return None,
     };
     Some(named.to_owned())

@@ -19,6 +19,7 @@ use smithay_client_toolkit::shell::WaylandSurface;
 
 use super::{accent, baseline, label, physical, Canvas, Overlay, Rect, Ui, BANNER_BORDER, DIM_FG, FG, FIELD_BG, SCRIM};
 use crate::UiRequest;
+use helix_i18n::tr;
 
 /// Workspace thumbnail height (logical pixels).
 const THUMB_H: i32 = 90;
@@ -380,7 +381,7 @@ impl Ui {
         let ty = if primary { field.y + field.h + 24 } else { -THUMB_H - 8 };
         if primary {
         canvas.rect(field.x, field.y, field.w, field.h, FIELD_BG);
-        label(text, &mut canvas, "Type to search…", (field.x + 16) as f32, baseline(text, field.y, field.h, 15.0), 15.0, DIM_FG, (field.w - 32) as f32);
+        label(text, &mut canvas, tr("Type to search…"), (field.x + 16) as f32, baseline(text, field.y, field.h, 15.0), 15.0, DIM_FG, (field.w - 32) as f32);
         state.search = field;
 
         // Workspace thumbnails: the primary monitor, its windows in place.
@@ -486,7 +487,7 @@ impl Ui {
         state.tiles.clear();
         state.closes.clear();
         if ids.is_empty() {
-            let msg = "No open windows";
+            let msg = tr("No open windows");
             let tw = text.map_or(0.0, |t| t.width(msg, 15.0));
             label(text, &mut canvas, msg, (w as f32 - tw) / 2.0, (area.y + 40) as f32, 15.0, DIM_FG, area.w as f32);
         }

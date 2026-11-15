@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use gio::prelude::*;
+use helix_i18n::tr;
 
 const SCHEMA: &str = "org.gnome.shell.weather";
 const GWEATHER: &str = "org.gnome.GWeather4";
@@ -56,20 +57,20 @@ pub fn condition(symbol: &str) -> (&'static str, &'static str) {
     let night = symbol.ends_with("_night") || symbol.ends_with("_polartwilight");
     let base = symbol.split('_').next().unwrap_or("");
     match base {
-        "clearsky" if night => ("Clear", "weather-clear-night-symbolic"),
-        "clearsky" => ("Clear", "weather-clear-symbolic"),
+        "clearsky" if night => (tr("Clear"), "weather-clear-night-symbolic"),
+        "clearsky" => (tr("Clear"), "weather-clear-symbolic"),
         "fair" | "partlycloudy" => {
-            let words = if base == "fair" { "Mostly Clear" } else { "Partly Cloudy" };
+            let words = if base == "fair" { tr("Mostly Clear") } else { tr("Partly Cloudy") };
             (words, if night { "weather-few-clouds-night-symbolic" } else { "weather-few-clouds-symbolic" })
         }
-        "cloudy" => ("Cloudy", "weather-overcast-symbolic"),
-        "fog" => ("Fog", "weather-fog-symbolic"),
-        b if b.contains("thunder") => ("Thunderstorm", "weather-storm-symbolic"),
-        b if b.contains("snow") => ("Snow", "weather-snow-symbolic"),
-        b if b.contains("sleet") => ("Sleet", "weather-snow-symbolic"),
-        "lightrain" | "lightrainshowers" => ("Light Rain", "weather-showers-scattered-symbolic"),
-        b if b.contains("rain") || b.contains("showers") => ("Rain", "weather-showers-symbolic"),
-        _ => ("Unknown", "weather-severe-alert-symbolic"),
+        "cloudy" => (tr("Cloudy"), "weather-overcast-symbolic"),
+        "fog" => (tr("Fog"), "weather-fog-symbolic"),
+        b if b.contains("thunder") => (tr("Thunderstorm"), "weather-storm-symbolic"),
+        b if b.contains("snow") => (tr("Snow"), "weather-snow-symbolic"),
+        b if b.contains("sleet") => (tr("Sleet"), "weather-snow-symbolic"),
+        "lightrain" | "lightrainshowers" => (tr("Light Rain"), "weather-showers-scattered-symbolic"),
+        b if b.contains("rain") || b.contains("showers") => (tr("Rain"), "weather-showers-symbolic"),
+        _ => (tr("Unknown"), "weather-severe-alert-symbolic"),
     }
 }
 
@@ -120,7 +121,7 @@ fn location() -> Option<(String, f64, f64)> {
     if settings.boolean("automatic-location") {
         if let Some((lat, lon)) = crate::location::current() {
             let tab = std::fs::read_to_string("/usr/share/zoneinfo/zone1970.tab").unwrap_or_default();
-            let name = crate::calendar::nearby_city(&tab, lat, lon, NEARBY_KM).unwrap_or_else(|| "Current Location".into());
+            let name = crate::calendar::nearby_city(&tab, lat, lon, NEARBY_KM).unwrap_or_else(|| tr("Current Location").into());
             return Some((name, lat, lon));
         }
     }

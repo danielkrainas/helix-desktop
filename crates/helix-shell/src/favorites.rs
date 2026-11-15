@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use gio::prelude::*;
 
 use crate::launcher::App;
+use helix_i18n::tr;
 
 const SHELL: &str = "org.gnome.shell";
 const FOLDERS: &str = "org.gnome.desktop.app-folders";
@@ -143,7 +144,7 @@ pub fn create_folder(name: &str, apps: &[String]) -> Option<String> {
     let parent = settings(FOLDERS)?;
     let mut children = strv(&parent, "folder-children");
     let base: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
-    let base = if base.is_empty() { "Folder".to_owned() } else { base };
+    let base = if base.is_empty() { tr("Folder").to_owned() } else { base };
     let mut id = base.clone();
     let mut n = 1;
     while children.contains(&id) {
@@ -229,7 +230,7 @@ pub fn delete_folder(id: &str) {
 /// first of `a`'s that is not a generic one), else "Unnamed Folder".
 pub fn folder_name_for(a: &[String], b: &[String]) -> String {
     const GENERIC: [&str; 4] = ["GTK", "GNOME", "Qt", "KDE"];
-    a.iter().find(|c| b.contains(c) && !GENERIC.contains(&c.as_str())).cloned().unwrap_or_else(|| "Unnamed Folder".to_owned())
+    a.iter().find(|c| b.contains(c) && !GENERIC.contains(&c.as_str())).cloned().unwrap_or_else(|| tr("Unnamed Folder").to_owned())
 }
 
 #[cfg(test)]

@@ -9,6 +9,8 @@ use helix_draw::{draw_lines, wrap_spans, Fonts, Image, Span};
 use super::*;
 use crate::icons::IconSource;
 use crate::notifications::{Banner, List};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 /// Icon size in the banner and the list (logical pixels).
 pub(super) const ICON: i32 = 32;
@@ -884,14 +886,14 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     }
     let knob = if on { switch.x + switch.w - 11 } else { switch.x + 11 };
     canvas.circle(f64::from(knob), f64::from(switch.y + 11), 9.0, FG);
-    label(text, canvas, "Do Not Disturb", (switch.x + switch.w + 10) as f32, baseline(text, switch.y, switch.h, 14.0), 14.0, FG, helix_draw::theme::grow(160) as f32);
-    hits.push((Rect { x: switch.x, y: switch.y, w: switch.w + 10 + text.map_or(130, |t| t.width("Do Not Disturb", 14.0) as i32), h: switch.h }, ListHit::DoNotDisturb));
+    label(text, canvas, tr("Do Not Disturb"), (switch.x + switch.w + 10) as f32, baseline(text, switch.y, switch.h, 14.0), 14.0, FG, helix_draw::theme::grow(160) as f32);
+    hits.push((Rect { x: switch.x, y: switch.y, w: switch.w + 10 + text.map_or(130, |t| t.width(tr("Do Not Disturb"), 14.0) as i32), h: switch.h }, ListHit::DoNotDisturb));
     if !m.entries.is_empty() {
         let clear_w = helix_draw::theme::grow(64);
         let clear = Rect { x: bx + list_w() - LIST_PAD - clear_w, y: by + 8, w: clear_w, h: helix_draw::theme::grow(26) };
         theme::control(canvas, clear.x, clear.y, clear.w, clear.h, theme::Look::default());
-        let cw = text.map_or(0.0, |t| t.width("Clear", 14.0));
-        label(text, canvas, "Clear", clear.x as f32 + (clear.w as f32 - cw) / 2.0, baseline(text, clear.y, clear.h, 14.0), 14.0, FG, (clear_w - 4) as f32);
+        let cw = text.map_or(0.0, |t| t.width(tr("Clear"), 14.0));
+        label(text, canvas, tr("Clear"), clear.x as f32 + (clear.w as f32 - cw) / 2.0, baseline(text, clear.y, clear.h, 14.0), 14.0, FG, (clear_w - 4) as f32);
         hits.push((clear, ListHit::Clear));
     }
     // Tab order: the header's controls, then each row followed by its
@@ -899,7 +901,7 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     let mut stops: Vec<(Rect, ListHit)> = hits.clone();
     let mut y = by + header;
     if m.entries.is_empty() {
-        let message = "No Notifications";
+        let message = tr("No Notifications");
         let mw = text.map_or(0.0, |t| t.width(message, 15.0));
         label(text, canvas, message, bx as f32 + (list_w() as f32 - mw) / 2.0, (y + 30) as f32, 15.0, DIM_FG, list_w() as f32);
     }
@@ -911,7 +913,7 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
             Row::Header { key, app, count, open } => {
                 canvas.rect(bx + LIST_PAD, y, list_w() - 2 * LIST_PAD, 1, BANNER_BORDER);
                 let head = app.clone();
-                let tail = format!("{count} notifications");
+                let tail = trf!("{count} notifications", count = count);
                 // A chevron: down when open, right when closed.
                 let (cx, cy) = (f64::from(bx + LIST_PAD + 8), f64::from(y + 15));
                 let (a, b, c) = if *open { ((cx - 4.0, cy - 2.0), (cx, cy + 2.0), (cx + 4.0, cy - 2.0)) } else { ((cx - 2.0, cy - 4.0), (cx + 2.0, cy), (cx - 2.0, cy + 4.0)) };

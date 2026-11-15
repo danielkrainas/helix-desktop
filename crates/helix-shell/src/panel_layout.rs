@@ -5,6 +5,7 @@
 use tokio::sync::mpsc;
 
 use crate::UiEvent;
+use helix_i18n::{n_, tr};
 
 pub const SCHEMA: &str = "org.helix.shell";
 
@@ -44,14 +45,14 @@ impl Item {
     /// The name the panel editor shows.
     pub fn name(self) -> &'static str {
         match self {
-            Item::Apps => "Apps",
-            Item::Workspaces => "Workspaces",
-            Item::Clock => "Clock",
-            Item::Tray => "Status Icons",
-            Item::Accessibility => "Accessibility",
-            Item::Keyboard => "Input Source",
-            Item::Status => "System Status",
-            Item::Power => "Power",
+            Item::Apps => tr("Apps"),
+            Item::Workspaces => tr("Workspaces"),
+            Item::Clock => tr("Clock"),
+            Item::Tray => tr("Status Icons"),
+            Item::Accessibility => tr("Accessibility"),
+            Item::Keyboard => tr("Input Source"),
+            Item::Status => tr("System Status"),
+            Item::Power => tr("Power"),
         }
     }
 }
@@ -208,19 +209,19 @@ pub fn place(layout: &Layout, width: i32, size: impl Fn(Slot) -> i32) -> Vec<(Sl
 
 /// The editor's columns: the three zones, then the quick settings
 /// switches.
-pub const COLUMNS: [&str; 4] = ["Left", "Center", "Right", "Quick Settings"];
+pub const COLUMNS: [&str; 4] = [n_("Left"), n_("Center"), n_("Right"), n_("Quick Settings")];
 pub const QUICK: usize = 3;
 
 /// A switch's name in the editor.
 pub fn switch_name(id: &str) -> Option<&'static str> {
     Some(match id {
-        "helix:wifi" => "Wi-Fi",
-        "helix:bluetooth" => "Bluetooth",
-        "helix:airplane-mode" => "Airplane Mode",
-        "helix:auto-rotate" => "Auto Rotate",
-        "helix:night-light" => "Night Light",
-        "helix:dark-style" => "Dark Style",
-        "helix:do-not-disturb" => "Do Not Disturb",
+        "helix:wifi" => tr("Wi-Fi"),
+        "helix:bluetooth" => tr("Bluetooth"),
+        "helix:airplane-mode" => tr("Airplane Mode"),
+        "helix:auto-rotate" => tr("Auto Rotate"),
+        "helix:night-light" => tr("Night Light"),
+        "helix:dark-style" => tr("Dark Style"),
+        "helix:do-not-disturb" => tr("Do Not Disturb"),
         _ => return None,
     })
 }

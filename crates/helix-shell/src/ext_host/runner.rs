@@ -322,7 +322,7 @@ impl ExtHost {
             tracing::info!("Shift was held at login: extensions are off for this session");
             let any = self.list().iter().any(|i| i.enabled);
             if any {
-                center.notice("Extensions", "Extensions are off for this session", "Shift was held at login.", "dialog-information-symbolic", false);
+                center.notice(helix_i18n::tr("Extensions"), helix_i18n::tr("Extensions are off for this session"), helix_i18n::tr("Shift was held at login."), "dialog-information-symbolic", false);
             }
         }
         // `onDBusName` (1.1): follow which names have owners.
@@ -546,7 +546,7 @@ impl ExtHost {
         if !refused.is_empty() {
             let center = self.lock().center.clone();
             if let Some(center) = center {
-                center.notice("Extensions", &format!("{}: keys left unset", m.name), &format!("Already in use: {}. Set them in Extensions…", refused.join(", ")), "input-keyboard-symbolic", false);
+                center.notice(helix_i18n::tr("Extensions"), &helix_i18n::trf!("{name}: keys left unset", name = m.name), &helix_i18n::trf!("Already in use: {keys}. Set them in Extensions…", keys = refused.join(helix_i18n::tr(", "))), "input-keyboard-symbolic", false);
             }
         }
     }
@@ -867,7 +867,7 @@ impl ExtHost {
             tracing::warn!(id, "extension crashed too often; not restarted");
             let center = self.lock().center.clone();
             if let Some(center) = center {
-                center.notice("Extensions", &format!("{name} stopped working"), &last, "dialog-warning-symbolic", false);
+                center.notice(helix_i18n::tr("Extensions"), &helix_i18n::trf!("{name} stopped working", name = name), &last, "dialog-warning-symbolic", false);
             }
             self.publish_list();
             return;

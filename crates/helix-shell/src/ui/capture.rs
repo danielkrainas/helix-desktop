@@ -14,6 +14,7 @@ use tokio::sync::oneshot;
 
 use super::*;
 use crate::screenshot::{CaptureError, Job, PickMode, Picked, Rect as Area, Shot, Target};
+use helix_i18n::tr;
 
 const BTN_RIGHT: u32 = 0x111;
 /// Drags smaller than this (logical pixels) are taken as clicks.
@@ -106,10 +107,10 @@ pub struct FrameData {
 
 fn hint(mode: PickMode) -> &'static str {
     match mode {
-        PickMode::Area => "Drag to select an area · Esc to cancel",
-        PickMode::Point => "Click to pick a color · Esc to cancel",
-        PickMode::Window => "Click a window to capture it · Esc to cancel",
-        PickMode::Ui { .. } => "S, C, W: area, screen, window · V: record · P: pointer · Enter: capture · Esc: cancel",
+        PickMode::Area => tr("Drag to select an area · Esc to cancel"),
+        PickMode::Point => tr("Click to pick a color · Esc to cancel"),
+        PickMode::Window => tr("Click a window to capture it · Esc to cancel"),
+        PickMode::Ui { .. } => tr("S, C, W: area, screen, window · V: record · P: pointer · Enter: capture · Esc: cancel"),
     }
 }
 
@@ -294,16 +295,16 @@ impl Ui {
             if is_ui {
                 let st = &picker.shot;
                 let mut buttons: Vec<(String, Tool, bool, bool)> = vec![
-                    ("Area".into(), Tool::Mode(ShotMode::Area), st.mode == ShotMode::Area, true),
-                    ("Screen".into(), Tool::Mode(ShotMode::Screen), st.mode == ShotMode::Screen, true),
-                    ("Window".into(), Tool::Mode(ShotMode::Window), st.mode == ShotMode::Window, !st.record),
+                    (tr("Area").into(), Tool::Mode(ShotMode::Area), st.mode == ShotMode::Area, true),
+                    (tr("Screen").into(), Tool::Mode(ShotMode::Screen), st.mode == ShotMode::Screen, true),
+                    (tr("Window").into(), Tool::Mode(ShotMode::Window), st.mode == ShotMode::Window, !st.record),
                 ];
                 if st.allow_record {
-                    buttons.push(("Screenshot".into(), Tool::Record(false), !st.record, true));
-                    buttons.push(("Record".into(), Tool::Record(true), st.record, true));
+                    buttons.push((tr("Screenshot").into(), Tool::Record(false), !st.record, true));
+                    buttons.push((tr("Record").into(), Tool::Record(true), st.record, true));
                 }
-                buttons.push(("Show Pointer".into(), Tool::Pointer, st.pointer, true));
-                buttons.push((if st.record { "Start Recording" } else { "Capture" }.into(), Tool::Capture, true, true));
+                buttons.push((tr("Show Pointer").into(), Tool::Pointer, st.pointer, true));
+                buttons.push((if st.record { tr("Start Recording") } else { tr("Capture") }.into(), Tool::Capture, true, true));
                 let widths: Vec<i32> = buttons.iter().map(|(t, ..)| text.map_or(60.0, |f| f.width(t, 14.0)) as i32 + 2 * TOOL_PAD + 8).collect();
                 let groups = if st.allow_record { 3 } else { 2 };
                 let total: i32 = widths.iter().sum::<i32>() + TOOL_GAP * (widths.len() as i32 - 1) + 2 * TOOL_GAP + 8 * groups;

@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::panel_layout::{self as layout, Edit, COLUMNS, QUICK};
+use helix_i18n::tr;
 
 const COL_W_MAX: i32 = 250;
 const COL_W_MIN: i32 = 190;
@@ -114,16 +115,16 @@ impl Ui {
         for (rx, ry, rw, rh) in [(bx, by, bw, 1), (bx, by + bh - 1, bw, 1), (bx, by, 1, bh), (bx + bw - 1, by, 1, bh)] {
             canvas.rect(rx, ry, rw, rh, BANNER_BORDER);
         }
-        label(bold.or(text), &mut canvas, "Customize Panel", (bx + PAD) as f32, (by + 36) as f32, 20.0, FG, (bw - 2 * PAD) as f32);
+        label(bold.or(text), &mut canvas, tr("Customize Panel"), (bx + PAD) as f32, (by + 36) as f32, 20.0, FG, (bw - 2 * PAD) as f32);
         let mut y = by + 56;
         if !saved {
-            label(text, &mut canvas, "Changes cannot be saved: the org.helix.shell settings are not installed.", (bx + PAD) as f32, (y + 16) as f32, 13.0, DIM_FG, (bw - 2 * PAD) as f32);
+            label(text, &mut canvas, tr("Changes cannot be saved: the org.helix.shell settings are not installed."), (bx + PAD) as f32, (y + 16) as f32, 13.0, DIM_FG, (bw - 2 * PAD) as f32);
             y += note_h;
         }
         let mut hits: Vec<(Rect, EditorHit)> = Vec::new();
         let col_x = |c: usize| bx + PAD + c as i32 * (col_w + PAD);
         for (c, title) in COLUMNS.iter().enumerate() {
-            label(bold.or(text), &mut canvas, title, col_x(c) as f32, (y + 18) as f32, 14.0, DIM_FG, col_w as f32);
+            label(bold.or(text), &mut canvas, tr(title), col_x(c) as f32, (y + 18) as f32, 14.0, DIM_FG, col_w as f32);
         }
         let rows_y = y + 30;
         for (c, rows) in columns.iter().enumerate() {
@@ -162,7 +163,7 @@ impl Ui {
                 if hidden_in(c).is_empty() {
                     continue;
                 }
-                label(bold.or(text), &mut canvas, "Hidden", col_x(c) as f32, (y + 18) as f32, 14.0, DIM_FG, col_w as f32);
+                label(bold.or(text), &mut canvas, tr("Hidden"), col_x(c) as f32, (y + 18) as f32, 14.0, DIM_FG, col_w as f32);
                 for (r, (n, (_, _, name))) in hidden_in(c).into_iter().enumerate() {
                     let ry = y + 32 + r as i32 * ROW_H;
                     let br = Rect { x: col_x(c) + col_w - 4 - BUTTON, y: ry + (ROW_H - BUTTON) / 2, w: BUTTON, h: BUTTON };
@@ -174,7 +175,7 @@ impl Ui {
             y += hidden_h;
         }
         y += 16;
-        for (hit, name, x) in [(EditorHit::Reset, "Reset", bx + PAD), (EditorHit::Done, "Done", bx + bw - PAD - BOTTOM_W)] {
+        for (hit, name, x) in [(EditorHit::Reset, tr("Reset"), bx + PAD), (EditorHit::Done, tr("Done"), bx + bw - PAD - BOTTOM_W)] {
             let r = Rect { x, y, w: BOTTOM_W, h: BOTTOM_H };
             let look = theme::Look { on: hit == EditorHit::Done, ..Default::default() };
             theme::control(&mut canvas, r.x, r.y, r.w, r.h, look);
@@ -280,7 +281,7 @@ impl Ui {
         }
         let PointerEventKind::Press { button: 0x111, .. } = event.kind else { return false };
         let item = |label: &str, choice| Some(super::window_menu::Item { label: label.into(), choice, checked: None, active: false, sub: Vec::new() });
-        let items = vec![item("Customize Panel…", super::window_menu::Choice::CustomizePanel), item("Extensions…", super::window_menu::Choice::Extensions)];
+        let items = vec![item(tr("Customize Panel…"), super::window_menu::Choice::CustomizePanel), item(tr("Extensions…"), super::window_menu::Choice::Extensions)];
         self.open_menu(0, event.position.0 as i32, panel_height() as i32, items, Vec::new());
         true
     }

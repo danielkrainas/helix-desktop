@@ -12,6 +12,7 @@ use smithay_client_toolkit::reexports::client::protocol::wl_output;
 use super::*;
 use crate::dock::{self as logic, DockSettings, Edge, Item, Outcome};
 use crate::windows::{WindowAction, ALL_WORKSPACES};
+use helix_i18n::tr;
 
 const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
@@ -651,8 +652,8 @@ impl Ui {
             Item::App { id, .. } => crate::windows::app_names().get(&id.to_lowercase()).cloned().unwrap_or_else(|| id.clone()),
             Item::Mount(i) => self.dock.mounts.get(*i).map_or_else(String::new, |m| m.name.clone()),
             Item::Ext(i) => self.ext.dock.get(*i).map_or_else(String::new, |d| if d.label.is_empty() { d.name.clone() } else { d.label.clone() }),
-            Item::Trash => "Trash".into(),
-            Item::ShowApps => "Show Apps".into(),
+            Item::Trash => tr("Trash").into(),
+            Item::ShowApps => tr("Show Apps").into(),
         }
     }
 
@@ -1360,7 +1361,7 @@ impl Ui {
         for w in &windows {
             let title = self.windows.mru().iter().find(|e| e.id == *w).map_or_else(String::new, |e| e.label().to_owned());
             items.push(self.dock_menu_item(title, DockTarget::Window(*w)));
-            items.push(self.dock_menu_item("Close".into(), DockTarget::CloseWindow(*w)));
+            items.push(self.dock_menu_item(tr("Close").into(), DockTarget::CloseWindow(*w)));
         }
         let (pw, ph) = window_menu::previews_size(windows.len());
         let (bx, by, bw, bh) = self.dock_layout_rect();
@@ -1440,9 +1441,9 @@ impl Ui {
             }
             Item::Mount(i) => {
                 let Some(m) = self.dock.mounts.get(i).cloned() else { return };
-                items.push(self.dock_menu_item(if m.mounted { "Open" } else { "Mount" }.into(), DockTarget::OpenMount(m.root.clone())));
+                items.push(self.dock_menu_item(if m.mounted { tr("Open") } else { tr("Mount") }.into(), DockTarget::OpenMount(m.root.clone())));
                 if m.mounted {
-                    let eject = if m.ejectable { "Eject" } else { "Unmount" };
+                    let eject = if m.ejectable { tr("Eject") } else { tr("Unmount") };
                     items.push(self.dock_menu_item(eject.into(), DockTarget::EjectMount(m.root)));
                 }
             }
@@ -1455,9 +1456,9 @@ impl Ui {
                 return;
             }
             Item::Trash => {
-                items.push(self.dock_menu_item("Open".into(), DockTarget::OpenTrash));
+                items.push(self.dock_menu_item(tr("Open").into(), DockTarget::OpenTrash));
                 if self.dock.trash_full {
-                    items.push(self.dock_menu_item("Empty Trash".into(), DockTarget::EmptyTrash));
+                    items.push(self.dock_menu_item(tr("Empty Trash").into(), DockTarget::EmptyTrash));
                 }
             }
             Item::ShowApps => return,
@@ -1473,7 +1474,7 @@ impl Ui {
         let mut items: Vec<Option<window_menu::Item>> = Vec::new();
         let windows = self.app_windows(&id);
         if previews && !windows.is_empty() {
-            items.push(self.dock_menu_item("All Windows".into(), DockTarget::Previews(id.clone())));
+            items.push(self.dock_menu_item(tr("All Windows").into(), DockTarget::Previews(id.clone())));
         } else {
             for w in &windows {
                 let title = self.windows.mru().iter().find(|e| e.id == *w).map_or_else(String::new, |e| e.label().to_owned());
@@ -1483,7 +1484,7 @@ impl Ui {
         if !windows.is_empty() {
             items.push(None);
         }
-        let open = if windows.is_empty() { "Open" } else { "New Window" };
+        let open = if windows.is_empty() { tr("Open") } else { tr("New Window") };
         items.push(self.dock_menu_item(open.into(), DockTarget::Launch(id.clone())));
         let actions = desktop_id(&id).map(|d| logic::desktop_actions(d.trim_end_matches(".desktop"))).unwrap_or_default();
         for (action, name) in actions {
@@ -1498,14 +1499,14 @@ impl Ui {
             items.extend(entries);
         }
         items.push(None);
-        let pin = if favorite { "Unpin" } else { "Pin to Dash" };
+        let pin = if favorite { tr("Unpin") } else { tr("Pin to Dash") };
         items.push(self.dock_menu_item(pin.into(), DockTarget::TogglePin(id.clone())));
         if which("gnome-software") {
-            items.push(self.dock_menu_item("App Details".into(), DockTarget::Details(id.clone())));
+            items.push(self.dock_menu_item(tr("App Details").into(), DockTarget::Details(id.clone())));
         }
         if !windows.is_empty() {
             items.push(None);
-            let quit = if windows.len() > 1 { format!("Quit {} Windows", windows.len()) } else { "Quit".to_owned() };
+            let quit = if windows.len() > 1 { helix_i18n::trnf!("Quit {n} Window", "Quit {n} Windows", windows.len()) } else { tr("Quit").to_owned() };
             items.push(self.dock_menu_item(quit, DockTarget::Quit(id.clone())));
         }
         items
@@ -1768,7 +1769,7 @@ fn trash_title() -> &'static str {
         gio::File::for_uri("trash:///")
             .query_info("standard::display-name", gio::FileQueryInfoFlags::NONE, gio::Cancellable::NONE)
             .map(|i| i.display_name().to_string())
-            .unwrap_or_else(|_| "Trash".into())
+            .unwrap_or_else(|_| tr("Trash").into())
     })
 }
 

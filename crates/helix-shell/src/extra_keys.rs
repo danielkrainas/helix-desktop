@@ -6,6 +6,7 @@ use gio::prelude::*;
 use zbus::Connection;
 
 use crate::Osd;
+use helix_i18n::tr;
 
 pub const MEDIA_KEYS: &str = "org.gnome.settings-daemon.plugins.media-keys";
 pub const CUSTOM: &str = "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding";
@@ -179,7 +180,7 @@ pub fn touchpad(key: Toggle) -> Option<Osd> {
     gio::Settings::sync();
     Some(Osd {
         icon: Some(if on { "input-touchpad-symbolic" } else { "touchpad-disabled-symbolic" }.into()),
-        label: Some(if on { "Touchpad On" } else { "Touchpad Off" }.into()),
+        label: Some(if on { tr("Touchpad On") } else { tr("Touchpad Off") }.into()),
         level: None,
         max_level: 1.0,
         connector: None,
@@ -267,10 +268,10 @@ pub fn rfkill_toggle(status: &crate::status::Status, bluetooth_only: bool) -> Op
 /// The on-screen display after an rfkill toggle.
 pub fn rfkill_osd(toggle: &crate::status::Toggle) -> Option<Osd> {
     let (icon, label) = match toggle {
-        crate::status::Toggle::Airplane(true) => ("airplane-mode-symbolic", "Airplane Mode On"),
-        crate::status::Toggle::Airplane(false) => ("airplane-mode-disabled-symbolic", "Airplane Mode Off"),
-        crate::status::Toggle::Bluetooth(true) => ("bluetooth-active-symbolic", "Bluetooth On"),
-        crate::status::Toggle::Bluetooth(false) => ("bluetooth-disabled-symbolic", "Bluetooth Off"),
+        crate::status::Toggle::Airplane(true) => ("airplane-mode-symbolic", tr("Airplane Mode On")),
+        crate::status::Toggle::Airplane(false) => ("airplane-mode-disabled-symbolic", tr("Airplane Mode Off")),
+        crate::status::Toggle::Bluetooth(true) => ("bluetooth-active-symbolic", tr("Bluetooth On")),
+        crate::status::Toggle::Bluetooth(false) => ("bluetooth-disabled-symbolic", tr("Bluetooth Off")),
         _ => return None,
     };
     Some(Osd { icon: Some(icon.into()), label: Some(label.into()), level: None, max_level: 1.0, connector: None })

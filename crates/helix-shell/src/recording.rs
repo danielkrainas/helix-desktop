@@ -21,6 +21,7 @@ use zbus::{interface, Connection};
 
 use crate::screenshot::{PickMode, Picked, Rect, Screens, Shot};
 use crate::UiEvent;
+use helix_i18n::tr;
 
 pub const BUS_NAME: &str = "org.gnome.Shell.Screencast";
 pub const OBJECT_PATH: &str = "/org/gnome/Shell/Screencast";
@@ -297,7 +298,7 @@ impl Recorder {
                 return Err("empty area".into());
             }
         }
-        let gst = self.gstreamer().await.ok_or("GStreamer is not available")?;
+        let gst = self.gstreamer().await.ok_or(tr("GStreamer is not available"))?;
         let (date, time) = stamp();
         let path = output_path(&expand(template, &date, &time), &videos_dir(), options.pipeline.is_some());
         if let Some(dir) = path.parent() {
@@ -436,7 +437,7 @@ impl Recorder {
                 Shot::WindowAt(..) => return,
             };
             let options = Options { draw_cursor: pointer, ..Options::default() };
-            if let Err(err) = self.start(conn, target, "Screencast From %d %t.webm", &options).await {
+            if let Err(err) = self.start(conn, target, tr("Screencast From %d %t.webm"), &options).await {
                 tracing::warn!(err, "cannot record the screen");
             }
             return;
