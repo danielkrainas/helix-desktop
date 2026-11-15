@@ -531,3 +531,46 @@ fn osds() {
     helix_draw::set_high_contrast(false);
     helix_draw::accent::set(Accent::Blue);
 }
+
+/// The on-screen keyboard: at rest, a character held (pressed, preview),
+/// Shift latched, the symbols page; high contrast and an accent too
+/// (`osk-…`).
+#[test]
+#[ignore]
+fn on_screen_keyboard() {
+    use helix_draw::accent::Accent;
+    use osk::{OskPaint, Page, Special};
+    let Some(dir) = dir() else { return };
+    let text = Text::load();
+    let icons: Vec<(Special, Option<helix_draw::Image>)> = [
+        (Special::Backspace, "edit-clear-symbolic"),
+        (Special::Left, "go-previous-symbolic"),
+        (Special::Right, "go-next-symbolic"),
+        (Special::Hide, "input-keyboard-symbolic"),
+        (Special::Page(Page::Emoji), "face-smile-symbolic"),
+    ]
+    .into_iter()
+    .map(|(s, n)| (s, symbolic(n, 18.0, 1.0)))
+    .collect();
+    let letters = osk::drawable_rows(osk::page_rows(Page::Letters, "us", ""), Page::Letters, text.as_ref());
+    let symbols = osk::drawable_rows(osk::page_rows(Page::Symbols, "us", ""), Page::Symbols, text.as_ref());
+    let bar = vec!["hello".to_owned(), "help".to_owned(), "helmet".to_owned()];
+    let (w, h) = (1280usize, (40 + 8 + letters.len() as i32 * 52 + 8) as usize);
+    for (look, accent, hc) in [("", Accent::Blue, false), ("-orange", Accent::Orange, false), ("-hc", Accent::Blue, true)] {
+        helix_draw::accent::set(accent);
+        helix_draw::set_high_contrast(hc);
+        let scenes: Vec<(&str, OskPaint)> = vec![
+            ("rest", OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &bar, accents: false, down: None }),
+            ("held-e", OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &bar, accents: false, down: Some((1, 2)) }),
+            ("shift", OskPaint { rows: &letters, page: Page::Letters, shift: true, bar: &[], accents: false, down: None }),
+            ("symbols", OskPaint { rows: &symbols, page: Page::Symbols, shift: false, bar: &[], accents: false, down: None }),
+        ];
+        for (name, m) in &scenes {
+            render(&dir, &format!("osk-{name}{look}"), DARK, (w, h, 1.0), |canvas| {
+                osk::paint_keyboard(canvas, (text.as_ref(), None), &icons, m, (w as i32, h as i32));
+            });
+        }
+    }
+    helix_draw::set_high_contrast(false);
+    helix_draw::accent::set(Accent::Blue);
+}

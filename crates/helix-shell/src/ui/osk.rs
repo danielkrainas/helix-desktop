@@ -68,7 +68,7 @@ fn char_keys(chars: &str) -> Vec<Key> {
 const EMOJI: [&str; 3] = ["😀😂😊😍😘😎🤔😢😭😡", "👍👎👏🙏💪👋🤝✌👌🙌", "❤💔⭐🔥🎉✅❌⚠💡☕"];
 
 /// On the AltGr page, characters the font cannot draw are left out.
-fn drawable_rows(mut rows: Vec<Vec<Key>>, page: Page, text: Option<&Text>) -> Vec<Vec<Key>> {
+pub(super) fn drawable_rows(mut rows: Vec<Vec<Key>>, page: Page, text: Option<&Text>) -> Vec<Vec<Key>> {
     if let (Page::AltGr, Some(text)) = (page, text) {
         for row in &mut rows {
             row.retain(|k| !matches!(&k.kind, KeyKind::Char(n, _) if !text.covers(n)));
@@ -258,6 +258,8 @@ pub(super) struct Osk {
     typed: String,
     /// The character key held down, and since when.
     pressed: Option<((usize, usize), std::time::Instant)>,
+    /// Any key held down (drawn pressed).
+    down: Option<(usize, usize)>,
 }
 
 /// What the keyboard keeps between showings.
@@ -316,6 +318,7 @@ impl Ui {
                     accents: false,
                     typed: String::new(),
                     pressed: None,
+                    down: None,
                 });
             }
             (false, true) => self.osk.view = None,
@@ -364,84 +367,30 @@ impl Ui {
     fn paint_osk(&mut self, view: &mut Osk) {
         let (w, h) = (view.width as usize, view.height as usize);
         let scale = self.scales.of(view.layer.wl_surface());
-        let icons: Vec<(Special, Option<Image>)> = [(Special::Backspace, "edit-clear-symbolic"), (Special::Left, "go-previous-symbolic"), (Special::Right, "go-next-symbolic"), (Special::Hide, "input-keyboard-symbolic")]
-            .into_iter()
-            .map(|(s, name)| (s, self.symbolic_icon(name, scale)))
-            .collect();
+        let icons: Vec<(Special, Option<Image>)> = [
+            (Special::Backspace, "edit-clear-symbolic"),
+            (Special::Left, "go-previous-symbolic"),
+            (Special::Right, "go-next-symbolic"),
+            (Special::Hide, "input-keyboard-symbolic"),
+            (Special::Page(Page::Emoji), "face-smile-symbolic"),
+        ]
+        .into_iter()
+        .map(|(s, name)| (s, self.symbolic_icon(name, scale)))
+        .collect();
         let Ok((buffer, data)) =
             self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
-        canvas.fill(PANEL_BG);
-        canvas.rect(0, 0, w as i32, 1, BANNER_BORDER);
-        let text = self.text.as_ref();
-        let widest = view.rows.iter().map(|r| r.iter().map(|k| k.width).sum::<f32>()).fold(0.0, f32::max);
         if view.page == Page::Emoji && self.osk.emoji_font.is_none() {
             self.osk.emoji_font = Some(Text::load_matching("emoji:color=false"));
         }
         let emoji = self.osk.emoji_font.as_ref().and_then(|f| f.as_ref());
-        let unit = ((w as f32 - 2.0 * PAD as f32) / widest).min(MAX_UNIT);
-        // The suggestion bar: up to three words (or a letter's accents),
-        // side by side over the keys' width.
-        view.bar_hits.clear();
-        if !view.bar.is_empty() {
-            let keys_w = (widest * unit).min(w as f32 - 2.0 * PAD as f32);
-            let left = (w as f32 - keys_w) / 2.0;
-            let cell = keys_w / view.bar.len().max(SUGGESTIONS) as f32;
-            for (i, word) in view.bar.iter().enumerate() {
-                let r = Rect { x: (left + i as f32 * cell) as i32 + GAP / 2, y: PAD / 2 + GAP / 2, w: cell as i32 - GAP, h: BAR_H - GAP };
-                if i > 0 && !view.accents {
-                    canvas.rect(r.x - GAP / 2, r.y + 8, 1, r.h - 16, BANNER_BORDER);
-                }
-                if view.accents {
-                    canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
-                }
-                let px = 16.0;
-                let tw = text.map_or(0.0, |t| t.width(word, px)).min(r.w as f32);
-                label(text, &mut canvas, word, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, px), px, FG, r.w as f32);
-                view.bar_hits.push((r, i));
-            }
-        }
-        view.hits.clear();
-        for (ri, row) in view.rows.iter().enumerate() {
-            let row_w: f32 = row.iter().map(|k| k.width).sum::<f32>() * unit;
-            let mut x = (w as f32 - row_w) / 2.0;
-            let y = BAR_H + PAD + ri as i32 * ROW_H;
-            for (ki, key) in row.iter().enumerate() {
-                let kw = key.width * unit;
-                let r = Rect { x: x as i32 + GAP / 2, y: y + GAP / 2, w: kw as i32 - GAP, h: ROW_H - GAP };
-                let lit = matches!(key.kind, KeyKind::Special(Special::Shift)) && view.shift;
-                let dark = matches!(key.kind, KeyKind::Special(s) if s != Special::Space);
-                canvas.rect(r.x, r.y, r.w, r.h, if lit { accent_fill() } else if dark { BANNER_BG } else { FIELD_BG });
-                let caption = match &key.kind {
-                    KeyKind::Char(normal, shifted) => Some(if view.shift { shifted.clone() } else { normal.clone() }),
-                    KeyKind::Special(Special::Shift) => Some("Shift".into()),
-                    KeyKind::Special(Special::Enter) => Some("Enter".into()),
-                    KeyKind::Special(Special::Tab) => Some("Tab".into()),
-                    KeyKind::Special(Special::Page(Page::Letters)) => Some("ABC".into()),
-                    KeyKind::Special(Special::Page(Page::Symbols)) => Some("?123".into()),
-                    KeyKind::Special(Special::Page(Page::Emoji)) => Some("Emoji".into()),
-                    KeyKind::Special(Special::Page(Page::AltGr)) => Some("AltGr".into()),
-                    KeyKind::Special(Special::Space) => None,
-                    KeyKind::Special(s) => {
-                        if let Some((_, Some(icon))) = icons.iter().find(|(x, _)| x == s) {
-                            canvas.image(f64::from(r.x) + f64::from(r.w - 18) / 2.0, f64::from(r.y) + f64::from(r.h - 18) / 2.0, 18.0, 18.0, icon);
-                        }
-                        None
-                    }
-                };
-                if let Some(caption) = caption {
-                    let px = if matches!(key.kind, KeyKind::Char(..)) { 20.0 } else { 14.0 };
-                    let font = if view.page == Page::Emoji && matches!(key.kind, KeyKind::Char(..)) { emoji } else { text };
-                    let tw = font.map_or(0.0, |t| t.width(&caption, px));
-                    label(font, &mut canvas, &caption, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(font, r.y, r.h, px), px, if lit { on_accent() } else { FG }, r.w as f32);
-                }
-                view.hits.push((r, (ri, ki)));
-                x += kw;
-            }
-        }
+        let m = OskPaint { rows: &view.rows, page: view.page, shift: view.shift, bar: &view.bar, accents: view.accents, down: view.down };
+        let (hits, bar_hits) = paint_keyboard(&mut canvas, (self.text.as_ref(), emoji), &icons, &m, (w as i32, h as i32));
+        view.hits = hits;
+        view.bar_hits = bar_hits;
         let surface = view.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
@@ -550,6 +499,18 @@ impl Ui {
         let Some(view) = self.osk.view.as_mut().filter(|v| v.layer.wl_surface() == &event.surface) else { return false };
         let (x, y) = event.position;
         let at = view.hits.iter().find(|(r, _)| r.contains(x, y)).map(|h| h.1);
+        // The key held down looks pressed (a character shows its preview)
+        // until it is let go or the pointer leaves.
+        let down = match event.kind {
+            PointerEventKind::Press { button: BTN_LEFT, .. } => Some(at),
+            PointerEventKind::Release { button: BTN_LEFT, .. } | PointerEventKind::Leave { .. } => Some(None),
+            _ => None,
+        };
+        if let Some(down) = down.filter(|d| *d != view.down) {
+            view.down = down;
+            self.draw_osk();
+        }
+        let Some(view) = self.osk.view.as_mut() else { return true };
         match event.kind {
             PointerEventKind::Press { button: BTN_LEFT, .. } => {}
             PointerEventKind::Release { button: BTN_LEFT, .. } => {
@@ -632,9 +593,199 @@ impl Ui {
     }
 }
 
+/// Character keys: lighter than the keyboard (3:1 against it, so a key's
+/// edge is seen), with text at 4.5:1.
+const KEY: u32 = 0xFF6A6A74;
+/// Modifier and special keys: darker than character keys, edged so that
+/// their boundary still reaches 3:1.
+const MODIFIER: u32 = 0xFF3A3A44;
+const MODIFIER_EDGE: u32 = 0xFF8A8A94;
+const KEY_RADIUS: f64 = 7.0;
+
+/// What the keyboard shows (see `Ui::paint_osk`).
+pub(super) struct OskPaint<'a> {
+    pub rows: &'a [Vec<Key>],
+    pub page: Page,
+    pub shift: bool,
+    pub bar: &'a [String],
+    pub accents: bool,
+    /// The key held down (pressed look; a character key also shows its
+    /// preview above it).
+    pub down: Option<(usize, usize)>,
+}
+
+/// Draw the keyboard on a `w`×`h` canvas: the suggestion bar and the keys.
+/// Returns where the keys and the bar's words are.
+#[allow(clippy::type_complexity)]
+pub(super) fn paint_keyboard(canvas: &mut Canvas, (text, emoji): (Option<&Text>, Option<&Text>), icons: &[(Special, Option<Image>)], m: &OskPaint, (w, h): (i32, i32)) -> (Vec<(Rect, (usize, usize))>, Vec<(Rect, usize)>) {
+    let hc = helix_draw::high_contrast();
+    canvas.fill(PANEL_BG);
+    canvas.rect(0, 0, w, 1, BANNER_BORDER);
+    let _ = h;
+    let widest = m.rows.iter().map(|r| r.iter().map(|k| k.width).sum::<f32>()).fold(0.0, f32::max);
+    let unit = ((w as f32 - 2.0 * PAD as f32) / widest).min(MAX_UNIT);
+    // The suggestion bar: up to three words (or a letter's accents),
+    // side by side over the keys' width.
+    let mut bar_hits = Vec::new();
+    if !m.bar.is_empty() {
+        let keys_w = (widest * unit).min(w as f32 - 2.0 * PAD as f32);
+        let left = (w as f32 - keys_w) / 2.0;
+        let cell = keys_w / m.bar.len().max(SUGGESTIONS) as f32;
+        for (i, word) in m.bar.iter().enumerate() {
+            let r = Rect { x: (left + i as f32 * cell) as i32 + GAP / 2, y: PAD / 2 + GAP / 2, w: cell as i32 - GAP, h: BAR_H - GAP };
+            if i > 0 && !m.accents {
+                canvas.rect(r.x - GAP / 2, r.y + 8, 1, r.h - 16, BANNER_BORDER);
+            }
+            if m.accents {
+                canvas.round_rect(f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), KEY_RADIUS, KEY);
+            }
+            let px = 16.0;
+            let tw = text.map_or(0.0, |t| t.width(word, px)).min(r.w as f32);
+            label(text, canvas, word, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, px), px, FG, r.w as f32);
+            bar_hits.push((r, i));
+        }
+    }
+    let mut hits = Vec::new();
+    let mut preview = None;
+    for (ri, row) in m.rows.iter().enumerate() {
+        let row_w: f32 = row.iter().map(|k| k.width).sum::<f32>() * unit;
+        let mut x = (w as f32 - row_w) / 2.0;
+        let y = BAR_H + PAD + ri as i32 * ROW_H;
+        for (ki, key) in row.iter().enumerate() {
+            let kw = key.width * unit;
+            let r = Rect { x: x as i32 + GAP / 2, y: y + GAP / 2, w: kw as i32 - GAP, h: ROW_H - GAP };
+            let (rx, ry, rw, rh) = (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
+            let shift_on = matches!(key.kind, KeyKind::Special(Special::Shift)) && m.shift;
+            let held = m.down == Some((ri, ki));
+            let modifier = matches!(key.kind, KeyKind::Special(s) if s != Special::Space);
+            // Held or a latched Shift: the accent; else character keys
+            // light, modifiers dark with a light edge.
+            let lit = held || shift_on;
+            if hc {
+                canvas.round_rect(rx, ry, rw, rh, KEY_RADIUS, if lit { helix_draw::accent::Accent::Blue.palette().fill } else { 0xFF000000 });
+                canvas.round_outline(rx + 1.0, ry + 1.0, rw - 2.0, rh - 2.0, KEY_RADIUS - 1.0, if modifier { 2.0 } else { 1.0 }, 0xFFFFFFFF);
+            } else if lit {
+                canvas.round_rect(rx, ry, rw, rh, KEY_RADIUS, if held { theme::accent_fill() } else { theme::control_fill(theme::Look { on: true, ..Default::default() }) });
+            } else if modifier {
+                canvas.round_rect(rx, ry, rw, rh, KEY_RADIUS, MODIFIER_EDGE);
+                canvas.round_rect(rx + 1.0, ry + 1.0, rw - 2.0, rh - 2.0, KEY_RADIUS - 1.0, MODIFIER);
+            } else {
+                canvas.round_rect(rx, ry, rw, rh, KEY_RADIUS, KEY);
+            }
+            let ink = if lit && !hc { on_accent() } else { FG };
+            let (cx, cy) = (rx + rw / 2.0, ry + rh / 2.0);
+            let caption = match &key.kind {
+                KeyKind::Char(normal, shifted) => Some(if m.shift { shifted.clone() } else { normal.clone() }),
+                KeyKind::Special(Special::Shift) => {
+                    shift_glyph(canvas, cx, cy, m.shift, ink);
+                    None
+                }
+                KeyKind::Special(Special::Enter) => {
+                    enter_glyph(canvas, cx, cy, ink);
+                    None
+                }
+                KeyKind::Special(Special::Tab) => {
+                    tab_glyph(canvas, cx, cy, ink);
+                    None
+                }
+                KeyKind::Special(Special::Page(Page::Letters)) => Some("ABC".into()),
+                KeyKind::Special(Special::Page(Page::Symbols)) => Some("?123".into()),
+                KeyKind::Special(Special::Page(Page::AltGr)) => Some("AltGr".into()),
+                KeyKind::Special(Special::Space) => None,
+                KeyKind::Special(s) => {
+                    if let Some((_, Some(icon))) = icons.iter().find(|(x, _)| x == s) {
+                        canvas.image(cx - 9.0, cy - 9.0, 18.0, 18.0, icon);
+                    }
+                    None
+                }
+            };
+            if let Some(caption) = &caption {
+                let px = if matches!(key.kind, KeyKind::Char(..)) { 20.0 } else { 14.0 };
+                let font = if m.page == Page::Emoji && matches!(key.kind, KeyKind::Char(..)) { emoji } else { text };
+                let tw = font.map_or(0.0, |t| t.width(caption, px));
+                label(font, canvas, caption, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(font, r.y, r.h, px), px, ink, r.w as f32);
+                // A long press offers accents: a dot in the corner says so.
+                if matches!(key.kind, KeyKind::Char(..)) && !crate::osk_words::accents_for(caption).is_empty() {
+                    canvas.circle(rx + rw - 7.0, ry + 7.0, 2.0, if lit { ink } else { 0xC0FFFFFF });
+                }
+                if held && matches!(key.kind, KeyKind::Char(..)) {
+                    preview = Some((r, caption.clone(), font));
+                }
+            }
+            hits.push((r, (ri, ki)));
+            x += kw;
+        }
+    }
+    // The held character, twice as large, in a bubble above its key.
+    if let Some((r, caption, font)) = preview {
+        let (bw, bh) = ((r.w + 16).max(56), 64);
+        let bx = (r.x + r.w / 2 - bw / 2).clamp(2, (w - bw - 2).max(2));
+        let by = (r.y - bh - 4).max(2);
+        let (fx, fy, fw, fh) = (f64::from(bx), f64::from(by), f64::from(bw), f64::from(bh));
+        if hc {
+            canvas.round_rect(fx, fy, fw, fh, 10.0, 0xFF000000);
+            canvas.round_outline(fx + 1.0, fy + 1.0, fw - 2.0, fh - 2.0, 9.0, 2.0, 0xFFFFFFFF);
+        } else {
+            canvas.round_rect(fx - 1.0, fy - 1.0, fw + 2.0, fh + 2.0, 11.0, MODIFIER_EDGE);
+            canvas.round_rect(fx, fy, fw, fh, 10.0, KEY);
+        }
+        let px = 40.0;
+        let tw = font.map_or(0.0, |t| t.width(&caption, px));
+        label(font, canvas, &caption, bx as f32 + (bw as f32 - tw) / 2.0, baseline(font, by, bh, px), px, FG, bw as f32);
+    }
+    (hits, bar_hits)
+}
+
+/// Shift: an arrow up, hollow, filled while latched.
+fn shift_glyph(canvas: &mut Canvas, cx: f64, cy: f64, latched: bool, color: u32) {
+    let pts = [(cx, cy - 8.0), (cx + 8.0, cy), (cx + 4.0, cy), (cx + 4.0, cy + 7.0), (cx - 4.0, cy + 7.0), (cx - 4.0, cy), (cx - 8.0, cy)];
+    if latched {
+        for dy in 0..8 {
+            let y = cy - 8.0 + f64::from(dy);
+            canvas.line((cx - f64::from(dy), y), (cx + f64::from(dy), y), 1.6, color);
+        }
+        canvas.round_rect(cx - 4.0, cy, 8.0, 7.0, 0.0, color);
+        return;
+    }
+    for i in 0..pts.len() {
+        canvas.line(pts[i], pts[(i + 1) % pts.len()], 1.6, color);
+    }
+}
+
+/// Enter: a return arrow (down, then left).
+fn enter_glyph(canvas: &mut Canvas, cx: f64, cy: f64, color: u32) {
+    canvas.line((cx + 7.0, cy - 6.0), (cx + 7.0, cy + 3.0), 1.8, color);
+    canvas.line((cx + 7.0, cy + 3.0), (cx - 7.0, cy + 3.0), 1.8, color);
+    canvas.line((cx - 7.0, cy + 3.0), (cx - 3.0, cy - 1.0), 1.8, color);
+    canvas.line((cx - 7.0, cy + 3.0), (cx - 3.0, cy + 7.0), 1.8, color);
+}
+
+/// Tab: an arrow right to a bar.
+fn tab_glyph(canvas: &mut Canvas, cx: f64, cy: f64, color: u32) {
+    canvas.line((cx - 8.0, cy), (cx + 5.0, cy), 1.8, color);
+    canvas.line((cx + 5.0, cy), (cx + 1.0, cy - 4.0), 1.8, color);
+    canvas.line((cx + 5.0, cy), (cx + 1.0, cy + 4.0), 1.8, color);
+    canvas.line((cx + 8.0, cy - 6.0), (cx + 8.0, cy + 6.0), 1.8, color);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Keys stand out from the keyboard (3:1 at their edge), modifiers are
+    /// darker than character keys (not lighter), and text on both is
+    /// 4.5:1.
+    #[test]
+    fn key_contrast() {
+        use helix_draw::backdrop::contrast;
+        let board = PANEL_BG | 0xFF00_0000;
+        assert!(contrast(KEY, board) >= 3.0, "a character key's edge: {:.2}", contrast(KEY, board));
+        assert!(contrast(MODIFIER_EDGE, board) >= 3.0, "a modifier's edge: {:.2}", contrast(MODIFIER_EDGE, board));
+        assert!(contrast(MODIFIER, 0xFF000000) < contrast(KEY, 0xFF000000), "modifiers are darker");
+        for key in [KEY, MODIFIER] {
+            assert!(contrast(FG, key) >= 4.5, "text on {key:08x}: {:.2}", contrast(FG, key));
+        }
+    }
 
     fn chars(row: &[Key]) -> String {
         row.iter().filter_map(|k| if let KeyKind::Char(n, _) = &k.kind { Some(n.as_str()) } else { None }).collect()
