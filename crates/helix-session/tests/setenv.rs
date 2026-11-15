@@ -29,27 +29,41 @@ fn probe_bus(dir: &Path) -> Option<TestBus> {
     TestBus::start_with_services(&services)
 }
 
+/// How long a probe may take to be started and write its environment: a
+/// busy machine (a build alongside) can delay a D-Bus activation by
+/// seconds.
+const PROBE_DEADLINE: Duration = Duration::from_secs(60);
+
 /// Have the bus start probe `name` and return the environment it saw.
 async fn activated_env(conn: &zbus::Connection, dir: &Path, name: &'static str) -> String {
-    // The probe exits without taking its name, so the call only fails
-    // after the bus's start timeout; don't wait for it.
-    let caller = conn.clone();
-    tokio::spawn(async move {
-        let _ = caller.call_method(Some(name), "/", Some(name), "Ping", &()).await;
-    });
     let out: PathBuf = dir.join(format!("{name}.env"));
-    for _ in 0..100 {
+    let deadline = tokio::time::Instant::now() + PROBE_DEADLINE;
+    while tokio::time::Instant::now() < deadline {
+        // The probe exits without taking its name, so the call only fails
+        // after the bus's start timeout; don't wait for it. Ask again if
+        // the bus gave up on an activation before the probe wrote.
+        let caller = conn.clone();
+        let call = tokio::spawn(async move {
+            let _ = caller.call_method(Some(name), "/", Some(name), "Ping", &()).await;
+        });
+        while !call.is_finished() && tokio::time::Instant::now() < deadline {
+            if let Ok(env) = std::fs::read_to_string(&out) {
+                call.abort();
+                return env;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
         if let Ok(env) = std::fs::read_to_string(&out) {
             return env;
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    panic!("probe {name} never ran");
+    panic!("probe {name} did not run within {PROBE_DEADLINE:?}");
 }
 
 #[tokio::test]
 async fn setenv_reaches_activated_services() {
     let dir = std::env::temp_dir().join(format!("helix-setenv-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     let Some(bus) = probe_bus(&dir) else { return };
     let service = SessionService::start(bus.builder()).await.unwrap();
     let conn = bus.connect().await;
