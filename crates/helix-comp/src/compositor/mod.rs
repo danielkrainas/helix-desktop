@@ -43,6 +43,7 @@ mod shortcuts;
 mod supervise;
 pub mod window_list;
 pub mod headless;
+mod headless_input;
 pub mod udev;
 pub mod winit;
 mod wm;

@@ -2,10 +2,12 @@
 //!
 //! - [`TestBus`]: a private `dbus-daemon` per test.
 //! - [`logind`]: a fake systemd-logind.
+//! - [`headless`]: a whole headless Helix session (compositor and shell).
 //! - [`conformance`]: compare an exported D-Bus interface against the
 //!   contract XML in helix-desktop-spec.
 
 pub mod conformance;
+pub mod headless;
 pub mod logind;
 
 use std::path::PathBuf;

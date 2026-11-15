@@ -381,6 +381,9 @@ struct Ui {
     /// manager, the device, and the item a drag is over.
     data_devices: Option<smithay_client_toolkit::data_device_manager::DataDeviceManagerState>,
     data_device: Option<drops::Device>,
+    /// The primary selection (middle-click paste into text fields).
+    primary_selections: Option<smithay_client_toolkit::primary_selection::PrimarySelectionManagerState>,
+    primary_device: Option<smithay_client_toolkit::primary_selection::device::PrimarySelectionDevice>,
     /// Copy and paste in the shell's text fields.
     clipboard: clipboard::Clipboard,
     drop_at: Option<usize>,
@@ -3690,6 +3693,7 @@ pub fn run(
     let layer_shell = LayerShell::bind(&globals, &qh)?;
     let shm = Shm::bind(&globals, &qh)?;
     let data_devices = smithay_client_toolkit::data_device_manager::DataDeviceManagerState::bind(&globals, &qh).ok();
+    let primary_selections = smithay_client_toolkit::primary_selection::PrimarySelectionManagerState::bind(&globals, &qh).ok();
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
     let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=10, ()).ok();
@@ -3828,6 +3832,8 @@ pub fn run(
         panel_drag: None,
         data_devices,
         data_device: None,
+        primary_selections,
+        primary_device: None,
         clipboard: Default::default(),
         drop_at: None,
         ext_list: Vec::new(),
@@ -4138,6 +4144,9 @@ impl SeatHandler for Ui {
         if matches!(capability, Capability::Keyboard | Capability::Pointer) && self.data_device.is_none() {
             self.data_device = self.data_devices.as_ref().map(|m| m.get_data_device(qh, &seat));
         }
+        if matches!(capability, Capability::Keyboard | Capability::Pointer) && self.primary_device.is_none() {
+            self.primary_device = self.primary_selections.as_ref().map(|m| m.get_selection_device(qh, &seat));
+        }
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             match self.seat_state.get_keyboard(qh, &seat, None) {
                 Ok(k) => self.keyboard = Some(k),
@@ -4324,6 +4333,9 @@ impl Ui {
             let event = &mirror::adjust(event);
             if self.lock.session.is_some() {
                 self.lock_pointer(event);
+                continue;
+            }
+            if self.field_middle_click(event) {
                 continue;
             }
             if self.banner_pointer(event) || self.overlay_pointer(event) || self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.quick_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) || self.panel_pointer(event) {

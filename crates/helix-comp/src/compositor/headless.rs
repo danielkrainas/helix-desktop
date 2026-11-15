@@ -5,7 +5,9 @@
 //! `HELIX_HEADLESS_SIZE` (`WIDTHxHEIGHT`, default 1280x720) sets the
 //! monitor's size. With `HELIX_HEADLESS_SNAPSHOT=file.png` the compositor
 //! writes what the monitor would show (shared-memory surfaces only) to that
-//! file every second, and logs every window's placement.
+//! file every second, and logs every window's placement. With
+//! `HELIX_HEADLESS_INPUT=socket` it takes test input on that socket
+//! (`headless_input`).
 
 use std::time::Duration;
 
@@ -81,6 +83,11 @@ pub fn init(event_loop: &mut EventLoop<'static, Helix>, state: &mut Helix) -> Re
         state.headless_frame(&frames_output);
         TimeoutAction::ToDuration(frame)
     })?;
+
+    // Test input (keys, pointer), for this backend only.
+    if let Some(path) = std::env::var_os("HELIX_HEADLESS_INPUT") {
+        super::headless_input::listen(event_loop, std::path::Path::new(&path))?;
+    }
 
     if let Some(path) = std::env::var_os("HELIX_HEADLESS_SNAPSHOT") {
         let path = std::path::PathBuf::from(path);

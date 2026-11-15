@@ -24,6 +24,13 @@ use super::*;
 const TEXT_TYPES: [&str; 4] = ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "STRING"];
 /// The most read from a paste.
 const PASTE_MAX: u64 = 1 << 20;
+/// The middle pointer button: pastes the primary selection.
+const BTN_MIDDLE: u32 = 0x112;
+
+/// The type to read an offer of `types` as text, if any.
+fn text_type(types: &[String]) -> Option<String> {
+    TEXT_TYPES.iter().find(|t| types.iter().any(|m| m == *t)).map(|t| t.to_string())
+}
 
 /// The custom action ids AccessKit's AT-SPI adapter sends for
 /// `EditableText.CopyText`, `CutText` and `PasteText` (Helix's vendored
@@ -232,20 +239,43 @@ impl Ui {
             return;
         }
         let Some(offer) = self.data_device.as_ref().and_then(|d| d.data().selection_offer()) else { return };
-        let Some(mime) = offer.with_mime_types(|types| TEXT_TYPES.iter().find(|t| types.iter().any(|m| m == *t)).map(|t| t.to_string())) else {
+        let Some(mime) = offer.with_mime_types(text_type) else {
             tracing::debug!("nothing to paste as text");
             return;
         };
-        let pipe = match offer.receive(mime) {
-            Ok(pipe) => pipe,
-            Err(err) => {
-                tracing::warn!(%err, "cannot read the clipboard");
-                return;
-            }
-        };
+        match offer.receive(mime) {
+            Ok(pipe) => self.paste_from(pipe, surface, id, at),
+            Err(err) => tracing::warn!(%err, "cannot read the clipboard"),
+        }
+    }
+
+    /// A middle click on the text field the keyboard types into pastes
+    /// the primary selection at its end (fields have no selection to
+    /// place it in). True when it was such a click.
+    pub(super) fn field_middle_click(&mut self, event: &PointerEvent) -> bool {
+        let PointerEventKind::Press { button: BTN_MIDDLE, serial, .. } = event.kind else { return false };
+        let Some((surface, id)) = self.focused_text_field().filter(|(s, _)| *s == event.surface) else { return false };
+        self.clipboard.serial = serial;
+        let Some((text, password)) = self.field_text(&surface, &id) else { return true };
+        let at = text.chars().count();
+        let mut text = text;
+        if password {
+            wipe(&mut text);
+        }
+        let Some(offer) = self.primary_device.as_ref().and_then(|d| d.data().selection_offer()) else { return true };
+        let Some(mime) = offer.with_mime_types(text_type) else { return true };
+        match offer.receive(mime) {
+            Ok(pipe) => self.paste_from(pipe, surface, id, at),
+            Err(err) => tracing::warn!(%err, "cannot read the primary selection"),
+        }
+        true
+    }
+
+    /// Read a paste from `pipe` off the UI thread (the source may be slow
+    /// or never close); put it in field `id` of `surface` at `at` back on
+    /// it, if the field is still there.
+    fn paste_from(&mut self, pipe: smithay_client_toolkit::data_device_manager::ReadPipe, surface: wl_surface::WlSurface, id: String, at: usize) {
         let Some(handle) = self.loop_handle.clone() else { return };
-        // Read it off the UI thread (the source may be slow or never
-        // close); put it in the field back on it, if the field is there.
         let (tx, rx) = channel::channel::<String>();
         let _ = handle.insert_source(rx, move |event, _, ui: &mut Ui| {
             if let channel::Event::Msg(text) = event {
@@ -294,6 +324,16 @@ impl Ui {
     }
 }
 
+/// The shell only reads the primary selection; it offers none.
+impl smithay_client_toolkit::primary_selection::device::PrimarySelectionDeviceHandler for Ui {
+    fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &smithay_client_toolkit::reexports::protocols::wp::primary_selection::zv1::client::zwp_primary_selection_device_v1::ZwpPrimarySelectionDeviceV1) {}
+}
+
+impl smithay_client_toolkit::primary_selection::selection::PrimarySelectionSourceHandler for Ui {
+    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &smithay_client_toolkit::reexports::protocols::wp::primary_selection::zv1::client::zwp_primary_selection_source_v1::ZwpPrimarySelectionSourceV1, _: String, _: WritePipe) {}
+    fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &smithay_client_toolkit::reexports::protocols::wp::primary_selection::zv1::client::zwp_primary_selection_source_v1::ZwpPrimarySelectionSourceV1) {}
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,3 +375,4 @@ mod tests {
         assert_eq!(one_line("a\r\nb\tc"), "a bc");
     }
 }
+

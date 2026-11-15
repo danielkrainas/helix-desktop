@@ -11,3 +11,4 @@ publish = false
 [dependencies]
 zbus.workspace = true
 zbus_xml.workspace = true
+png.workspace = true
