@@ -440,6 +440,9 @@ impl Ui {
                     let Some(e) = summary(*id) else { continue };
                     let body = if e.markup { crate::markup::plain(&e.body) } else { e.body.clone() };
                     let name = if e.app_name.is_empty() { e.summary.clone() } else { format!("{}: {}", e.app_name, e.summary) };
+                    // When it arrived first ("5 minutes ago. …").
+                    let when = gio::glib::DateTime::now_local().ok().map(|now| crate::notifications::arrival(e.arrived, &now, true)).unwrap_or_default();
+                    let body = if when.is_empty() { body } else if body.is_empty() { when } else { format!("{when}. {body}") };
                     list.push(Node::new(Role::ListItem, name).id(format!("note:{id}")).describe(body).at(r).click().focusable().focused(focused).children(pending.drain(..)));
                 }
                 ListHit::Dismiss(_) => pending.push(Node::button("Close", r).id("close").focusable().focused(focused)),

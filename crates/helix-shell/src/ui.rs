@@ -3441,6 +3441,10 @@ impl Ui {
         if osd_expired || minute_changed {
             self.draw_panel();
         }
+        // The list's arrival times ("5 min") move on with the clock.
+        if minute_changed && self.notify.view.is_some() {
+            self.draw_notification_list();
+        }
         if !self.lock.surfaces.is_empty() && self.shown_lock_clock.as_deref() != Some(&lock_clock_text()) {
             self.draw_lock();
         }

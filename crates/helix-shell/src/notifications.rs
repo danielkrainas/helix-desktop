@@ -44,6 +44,8 @@ pub struct Banner {
     pub markup: bool,
     /// The app's banners show their whole text (`force-expanded`).
     pub expanded: bool,
+    /// When it arrived, Unix seconds (0: unknown).
+    pub arrived: i64,
 }
 
 impl From<&Notification> for Banner {
@@ -58,8 +60,46 @@ impl From<&Notification> for Banner {
             icon: n.icon.clone(),
             markup: n.markup,
             expanded: crate::app_notify::force_expanded(&n.app_id),
+            arrived: 0,
         }
     }
+}
+
+/// How long ago a notification arrived (`arrived`, Unix seconds) at
+/// `now`: "now", "5 min", "2 h" (today), "Yesterday", a weekday within
+/// the week, then a date ("14 Nov"; with the year when not this year).
+/// `long`: the words for a screen reader ("just now", "5 minutes ago",
+/// "2 hours ago", …). Empty for an unknown time.
+pub fn arrival(arrived: i64, now: &gio::glib::DateTime, long: bool) -> String {
+    let Some(then) = gio::glib::DateTime::from_unix_local(arrived).ok().filter(|_| arrived > 0) else { return String::new() };
+    let secs = (now.to_unix() - arrived).max(0);
+    let plural = |n: i64, one: &str, many: &str| if n == 1 { format!("1 {one} ago") } else { format!("{n} {many} ago") };
+    let day = |d: &gio::glib::DateTime| (d.year(), d.day_of_year());
+    let yesterday = now.add_days(-1).ok();
+    if secs < 60 {
+        return if long { "just now".into() } else { "now".into() };
+    }
+    if secs < 3600 {
+        let m = secs / 60;
+        return if long { plural(m, "minute", "minutes") } else { format!("{m} min") };
+    }
+    if day(&then) == day(now) {
+        let h = secs / 3600;
+        return if long { plural(h, "hour", "hours") } else { format!("{h} h") };
+    }
+    if yesterday.as_ref().is_some_and(|y| day(y) == day(&then)) {
+        return "Yesterday".into();
+    }
+    let format = if secs < 6 * 86_400 {
+        "%A"
+    } else if then.year() == now.year() {
+        if long { "%-d %B" } else { "%-d %b" }
+    } else if long {
+        "%-d %B %Y"
+    } else {
+        "%-d %b %Y"
+    };
+    then.format(format).map(|s| s.to_string()).unwrap_or_default()
 }
 
 /// What the notification list shows.
@@ -135,9 +175,8 @@ impl Center {
                 store.requeue_current();
                 None
             } else {
-                store
-                    .current(Instant::now(), |n| banners || n.urgency == Urgency::Critical)
-                    .map(Banner::from)
+                let shown = store.current(Instant::now(), |n| banners || n.urgency == Urgency::Critical).map(Banner::from);
+                shown.map(|b| Banner { arrived: store.arrived(b.id), ..b })
             }
         };
         {
@@ -150,7 +189,7 @@ impl Center {
         }
         let list = {
             let store = self.store();
-            List { entries: store.list().into_iter().map(Banner::from).collect(), unseen: store.unseen }
+            List { entries: store.list().into_iter().map(|n| Banner { arrived: store.arrived(n.id), ..Banner::from(n) }).collect(), unseen: store.unseen }
         };
         let mut listed = self.listed.lock().unwrap_or_else(|e| e.into_inner());
         if listed.as_ref() != Some(&list) {
@@ -954,6 +993,22 @@ mod tests {
         let p = action_parameter(Some(o(Value::from(3u32))), Some("hi"));
         assert_eq!((u32::try_from(p[0].clone()).unwrap(), String::try_from(p[1].clone()).unwrap().as_str()), (3, "hi"));
         assert!(action_parameter(None, None).is_empty());
+    }
+
+    #[test]
+    fn arrival_words() {
+        let now = gio::glib::DateTime::from_local(2026, 11, 15, 14, 30, 0.0).unwrap();
+        let at = |y, mo, d, h, mi| gio::glib::DateTime::from_local(y, mo, d, h, mi, 0.0).unwrap().to_unix();
+        let both = |t| (arrival(t, &now, false), arrival(t, &now, true));
+        assert_eq!(both(now.to_unix() - 20), ("now".into(), "just now".into()));
+        assert_eq!(both(at(2026, 11, 15, 14, 25)), ("5 min".into(), "5 minutes ago".into()));
+        assert_eq!(both(at(2026, 11, 15, 14, 29)), ("1 min".into(), "1 minute ago".into()));
+        assert_eq!(both(at(2026, 11, 15, 12, 10)), ("2 h".into(), "2 hours ago".into()));
+        assert_eq!(both(at(2026, 11, 14, 23, 50)), ("Yesterday".into(), "Yesterday".into()));
+        assert_eq!(arrival(at(2026, 11, 12, 9, 0), &now, false), "Thursday");
+        assert_eq!(both(at(2026, 10, 2, 9, 0)), ("2 Oct".into(), "2 October".into()));
+        assert_eq!(arrival(at(2025, 10, 2, 9, 0), &now, false), "2 Oct 2025");
+        assert_eq!(arrival(0, &now, false), "", "unknown");
     }
 
     #[test]

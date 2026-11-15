@@ -178,7 +178,14 @@ fn paint_notification(
         None => canvas.circle(f64::from(x + ICON / 2), f64::from(y + 4 + ICON / 2), f64::from(ICON) / 2.0 - 2.0, BANNER_BORDER),
     }
     let grow = helix_draw::theme::grow;
-    label(text, canvas, &banner.app_name, text_x as f32, (y + grow(12)) as f32, 12.0, DIM_FG, text_w - 24.0);
+    // The app, and when it arrived ("Chat · 5 min").
+    let when = gio::glib::DateTime::now_local().ok().map(|now| crate::notifications::arrival(banner.arrived, &now, false)).unwrap_or_default();
+    let head = match (banner.app_name.is_empty(), when.is_empty()) {
+        (_, true) => banner.app_name.clone(),
+        (true, false) => when,
+        (false, false) => format!("{} · {when}", banner.app_name),
+    };
+    label(text, canvas, &head, text_x as f32, (y + grow(12)) as f32, 12.0, DIM_FG, text_w - 24.0);
     let mut bottom = y + grow(16);
     match bold {
         Some(bold) => bold.draw(canvas, &banner.summary, text_x as f32, (bottom + grow(20)) as f32, Style { px: 16.0, color: FG, max_width: text_w }),
@@ -984,8 +991,13 @@ pub(super) mod tests {
     use super::*;
     use crate::shell_keys::Playback;
 
+    /// Unix seconds `secs` ago.
+    fn arrived_ago(secs: i64) -> i64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64) - secs
+    }
+
     pub(in crate::ui) fn note(id: u32, app: &str, app_id: &str) -> Banner {
-        Banner { id, app_name: app.into(), app_id: app_id.into(), summary: String::new(), body: String::new(), buttons: Vec::new(), icon: None, markup: false, expanded: false }
+        Banner { id, app_name: app.into(), app_id: app_id.into(), summary: String::new(), body: String::new(), buttons: Vec::new(), icon: None, markup: false, expanded: false, arrived: arrived_ago(i64::from(id) * 420) }
     }
 
     /// A list to look at: a group of chat messages, mail, an update.

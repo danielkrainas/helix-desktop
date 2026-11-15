@@ -139,6 +139,8 @@ pub struct Store {
     next_id: u32,
     /// List order: when each notification was posted or last replaced.
     order: BTreeMap<u32, u64>,
+    /// When each arrived (or was last replaced), Unix seconds.
+    arrived: BTreeMap<u32, i64>,
     posted: u64,
     /// Posted since the list was last looked at.
     pub unseen: bool,
@@ -150,7 +152,13 @@ impl Store {
     /// Add, or replace in place if `notification.id` is a live id. Returns
     /// the id (fresh ids are never 0). With `banner` false (do not disturb)
     /// it only goes to the list.
-    pub fn add(&mut self, mut notification: Notification, banner: bool) -> u32 {
+    pub fn add(&mut self, notification: Notification, banner: bool) -> u32 {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+        self.add_at(notification, banner, now)
+    }
+
+    /// [`Store::add`], arriving at `unix` (seconds).
+    pub fn add_at(&mut self, mut notification: Notification, banner: bool, unix: i64) -> u32 {
         if notification.id == 0 || !self.items.contains_key(&notification.id) {
             self.next_id = self.next_id.wrapping_add(1).max(1);
             while self.items.contains_key(&self.next_id) {
@@ -168,6 +176,7 @@ impl Store {
         self.items.insert(id, notification);
         self.posted += 1;
         self.order.insert(id, self.posted);
+        self.arrived.insert(id, unix);
         self.unseen = true;
         id
     }
@@ -193,6 +202,11 @@ impl Store {
         }
     }
 
+    /// When notification `id` arrived (or was last replaced), Unix seconds.
+    pub fn arrived(&self, id: u32) -> i64 {
+        self.arrived.get(&id).copied().unwrap_or(0)
+    }
+
     pub fn get(&self, id: u32) -> Option<&Notification> {
         self.items.get(&id)
     }
@@ -209,6 +223,7 @@ impl Store {
     pub fn close(&mut self, id: u32) -> Option<Notification> {
         let n = self.items.remove(&id)?;
         self.order.remove(&id);
+        self.arrived.remove(&id);
         self.queue.retain(|q| *q != id);
         if self.current.is_some_and(|c| c.id == id) {
             self.current = None;
@@ -503,6 +518,19 @@ mod tests {
             s.add(n(&format!("{i}"), Urgency::Normal, None), false);
         }
         assert_eq!(s.overflow(), [a, quiet], "the oldest two, newest first");
+    }
+
+    #[test]
+    fn arrival_times() {
+        let mut s = Store::default();
+        let a = s.add_at(n("a", Urgency::Normal, None), true, 1000);
+        assert_eq!(s.arrived(a), 1000);
+        let mut again = n("a2", Urgency::Normal, None);
+        again.id = a;
+        s.add_at(again, true, 1060);
+        assert_eq!(s.arrived(a), 1060, "a replacement is new");
+        s.close(a);
+        assert_eq!(s.arrived(a), 0);
     }
 
     #[test]
