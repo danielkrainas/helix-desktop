@@ -117,13 +117,25 @@ Contracts are defined in the companion [helix-desktop-spec](https://github.com/d
    `helix-greeter` (it needs `greetd`), then
 
    ```sh
-   sudo systemctl disable gdm3      # or lightdm, sddm, ...
-   sudo systemctl enable greetd
+   sudo systemctl disable gdm.service      # or lightdm, sddm, ...
+   sudo systemctl enable --force greetd.service
    sudo reboot
    ```
 
-   Switch back the same way. If the greeter doesn't come up, Ctrl+Alt+F3
-   gives a text login; its log is in `journalctl -u greetd`.
+   Use the real unit name: on Debian and Ubuntu `gdm3` is only an alias of
+   `gdm.service`, and `systemctl disable gdm3` fails. `--force` replaces
+   the `display-manager.service` link that still points at the old login
+   manager. To switch back:
+
+   ```sh
+   sudo systemctl disable greetd.service
+   sudo systemctl enable --force gdm.service
+   sudo reboot
+   ```
+
+   If the greeter doesn't come up, press Ctrl+Alt+F3 for a text login and
+   switch back as above. The greeter's log is in `journalctl -u greetd`
+   (`journalctl -u greetd -b -1` for the previous boot).
 
 Helix reads your existing GNOME settings (wallpaper, dark style, fonts,
 keyboard layouts, shortcuts, accessibility), so moving between Helix and
