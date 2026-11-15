@@ -435,7 +435,7 @@ pub(super) fn paint_notes(canvas: &mut Canvas, (text, bold): (Option<&Text>, Opt
         }
     }
     if more > 0 {
-        let line = format!("+{more} more notification{}", if more == 1 { "" } else { "s" });
+        let line = helix_i18n::trnf!("+{n} more notification", "+{n} more notifications", more);
         let lx = if counts.is_empty() { ix } else { tx };
         label(text, canvas, &line, lx as f32, (row + 16) as f32, 13.0, fade(CARD_DIM, alpha), (w - 2 * CARD_PAD) as f32);
     }

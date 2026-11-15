@@ -263,6 +263,7 @@ msgstr ""
 #: crates/helix-shell/src/run_dialog.rs:183 crates/helix-shell/src/ui.rs:1038
 #: crates/helix-shell/src/ui.rs:1041 crates/helix-shell/src/ui.rs:2921
 #: crates/helix-shell/src/ui.rs:2922 crates/helix-shell/src/ui/atspi.rs:568
+#: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:580
 msgid "Cancel"
 msgstr ""
 
@@ -296,7 +297,8 @@ msgstr ""
 msgid "Unlock {title}"
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:323
+#: crates/helix-shell/src/media.rs:323 crates/helix-shell/src/ui/lock.rs:549
+#: crates/helix-shell/src/ui/lock.rs:556
 msgid "Unlock"
 msgstr ""
 
@@ -624,11 +626,13 @@ msgstr ""
 msgid "Some applications are busy or have unsaved work:"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1026
+#: crates/helix-shell/src/ui.rs:1026 crates/helix-shell/src/ui/lock.rs:187
+#: crates/helix-shell/src/ui/lock.rs:188 crates/helix-shell/src/ui/lock.rs:582
 msgid "Power Off"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1027
+#: crates/helix-shell/src/ui.rs:1027 crates/helix-shell/src/ui/lock.rs:185
+#: crates/helix-shell/src/ui/lock.rs:186 crates/helix-shell/src/ui/lock.rs:581
 msgid "Restart"
 msgstr ""
 
@@ -822,7 +826,8 @@ msgstr ""
 msgid "Lock Screen"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:4467
+#: crates/helix-shell/src/ui.rs:4467 crates/helix-shell/src/ui/lock.rs:514
+#: crates/helix-shell/src/ui/lock.rs:589
 msgid "Switch User…"
 msgstr ""
 
@@ -834,11 +839,13 @@ msgstr ""
 msgid "Log Out…"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:4476
+#: crates/helix-shell/src/ui.rs:4476 crates/helix-shell/src/ui/lock.rs:504
+#: crates/helix-shell/src/ui/lock.rs:578
 msgid "Restart…"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:4479
+#: crates/helix-shell/src/ui.rs:4479 crates/helix-shell/src/ui/lock.rs:504
+#: crates/helix-shell/src/ui/lock.rs:579
 msgid "Power Off…"
 msgstr ""
 
@@ -1179,6 +1186,54 @@ msgstr ""
 #: crates/helix-shell/src/ui/dock.rs:1509
 msgid "Quit {n} Window"
 msgid_plural "Quit {n} Windows"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/helix-shell/src/ui/lock.rs:113
+msgid "Caps Lock is on"
+msgstr ""
+
+#: crates/helix-shell/src/ui/lock.rs:185
+msgid "Restart this computer?"
+msgstr ""
+
+#: crates/helix-shell/src/ui/lock.rs:186
+msgid "Restart anyway?"
+msgstr ""
+
+#: crates/helix-shell/src/ui/lock.rs:187
+msgid "Power off this computer?"
+msgstr ""
+
+#: crates/helix-shell/src/ui/lock.rs:188
+msgid "Power off anyway?"
+msgstr ""
+
+#: crates/helix-shell/src/ui/lock.rs:206 crates/helix-shell/src/ui/lock.rs:570
+msgid "Some apps are busy:"
+msgstr ""
+
+#: crates/helix-shell/src/ui/lock.rs:370
+msgid "Press a key or click to unlock"
+msgstr ""
+
+#: crates/helix-shell/src/ui/lock.rs:430 crates/helix-shell/src/ui/lock.rs:553
+msgid "Password"
+msgstr ""
+
+#: crates/helix-shell/src/ui/lock.rs:562
+msgid "Keyboard layout: switch to the next"
+msgstr ""
+
+#: crates/helix-shell/src/ui/lock.rs:609
+msgid "{app}: {n} notification"
+msgid_plural "{app}: {n} notifications"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/helix-shell/src/ui/lock_extras.rs:438
+msgid "+{n} more notification"
+msgid_plural "+{n} more notifications"
 msgstr[0] ""
 msgstr[1] ""
 

@@ -13,6 +13,7 @@ use helix_draw::screen::{BODY, CAPTION};
 use helix_draw::Image;
 use crate::calendar::Player;
 use crate::shell_keys::Playback;
+use helix_i18n::{n_, tr};
 
 /// What a place on a lock surface does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,7 +110,7 @@ const SOFT_FG: u32 = helix_draw::backdrop::TEXT;
 
 /// Warnings (Caps Lock) on the lock background: yellow.
 const WARNING: u32 = 0xFFF8E45C;
-const CAPS_ON: &str = "Caps Lock is on";
+const CAPS_ON: &str = n_("Caps Lock is on");
 /// The Caps Lock sign's room in the field.
 const CAPS_W: f64 = 28.0;
 
@@ -181,10 +182,10 @@ fn confirm_card(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, action: P
     let (text, bold) = (fonts.text, fonts.bold);
     let anyway = !m.blockers.is_empty();
     let (question, verb) = match (action == PowerAction::Restart, anyway) {
-        (true, false) => ("Restart this computer?", "Restart"),
-        (true, true) => ("Restart anyway?", "Restart"),
-        (false, false) => ("Power off this computer?", "Power Off"),
-        (false, true) => ("Power off anyway?", "Power Off"),
+        (true, false) => (tr("Restart this computer?"), tr("Restart")),
+        (true, true) => (tr("Restart anyway?"), tr("Restart")),
+        (false, false) => (tr("Power off this computer?"), tr("Power Off")),
+        (false, true) => (tr("Power off anyway?"), tr("Power Off")),
     };
     let busy: Vec<&(String, String)> = m.blockers.iter().take(4).collect();
     let rows = busy.len() as i32;
@@ -202,7 +203,7 @@ fn confirm_card(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, action: P
     label(title_face, canvas, question, cx as f32 + 24.0, (cy + 24 + 22) as f32, 20.0, fade(FG, a), inner);
     let mut y = cy + 24 + 30;
     if anyway {
-        label(text, canvas, "Some apps are busy:", cx as f32 + 24.0, (y + 22) as f32, BODY, fade(SOFT_FG, a), inner);
+        label(text, canvas, tr("Some apps are busy:"), cx as f32 + 24.0, (y + 22) as f32, BODY, fade(SOFT_FG, a), inner);
         y += 30;
         for (app, reason) in &busy {
             label(bold.or(text), canvas, app, cx as f32 + 24.0, (y + 16) as f32, BODY, fade(FG, a), inner);
@@ -216,7 +217,7 @@ fn confirm_card(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, action: P
     let confirm = Rect { x: cx + 24 + half + 12, y: by, w: half, h: 44 };
     let (cancel_hit, confirm_hit) = (LockHit::Power(LockPowerHit::Cancel), LockHit::Power(LockPowerHit::Confirm));
     let r = |r: Rect| (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
-    push_button(canvas, text, r(cancel), "Cancel", ButtonKind::Normal, state(m, cancel_hit), a);
+    push_button(canvas, text, r(cancel), tr("Cancel"), ButtonKind::Normal, state(m, cancel_hit), a);
     push_button(canvas, text, r(confirm), verb, ButtonKind::Destructive, state(m, confirm_hit), a);
     hits.push((cancel, cancel_hit));
     hits.push((confirm, confirm_hit));
@@ -366,7 +367,7 @@ pub(super) fn rest_layout(h: i32, cap: impl Fn(f32) -> f32) -> Rest {
     Rest { clock_px, clock_base, date_base, extras: (date_base + SPACE[6], hint_base - 20 - SPACE[4]), hint_base }
 }
 
-const HINT: &str = "Press a key or click to unlock";
+const HINT: &str = n_("Press a key or click to unlock");
 
 /// Draw `m` on a `w`×`h` (logical) surface whose background is painted.
 pub(super) fn paint(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, w: usize, h: usize) -> Painted {
@@ -426,7 +427,7 @@ pub(super) fn paint(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, w: us
             // While checking: as many dots as were typed, dimmed.
             dots: m.typed,
             dots_alpha: if m.checking { 0.5 } else { 1.0 },
-            placeholder: "Password",
+            placeholder: tr("Password"),
             trailing: if m.checking { Trailing::Busy(m.spinner) } else { Trailing::Go { enabled: m.typed > 0, hovered: m.hover == Some(LockHit::Unlock) } },
             // Room for the layout and the Caps Lock sign.
             reserve: layout_w + if caps { CAPS_W } else { 0.0 },
@@ -467,7 +468,7 @@ pub(super) fn paint(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, w: us
         if caps {
             below += MESSAGE_LINE;
             room = room.saturating_sub(1).max(1);
-            label(text, canvas, CAPS_ON, center(CAPS_ON, BODY), below as f32, BODY, fade(WARNING, pa), fw as f32);
+            label(text, canvas, tr(CAPS_ON), center(tr(CAPS_ON), BODY), below as f32, BODY, fade(WARNING, pa), fw as f32);
         }
         if let Some(message) = m.message.filter(|_| !m.checking) {
             let lines = text.map_or_else(|| vec![message.to_owned()], |t| t.wrap(message, BODY, fw as f32, room));
@@ -493,14 +494,14 @@ pub(super) fn paint(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, w: us
     // Resting: how to go on.
     let hint_a = a * (1.0 - m.reveal_alpha);
     if hint_a > 0.0 {
-        label(text, canvas, HINT, center(HINT, CAPTION + 1.0), rest.hint_base as f32, CAPTION + 1.0, fade(SOFT_FG, hint_a), w as f32);
+        label(text, canvas, tr(HINT), center(tr(HINT), CAPTION + 1.0), rest.hint_base as f32, CAPTION + 1.0, fade(SOFT_FG, hint_a), w as f32);
     }
     // Restart and Power Off at the bottom left (`restart-enabled`),
     // "Switch User…" at the bottom right: round icon buttons, captioned.
     let mut asked = None;
     if pa > 0.0 {
         let mut left = BOTTOM_MARGIN;
-        for (allowed, caption, action, icon) in [(m.restart, "Restart…", PowerAction::Restart, &m.icons.restart), (m.power_off, "Power Off…", PowerAction::PowerOff, &m.icons.power_off)] {
+        for (allowed, caption, action, icon) in [(m.restart, tr("Restart…"), PowerAction::Restart, &m.icons.restart), (m.power_off, tr("Power Off…"), PowerAction::PowerOff, &m.icons.power_off)] {
             if allowed {
                 let r = bottom_button(canvas, text, m, left, h as i32, caption, icon.as_ref(), LockHit::Power(LockPowerHit::Ask(action)), false, pa);
                 if m.revealed {
@@ -510,7 +511,7 @@ pub(super) fn paint(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, w: us
             }
         }
         if m.switch_user {
-            let r = bottom_button(canvas, text, m, w as i32 - BOTTOM_MARGIN, h as i32, "Switch User…", m.icons.switch_user.as_ref(), LockHit::SwitchUser, true, pa);
+            let r = bottom_button(canvas, text, m, w as i32 - BOTTOM_MARGIN, h as i32, tr("Switch User…"), m.icons.switch_user.as_ref(), LockHit::SwitchUser, true, pa);
             if m.revealed {
                 hits.push((r, LockHit::SwitchUser));
             }
@@ -545,20 +546,20 @@ fn nodes(m: &LockModel, hits: &[(Rect, LockHit)], field: Rect, reveal_at: Rect, 
     if !m.revealed {
         // Resting: the clock, the cards, and a way to the prompt.
         extras_nodes(m, hits, &mut out);
-        out.push(Node::button("Unlock", reveal_at.into()).id("reveal").describe(HINT).focused(m.focus.is_none()));
+        out.push(Node::button(tr("Unlock"), reveal_at.into()).id("reveal").describe(tr(HINT)).focused(m.focus.is_none()));
         return out;
     }
     out.push(Node::label(m.user).id("user"));
-    let password = Node::text_field(Role::PasswordInput, "Password", "•".repeat(m.typed), field.into()).id("password");
+    let password = Node::text_field(Role::PasswordInput, tr("Password"), "•".repeat(m.typed), field.into()).id("password");
     out.push(password.focused(m.confirming.is_none() && m.focus.is_none()).disabled(m.checking));
     if let Some(&(r, _)) = hits.iter().find(|(_, h)| *h == LockHit::Unlock) {
-        out.push(Node::button("Unlock", r.into()).id("unlock").disabled(m.typed == 0 || m.checking));
+        out.push(Node::button(tr("Unlock"), r.into()).id("unlock").disabled(m.typed == 0 || m.checking));
     }
     if m.caps_lock && !m.checking {
-        out.push(Node::label(CAPS_ON).id("caps-lock").live());
+        out.push(Node::label(tr(CAPS_ON)).id("caps-lock").live());
     }
     if let (Some(name), Some(&(r, _))) = (m.layout, hits.iter().find(|(_, h)| *h == LockHit::Layout)) {
-        out.push(Node::button(name, r.into()).id("layout").describe("Keyboard layout: switch to the next").focused(m.focus == Some(LockHit::Layout)));
+        out.push(Node::button(name, r.into()).id("layout").describe(tr("Keyboard layout: switch to the next")).focused(m.focus == Some(LockHit::Layout)));
     }
     if let Some(message) = m.message {
         out.push(Node::label(message).id("message").live());
@@ -566,7 +567,7 @@ fn nodes(m: &LockModel, hits: &[(Rect, LockHit)], field: Rect, reveal_at: Rect, 
     extras_nodes(m, hits, &mut out);
     if let Some((question, busy)) = asked {
         if !busy.is_empty() {
-            out.push(Node::label("Some apps are busy:"));
+            out.push(Node::label(tr("Some apps are busy:")));
             out.extend(busy.into_iter().map(Node::label));
         }
         out.push(Node::label(question).id("question").live());
@@ -574,18 +575,18 @@ fn nodes(m: &LockModel, hits: &[(Rect, LockHit)], field: Rect, reveal_at: Rect, 
     for &(r, hit) in hits {
         let LockHit::Power(hit) = hit else { continue };
         let name = match hit {
-            LockPowerHit::Ask(PowerAction::Restart) => "Restart…",
-            LockPowerHit::Ask(_) => "Power Off…",
-            LockPowerHit::Cancel => "Cancel",
-            LockPowerHit::Confirm if m.confirming == Some(PowerAction::Restart) => "Restart",
-            LockPowerHit::Confirm => "Power Off",
+            LockPowerHit::Ask(PowerAction::Restart) => tr("Restart…"),
+            LockPowerHit::Ask(_) => tr("Power Off…"),
+            LockPowerHit::Cancel => tr("Cancel"),
+            LockPowerHit::Confirm if m.confirming == Some(PowerAction::Restart) => tr("Restart"),
+            LockPowerHit::Confirm => tr("Power Off"),
         };
         // In the question, Cancel has the focus unless the keyboard moved.
         let focused = m.focus == Some(LockHit::Power(hit)) || (m.focus.is_none() && hit == LockPowerHit::Cancel);
         out.push(Node::button(name, r.into()).id(format!("{hit:?}")).focused(focused));
     }
     if let Some(&(r, _)) = hits.iter().find(|(_, h)| *h == LockHit::SwitchUser) {
-        out.push(Node::button("Switch User…", r.into()).id("switch-user").focused(m.focus == Some(LockHit::SwitchUser)));
+        out.push(Node::button(tr("Switch User…"), r.into()).id("switch-user").focused(m.focus == Some(LockHit::SwitchUser)));
     }
     out
 }
@@ -605,7 +606,7 @@ fn extras_nodes(m: &LockModel, hits: &[(Rect, LockHit)], out: &mut Vec<Node>) {
         }
     }
     for app in m.counts {
-        out.push(Node::label(format!("{}: {} notification{}", app.name, app.count, if app.count == 1 { "" } else { "s" })));
+        out.push(Node::label(helix_i18n::trnf!("{app}: {n} notification", "{app}: {n} notifications", app.count, app = app.name)));
     }
 }
 

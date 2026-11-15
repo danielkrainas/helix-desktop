@@ -23,6 +23,8 @@ crates/helix-shell/src/ui/break_screen.rs
 crates/helix-shell/src/ui/calendar.rs
 crates/helix-shell/src/ui/capture.rs
 crates/helix-shell/src/ui/dock.rs
+crates/helix-shell/src/ui/lock.rs
+crates/helix-shell/src/ui/lock_extras.rs
 crates/helix-shell/src/ui/notify.rs
 crates/helix-shell/src/ui/overview.rs
 crates/helix-shell/src/ui/panel_editor.rs
