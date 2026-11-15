@@ -580,17 +580,8 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
         let base = baseline(text, r.y, r.h, 14.0);
         let mut x = r.x + 12;
         if let Some(checked) = item.checked {
-            let (bx, by) = (x, r.y + (r.h - 14) / 2);
-            if checked {
-                canvas.rect(bx, by, 14, 14, accent_fill());
-                canvas.line((f64::from(bx) + 3.0, f64::from(by) + 7.5), (f64::from(bx) + 6.0, f64::from(by) + 10.5), 1.8, on_accent());
-                canvas.line((f64::from(bx) + 6.0, f64::from(by) + 10.5), (f64::from(bx) + 11.0, f64::from(by) + 3.5), 1.8, on_accent());
-            } else {
-                for (rx, ry, rw, rh) in [(bx, by, 14, 1), (bx, by + 13, 14, 1), (bx, by, 1, 14), (bx + 13, by, 1, 14)] {
-                    canvas.rect(rx, ry, rw, rh, DIM_FG);
-                }
-            }
-            x += 22;
+            theme::check_box(canvas, f64::from(x), f64::from(r.y + (r.h - 16) / 2), 16.0, checked, theme::Look::default());
+            x += 24;
         }
         if radio_marks {
             if item.active {
@@ -601,15 +592,9 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
         // A submenu: an arrow at the end; "Back": one at the start.
         let cy = f64::from(r.y + r.h / 2);
         match item.choice {
-            Choice::Submenu => {
-                let ax = f64::from(r.x + r.w - 14);
-                canvas.line((ax - 3.0, cy - 4.0), (ax + 1.0, cy), 1.6, DIM_FG);
-                canvas.line((ax + 1.0, cy), (ax - 3.0, cy + 4.0), 1.6, DIM_FG);
-            }
+            Choice::Submenu => theme::chevron(canvas, f64::from(r.x + r.w - 14), cy, 10.0, theme::Towards::Right, DIM_FG),
             Choice::Back => {
-                let ax = f64::from(x);
-                canvas.line((ax + 4.0, cy - 4.0), (ax, cy), 1.6, DIM_FG);
-                canvas.line((ax, cy), (ax + 4.0, cy + 4.0), 1.6, DIM_FG);
+                theme::chevron(canvas, f64::from(x) + 2.0, cy, 10.0, theme::Towards::Left, DIM_FG);
                 x += 14;
             }
             _ => {}
@@ -625,7 +610,7 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
 /// A disabled entry's label: dimmed, and in high contrast (where all text
 /// is white) white at 60 % (still 7:1 on black).
 pub(super) fn disabled_text() -> u32 {
-    if helix_draw::high_contrast() { 0x99FF_FFFF } else { DIM_FG }
+    theme::disabled_text()
 }
 
 /// Whether an entry can be chosen.
@@ -754,8 +739,7 @@ fn paint_previews(menu: &mut WindowMenu, canvas: &mut Canvas, w: i32, h: i32, te
     let (mw, mh) = previews_size(menu.previews.len());
     let mx = menu.at.0.clamp(0, (w - mw).max(0));
     let my = menu.at.1.clamp(0, (h - mh).max(0));
-    canvas.rect(mx - 1, my - 1, mw + 2, mh + 2, BANNER_BORDER);
-    canvas.rect(mx, my, mw, mh, BANNER_BG);
+    theme::popover(canvas, mx, my, mw, mh);
     menu.bounds = Rect { x: mx, y: my, w: mw, h: mh };
     menu.hits.clear();
     for (i, window) in menu.previews.iter().enumerate() {
@@ -773,21 +757,18 @@ fn paint_previews(menu: &mut WindowMenu, canvas: &mut Canvas, w: i32, h: i32, te
             Some(image) if image.width > 0 && image.height > 0 => {
                 let s = (f64::from(pic.w) / (image.width as f64)).min(f64::from(pic.h) / (image.height as f64)).min(1.0);
                 let (iw, ih) = ((image.width as f64) * s, (image.height as f64) * s);
-                canvas.image(f64::from(pic.x) + (f64::from(pic.w) - iw) / 2.0, f64::from(pic.y) + (f64::from(pic.h) - ih) / 2.0, iw, ih, image);
+                canvas.image_rounded(f64::from(pic.x) + (f64::from(pic.w) - iw) / 2.0, f64::from(pic.y) + (f64::from(pic.h) - ih) / 2.0, iw, ih, theme::RADIUS_ROW, image, 1.0);
             }
-            _ => canvas.rect(pic.x, pic.y, pic.w, pic.h, 0xFF55555F),
+            _ => theme::control(canvas, pic.x, pic.y, pic.w, pic.h, theme::Look::default()),
         }
         let title = menu.items.get(2 * i).and_then(|i| i.as_ref()).map(|i| i.label.clone()).unwrap_or_default();
         label(text, canvas, &title, (tile.x + 6) as f32, baseline(text, tile.y + PICTURE_H, TILE_TITLE_H, 13.0), 13.0, FG, (tile.w - 12) as f32);
         // The close button, at the picture's top right corner.
         let close = Rect { x: tile.x + tile.w - 26, y: tile.y + 2, w: 24, h: 24 };
         let hot = menu.selected == Some(2 * i + 1) && !menu.focus_hidden;
-        canvas.circle(f64::from(close.x) + 12.0, f64::from(close.y) + 12.0, 10.0, if hot { 0xFFE01B24 } else { 0xE0303036 });
-        if hot && menu.by_keyboard {
-            theme::focus_ring_round(canvas, f64::from(close.x + 2), f64::from(close.y + 2), 20.0, 20.0, 10.0);
-        }
-        canvas.line((f64::from(close.x) + 8.0, f64::from(close.y) + 8.0), (f64::from(close.x) + 16.0, f64::from(close.y) + 16.0), 1.8, FG);
-        canvas.line((f64::from(close.x) + 16.0, f64::from(close.y) + 8.0), (f64::from(close.x) + 8.0, f64::from(close.y) + 16.0), 1.8, FG);
+        let (cx, cy) = (f64::from(close.x) + 12.0, f64::from(close.y) + 12.0);
+        theme::round_control(canvas, cx, cy, 20.0, theme::Look { hovered: hot, ..Default::default() }, hot && menu.by_keyboard);
+        theme::close_symbol(canvas, cx, cy, 9.0, FG);
         // The close button first: it lies on the tile.
         menu.hits.push((close, 2 * i + 1));
         menu.hits.push((tile, 2 * i));

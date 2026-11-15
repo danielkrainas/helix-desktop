@@ -705,7 +705,7 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         let bw = fcols * cell_w() + 32;
         let bh = frows * cell_h() + 72 + dots_h;
         let b = Rect { x: (w - bw) / 2, y: top + 8, w: bw, h: bh };
-        canvas.round_rect(f64::from(b.x), f64::from(b.y), f64::from(b.w), f64::from(b.h), 14.0, BOX_BG);
+        theme::popover_round(canvas, f64::from(b.x), f64::from(b.y), f64::from(b.w), f64::from(b.h), theme::RADIUS_POPOVER + 8.0);
         let tw = text.map_or(0.0, |t| t.width(&folder.name, 17.0));
         let title = Rect { x: b.x + (b.w - tw as i32) / 2 - 8, y: b.y + 10, w: tw as i32 + 16, h: 34 };
         label(text, canvas, &folder.name, (title.x + 8) as f32, baseline(text, title.y, title.h, 17.0), 17.0, FG, (b.w - 32) as f32);

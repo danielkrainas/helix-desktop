@@ -146,8 +146,8 @@ impl Ui {
                 self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
             {
                 let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(tip.layer.wl_surface()));
-                canvas.fill(BANNER_BORDER);
-                canvas.rect(1, 1, w as i32 - 2, h as i32 - 2, BANNER_BG);
+                canvas.fill(0);
+                theme::tooltip(&mut canvas, 1, 1, w as i32 - 2, h as i32 - 2);
                 let (text, bold) = (self.text.as_ref(), self.bold.as_ref());
                 for (i, line) in tip.lines.iter().enumerate() {
                     let font = if i == 0 { bold.or(text) } else { text };

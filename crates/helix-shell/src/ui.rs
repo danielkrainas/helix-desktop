@@ -112,7 +112,6 @@ const PANEL_BG: u32 = theme::PANEL;
 const FG: u32 = theme::TEXT;
 /// Secondary text (on the panel, popovers and dialogs; not on controls).
 const DIM_FG: u32 = theme::TEXT_DIM;
-const TRACK: u32 = theme::TRACK;
 // The accent follows `accent-color` (helix_draw::accent), so it is read
 // at each use.
 /// The accent: rings, indicators, a slider's filled part.
@@ -138,12 +137,7 @@ fn hint_text() -> u32 {
 }
 /// Words in red: errors, "Sharing" and "Recording".
 const ERROR_TEXT: u32 = theme::TEXT_ERROR;
-const SCRIM: u32 = 0xB00C0C10;
-const BOX_BG: u32 = 0xF81E1E24;
-/// Controls at rest (off switches, keys, fields).
-const FIELD_BG: u32 = theme::CONTROL;
-/// A hovered or keyboard-selected row or button.
-const HOVER_BG: u32 = theme::CONTROL_HOVER;
+const SCRIM: u32 = theme::SCRIM;
 /// Screen sharing indicator (its dot; its words are `ERROR_TEXT`).
 const SHARING: u32 = theme::ERROR;
 
@@ -459,11 +453,15 @@ struct DialogState {
     /// When it was first drawn (keys before [`DIALOG_KEY_DELAY`] after
     /// that are ignored).
     shown: Option<Instant>,
+    /// The part under the pointer, and the one pressed (it answers when
+    /// released over the same part).
+    hover: Option<OverlayHit>,
+    pressed: Option<OverlayHit>,
 }
 
 impl DialogState {
     fn new(kind: DialogKind, remaining: u32) -> Self {
-        Self { kind, remaining, focus: None, shown: None }
+        Self { kind, remaining, focus: None, shown: None, hover: None, pressed: None }
     }
 
     /// The button Enter chooses: whichever has the focus.
@@ -550,8 +548,8 @@ impl DialogKind {
     }
 
     /// The action button's look: red when it loses work.
-    fn confirm_kind(&self) -> helix_draw::screen::ButtonKind {
-        use helix_draw::screen::ButtonKind;
+    fn confirm_kind(&self) -> theme::Kind {
+        use theme::Kind as ButtonKind;
         match self {
             DialogKind::NotResponding { .. } => ButtonKind::Destructive,
             DialogKind::End(d) if !d.blockers.is_empty() => ButtonKind::Destructive,
@@ -618,15 +616,16 @@ struct BannerView {
     hits: Vec<(Rect, BannerHit)>,
     /// Has keyboard focus (`focus-active-notification`).
     focused: bool,
+    /// The part under the pointer, and the one pressed.
+    hover: Option<BannerHit>,
+    pressed: Option<BannerHit>,
 }
 
 /// A banner's width: it grows with the text scale.
 fn banner_w() -> u32 {
     helix_draw::theme::grow(440) as u32
 }
-const BANNER_BG: u32 = theme::POPOVER;
 const MONITOR_LABEL_SIZE: u32 = 72;
-const BANNER_BORDER: u32 = theme::BORDER;
 const BANNER_PAD: i32 = 14;
 
 
@@ -750,12 +749,10 @@ fn baseline(text: Option<&Text>, top: i32, height: i32, px: f32) -> f32 {
 }
 
 /// A text field's box (helix-desktop-spec `components/README.md`, "Text
-/// fields"): an accent ring while it takes typing, a faint outline
-/// otherwise.
+/// fields"): rounded, an accent ring while it takes typing, a faint
+/// outline otherwise.
 fn text_field(canvas: &mut Canvas, r: Rect, focused: bool) {
-    let (ring, width) = if focused { (accent(), 2) } else { (0x30FFFFFF, 1) };
-    canvas.rect(r.x - width, r.y - width, r.w + 2 * width, r.h + 2 * width, ring);
-    canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
+    theme::field(canvas, (r.x, r.y, r.w, r.h), focused, false);
 }
 
 /// The caret at `x`, the height of a line of `px` text in field `r`.
@@ -1123,9 +1120,7 @@ canvas.fill(SCRIM);
     let mut extra_hits = Vec::new();
     if let Some(on) = install {
         let r = Rect { x: bx + 24, y: by + bh - grow(56) - grow(42), w: bw - 48, h: grow(26) };
-        // Outlined, so an empty box shows.
-        canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
-        canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if on { accent() } else { FIELD_BG });
+        theme::check_box(canvas, f64::from(r.x), f64::from(r.y + (r.h - 18) / 2), 18.0, on, theme::Look { hovered: state.hover == Some(OverlayHit::EndInstall), pressed: state.pressed == Some(OverlayHit::EndInstall), ..Default::default() });
         let name = tr("Install pending software updates");
         label(text, canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
         extra_hits.push((r, OverlayHit::EndInstall));
@@ -1136,13 +1131,12 @@ canvas.fill(SCRIM);
     let cancel = Rect { x: bx + 24, y: by2, w: half, h: grow(36) };
     let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: grow(36) };
     let focus = state.focused();
-    let at = |r: Rect| (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
-    let button = |canvas: &mut Canvas, r: Rect, s: &str, kind, choice| {
-        let look = helix_draw::screen::ButtonState { focused: focus == choice, ..Default::default() };
-        helix_draw::screen::push_button(canvas, text, at(r), s, kind, look, 1.0);
+    let button = |canvas: &mut Canvas, r: Rect, s: &str, kind, choice, hit| {
+        let look = theme::Look { hovered: state.hover == Some(hit), pressed: state.pressed == Some(hit), ..Default::default() };
+        theme::button(canvas, text, (r.x, r.y, r.w, r.h), s, kind, look, focus == choice);
     };
-    button(canvas, cancel, cancel_label, helix_draw::screen::ButtonKind::Normal, Choice::Canceled);
-    button(canvas, confirm, &confirm_label, state.kind.confirm_kind(), Choice::Confirmed);
+    button(canvas, cancel, cancel_label, theme::Kind::Normal, Choice::Canceled, OverlayHit::Cancel);
+    button(canvas, confirm, &confirm_label, state.kind.confirm_kind(), Choice::Confirmed, OverlayHit::Confirm);
     let mut hits = vec![(cancel, OverlayHit::Cancel), (confirm, OverlayHit::Confirm)];
     hits.extend(extra_hits);
     let list = blocked.then_some((list_header, blockers.as_slice()));
@@ -1849,14 +1843,13 @@ impl Ui {
         let bh = shown as i32 * row_h + 16;
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 2;
-        canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
-        canvas.rect(bx, by, bw, bh, BANNER_BG);
+        theme::popover(&mut canvas, bx, by, bw, bh);
         overlay.hits.clear();
         for (row, index) in (first..switcher.entries.len()).take(shown).enumerate() {
             let entry = &switcher.entries[index];
             let r = Rect { x: bx + 8, y: by + 8 + row as i32 * row_h, w: bw - 16, h: row_h };
             if index == switcher.selected {
-                canvas.rect(r.x, r.y, r.w, r.h, accent_fill());
+                theme::row(&mut canvas, r.x, r.y, r.w, r.h, theme::Look { on: true, ..Default::default() });
             }
             let base = baseline(text, r.y, r.h, 15.0);
             let detail_w = text.map_or(0.0, |t| t.width(&entry.detail, 13.0).min(160.0));
@@ -1917,8 +1910,7 @@ impl Ui {
         let bh = THUMB_H + THUMB_TITLE_H + 2 * THUMB_GAP;
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 2;
-        canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
-        canvas.rect(bx, by, bw, bh, BANNER_BG);
+        theme::popover(&mut canvas, bx, by, bw, bh);
         overlay.hits.clear();
         for (slot, index) in (first..switcher.entries.len()).take(shown).enumerate() {
             let entry = &switcher.entries[index];
@@ -1932,20 +1924,14 @@ impl Ui {
                     let s = (f64::from(pic.w) / image.width as f64).min(f64::from(pic.h) / image.height as f64).min(1.0);
                     let (iw, ih) = (image.width as f64 * s, image.height as f64 * s);
                     let (ix, iy) = (f64::from(pic.x) + (f64::from(pic.w) - iw) / 2.0, f64::from(pic.y) + (f64::from(pic.h) - ih) / 2.0);
-                    canvas.image(ix, iy, iw, ih, image);
+                    canvas.image_rounded(ix, iy, iw, ih, theme::RADIUS_ROW, image, 1.0);
                     if let Some(icon) = &icons[index].0 {
                         canvas.image(ix + iw - 28.0, iy + ih - 28.0, 32.0, 32.0, icon);
                     }
                 }
                 _ => match &icons[index].1 {
                     Some(icon) => canvas.image(f64::from(pic.x + (pic.w - 64) / 2), f64::from(pic.y + (pic.h - 64) / 2), 64.0, 64.0, icon),
-                    None => {
-                        canvas.rect(pic.x, pic.y, pic.w, pic.h, 0xFF55555F);
-                        // Black on black in high contrast: outlined.
-                        if helix_draw::high_contrast() {
-                            theme::outline(&mut canvas, pic.x, pic.y, pic.w, pic.h, 1, 0xFFFF_FFFF);
-                        }
-                    }
+                    None => theme::control(&mut canvas, pic.x, pic.y, pic.w, pic.h, theme::Look::default()),
                 },
             }
             let tw = text.map_or(0.0, |t| t.width(&entry.label, 13.0)).min((tile.w - 8) as f32);
@@ -2050,7 +2036,7 @@ impl Ui {
         let first = view.model.selected.saturating_sub(visible - 1);
         let shown: Vec<usize> = (first..view.model.results.len()).take(visible).collect();
         let list_h = (shown.len().max(1) as i32) * row_h + 8;
-        canvas.rect(bx, list_top, bw, list_h, BOX_BG);
+        theme::popover(&mut canvas, bx, list_top, bw, list_h);
         view.rows.clear();
         if shown.is_empty() {
             let base = baseline(self.text.as_ref(), list_top + 4, row_h, 15.0);
@@ -2059,7 +2045,7 @@ impl Ui {
         for (row, &result) in shown.iter().enumerate() {
             let rect = Rect { x: bx + 4, y: list_top + 4 + row as i32 * row_h, w: bw - 8, h: row_h };
             if result == view.model.selected {
-                canvas.rect(rect.x, rect.y, rect.w, rect.h, accent_fill());
+                theme::row(&mut canvas, rect.x, rect.y, rect.w, rect.h, theme::Look { on: true, ..Default::default() });
             }
             let (name, _) = view.model.row_label(view.model.results[result]);
             let more = matches!(view.model.results[result], launcher::Hit::More(_));
@@ -2585,7 +2571,7 @@ impl Ui {
         layer.set_size(banner_w(), height);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.commit();
-        self.banner = Some(BannerView { data, layer, width: 0, height: 0, configured: false, hits: Vec::new(), focused: false });
+        self.banner = Some(BannerView { data, layer, width: 0, height: 0, configured: false, hits: Vec::new(), focused: false, hover: None, pressed: None });
     }
 
     fn draw_banner(&mut self) {
@@ -2899,8 +2885,7 @@ impl Ui {
         let bh = helix_draw::theme::grow(140) + rows * (row_h + 8) + helix_draw::theme::grow(56) + if *remember { helix_draw::theme::grow(12) } else { 0 };
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
-        canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
-        canvas.rect(bx, by, bw, bh, BANNER_BG);
+        theme::popover(&mut canvas, bx, by, bw, bh);
         let inner = (bw - 48) as f32;
         let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
         let title = tr("Share your screen?");
@@ -2920,16 +2905,16 @@ impl Ui {
         for (i, (_, name, connector)) in sources.iter().take(8).enumerate() {
             let r = Rect { x: bx + 24, y: top + i as i32 * (row_h + 8), w: bw - 48, h: row_h };
             let on = picked.contains(&i);
-            canvas.rect(r.x, r.y, r.w, r.h, if on { accent_fill() } else { HOVER_BG });
-            let fg = if on { on_accent() } else { FG };
+            let hit = OverlayHit::Monitor(i);
+            let look = theme::Look { on, hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit) };
+            theme::control(&mut canvas, r.x, r.y, r.w, r.h, look);
+            let fg = theme::control_text(look);
             let base = baseline(text, r.y, r.h, 15.0);
             let mut nx = r.x + 12;
             if *multiple {
-                // A check box per row.
+                // A check mark per row (the row itself is the box).
                 let (cx, cy) = (r.x + 12, r.y + (r.h - 14) / 2);
-                for (rx, ry, rw, rh) in [(cx, cy, 14, 1), (cx, cy + 13, 14, 1), (cx, cy, 1, 14), (cx + 13, cy, 1, 14)] {
-                    canvas.rect(rx, ry, rw, rh, fg);
-                }
+                canvas.round_outline(f64::from(cx) + 1.0, f64::from(cy) + 1.0, 12.0, 12.0, theme::RADIUS_CHECK - 1.0, 1.0, fg);
                 if on {
                     canvas.line((f64::from(cx) + 3.0, f64::from(cy) + 7.5), (f64::from(cx) + 6.0, f64::from(cy) + 10.5), 1.8, fg);
                     canvas.line((f64::from(cx) + 6.0, f64::from(cy) + 10.5), (f64::from(cx) + 11.0, f64::from(cy) + 3.5), 1.8, fg);
@@ -2944,15 +2929,19 @@ impl Ui {
         // Cancel; with several to choose, Share beside it.
         let cw = if *multiple { (bw - 48 - 12) / 2 } else { bw - 48 };
         let cancel = Rect { x: bx + 24, y: by + bh - helix_draw::theme::grow(56), w: cw, h: helix_draw::theme::grow(36) };
-        theme::control(&mut canvas, cancel.x, cancel.y, cancel.w, cancel.h, theme::Look::default());
-        let lw = text.map_or(0.0, |t| t.width(tr("Cancel"), 15.0));
-        label(text, &mut canvas, tr("Cancel"), cancel.x as f32 + (cancel.w as f32 - lw) / 2.0, baseline(text, cancel.y, cancel.h, 15.0), 15.0, FG, cancel.w as f32);
+        let look = |hit| theme::Look { hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
+        theme::button(&mut canvas, text, (cancel.x, cancel.y, cancel.w, cancel.h), tr("Cancel"), theme::Kind::Normal, look(OverlayHit::Cancel), false);
         hits.push((cancel, OverlayHit::Cancel));
         if *multiple {
             let share = Rect { x: cancel.x + cw + 12, y: cancel.y, w: cw, h: cancel.h };
-            theme::control(&mut canvas, share.x, share.y, share.w, share.h, theme::Look { on: !picked.is_empty(), ..Default::default() });
-            let sw = text.map_or(0.0, |t| t.width(tr("Share"), 15.0));
-            label(text, &mut canvas, tr("Share"), share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, if picked.is_empty() { hint_text() } else { on_accent() }, share.w as f32);
+            if picked.is_empty() {
+                // Nothing picked: Share cannot be used yet.
+                theme::control(&mut canvas, share.x, share.y, share.w, share.h, theme::Look::default());
+                let sw = text.map_or(0.0, |t| t.width(tr("Share"), 15.0));
+                label(text, &mut canvas, tr("Share"), share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, hint_text(), share.w as f32);
+            } else {
+                theme::button(&mut canvas, text, (share.x, share.y, share.w, share.h), tr("Share"), theme::Kind::Suggested, look(OverlayHit::Confirm), false);
+            }
             if !picked.is_empty() {
                 hits.push((share, OverlayHit::Confirm));
             }
@@ -3014,8 +3003,8 @@ impl Ui {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
-        canvas.fill(BANNER_BORDER);
-        canvas.rect(2, 2, w as i32 - 4, h as i32 - 4, BANNER_BG);
+        canvas.fill(0);
+        theme::popover(&mut canvas, 2, 2, w as i32 - 4, h as i32 - 4);
         let text = self.text.as_ref();
         let number = overlay.state.0.to_string();
         let px = 40.0;
@@ -4662,9 +4651,10 @@ mod tests {
         let mut data = vec![0u8; 60 * 40 * 4];
         let mut canvas = super::Canvas::scaled(&mut data, 60, 40, 1.0);
         super::text_field(&mut canvas, r, false);
-        assert_ne!(px(&data, 25, 9), accent, "unfocused: no ring");
-        assert_ne!(px(&data, 25, 9), [0, 0, 0, 0], "unfocused: an outline");
-        assert_eq!(px(&data, 25, 8), [0, 0, 0, 0], "outline is 1px");
+        assert_eq!(px(&data, 25, 9), [0, 0, 0, 0], "unfocused: no ring");
+        assert_ne!(px(&data, 25, 10), px(&data, 25, 11), "unfocused: a faint outline at the edge");
+        assert_eq!(px(&data, 25, 12), px(&data, 25, 11), "outline is 1px");
+        assert_eq!(px(&data, 10, 10), [0, 0, 0, 0], "rounded corners");
     }
 
     use super::*;
@@ -4688,7 +4678,7 @@ mod tests {
 
     #[test]
     fn dialog_defaults() {
-        use helix_draw::screen::ButtonKind;
+        use theme::Kind as ButtonKind;
         let not_responding = DialogKind::NotResponding { id: 1, title: "Editor".into() };
         let remote = DialogKind::RemoteControl { app: "Remote".into(), devices: vec!["keyboard".into()], reply: None };
         let shortcuts = DialogKind::ShortcutsInhibit { id: 1, app_id: "vm".into(), app: "VM".into() };
@@ -4721,15 +4711,14 @@ mod tests {
     fn text_contrast() {
         let opaque = |c: u32| c | 0xFF00_0000;
         let pairs = [
-            (FG, BANNER_BG, "text on popovers and dialogs"),
+            (FG, theme::POPOVER, "text on popovers and dialogs"),
             (FG, opaque(PANEL_BG), "the panel"),
-            (FG, FIELD_BG, "text on controls"),
-            (FG, HOVER_BG, "the selected menu row"),
-            (DIM_FG, BANNER_BG, "secondary text: notification bodies, percentages, weekdays, dialog messages"),
+            (FG, theme::CONTROL, "text on controls"),
+            (FG, theme::CONTROL_HOVER, "the selected menu row"),
+            (DIM_FG, theme::POPOVER, "secondary text: notification bodies, percentages, weekdays, dialog messages"),
             (DIM_FG, opaque(PANEL_BG), "secondary text on the panel"),
-            (DIM_FG, opaque(BOX_BG), "the launcher's tags"),
             (DIM_FG, theme::WELL, "\"No Networks\""),
-            (ERROR_TEXT, BANNER_BG, "a prompt's error"),
+            (ERROR_TEXT, theme::POPOVER, "a prompt's error"),
             (ERROR_TEXT, opaque(PANEL_BG), "\"Sharing\", \"Recording\""),
         ];
         for (fg, bg, what) in pairs {
@@ -4743,14 +4732,14 @@ mod tests {
             for (fg, bg, what) in [
                 (p.on_fill, p.fill, "switches on, selected rows, buttons"),
                 (p.on_fill, p.fill_hover, "a hovered default button"),
-                (p.text, BANNER_BG, "links in notifications"),
+                (p.text, theme::POPOVER, "links in notifications"),
                 (p.text, theme::WELL, "\"Connected\""),
                 (p.text, opaque(PANEL_BG), "accent words on the panel"),
             ] {
                 let ratio = helix_draw::backdrop::contrast(fg, bg);
                 assert!(ratio >= 4.5, "{name}: {what}: {fg:08x} on {bg:08x} is {ratio:.2}:1");
             }
-            for (fg, bg, what) in [(p.color, BANNER_BG, "focus rings on popovers"), (p.color, opaque(PANEL_BG), "panel indicators")] {
+            for (fg, bg, what) in [(p.color, theme::POPOVER, "focus rings on popovers"), (p.color, opaque(PANEL_BG), "panel indicators")] {
                 let ratio = helix_draw::backdrop::contrast(fg, bg);
                 assert!(ratio >= 3.0, "{name}: {what}: {fg:08x} on {bg:08x} is {ratio:.2}:1");
             }

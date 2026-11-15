@@ -32,6 +32,15 @@ pub(super) enum EditorHit {
 pub(super) struct EditorState {
     /// Keyboard focus: index into the hits.
     focus: Option<usize>,
+    /// The button under the pointer, and the one pressed.
+    pub hover: Option<EditorHit>,
+    pub pressed: Option<EditorHit>,
+}
+
+impl EditorState {
+    fn look(&self, hit: EditorHit) -> theme::Look {
+        theme::Look { hovered: self.hover == Some(hit), pressed: self.pressed == Some(hit), ..Default::default() }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -111,10 +120,7 @@ impl Ui {
         // buttons do not move under the pointer.
         let typical = 56 + 30 + layout::Item::ALL.len() as i32 * ROW_H + 16 + BOTTOM_H + PAD;
         let (bx, by) = ((w as i32 - bw) / 2, ((h as i32 - typical) / 2).max(8).min((h as i32 - bh).max(8)));
-        canvas.rect(bx, by, bw, bh, BANNER_BG);
-        for (rx, ry, rw, rh) in [(bx, by, bw, 1), (bx, by + bh - 1, bw, 1), (bx, by, 1, bh), (bx + bw - 1, by, 1, bh)] {
-            canvas.rect(rx, ry, rw, rh, BANNER_BORDER);
-        }
+        theme::popover(&mut canvas, bx, by, bw, bh);
         label(bold.or(text), &mut canvas, tr("Customize Panel"), (bx + PAD) as f32, (by + 36) as f32, 20.0, FG, (bw - 2 * PAD) as f32);
         let mut y = by + 56;
         if !saved {
@@ -130,7 +136,7 @@ impl Ui {
         for (c, rows) in columns.iter().enumerate() {
             for (r, row) in rows.iter().enumerate() {
                 let ry = rows_y + r as i32 * ROW_H;
-                canvas.rect(col_x(c), ry + 2, col_w, ROW_H - 4, HOVER_BG);
+                theme::control(&mut canvas, col_x(c), ry + 2, col_w, ROW_H - 4, theme::Look::default());
                 // Buttons from the right end: remove, right, left, down, up.
                 let mut buttons: Vec<(EditorHit, Glyph)> = vec![(EditorHit::Up(c, r), Glyph::Up), (EditorHit::Down(c, r), Glyph::Down)];
                 if c < QUICK {
@@ -149,6 +155,7 @@ impl Ui {
                 let label_end = x;
                 for (hit, glyph) in buttons {
                     let br = Rect { x, y: ry + (ROW_H - BUTTON) / 2, w: BUTTON, h: BUTTON };
+                    theme::round_flat(&mut canvas, f64::from(br.x) + f64::from(BUTTON) / 2.0, f64::from(br.y) + f64::from(BUTTON) / 2.0, f64::from(BUTTON), overlay.state.look(hit), false);
                     draw_glyph(&mut canvas, br, glyph);
                     hits.push((br, hit));
                     x += BUTTON;
@@ -167,6 +174,7 @@ impl Ui {
                 for (r, (n, (_, _, name))) in hidden_in(c).into_iter().enumerate() {
                     let ry = y + 32 + r as i32 * ROW_H;
                     let br = Rect { x: col_x(c) + col_w - 4 - BUTTON, y: ry + (ROW_H - BUTTON) / 2, w: BUTTON, h: BUTTON };
+                    theme::round_flat(&mut canvas, f64::from(br.x) + f64::from(BUTTON) / 2.0, f64::from(br.y) + f64::from(BUTTON) / 2.0, f64::from(BUTTON), overlay.state.look(EditorHit::Add(n)), false);
                     draw_glyph(&mut canvas, br, Glyph::Plus);
                     hits.push((br, EditorHit::Add(n)));
                     label(text, &mut canvas, name, (col_x(c) + 10) as f32, baseline(text, ry, ROW_H, 14.0), 14.0, DIM_FG, (col_w - BUTTON - 20) as f32);
@@ -177,17 +185,14 @@ impl Ui {
         y += 16;
         for (hit, name, x) in [(EditorHit::Reset, tr("Reset"), bx + PAD), (EditorHit::Done, tr("Done"), bx + bw - PAD - BOTTOM_W)] {
             let r = Rect { x, y, w: BOTTOM_W, h: BOTTOM_H };
-            let look = theme::Look { on: hit == EditorHit::Done, ..Default::default() };
-            theme::control(&mut canvas, r.x, r.y, r.w, r.h, look);
-            let tw = text.map_or(0.0, |t| t.width(name, 15.0));
-            label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, theme::control_text(look), r.w as f32);
+            let kind = if hit == EditorHit::Done { theme::Kind::Suggested } else { theme::Kind::Normal };
+            theme::button(&mut canvas, text, (r.x, r.y, r.w, r.h), name, kind, overlay.state.look(hit), false);
             hits.push((r, hit));
         }
         // Keyboard focus ring.
-        if let Some(r) = overlay.state.focus.and_then(|i| hits.get(i)).map(|(r, _)| *r) {
-            for (rx, ry, rw, rh) in [(r.x - 2, r.y - 2, r.w + 4, 2), (r.x - 2, r.y + r.h, r.w + 4, 2), (r.x - 2, r.y - 2, 2, r.h + 4), (r.x + r.w, r.y - 2, 2, r.h + 4)] {
-                canvas.rect(rx, ry, rw, rh, accent());
-            }
+        if let Some((r, hit)) = overlay.state.focus.and_then(|i| hits.get(i)).copied() {
+            let radius = if matches!(hit, EditorHit::Reset | EditorHit::Done) { theme::RADIUS_BUTTON } else { f64::from(BUTTON) / 2.0 };
+            theme::focus_ring_round(&mut canvas, f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), radius);
         }
         let nodes = editor_nodes(&columns, &hidden, &hits, overlay.state.focus, (!saved).then(|| tr("Changes cannot be saved: the org.helix.shell settings are not installed.")));
         self.atspi_record(overlay.layer.wl_surface(), nodes);

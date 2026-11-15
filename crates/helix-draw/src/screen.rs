@@ -37,10 +37,11 @@ mod shape_tests {
 }
 
 /// Text sizes (logical px): a big clock's size comes from
-/// [`display_px`]; then titles (a user's name), body text and captions.
+/// [`display_px`]; then titles (a user's name), body text and captions
+/// (the last two are the shell's, [`crate::theme::size`]).
 pub const TITLE: f32 = 22.0;
-pub const BODY: f32 = 15.0;
-pub const CAPTION: f32 = 13.0;
+pub const BODY: f32 = crate::theme::size::BODY;
+pub const CAPTION: f32 = crate::theme::size::CAPTION;
 /// A date or subtitle under a big clock.
 pub const SUBTITLE: f32 = 21.0;
 

@@ -123,15 +123,14 @@ impl Ui {
                 self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
             {
                 let mut canvas = Canvas::scaled(data, w, h, scale);
-                canvas.fill(BANNER_BORDER);
-                canvas.rect(1, 1, w as i32 - 2, h as i32 - 2, BOX_BG);
+                canvas.fill(0);
+                theme::popover_round(&mut canvas, 1.0, 1.0, w as f64 - 2.0, h as f64 - 2.0, theme::RADIUS_POPOVER);
                 let n = self.windows.count.min(36) as i32;
                 let row = n * BOX_W + (n - 1) * GAP;
                 let x0 = (w as i32 - row) / 2;
                 for i in 0..n {
                     let x = x0 + i * (BOX_W + GAP);
-                    let color = if i as u32 == popup.active { accent() } else { FIELD_BG };
-                    canvas.rect(x, PAD, BOX_W, BOX_H, color);
+                    theme::control(&mut canvas, x, PAD, BOX_W, BOX_H, theme::Look { on: i as u32 == popup.active, ..Default::default() });
                 }
                 let name = workspace_name(&names, popup.active);
                 let text = self.text.as_ref();

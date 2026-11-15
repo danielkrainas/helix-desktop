@@ -80,17 +80,17 @@ impl Ui {
             if let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) {
                 let mut canvas = Canvas::scaled(data, w, h, scale);
                 canvas.fill(0x00000000);
-                canvas.rect(0, 0, w as i32, h as i32, BANNER_BORDER);
-                canvas.rect(1, 1, w as i32 - 2, h as i32 - 2, BANNER_BG);
+                theme::popover_round(&mut canvas, 1.0, 1.0, w as f64 - 2.0, h as f64 - 2.0, theme::RADIUS_POPOVER);
                 let text = self.text.as_ref();
                 view.hits.clear();
                 for (i, (name, label_text)) in TYPES.iter().enumerate() {
                     let label_text = helix_i18n::tr(label_text);
                     let r = Rect { x: GAP, y: GAP + i as i32 * (BUTTON_H + GAP), w: BUTTON_W, h: BUTTON_H };
                     let current = self.click_type.current == *name;
-                    canvas.rect(r.x, r.y, r.w, r.h, if current { accent_fill() } else { FIELD_BG });
+                    let look = theme::Look { on: current, ..Default::default() };
+                    theme::control(&mut canvas, r.x, r.y, r.w, r.h, look);
                     let tw = text.map_or(0.0, |t| t.width(label_text, 14.0));
-                    label(text, &mut canvas, label_text, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 14.0), 14.0, if current { on_accent() } else { FG }, r.w as f32);
+                    label(text, &mut canvas, label_text, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 14.0), 14.0, theme::control_text(look), r.w as f32);
                     view.hits.push((r, i));
                 }
                 let surface = view.layer.wl_surface();

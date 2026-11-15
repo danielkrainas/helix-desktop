@@ -22,7 +22,6 @@ const MIN_DRAG: f64 = 2.0;
 const FLASH_STEPS: u32 = 6;
 const FLASH_STEP: Duration = Duration::from_millis(40);
 const PICK_SCRIM: u32 = 0x80000000;
-const HINT_BG: u32 = 0xE01E1E24;
 
 /// One monitor's picker surface.
 pub(super) struct PickView {
@@ -88,7 +87,6 @@ impl ShotState {
 const TOOL_H: i32 = 36;
 const TOOL_GAP: i32 = 6;
 const TOOL_PAD: i32 = 8;
-const TOOL_BG: u32 = 0xF0242429;
 
 /// A fading white rectangle on one monitor.
 pub(super) struct Flash {
@@ -321,7 +319,7 @@ impl Ui {
             let tw = text.map_or(0.0, |t| t.width(message, 14.0)) as i32;
             let (bw, bh) = (tw + 32, 36);
             let bx = (w as i32 - bw) / 2;
-            canvas.rect(bx, 24, bw, bh, HINT_BG);
+            theme::popover_round(&mut canvas, f64::from(bx), 24.0, f64::from(bw), f64::from(bh), theme::pill(f64::from(bh)));
             label(text, &mut canvas, message, (bx + 16) as f32, baseline(text, 24, bh, 14.0), 14.0, FG, tw as f32 + 1.0);
             nodes.push(crate::a11y::Node::label(message).id("hint").at(crate::a11y::Rect::new(bx, 24, bw, bh)));
             if let (true, Some((x, y, sw, sh))) = (is_ui && picker.shot.mode != ShotMode::Screen, clear) {
@@ -346,7 +344,7 @@ impl Ui {
                 let groups = if st.allow_record { 3 } else { 2 };
                 let total: i32 = widths.iter().sum::<i32>() + TOOL_GAP * (widths.len() as i32 - 1) + 2 * TOOL_GAP + 8 * groups;
                 let (tx, ty) = ((w as i32 - total) / 2, h as i32 - TOOL_H - 2 * TOOL_GAP - 32);
-                canvas.rect(tx, ty, total, TOOL_H + 2 * TOOL_GAP, TOOL_BG);
+                theme::popover_round(&mut canvas, f64::from(tx), f64::from(ty), f64::from(total), f64::from(TOOL_H + 2 * TOOL_GAP), theme::RADIUS_POPOVER + 2.0);
                 let mut x = tx + TOOL_GAP;
                 let mut a11y_tools = Vec::new();
                 for (i, ((name, tool, on, enabled), bw)) in buttons.iter().zip(&widths).enumerate() {
@@ -356,17 +354,9 @@ impl Ui {
                         x += 8;
                     }
                     let r = Rect { x, y: ty + TOOL_GAP, w: *bw, h: TOOL_H };
-                    let bg = match tool {
-                        Tool::Capture => accent_fill(),
-                        _ if *on => 0xFF4A4A55,
-                        _ => FIELD_BG,
-                    };
-                    canvas.rect(r.x, r.y, r.w, r.h, bg);
-                    let fg = match tool {
-                        Tool::Capture => on_accent(),
-                        _ if *enabled => FG,
-                        _ => DIM_FG,
-                    };
+                    let look = theme::Look { on: *on || *tool == Tool::Capture, ..Default::default() };
+                    theme::control(&mut canvas, r.x, r.y, r.w, r.h, look);
+                    let fg = if *enabled { theme::control_text(look) } else { theme::disabled_text() };
                     label(text, &mut canvas, name, (r.x + TOOL_PAD + 4) as f32, baseline(text, r.y, r.h, 14.0), 14.0, fg, (r.w - 2 * TOOL_PAD) as f32);
                     if *enabled {
                         tools.push((r, *tool));

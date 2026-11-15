@@ -39,6 +39,7 @@ pub(super) fn wallpaper(name: &str, (w, h): (usize, usize), scale: f64) -> Vec<u
 }
 
 pub(super) const DARK: &str = "Resolute_Raccoon_Wallpaper_Dimmed_3840x2160.png";
+pub(super) const LIGHT: &str = "Resolute_Raccoon_Wallpaper_Light_3840x2160.png";
 #[allow(dead_code)]
 pub(super) const PHOTO: &str = "mendhak-Bluebells_Suspended_In_Time.jpg";
 
@@ -60,6 +61,89 @@ pub(super) fn render(dir: &std::path::Path, name: &str, wall: &str, (w, h, scale
         d[3] = 255;
     }
     save(dir, name, &data, physical(w, scale), physical(h, scale));
+}
+
+/// One way of looking at the shell: a wallpaper, a scale, high contrast,
+/// an accent, a text scale.
+pub(super) struct Look {
+    pub name: &'static str,
+    pub wall: &'static str,
+    pub scale: f64,
+    pub hc: bool,
+    pub accent: helix_draw::accent::Accent,
+    pub text: f64,
+}
+
+/// The looks every surface's gallery shows: dark and light wallpapers,
+/// scale 1.5, high contrast, a non-blue accent and text at 1.5.
+pub(super) fn looks() -> Vec<Look> {
+    use helix_draw::accent::Accent;
+    let look = |name, wall, scale, hc, accent, text| Look { name, wall, scale, hc, accent, text };
+    vec![
+        look("dark", DARK, 1.0, false, Accent::Blue, 1.0),
+        look("light", LIGHT, 1.0, false, Accent::Blue, 1.0),
+        look("scale1.5", DARK, 1.5, false, Accent::Blue, 1.0),
+        look("hc", DARK, 1.0, true, Accent::Blue, 1.0),
+        look("orange", LIGHT, 1.0, false, Accent::Orange, 1.0),
+        look("text1.5", DARK, 1.0, false, Accent::Blue, 1.5),
+    ]
+}
+
+/// Render `paint` on a `w`×`h` screen in every [`looks`]:
+/// `{name}-{look}.png`.
+pub(super) fn in_looks(dir: &std::path::Path, name: &str, (w, h): (usize, usize), paint: &mut dyn FnMut(&mut Canvas, (usize, usize))) {
+    for l in looks() {
+        helix_draw::accent::set(l.accent);
+        helix_draw::set_high_contrast(l.hc);
+        helix_draw::theme::set_text_scale(l.text);
+        render(dir, &format!("{name}-{}", l.name), l.wall, (w, h, l.scale), |canvas| paint(canvas, (w, h)));
+    }
+    helix_draw::theme::set_text_scale(1.0);
+    helix_draw::set_high_contrast(false);
+    helix_draw::accent::set(helix_draw::accent::Accent::Blue);
+}
+
+/// The panel (`panel_with`) drawn over the top of `canvas`, as its own
+/// surface.
+fn panel_over(canvas: &mut Canvas, text: Option<&Text>, w: usize, hover: Option<crate::panel_layout::Slot>, power_open: bool) {
+    let ph = panel_height() as usize;
+    let scale = canvas.scale;
+    let mut data = vec![0u8; physical(w, scale) * physical(ph, scale) * 4];
+    let mut bar = Canvas::scaled(&mut data, w, ph, scale);
+    panel_with(&mut bar, text, (w, ph), scale, None, power_open, hover, None);
+    let n = physical(w, scale) * physical(ph, scale) * 4;
+    canvas.data[..n].copy_from_slice(&data);
+}
+
+/// Every surface on the shared look (helix-desktop-spec
+/// `components/README.md`, "Shell look") in every [`looks`]: `look-…`.
+#[test]
+#[ignore]
+fn shared_look() {
+    use notify::tests::{paint_sample, sample, sample_calendar};
+    let Some(dir) = dir() else { return };
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    let entries = sample();
+    let open: std::collections::HashSet<String> = ["app:org.example.Chat".to_owned()].into();
+    let cal = sample_calendar(true);
+    in_looks(&dir, "look-quick-menu", (1280, 720), &mut |canvas, (w, h)| {
+        quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(Some(3)), None, &mut Default::default());
+        let ph = panel_height() as i32;
+        window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph + 4), &menu_items(), Some(1), false, false);
+        panel_over(canvas, text.as_ref(), w, Some(crate::panel_layout::Slot::Item(crate::panel_layout::Item::Clock)), true);
+    });
+    in_looks(&dir, "look-list", (1280, 720), &mut |canvas, (w, h)| {
+        paint_sample(canvas, (text.as_ref(), bold.as_ref()), (w, h), &entries, &open, &cal, Some(&notify::ListHit::Entry(4)));
+        panel_over(canvas, text.as_ref(), w, None, false);
+    });
+    in_looks(&dir, "look-dialog", (1280, 720), &mut |canvas, (w, h)| {
+        let state = DialogState { focus: Some(Choice::Canceled), ..DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60) };
+        paint_question(canvas, text.as_ref(), (w, h), &state);
+    });
+    in_looks(&dir, "look-dialog-hover", (1280, 720), &mut |canvas, (w, h)| {
+        let state = DialogState { hover: Some(OverlayHit::Confirm), pressed: None, ..DialogState::new(DialogKind::NotResponding { id: 1, title: "Text Editor".into() }, 0) };
+        paint_question(canvas, text.as_ref(), (w, h), &state);
+    });
 }
 
 #[test]
@@ -283,8 +367,7 @@ fn text_scale() {
             let mut dry = Canvas::scaled(&mut scratch, w, h, 1.0);
             let (_, bottom) = notify::paint_notification(&mut dry, (text.as_ref(), bold.as_ref()), None, &banner, (x + 16, 24), bw - 32 - 24, 2);
             let bh = bottom - 8 + helix_draw::theme::grow(52);
-            canvas.rect(x - 1, 7, bw + 2, bh + 2, BANNER_BORDER);
-            canvas.rect(x, 8, bw, bh, BANNER_BG);
+            theme::popover(canvas, x, 8, bw, bh);
             let (_, bottom) = notify::paint_notification(canvas, (text.as_ref(), bold.as_ref()), None, &banner, (x + 16, 24), bw - 32 - 24, 2);
             let bt = helix_draw::theme::grow(36);
             for (i, (_, l)) in banner.buttons.iter().enumerate() {

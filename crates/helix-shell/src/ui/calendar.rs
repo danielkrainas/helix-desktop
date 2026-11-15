@@ -239,6 +239,7 @@ pub(super) fn paint_calendar(
     (x, y): (i32, i32),
     icons: &MediaIcons,
     hits: &mut Vec<(Rect, ListHit)>,
+    look: &dyn Fn(&ListHit) -> theme::Look,
 ) {
     let grow = helix_draw::theme::grow;
     let Ok(now) = DateTime::now_local() else { return };
@@ -254,11 +255,18 @@ pub(super) fn paint_calendar(
     if let Some(first) = local_date(cal.month.0, cal.month.1, 1) {
         label(bold.or(text), canvas, &fmt(&first, &trc("month and year", "%OB %Y")), (x + PAD) as f32, baseline(text, y, grow(MONTH_H), 14.0), 14.0, FG, (inner - 70) as f32);
     }
-    for (i, (glyph, delta)) in [("‹", -1), ("›", 1)].into_iter().enumerate() {
-        let r = Rect { x: x + cal_w() - PAD - 64 + i as i32 * 34, y: y + 2, w: 30, h: grow(MONTH_H) - 4 };
-        theme::control(canvas, r.x, r.y, r.w, r.h, theme::Look::default());
-        label(text, canvas, glyph, (r.x + 11) as f32, baseline(text, r.y, r.h, 18.0), 18.0, FG, 20.0);
-        hits.push((r, ListHit::Month(delta)));
+    // Previous and next month: round flat buttons with chevrons.
+    for (i, (towards, delta)) in [(theme::Towards::Left, -1), (theme::Towards::Right, 1)].into_iter().enumerate() {
+        let d = 30;
+        let r = Rect { x: x + cal_w() - PAD - 64 + i as i32 * 34, y: y + (grow(MONTH_H) - d) / 2, w: d, h: d };
+        let (cx, cy) = (f64::from(r.x) + 15.0, f64::from(r.y) + 15.0);
+        let hit = ListHit::Month(delta);
+        theme::round_flat(canvas, cx, cy, f64::from(d), look(&hit), false);
+        if helix_draw::high_contrast() && !(look(&hit).hovered || look(&hit).pressed) {
+            canvas.ring(cx, cy, 14.5, 1.0, 0xFFFF_FFFF);
+        }
+        theme::chevron(canvas, cx, cy, 10.0, towards, FG);
+        hits.push((r, hit));
     }
     y += grow(MONTH_H);
     // Weekday initials, optional week numbers, six weeks of days.
@@ -294,6 +302,10 @@ pub(super) fn paint_calendar(
                 } else {
                     canvas.circle(f64::from(cx), f64::from(cy), 13.0, theme::CONTROL_HOVER);
                 }
+            } else {
+                // Under the pointer: a light circle.
+                let l = look(&ListHit::Day(ymd.0, ymd.1, ymd.2));
+                theme::flat(canvas, (f64::from(cx) - 13.0, f64::from(cy) - 13.0, 26.0, 26.0), 13.0, l);
             }
             let n = ymd.2.to_string();
             let color = if is_today { on_accent() } else if (ymd.0, ymd.1) == cal.month { FG } else { DIM_FG };
@@ -315,7 +327,7 @@ pub(super) fn paint_calendar(
         Some(day) => fmt(&day, &trc("calendar day", "%A, %B %e")),
         None => String::new(),
     };
-    canvas.rect(x + PAD, y, inner, 1, BANNER_BORDER);
+    theme::separator(canvas, x + PAD, y, inner);
     label(bold.or(text), canvas, &heading, (x + PAD) as f32, (y + grow(19)) as f32, 13.0, FG, inner as f32);
     y += grow(SECTION_H);
     let events = cal.day_events(cal.selected);
@@ -341,7 +353,7 @@ pub(super) fn paint_calendar(
     // World clocks.
     if !data.clocks.is_empty() {
         y += GAP;
-        canvas.rect(x + PAD, y, inner, 1, BANNER_BORDER);
+        theme::separator(canvas, x + PAD, y, inner);
         label(bold.or(text), canvas, tr("World Clocks"), (x + PAD) as f32, (y + grow(19)) as f32, 13.0, FG, inner as f32);
         y += grow(SECTION_H);
         for (name, zone) in &data.clocks {
@@ -361,7 +373,7 @@ pub(super) fn paint_calendar(
     // The weather.
     if let Some(weather) = &data.weather {
         y += GAP;
-        canvas.rect(x + PAD, y, inner, 1, BANNER_BORDER);
+        theme::separator(canvas, x + PAD, y, inner);
         label(bold.or(text), canvas, tr("Weather"), (x + PAD) as f32, (y + grow(19)) as f32, 13.0, FG, inner as f32);
         y += grow(SECTION_H);
         let unit = data.unit.unwrap_or(crate::weather::Unit::Celsius);
@@ -391,7 +403,7 @@ pub(super) fn paint_calendar(
     // The media player.
     if let Some(player) = &data.player {
         y += GAP;
-        canvas.rect(x + PAD, y, inner, 1, BANNER_BORDER);
+        theme::separator(canvas, x + PAD, y, inner);
         label(text, canvas, &player.identity, (x + PAD) as f32, (y + grow(18)) as f32, 12.0, DIM_FG, inner as f32);
         let title = if player.title.is_empty() { tr("Unknown Title") } else { player.title.as_str() };
         label(bold.or(text), canvas, title, (x + PAD) as f32, (y + grow(38)) as f32, 14.0, FG, inner as f32);
@@ -402,7 +414,9 @@ pub(super) fn paint_calendar(
         let bx = x + (cal_w() - 3 * bw - 2 * 12) / 2;
         for (i, command) in commands.into_iter().enumerate() {
             let r = Rect { x: bx + i as i32 * (bw + 12), y: by, w: bw, h: 32 };
-            theme::control(canvas, r.x, r.y, r.w, r.h, theme::Look::default());
+            // Round buttons; play/pause, the main one, filled.
+            let l = theme::Look { on: false, ..look(&ListHit::Media(command)) };
+            theme::control_round(canvas, (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h)), theme::pill(f64::from(r.h)), l);
             if let Some(icon) = &icons[i] {
                 let s = 16.0;
                 canvas.image(f64::from(r.x) + (f64::from(r.w) - s) / 2.0, f64::from(r.y) + (f64::from(r.h) - s) / 2.0, s, s, icon);

@@ -6,7 +6,7 @@ use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym};
 use smithay_client_toolkit::shell::WaylandSurface;
 use tokio::sync::oneshot;
 
-use super::{accent, accent_fill, baseline, caret, label, on_accent, text_field, physical, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, DIM_FG, FG, FIELD_BG, SCRIM, ERROR_TEXT};
+use super::{accent, baseline, caret, label, text_field, physical, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, DIM_FG, FG, SCRIM, ERROR_TEXT};
 use crate::auth::Secret;
 use crate::prompt::{Answer, Prompt, Request};
 use helix_i18n::tr;
@@ -490,39 +490,37 @@ impl Ui {
         // The places, left of the list.
         for (i, name) in p.places.iter().enumerate().take(places_shown) {
             let r = Rect { x: bx + 24, y: y + i as i32 * grow(LIST_ROW), w: side - 12, h: grow(LIST_ROW) };
+            let hit = OverlayHit::Place(i);
+            let look = theme::Look { hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
             if p.place_current == Some(i) {
-                canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
-                canvas.rect(r.x, r.y + 6, 3, r.h - 12, accent());
+                theme::control_round(&mut canvas, (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h)), theme::RADIUS_ROW, look);
+                canvas.round_rect(f64::from(r.x + 3), f64::from(r.y + 8), 3.0, f64::from(r.h - 16), 1.5, accent());
+            } else {
+                theme::row(&mut canvas, r.x, r.y, r.w, r.h, look);
             }
             label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 16) as f32);
             hits.push((r, OverlayHit::Place(i)));
         }
         if shown > 0 {
-            canvas.rect(bx + 24 + side, y, bw - 48 - side, shown as i32 * grow(LIST_ROW), FIELD_BG);
+            theme::well(&mut canvas, bx + 24 + side, y, bw - 48 - side, shown as i32 * grow(LIST_ROW));
             for (i, name) in p.list.iter().enumerate().skip(first).take(shown) {
                 let r = Rect { x: bx + 24 + side, y: y + (i - first) as i32 * grow(LIST_ROW), w: bw - 48 - side, h: grow(LIST_ROW) };
-                if p.multiple {
-                    if view.picked[i] {
-                        canvas.rect(r.x, r.y, r.w, r.h, accent_fill());
-                    }
-                    if i == view.selected {
-                        // The current row: an outline.
-                        for (x, y, w, h) in [(r.x, r.y, r.w, 1), (r.x, r.y + r.h - 1, r.w, 1), (r.x, r.y, 1, r.h), (r.x + r.w - 1, r.y, 1, r.h)] {
-                            canvas.rect(x, y, w, h, FG);
-                        }
-                    }
-                } else if i == view.selected {
-                    canvas.rect(r.x, r.y, r.w, r.h, accent_fill());
-                }
                 let lit = if p.multiple { view.picked[i] } else { i == view.selected };
-                label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, if lit { on_accent() } else { FG }, (r.w - 24) as f32);
+                let hit = OverlayHit::Row(i);
+                let look = theme::Look { on: lit, hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit) };
+                theme::row(&mut canvas, r.x + 2, r.y + 1, r.w - 4, r.h - 2, look);
+                if p.multiple && i == view.selected {
+                    // The current row: an outline.
+                    canvas.round_outline(f64::from(r.x + 3), f64::from(r.y + 2), f64::from(r.w - 6), f64::from(r.h - 4), theme::RADIUS_ROW - 1.0, 1.0, FG);
+                }
+                label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, theme::control_text(look), (r.w - 24) as f32);
                 hits.push((r, OverlayHit::Row(i)));
             }
         }
         y += list_h;
         if preview_h > 0 {
             let area = Rect { x: bx + 24, y: y + 4, w: bw - 48, h: PREVIEW_H };
-            canvas.rect(area.x, area.y, area.w, area.h, FIELD_BG);
+            theme::well(&mut canvas, area.x, area.y, area.w, area.h);
             let preview = p.previews.get(view.selected).and_then(|f| view.previews.get(f)).and_then(|i| i.as_ref());
             let image = match preview {
                 Some(crate::Preview::Image(image)) => Some(&**image),
@@ -536,7 +534,7 @@ impl Ui {
             } else if let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) {
                 let k = (f64::from(area.w) / image.width as f64).min(f64::from(area.h) / image.height as f64).min(1.0);
                 let (iw, ih) = (image.width as f64 * k, image.height as f64 * k);
-                canvas.image(f64::from(area.x) + (f64::from(area.w) - iw) / 2.0, f64::from(area.y) + (f64::from(area.h) - ih) / 2.0, iw, ih, image);
+                canvas.image_rounded(f64::from(area.x) + (f64::from(area.w) - iw) / 2.0, f64::from(area.y) + (f64::from(area.h) - ih) / 2.0, iw, ih, theme::RADIUS_ROW, image, 1.0);
             } else {
                 let none = tr("No preview");
                 let tw = text.map_or(0.0, |t| t.width(none, 13.0));
@@ -588,10 +586,14 @@ impl Ui {
             if view.can_show {
                 let b = Rect { x: r.x + r.w - SHOW_W, y: r.y, w: SHOW_W, h: r.h };
                 let s = if view.shown[index] { tr("Hide") } else { tr("Show") };
+                let hit = OverlayHit::ShowPassword(index);
+                let look = theme::Look { hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
+                let inside = (f64::from(b.x + 4), f64::from(b.y + 5), f64::from(b.w - 8), f64::from(b.h - 10));
+                theme::flat(&mut canvas, inside, theme::RADIUS_ROW, look);
                 let lw = text.map_or(0.0, |t| t.width(s, 13.0));
-                label(text, &mut canvas, s, b.x as f32 + (b.w as f32 - lw) / 2.0, baseline(text, b.y, b.h, 13.0), 13.0, DIM_FG, b.w as f32);
+                label(text, &mut canvas, s, b.x as f32 + (b.w as f32 - lw) / 2.0, baseline(text, b.y, b.h, 13.0), 13.0, if look.hovered || look.pressed { FG } else { DIM_FG }, b.w as f32);
                 if view.focus == SHOW_FOCUS + index && !view.busy {
-                    helix_draw::theme::focus_ring(&mut canvas, b.x + 4, b.y + 6, b.w - 8, b.h - 12);
+                    theme::focus_ring_round(&mut canvas, inside.0, inside.1, inside.2, inside.3, theme::RADIUS_ROW);
                 }
                 hits.push((b, OverlayHit::ShowPassword(index)));
             }
@@ -600,24 +602,16 @@ impl Ui {
         }
         if let Some((name, _)) = &p.choice {
             let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
-            // Outlined, so an empty box shows.
-            canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
-            canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if view.choice { accent() } else { FIELD_BG });
-            if view.focus == 2 {
-                helix_draw::theme::focus_ring(&mut canvas, r.x - 1, r.y + (r.h - 20) / 2, 20, 20);
-            }
+            let look = theme::Look { hovered: overlay.state.hover == Some(OverlayHit::Toggle), pressed: overlay.state.pressed == Some(OverlayHit::Toggle), ..Default::default() };
+            check(&mut canvas, r, view.choice, look, view.focus == 2);
             label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
             hits.push((r, OverlayHit::Toggle));
             y += grow(34);
         }
         for (i, (name, _)) in p.checks.iter().enumerate() {
             let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
-            // Outlined, so an empty box shows.
-            canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
-            canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if view.checks[i] { accent() } else { FIELD_BG });
-            if view.focus == CHECK_FOCUS + i {
-                helix_draw::theme::focus_ring(&mut canvas, r.x - 1, r.y + (r.h - 20) / 2, 20, 20);
-            }
+            let look = theme::Look { hovered: overlay.state.hover == Some(OverlayHit::Check(i)), pressed: overlay.state.pressed == Some(OverlayHit::Check(i)), ..Default::default() };
+            check(&mut canvas, r, view.checks[i], look, view.focus == CHECK_FOCUS + i);
             label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
             hits.push((r, OverlayHit::Check(i)));
             y += grow(34);
@@ -635,12 +629,14 @@ impl Ui {
         let confirm_label = if p.continue_label.is_empty() { tr("Continue") } else { &p.continue_label };
         // Rounded buttons; the confirm button is the default one (the
         // suggested style; Enter presses it).
-        use helix_draw::screen::{push_button, ButtonKind, ButtonState};
-        let at = |r: Rect| (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
-        let state = |f: usize| ButtonState { focused: view.focus == f && !view.busy, ..Default::default() };
-        push_button(&mut canvas, text, at(cancel), cancel_label, ButtonKind::Normal, state(CANCEL_FOCUS), 1.0);
-        let kind = if view.busy { ButtonKind::Normal } else { ButtonKind::Suggested };
-        push_button(&mut canvas, text, at(confirm), confirm_label, kind, state(CONFIRM_FOCUS), if view.busy { 0.6 } else { 1.0 });
+        let look = |hit| theme::Look { hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
+        let at = |r: Rect| (r.x, r.y, r.w, r.h);
+        theme::button(&mut canvas, text, at(cancel), cancel_label, theme::Kind::Normal, look(OverlayHit::Cancel), view.focus == CANCEL_FOCUS && !view.busy);
+        if view.busy {
+            theme::button_off(&mut canvas, text, at(confirm), confirm_label);
+        } else {
+            theme::button(&mut canvas, text, at(confirm), confirm_label, theme::Kind::Suggested, look(OverlayHit::Confirm), view.focus == CONFIRM_FOCUS);
+        }
         hits.push((cancel, OverlayHit::Cancel));
         hits.push((confirm, OverlayHit::Confirm));
         let node = a11y(view, &hits, status, (cancel_label, confirm_label), text);
@@ -651,6 +647,16 @@ impl Ui {
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
+    }
+}
+
+/// A check box row's box (at the start of `r`) in `look`, with the focus
+/// ring when `focused`.
+fn check(canvas: &mut Canvas, r: Rect, on: bool, look: theme::Look, focused: bool) {
+    let (x, y) = (f64::from(r.x), f64::from(r.y + (r.h - 18) / 2));
+    theme::check_box(canvas, x, y, 18.0, on, look);
+    if focused {
+        theme::focus_ring_round(canvas, x, y, 18.0, 18.0, theme::RADIUS_CHECK);
     }
 }
 

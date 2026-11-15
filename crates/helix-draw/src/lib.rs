@@ -262,6 +262,39 @@ impl<'a> Canvas<'a> {
         }, color);
     }
 
+    /// A soft shadow around the rounded box (x, y, w, h) (corner `r`):
+    /// `color` just outside its edge, fading (quadratically) to nothing
+    /// `spread` logical px out. The inside is left alone (the box covers
+    /// it), so rows deep inside are skipped.
+    #[allow(clippy::too_many_arguments)]
+    pub fn shadow(&mut self, x: f64, y: f64, w: f64, h: f64, r: f64, spread: f64, color: u32) {
+        let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
+        let (cx, cy, hw, hh) = (x + w / 2.0, y + h / 2.0, w / 2.0 - r, h / 2.0 - r);
+        let s = self.scale;
+        let (px0, py0) = (((x - spread) * s).floor() as i32, ((y - spread) * s).floor() as i32);
+        let (px1, py1) = (((x + w + spread) * s).ceil() as i32, ((y + h + spread) * s).ceil() as i32);
+        // Inside the box by more than this: covered, skipped.
+        let (ix0, ix1) = (((x + r + 1.0) * s).ceil() as i32, ((x + w - r - 1.0) * s).floor() as i32);
+        let (iy0, iy1) = (((y + r + 1.0) * s).ceil() as i32, ((y + h - r - 1.0) * s).floor() as i32);
+        for py in py0.max(0)..py1.min(self.height as i32) {
+            let mut px = px0.max(0);
+            while px < px1.min(self.width as i32) {
+                if py >= iy0 && py < iy1 && px >= ix0 && px < ix1 {
+                    px = ix1;
+                    continue;
+                }
+                let (lx, ly) = ((f64::from(px) + 0.5) / s, (f64::from(py) + 0.5) / s);
+                let (dx, dy) = ((lx - cx).abs() - hw, (ly - cy).abs() - hh);
+                let outside = (dx.max(0.0).powi(2) + dy.max(0.0).powi(2)).sqrt() + dx.max(dy).min(0.0) - r;
+                let t = (1.0 - outside.max(0.0) / spread).clamp(0.0, 1.0);
+                if t > 0.0 {
+                    self.blend_px(px, py, color, (t * t) as f32);
+                }
+                px += 1;
+            }
+        }
+    }
+
     pub fn rect(&mut self, x: i32, y: i32, w: i32, h: i32, color: u32) {
         let color = shape_color(color);
         let edge = |v: i32| (f64::from(v) * self.scale).round() as i32;

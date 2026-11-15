@@ -177,7 +177,7 @@ pub(super) fn paint_notification(
             let (ix, iy) = (f64::from(x) + (f64::from(ICON) - w) / 2.0, f64::from(y + 4) + (f64::from(ICON) - h) / 2.0);
             canvas.image(ix, iy, w, h, image);
         }
-        None => canvas.circle(f64::from(x + ICON / 2), f64::from(y + 4 + ICON / 2), f64::from(ICON) / 2.0 - 2.0, BANNER_BORDER),
+        None => canvas.circle(f64::from(x + ICON / 2), f64::from(y + 4 + ICON / 2), f64::from(ICON) / 2.0 - 2.0, theme::BORDER),
     }
     let grow = helix_draw::theme::grow;
     // The app, and when it arrived ("Chat · 5 min").
@@ -247,12 +247,12 @@ impl Ui {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(view.layer.wl_surface()));
-        // Lighter than the desktop, with a thin border, so it stands out.
-        canvas.fill(BANNER_BORDER);
-        canvas.rect(1, 1, w as i32 - 2, h as i32 - 2, BANNER_BG);
+        // A popover, rounded, its edge inside the surface.
+        canvas.fill(0);
+        theme::popover_round(&mut canvas, 1.0, 1.0, w as f64 - 2.0, h as f64 - 2.0, theme::RADIUS_POPOVER);
         if view.focused {
             // The focus ring, inside the banner's edge.
-            helix_draw::theme::focus_ring(&mut canvas, 5, 5, w as i32 - 10, h as i32 - 10);
+            theme::focus_ring_round(&mut canvas, 5.0, 5.0, w as f64 - 10.0, h as f64 - 10.0, theme::RADIUS_POPOVER - 4.0);
         }
         view.hits.clear();
         let inner = w as i32 - 2 * BANNER_PAD;
@@ -273,10 +273,9 @@ impl Ui {
             let bw = (w as i32 - 2 * BANNER_PAD - gap * (n - 1)) / n;
             for (i, (key, button_label)) in view.data.buttons.iter().enumerate() {
                 let r = Rect { x: BANNER_PAD + i as i32 * (bw + gap), y, w: bw, h: 32 };
-                theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
-                let lw = text.map_or(0.0, |t| t.width(button_label, 14.0)).min((bw - 12) as f32);
-                let base = baseline(text, r.y, r.h, 14.0);
-                label(text, &mut canvas, button_label, r.x as f32 + (bw as f32 - lw) / 2.0, base, 14.0, FG, (bw - 12) as f32);
+                let hit = BannerHit::Button(key.clone());
+                let look = theme::Look { hovered: view.hover.as_ref() == Some(&hit), pressed: view.pressed.as_ref() == Some(&hit), ..Default::default() };
+                theme::button(&mut canvas, text, (r.x, r.y, r.w, r.h), button_label, theme::Kind::Normal, look, false);
                 view.hits.push((r, BannerHit::Button(key.clone())));
             }
         }
@@ -461,7 +460,7 @@ impl Ui {
         // A focus that is not there (yet, or any more) moves to the first
         // notification, else Do Not Disturb.
         let targets = row_targets(&entries, &rows);
-        let model = ListModel { entries: &entries, rows: &rows, heights: &heights, icons: &icons, scroll: view.scroll, do_not_disturb: self.notify.do_not_disturb, calendar: &self.calendar, media_icons: &media_icons, cal_h, cal_scroll: view.cal_scroll };
+        let model = ListModel { entries: &entries, rows: &rows, heights: &heights, icons: &icons, scroll: view.scroll, do_not_disturb: self.notify.do_not_disturb, calendar: &self.calendar, media_icons: &media_icons, cal_h, cal_scroll: view.cal_scroll, hover: None, pressed: None };
         let fonts = (self.text.as_ref(), self.bold.as_ref());
         let mut painted = paint_list(&mut canvas, fonts, (w, h), &model, view.focus.as_ref());
         let lost = view.focus.as_ref().is_some_and(|f| !painted.stops.iter().any(|(_, s)| s == f) && !targets.contains(f));
@@ -808,6 +807,16 @@ pub(super) struct ListModel<'a> {
     pub cal_h: i32,
     /// Logical px of the calendar column scrolled past.
     pub cal_scroll: i32,
+    /// The part under the pointer, and the one pressed.
+    pub hover: Option<&'a ListHit>,
+    pub pressed: Option<&'a ListHit>,
+}
+
+impl ListModel<'_> {
+    /// How the part `hit` looks: hovered, pressed.
+    pub(super) fn look(&self, hit: &ListHit) -> theme::Look {
+        theme::Look { hovered: self.hover == Some(hit), pressed: self.pressed == Some(hit), ..Default::default() }
+    }
 }
 
 /// What painting the list gives back: what clicks hit, and the controls
@@ -862,10 +871,10 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     let cal_scroll = cal_scroll.clamp(0, (m.cal_h - bh).max(0));
     let cal_area = Rect { x: bx + list_w(), y: by, w: super::calendar::cal_w(), h: bh };
     theme::popover(canvas, bx, by, total_w, bh);
-    canvas.rect(bx + list_w(), by + LIST_PAD, 1, bh - 2 * LIST_PAD, BANNER_BORDER);
+    theme::vseparator(canvas, bx + list_w(), by + LIST_PAD, bh - 2 * LIST_PAD);
     let mut calendar_hits = Vec::new();
     canvas.clip(cal_area.x, cal_area.y, cal_area.w, cal_area.h);
-    super::calendar::paint_calendar(m.calendar, (text, bold), canvas, (bx + list_w(), by - cal_scroll), m.media_icons, &mut calendar_hits);
+    super::calendar::paint_calendar(m.calendar, (text, bold), canvas, (bx + list_w(), by - cal_scroll), m.media_icons, &mut calendar_hits, &|hit| m.look(hit));
     canvas.unclip();
     if m.cal_h > bh {
         // Where the column is, when it scrolls.
@@ -874,26 +883,14 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
         canvas.rect(cal_area.x + cal_area.w - 4, by + at, 3, thumb, theme::TEXT_DIM);
     }
     // Header: Do Not Disturb switch and Clear.
-    let switch = Rect { x: bx + LIST_PAD, y: by + 10, w: 40, h: 22 };
-    let on = m.do_not_disturb;
-    let track = if on { accent() } else { TRACK };
-    canvas.circle(f64::from(switch.x + 11), f64::from(switch.y + 11), 11.0, track);
-    canvas.circle(f64::from(switch.x + switch.w - 11), f64::from(switch.y + 11), 11.0, track);
-    canvas.rect(switch.x + 11, switch.y, switch.w - 22, switch.h, track);
-    if helix_draw::high_contrast() {
-        // Off is black on black: outlined.
-        canvas.round_outline(f64::from(switch.x), f64::from(switch.y), f64::from(switch.w), f64::from(switch.h), 11.0, 1.0, 0xFFFFFFFF);
-    }
-    let knob = if on { switch.x + switch.w - 11 } else { switch.x + 11 };
-    canvas.circle(f64::from(knob), f64::from(switch.y + 11), 9.0, FG);
+    let switch = Rect { x: bx + LIST_PAD, y: by + 10, w: theme::SWITCH_W as i32, h: theme::SWITCH_H as i32 };
+    theme::switch(canvas, f64::from(switch.x), f64::from(switch.y), m.do_not_disturb, m.look(&ListHit::DoNotDisturb));
     label(text, canvas, tr("Do Not Disturb"), (switch.x + switch.w + 10) as f32, baseline(text, switch.y, switch.h, 14.0), 14.0, FG, helix_draw::theme::grow(160) as f32);
     hits.push((Rect { x: switch.x, y: switch.y, w: switch.w + 10 + text.map_or(130, |t| t.width(tr("Do Not Disturb"), 14.0) as i32), h: switch.h }, ListHit::DoNotDisturb));
     if !m.entries.is_empty() {
         let clear_w = helix_draw::theme::grow(64);
         let clear = Rect { x: bx + list_w() - LIST_PAD - clear_w, y: by + 8, w: clear_w, h: helix_draw::theme::grow(26) };
-        theme::control(canvas, clear.x, clear.y, clear.w, clear.h, theme::Look::default());
-        let cw = text.map_or(0.0, |t| t.width(tr("Clear"), 14.0));
-        label(text, canvas, tr("Clear"), clear.x as f32 + (clear.w as f32 - cw) / 2.0, baseline(text, clear.y, clear.h, 14.0), 14.0, FG, (clear_w - 4) as f32);
+        theme::button(canvas, text, (clear.x, clear.y, clear.w, clear.h), tr("Clear"), theme::Kind::Normal, m.look(&ListHit::Clear), false);
         hits.push((clear, ListHit::Clear));
     }
     // Tab order: the header's controls, then each row followed by its
@@ -911,21 +908,20 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
         let indent = indents.get(m.scroll + n).copied().unwrap_or(0);
         let entry = match row {
             Row::Header { key, app, count, open } => {
-                canvas.rect(bx + LIST_PAD, y, list_w() - 2 * LIST_PAD, 1, BANNER_BORDER);
+                let row_r = Rect { x: bx, y, w: list_w(), h: eh };
+                theme::separator(canvas, bx + LIST_PAD, y, list_w() - 2 * LIST_PAD);
+                card(canvas, row_r, m.look(&ListHit::GroupToggle(key.clone())));
                 let head = app.clone();
                 let tail = trf!("{count} notifications", count = count);
                 // A chevron: down when open, right when closed.
-                let (cx, cy) = (f64::from(bx + LIST_PAD + 8), f64::from(y + 15));
-                let (a, b, c) = if *open { ((cx - 4.0, cy - 2.0), (cx, cy + 2.0), (cx + 4.0, cy - 2.0)) } else { ((cx - 2.0, cy - 4.0), (cx + 2.0, cy), (cx - 2.0, cy + 4.0)) };
-                canvas.line(a, b, 1.5, DIM_FG);
-                canvas.line(b, c, 1.5, DIM_FG);
+                let towards = if *open { theme::Towards::Down } else { theme::Towards::Right };
+                theme::chevron(canvas, f64::from(bx + LIST_PAD + 8), f64::from(y + 15), 8.0, towards, DIM_FG);
                 let hb = bold.or(text);
                 label(hb, canvas, &head, (bx + LIST_PAD + 20) as f32, (y + 20) as f32, 14.0, FG, 200.0);
                 let hw = hb.map_or(0.0, |t| t.width(&head, 14.0).min(200.0));
                 label(text, canvas, &tail, bx as f32 + (LIST_PAD + 32) as f32 + hw, (y + 20) as f32, 13.0, DIM_FG, 140.0);
                 let close = Rect { x: bx + list_w() - LIST_PAD - 22, y: y + 4, w: 22, h: 22 };
                 label(text, canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
-                let row_r = Rect { x: bx, y, w: list_w(), h: eh };
                 hits.push((close, ListHit::GroupClear(key.clone())));
                 hits.push((row_r, ListHit::GroupToggle(key.clone())));
                 stops.push((row_r, ListHit::GroupToggle(key.clone())));
@@ -937,9 +933,11 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
         };
         let grouped = indent > 0;
         if !grouped {
-            canvas.rect(bx + LIST_PAD, y, list_w() - 2 * LIST_PAD, 1, BANNER_BORDER);
-        } else {
-            canvas.rect(bx + LIST_PAD + 4, y + 4, 2, eh - 8, BANNER_BORDER);
+            theme::separator(canvas, bx + LIST_PAD, y, list_w() - 2 * LIST_PAD);
+        }
+        card(canvas, Rect { x: bx, y, w: list_w(), h: eh }, m.look(&ListHit::Entry(entry.id)));
+        if grouped {
+            canvas.round_rect(f64::from(bx + LIST_PAD + 4), f64::from(y + 4), 2.0, f64::from(eh - 8), 1.0, if helix_draw::high_contrast() { 0xFFFF_FFFF } else { theme::BORDER });
         }
         let (links, _) = paint_notification(canvas, (text, bold), icon, entry, (bx + LIST_PAD + indent, y + LIST_PAD), entry_w(indent), 2);
         let close = Rect { x: bx + list_w() - LIST_PAD - 22, y: y + LIST_PAD - 2, w: 22, h: 22 };
@@ -969,14 +967,40 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
         if matches!(hit, ListHit::Day(..)) {
             canvas.ring(f64::from(r.x) + f64::from(r.w) / 2.0, f64::from(r.y) + f64::from(r.h) / 2.0, 16.5, 2.0, helix_draw::theme::focus());
         } else if matches!(hit, ListHit::Entry(_) | ListHit::GroupToggle(_)) {
-            helix_draw::theme::focus_ring(canvas, r.x + LIST_PAD / 2, r.y + 2, r.w - LIST_PAD, r.h - 3);
+            let c = card_rect(*r);
+            theme::focus_ring_round(canvas, f64::from(c.x), f64::from(c.y), f64::from(c.w), f64::from(c.h), theme::RADIUS_ROW);
+        } else if matches!(hit, ListHit::DoNotDisturb) {
+            theme::focus_ring_round(canvas, f64::from(r.x), f64::from(r.y), theme::SWITCH_W, theme::SWITCH_H, theme::SWITCH_H / 2.0);
+        } else if matches!(hit, ListHit::Media(_) | ListHit::Month(_) | ListHit::Dismiss(_) | ListHit::GroupClear(_)) {
+            theme::focus_ring_round(canvas, f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), f64::from(r.w.min(r.h)) / 2.0);
         } else {
-            helix_draw::theme::focus_ring(canvas, r.x, r.y, r.w, r.h);
+            theme::focus_ring_round(canvas, f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), theme::RADIUS_BUTTON);
         }
     }
     hits.push((Rect { x: bx, y: by, w: total_w, h: bh }, ListHit::Inside));
     hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, ListHit::Outside));
     ListPainted { hits, stops, cal_scroll, cal_area }
+}
+
+/// Where a notification row's highlight goes: inside the list's
+/// padding, clear of its separators.
+fn card_rect(row: Rect) -> Rect {
+    Rect { x: row.x + LIST_PAD / 2, y: row.y + 2, w: row.w - LIST_PAD, h: row.h - 3 }
+}
+
+/// A notification row's highlight under the pointer: a rounded card in
+/// [`theme::CARD_HOVER`] (its secondary text stays readable on it).
+fn card(canvas: &mut Canvas, row: Rect, look: theme::Look) {
+    if !(look.hovered || look.pressed) {
+        return;
+    }
+    let c = card_rect(row);
+    let rect = (f64::from(c.x), f64::from(c.y), f64::from(c.w), f64::from(c.h));
+    if helix_draw::high_contrast() {
+        theme::inner_outline(canvas, rect, theme::RADIUS_ROW, if look.pressed { 2.0 } else { 1.0 }, 0xFFFF_FFFF);
+    } else {
+        canvas.round_rect(rect.0, rect.1, rect.2, rect.3, theme::RADIUS_ROW, theme::CARD_HOVER);
+    }
 }
 
 /// Body lines a banner shows: 2, or 8 for apps with `force-expanded`.
@@ -1032,7 +1056,7 @@ pub(super) mod tests {
         let icons = vec![None; rows.len()];
         let media_icons: super::super::calendar::MediaIcons = [None, None, None, None];
         let cal_h = super::super::calendar::height(cal);
-        let model = ListModel { entries, rows: &rows, heights: &heights, icons: &icons, scroll: 0, do_not_disturb: false, calendar: cal, media_icons: &media_icons, cal_h, cal_scroll: 0 };
+        let model = ListModel { entries, rows: &rows, heights: &heights, icons: &icons, scroll: 0, do_not_disturb: false, calendar: cal, media_icons: &media_icons, cal_h, cal_scroll: 0, hover: None, pressed: None };
         paint_list(canvas, fonts, (w, h), &model, focus)
     }
 

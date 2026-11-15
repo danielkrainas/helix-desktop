@@ -13,7 +13,7 @@ const BOX_W: i32 = 640;
 const PAD: i32 = 18;
 const ENTRY_H: i32 = 92;
 const SETTING_H: i32 = 36;
-const SWITCH_W: i32 = 44;
+const SWITCH_W: i32 = theme::SWITCH_W as i32;
 const SMALL: i32 = 28;
 
 #[derive(Debug, Default)]
@@ -23,6 +23,15 @@ pub(super) struct DialogState {
     expanded: Option<String>,
     /// Entries scrolled past.
     scroll: usize,
+    /// The control under the pointer, and the one pressed.
+    pub hover: Option<DialogHit>,
+    pub pressed: Option<DialogHit>,
+}
+
+impl DialogState {
+    fn look(&self, hit: DialogHit) -> theme::Look {
+        theme::Look { hovered: self.hover == Some(hit), pressed: self.pressed == Some(hit), ..Default::default() }
+    }
 }
 
 /// A button in the dialog.
@@ -203,10 +212,7 @@ impl Ui {
         let bw = BOX_W.min(w as i32 - 32);
         let bh = (h as i32 - panel_height() as i32 - 64).min(720);
         let (bx, by) = ((w as i32 - bw) / 2, panel_height() as i32 + 32);
-        canvas.rect(bx, by, bw, bh, BANNER_BG);
-        for (rx, ry, rw, rh) in [(bx, by, bw, 1), (bx, by + bh - 1, bw, 1), (bx, by, 1, bh), (bx + bw - 1, by, 1, bh)] {
-            canvas.rect(rx, ry, rw, rh, BANNER_BORDER);
-        }
+        theme::popover(&mut canvas, bx, by, bw, bh);
         label(bold.or(text), &mut canvas, tr("Extensions"), (bx + PAD) as f32, (by + 36) as f32, 20.0, FG, (bw - 2 * PAD) as f32);
         let mut hits: Vec<(Rect, DialogHit)> = Vec::new();
         let bottom = by + bh - PAD - 36;
@@ -226,7 +232,7 @@ impl Ui {
                 break;
             }
             shown.push(n);
-            canvas.rect(bx + PAD, y, bw - 2 * PAD, entry_h - 8, HOVER_BG);
+            theme::well(&mut canvas, bx + PAD, y, bw - 2 * PAD, entry_h - 8);
             let tx = bx + PAD + 12;
             let room = (bw - 2 * PAD - 24 - SWITCH_W - 12) as f32;
             let title = if info.version.is_empty() { info.name.clone() } else { format!("{}  {}", info.name, info.version) };
@@ -241,9 +247,7 @@ impl Ui {
             if info.kind != crate::ext_host::store::Kind::Development && !matches!(info.state, State::Invalid(_)) {
                 let on = info.enabled && info.approved;
                 let r = Rect { x: bx + bw - PAD - 12 - SWITCH_W, y: y + 12, w: SWITCH_W, h: 22 };
-                canvas.rect(r.x, r.y, r.w, r.h, if on { accent_fill() } else { FIELD_BG });
-                let knob = if on { r.x + r.w - 20 } else { r.x + 2 };
-                canvas.rect(knob, r.y + 2, 18, 18, FG);
+                theme::switch(&mut canvas, f64::from(r.x), f64::from(r.y), on, overlay.state.look(DialogHit::Switch(n)));
                 hits.push((r, DialogHit::Switch(n)));
             }
             // (1.1) Commands and their keys (changed in Settings, or with
@@ -260,7 +264,7 @@ impl Ui {
                 let name = if expanded { tr("Hide Settings") } else { tr("Settings") };
                 let tw = text.map_or(0.0, |t| t.width(name, 12.0)) as i32;
                 let r = Rect { x: bx + bw - PAD - 12 - tw - 16, y: y + 46, w: tw + 16, h: 24 };
-                theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
+                theme::control(&mut canvas, r.x, r.y, r.w, r.h, overlay.state.look(DialogHit::Settings(n)));
                 label(text, &mut canvas, name, (r.x + 8) as f32, baseline(text, r.y, r.h, 12.0), 12.0, FG, tw as f32 + 1.0);
                 hits.push((r, DialogHit::Settings(n)));
             }
@@ -273,23 +277,22 @@ impl Ui {
                         SettingType::Bool => {
                             let on = *value == SettingValue::Bool(true);
                             let r = Rect { x: right - SWITCH_W, y: sy + 7, w: SWITCH_W, h: 22 };
-                            canvas.rect(r.x, r.y, r.w, r.h, if on { accent_fill() } else { FIELD_BG });
-                            canvas.rect(if on { r.x + r.w - 20 } else { r.x + 2 }, r.y + 2, 18, 18, FG);
+                            theme::switch(&mut canvas, f64::from(r.x), f64::from(r.y), on, overlay.state.look(DialogHit::Flip(n, s)));
                             hits.push((r, DialogHit::Flip(n, s)));
                         }
                         SettingType::Enum(_) => {
                             let shown = value.display();
                             let tw = text.map_or(0.0, |t| t.width(&shown, 13.0)) as i32;
                             let r = Rect { x: right - tw - 24, y: sy + 5, w: tw + 24, h: 26 };
-                            theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
+                            theme::control(&mut canvas, r.x, r.y, r.w, r.h, overlay.state.look(DialogHit::Next(n, s)));
                             label(text, &mut canvas, &shown, (r.x + 12) as f32, baseline(text, r.y, r.h, 13.0), 13.0, FG, tw as f32 + 1.0);
                             hits.push((r, DialogHit::Next(n, s)));
                         }
                         SettingType::Int | SettingType::Double => {
                             let plus = Rect { x: right - SMALL, y: sy + 4, w: SMALL, h: SMALL };
                             let minus = Rect { x: right - 3 * SMALL - 60, y: sy + 4, w: SMALL, h: SMALL };
-                            for (r, glyph) in [(minus, "-"), (plus, "+")] {
-                                theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
+                            for (r, glyph, hit) in [(minus, "-", DialogHit::Down(n, s)), (plus, "+", DialogHit::Up(n, s))] {
+                                theme::control(&mut canvas, r.x, r.y, r.w, r.h, overlay.state.look(hit));
                                 let gw = text.map_or(0.0, |t| t.width(glyph, 15.0));
                                 label(text, &mut canvas, glyph, r.x as f32 + (r.w as f32 - gw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
                             }
@@ -317,14 +320,11 @@ impl Ui {
             label(text, &mut canvas, hint, (bx + PAD) as f32, baseline(text, bottom, 36, 12.0), 12.0, DIM_FG, 200.0);
         }
         let done = Rect { x: bx + bw - PAD - 110, y: bottom, w: 110, h: 36 };
-        canvas.rect(done.x, done.y, done.w, done.h, accent_fill());
-        let tw = text.map_or(0.0, |t| t.width(tr("Done"), 15.0));
-        label(text, &mut canvas, tr("Done"), done.x as f32 + (done.w as f32 - tw) / 2.0, baseline(text, done.y, done.h, 15.0), 15.0, on_accent(), done.w as f32);
+        theme::button(&mut canvas, text, (done.x, done.y, done.w, done.h), tr("Done"), theme::Kind::Suggested, overlay.state.look(DialogHit::Done), false);
         hits.push((done, DialogHit::Done));
-        if let Some(r) = overlay.state.focus.and_then(|i| hits.get(i)).map(|(r, _)| *r) {
-            for (rx, ry, rw, rh) in [(r.x - 2, r.y - 2, r.w + 4, 2), (r.x - 2, r.y + r.h, r.w + 4, 2), (r.x - 2, r.y - 2, 2, r.h + 4), (r.x + r.w, r.y - 2, 2, r.h + 4)] {
-                canvas.rect(rx, ry, rw, rh, accent());
-            }
+        if let Some((r, hit)) = overlay.state.focus.and_then(|i| hits.get(i)).copied() {
+            let radius = if matches!(hit, DialogHit::Switch(_) | DialogHit::Flip(..)) { 11.0 } else { theme::RADIUS_BUTTON };
+            theme::focus_ring_round(&mut canvas, f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), radius);
         }
         let nodes = extension_nodes(&list, &shown, overlay.state.expanded.as_deref(), &hits, overlay.state.focus, scroll > 0 || more_below);
         self.atspi_record(overlay.layer.wl_surface(), nodes);

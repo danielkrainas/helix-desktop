@@ -1970,7 +1970,7 @@ pub(super) fn paint_dock(canvas: &mut Canvas, text: Option<&Text>, m: &DockPaint
         Edge::Left => Rect { x: 0, y: 0, w: t, h },
         Edge::Right => Rect { x: w - t, y: 0, w: t, h },
     };
-    let radius = if m.extend { 0.0 } else { 12.0 };
+    let radius = if m.extend { 0.0 } else { theme::RADIUS_POPOVER };
     canvas.round_rect(f64::from(bar.x), f64::from(bar.y), f64::from(bar.w), f64::from(bar.h), radius, (m.background << 24) | (DOCK_BG & 0xFFFFFF));
     if helix_draw::high_contrast() {
         canvas.round_outline(f64::from(bar.x), f64::from(bar.y), f64::from(bar.w), f64::from(bar.h), radius, 1.0, 0xFFFFFFFF);
@@ -2089,10 +2089,7 @@ pub(super) fn paint_dock(canvas: &mut Canvas, text: Option<&Text>, m: &DockPaint
                 Edge::Right => (bar.x - lw - 6, cell.y + cell.h / 2 - lh / 2),
             };
             let lx = lx.clamp(0, (w - lw).max(0));
-            canvas.round_rect(f64::from(lx), f64::from(ly), f64::from(lw), f64::from(lh), 6.0, 0xF02E2E36);
-            if helix_draw::high_contrast() {
-                canvas.round_outline(f64::from(lx), f64::from(ly), f64::from(lw), f64::from(lh), 6.0, 1.0, 0xFFFFFFFF);
-            }
+            theme::tooltip(canvas, lx, ly, lw, lh);
             let base = baseline(text, ly, helix_draw::theme::grow(26), px);
             label(text, canvas, &lines[0], (lx + 12) as f32, base, px, FG, (lw - 16) as f32);
             // The windows, dimmer, one per line.

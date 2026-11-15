@@ -620,7 +620,7 @@ pub(super) struct OskPaint<'a> {
 pub(super) fn paint_keyboard(canvas: &mut Canvas, (text, emoji): (Option<&Text>, Option<&Text>), icons: &[(Special, Option<Image>)], m: &OskPaint, (w, h): (i32, i32)) -> (Vec<(Rect, (usize, usize))>, Vec<(Rect, usize)>) {
     let hc = helix_draw::high_contrast();
     canvas.fill(PANEL_BG);
-    canvas.rect(0, 0, w, 1, BANNER_BORDER);
+    canvas.rect(0, 0, w, 1, theme::BORDER);
     let _ = h;
     let widest = m.rows.iter().map(|r| r.iter().map(|k| k.width).sum::<f32>()).fold(0.0, f32::max);
     let unit = ((w as f32 - 2.0 * PAD as f32) / widest).min(MAX_UNIT);
@@ -634,7 +634,7 @@ pub(super) fn paint_keyboard(canvas: &mut Canvas, (text, emoji): (Option<&Text>,
         for (i, word) in m.bar.iter().enumerate() {
             let r = Rect { x: (left + i as f32 * cell) as i32 + GAP / 2, y: PAD / 2 + GAP / 2, w: cell as i32 - GAP, h: BAR_H - GAP };
             if i > 0 && !m.accents {
-                canvas.rect(r.x - GAP / 2, r.y + 8, 1, r.h - 16, BANNER_BORDER);
+                canvas.rect(r.x - GAP / 2, r.y + 8, 1, r.h - 16, theme::BORDER);
             }
             if m.accents {
                 canvas.round_rect(f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), KEY_RADIUS, KEY);

@@ -17,7 +17,7 @@ use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, BTN_
 use smithay_client_toolkit::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerSurface};
 use smithay_client_toolkit::shell::WaylandSurface;
 
-use super::{accent, baseline, hint_text, label, physical, Canvas, Overlay, Rect, Ui, BANNER_BORDER, DIM_FG, FG, FIELD_BG, SCRIM};
+use super::{accent, baseline, hint_text, label, physical, theme, Canvas, Overlay, Rect, Ui, DIM_FG, FG, SCRIM};
 use crate::UiRequest;
 use helix_i18n::tr;
 
@@ -380,7 +380,7 @@ impl Ui {
         state.workspaces.clear();
         let ty = if primary { field.y + field.h + 24 } else { -THUMB_H - 8 };
         if primary {
-        canvas.rect(field.x, field.y, field.w, field.h, FIELD_BG);
+        theme::field(&mut canvas, (field.x, field.y, field.w, field.h), false, true);
         label(text, &mut canvas, tr("Type to search…"), (field.x + 16) as f32, baseline(text, field.y, field.h, 15.0), 15.0, hint_text(), (field.w - 32) as f32);
         state.search = field;
 
@@ -394,9 +394,13 @@ impl Ui {
         for n in 0..count as u32 {
             let r = Rect { x: tx, y: ty, w: thumb_w, h: THUMB_H };
             let dropping = state.drag.is_some_and(|(_, (x, y))| r.contains(x, y));
-            let border = if n == self.windows.active || dropping { accent() } else { BANNER_BORDER };
-            canvas.rect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, border);
-            canvas.rect(r.x, r.y, r.w, r.h, 0xFF1E1E24);
+            let (rx, ry, rw, rh) = (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
+            canvas.round_rect(rx, ry, rw, rh, theme::RADIUS_ROW, theme::WELL);
+            if n == self.windows.active || dropping {
+                canvas.round_outline(rx, ry, rw, rh, theme::RADIUS_ROW, 2.0, accent());
+            } else {
+                canvas.round_outline(rx, ry, rw, rh, theme::RADIUS_ROW, 1.0, if helix_draw::high_contrast() { 0xFFFF_FFFF } else { theme::BORDER });
+            }
             let s = f64::from(THUMB_H) / f64::from(ph);
             // Bottom of the stack first.
             for entry in self.windows.mru().iter().rev().filter(|e| e.workspace == n || e.workspace == ALL_WORKSPACES) {
@@ -415,11 +419,11 @@ impl Ui {
                 }
                 match self.overview_shots.pictures.get(&entry.id) {
                     Some(shot) if (x0, y0, x1, y1) == (x, y, x + ww, y + wh) => canvas.image(x, y, ww, wh, shot),
-                    _ => canvas.rect(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32, 0xFF55555F),
+                    _ => canvas.round_rect(x0, y0, x1 - x0, y1 - y0, 2.0, theme::CONTROL),
                 }
             }
             if state.region == Region::Workspaces && state.workspace_key == Some(n) {
-                helix_draw::theme::focus_ring_round(&mut canvas, f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), 4.0);
+                helix_draw::theme::focus_ring_round(&mut canvas, f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), theme::RADIUS_ROW);
             }
             state.workspaces.push((r, n));
             tx += thumb_w + 16;
@@ -435,12 +439,12 @@ impl Ui {
             let n = dash.len() as i32;
             let dw = n * DASH_ICON + (n - 1) * DASH_GAP + gaps * 16 + 2 * 12;
             let (dx, dy) = ((w - dw) / 2, h - DASH_H - 16);
-            canvas.rect(dx, dy, dw, DASH_H, 0xC02A2A30);
+            theme::popover_round(&mut canvas, f64::from(dx), f64::from(dy), f64::from(dw), f64::from(DASH_H), theme::RADIUS_POPOVER + 6.0);
             let mut x = dx + 12;
             for (i, entry) in dash.iter().enumerate() {
                 if i > 0 && entry.running_only && !dash[i - 1].running_only {
                     // A separator between favorites and the rest.
-                    canvas.rect(x + 2, dy + 14, 1, DASH_ICON - 8, BANNER_BORDER);
+                    theme::vseparator(&mut canvas, x + 2, dy + 14, DASH_ICON - 8);
                     x += 16;
                 }
                 let r = Rect { x, y: dy + 8, w: DASH_ICON, h: DASH_ICON };

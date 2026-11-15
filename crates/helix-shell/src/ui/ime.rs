@@ -271,12 +271,12 @@ impl Ui {
         let (pw, ph) = (physical(w as usize, scale) as i32, physical(h as usize, scale) as i32);
         let Ok((buffer, data)) = self.pool.create_buffer(pw, ph, pw * 4, wl_shm::Format::Argb8888) else { return };
         let mut canvas = Canvas::scaled(data, w as usize, h as usize, scale);
-        canvas.fill(BANNER_BORDER);
-        canvas.rect(1, 1, w - 2, h - 2, BANNER_BG);
+        canvas.fill(0);
+        theme::popover_round(&mut canvas, 1.0, 1.0, f64::from(w - 2), f64::from(h - 2), theme::RADIUS_BUTTON);
         let mut x = 4;
         for (i, (label_text, width)) in labels.iter().zip(&widths).enumerate() {
             if i == selected {
-                canvas.rect(x, 4, *width, POPUP_ROW_H, accent_fill());
+                theme::row(&mut canvas, x, 4, *width, POPUP_ROW_H, theme::Look { on: true, ..Default::default() });
             }
             let base = baseline(text, 4, POPUP_ROW_H, 15.0);
             label(text, &mut canvas, label_text, (x + 8) as f32, base, 15.0, if i == selected { on_accent() } else { FG }, *width as f32);

@@ -103,7 +103,7 @@ pub(super) fn draw_ext_item(text: Option<&Text>, canvas: &mut Canvas, item: &cra
         if !item.graph.is_empty() {
             // A sparkline, newest at the right.
             let (gx, gy, gh) = (cx, 7, h - 14);
-            canvas.rect(gx, gy, GRAPH_W, gh, FIELD_BG);
+            canvas.round_rect(f64::from(gx), f64::from(gy), f64::from(GRAPH_W), f64::from(gh), 3.0, theme::CONTROL);
             let n = item.graph.len();
             let step = f64::from(GRAPH_W) / (n.max(2) - 1) as f64;
             let point = |k: usize| (f64::from(gx) + k as f64 * step, f64::from(gy + gh) - item.graph[k] * f64::from(gh));
