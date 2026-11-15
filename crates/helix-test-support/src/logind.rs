@@ -89,6 +89,18 @@ impl Manager {
         self.can("CanSuspend")
     }
 
+    async fn can_reboot_to_firmware_setup(&self) -> String {
+        self.can("CanRebootToFirmwareSetup")
+    }
+
+    async fn set_reboot_to_firmware_setup(&self, enable: bool) -> fdo::Result<()> {
+        if self.can("CanRebootToFirmwareSetup") != "yes" {
+            return Err(fdo::Error::AccessDenied("Not allowed".into()));
+        }
+        self.call(format!("SetRebootToFirmwareSetup {enable}"));
+        Ok(())
+    }
+
     async fn inhibit(&self, what: &str, _who: &str, _why: &str, mode: &str) -> fdo::Result<OwnedFd> {
         let (ours, theirs) = UnixStream::pair().map_err(|e| fdo::Error::Failed(e.to_string()))?;
         ours.set_nonblocking(true).map_err(|e| fdo::Error::Failed(e.to_string()))?;

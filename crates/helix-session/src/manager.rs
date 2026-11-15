@@ -553,9 +553,20 @@ impl SessionManager {
             .ok_or_else(|| ManagerError::General("session restore is not supported".into()))
     }
 
+    async fn set_reboot_to_firmware_setup(&self, enable: bool) -> Result<()> {
+        let logind = self.logind.as_ref().ok_or_else(|| {
+            ManagerError::General("restarting into the firmware setup needs logind, which is unavailable".into())
+        })?;
+        tracing::info!(enable, "asking logind to restart into the firmware setup");
+        logind
+            .set_reboot_to_firmware_setup(enable)
+            .await
+            .map_err(|e| ManagerError::General(format!("logind refused the firmware setup restart: {e}")))
+    }
+
     async fn can_reboot_to_firmware_setup(&self) -> bool {
-        // Requires a system power backend, which Helix does not have yet.
-        false
+        // Available, perhaps after authentication: logind asks polkit.
+        self.availability("CanRebootToFirmwareSetup", false).await >= 2
     }
 
     // --- Signals ----------------------------------------------------------

@@ -87,3 +87,37 @@ async fn restore_across_sessions() {
     call::<_, ()>(&app, "DeletedInstanceIds", &("org.example.Editor", vec![id.as_str()])).await.unwrap();
     let _ = std::fs::remove_file(&file);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reboot_to_firmware_setup() {
+    let Some(bus) = TestBus::start() else { return };
+    let fake = FakeLogind::start(&bus).await;
+    let logind = Logind::new(bus.connect().await);
+    let options = ServiceOptions { logind: Some(logind), ..Default::default() };
+    let service = SessionService::start_with_options(bus.builder(), options).await.unwrap();
+    tokio::spawn(service.run(std::future::pending()));
+    let conn = bus.connect().await;
+
+    for (answer, available) in [("yes", true), ("challenge", true), ("no", false), ("na", false)] {
+        fake.set_can("CanRebootToFirmwareSetup", answer);
+        let got: bool = call(&conn, "CanRebootToFirmwareSetup", &()).await.unwrap();
+        assert_eq!(got, available, "logind says {answer}");
+    }
+
+    fake.set_can("CanRebootToFirmwareSetup", "yes");
+    call::<_, ()>(&conn, "SetRebootToFirmwareSetup", &(true,)).await.unwrap();
+    call::<_, ()>(&conn, "SetRebootToFirmwareSetup", &(false,)).await.unwrap();
+    assert_eq!(fake.calls(), ["SetRebootToFirmwareSetup true", "SetRebootToFirmwareSetup false"]);
+
+    // logind's refusal comes back as an error.
+    fake.set_can("CanRebootToFirmwareSetup", "no");
+    assert!(call::<_, ()>(&conn, "SetRebootToFirmwareSetup", &(true,)).await.is_err());
+
+    // Without logind: unavailable, and setting it fails.
+    let Some(bus) = TestBus::start() else { return };
+    let service = SessionService::start(bus.builder()).await.unwrap();
+    tokio::spawn(service.run(std::future::pending()));
+    let conn = bus.connect().await;
+    assert!(!call::<_, bool>(&conn, "CanRebootToFirmwareSetup", &()).await.unwrap());
+    assert!(call::<_, ()>(&conn, "SetRebootToFirmwareSetup", &(true,)).await.is_err());
+}

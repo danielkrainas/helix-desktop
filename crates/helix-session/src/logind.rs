@@ -57,7 +57,14 @@ impl Logind {
         self.call("Suspend", &(false,)).await.map(drop)
     }
 
-    /// `CanPowerOff`, `CanReboot`, `CanSuspend`: `yes`, `challenge`, `no`, `na`.
+    /// Ask the firmware to show its setup screen at the next boot (or no
+    /// longer).
+    pub async fn set_reboot_to_firmware_setup(&self, enable: bool) -> zbus::Result<()> {
+        self.call("SetRebootToFirmwareSetup", &(enable,)).await.map(drop)
+    }
+
+    /// `CanPowerOff`, `CanReboot`, `CanSuspend`, `CanRebootToFirmwareSetup`:
+    /// `yes`, `challenge`, `no`, `na`.
     pub async fn can(&self, method: &str) -> zbus::Result<String> {
         let reply = self.call(method, &()).await?;
         reply.body().deserialize::<String>()

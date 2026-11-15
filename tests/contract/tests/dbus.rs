@@ -8,8 +8,7 @@ use helix_test_support::TestBus;
 #[tokio::test(flavor = "multi_thread")]
 async fn org_gnome_session_manager() {
     const IFACE: &str = "org.gnome.SessionManager";
-    // Tracked in helix-desktop#82.
-    const KNOWN_UNIMPLEMENTED: &[&str] = &["method SetRebootToFirmwareSetup"];
+    const KNOWN_UNIMPLEMENTED: &[&str] = &[];
 
     let Some(bus) = TestBus::start() else { return };
     let service = helix_session::SessionService::start(bus.builder())
