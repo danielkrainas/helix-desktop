@@ -1067,12 +1067,15 @@ pub(super) mod tests {
         let (narrow, wide) = ((entry_w(GROUP_INDENT) - ICON - 12) as f32, (entry_w(0) - ICON - 12) as f32);
         // A body just wider than the indented text: one line at the full
         // width, two indented.
-        let mut body = String::from("Are we still on for lunch? I booked the place on");
-        for word in ["5th", "street", "for", "12:30.", "OK", "see", "you", "there", "then"] {
-            if regular.width(&body, BODY_PX) > narrow {
+        // Grown a character at a time so it works with whichever font the
+        // machine has (a word at a time can jump past `wide`).
+        let text = "Are we still on for lunch? I booked the place on 5th street for 12:30. OK see you there then, and bring the slides from the review so we can go over them";
+        let mut body = String::new();
+        for c in text.chars() {
+            body.push(c);
+            if c != ' ' && regular.width(&body, BODY_PX) > narrow {
                 break;
             }
-            body = format!("{body} {word}");
         }
         let width = regular.width(&body, BODY_PX);
         assert!(width > narrow && width <= wide, "{width} between {narrow} and {wide}");
