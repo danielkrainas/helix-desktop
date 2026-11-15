@@ -103,7 +103,8 @@ pub const ACTION_MODE_LOCK_SCREEN: u32 = 4;
 /// `grabFlags`: notify on release as well as press.
 pub const GRAB_TRIGGER_RELEASE: u32 = 128;
 pub const OBJECT_PATH: &str = "/org/gnome/Shell";
-/// The GNOME version whose surface Helix implements (see gaps.md).
+/// The GNOME version whose surface Helix implements (see
+/// helix-desktop-spec `gnome-compatibility.md`).
 pub const SHELL_VERSION: &str = "51.0";
 
 /// An on-screen display request.

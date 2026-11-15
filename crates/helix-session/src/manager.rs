@@ -47,8 +47,9 @@ impl Default for SessionInfo {
 
 /// Errors returned to D-Bus callers.
 ///
-/// Error names are not part of the spec yet (see `gaps.md`); they are
-/// namespaced under `org.gnome.SessionManager.Error`.
+/// GNOME does not document its error names; Helix's are namespaced under
+/// `org.gnome.SessionManager.Error` (helix-desktop-spec
+/// `contracts/dbus/org.gnome.SessionManager.md`).
 #[derive(Debug, DBusError)]
 #[zbus(prefix = "org.gnome.SessionManager.Error")]
 pub enum ManagerError {

@@ -2413,7 +2413,7 @@ impl Ui {
         };
         let fonts = lock::LockFonts { text: self.text.as_ref(), bold: self.bold.as_ref(), display: self.display.as_ref() };
         // The lock screen keeps its own type scale (Large Text there is
-        // not done yet; helix-desktop-spec gaps.md).
+        // not done yet; helix-desktop#16).
         let text_scale = helix_draw::theme::text_scale();
         helix_draw::theme::set_text_scale(1.0);
         let painted = lock::paint(&mut canvas, &fonts, &model, w, h);

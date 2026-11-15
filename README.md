@@ -46,12 +46,13 @@ repository provides Helix's own core applications (Files, Terminal,
 Text Editor, Settings, Web and more); stock GNOME applications work too.
 
 Known gaps are tracked as
-[issues](https://github.com/danielkrainas/helix-desktop/issues) and in the
-spec's `gaps.md`. The most visible ones today:
+[issues](https://github.com/danielkrainas/helix-desktop/issues) (labels
+`gap` and `needs-hardware`), and summarised in the spec's
+`gnome-compatibility.md`. The most visible ones today:
 
 - Large Text does not yet cover every shell surface (#16);
-- menus are not yet exposed to screen readers;
-- the greeter offers Wayland sessions only (greetd starts no X server).
+- menus and some other shell UI are not yet exposed to screen readers (#73);
+- the greeter offers Wayland sessions only (greetd starts no X server; #76).
 
 ## Target
 
@@ -237,10 +238,9 @@ session ends, components are stopped in reverse order. See
 Set `RUST_LOG=debug` for more detail. SIGTERM/SIGINT also end the session
 cleanly (emitting `SessionOver`).
 
-Implemented: everything in the contract except `Suspend`, the `Can*`
-availability methods except `CanRebootToFirmwareSetup`,
-`SetRebootToFirmwareSetup` and the session-restore methods (see the spec's
-`gaps.md`). `RestoreSupported` is false.
+Implemented: everything in the contract except `SetRebootToFirmwareSetup`
+(#82), including `Suspend`, the `Can*` availability methods and session
+restore.
 
 Current behavior worth knowing:
 

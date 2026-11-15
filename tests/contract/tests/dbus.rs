@@ -8,7 +8,7 @@ use helix_test_support::TestBus;
 #[tokio::test(flavor = "multi_thread")]
 async fn org_gnome_session_manager() {
     const IFACE: &str = "org.gnome.SessionManager";
-    // Tracked in helix-desktop-spec/gaps.md.
+    // Tracked in helix-desktop#82.
     const KNOWN_UNIMPLEMENTED: &[&str] = &["method SetRebootToFirmwareSetup"];
 
     let Some(bus) = TestBus::start() else { return };
@@ -106,7 +106,7 @@ async fn mutter_idle_monitor_and_display_config() {
         &[],
     )
     .await;
-    // Write side is not implemented yet (see helix-desktop-spec/gaps.md).
+    // The deprecated configuration and backlight methods are not served.
     assert_matches_contract(
         conn,
         display_config::BUS_NAME,
