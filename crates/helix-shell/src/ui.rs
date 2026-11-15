@@ -71,6 +71,8 @@ mod extensions_dialog;
 mod gallery;
 mod ime;
 mod notify;
+mod offload;
+use offload::source_icon;
 mod osk;
 mod overview;
 mod panel_editor;
@@ -169,8 +171,6 @@ struct LauncherView {
     content: Rect,
     /// Visible rows and the result index each shows.
     rows: Vec<(Rect, usize)>,
-    /// Search results' icons, decoded once (by provider and id).
-    icons: HashMap<(usize, String), Option<helix_draw::Image>>,
     /// The app grid (shown with an empty search).
     grid: app_grid::GridView,
     /// The monitor it is shown on (from the compositor).
@@ -241,8 +241,14 @@ struct Ui {
     window_sources: HashMap<u32, crate::input_sources::Source>,
     /// Icons windows' apps set: theme name and image.
     window_icons: HashMap<u32, (String, Option<helix_draw::Image>)>,
-    /// Loaded icons by key (and pixel size); None when not found.
-    icon_cache: HashMap<String, Option<helix_draw::Image>>,
+    /// Loaded icons by key (and pixel size); None when not found. Decoded
+    /// on workers: not there yet the first time.
+    icon_cache: crate::icon_cache::IconCache,
+    /// Drawing again for icons that came in (a timer, so a burst of them
+    /// draws once).
+    icon_redraw: Option<smithay_client_toolkit::reexports::calloop::RegistrationToken>,
+    /// Work for workers (pictures).
+    offload: offload::Offload,
     /// Input method globals (privileged shell only) and state.
     im_manager: Option<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2>,
     vk_manager: Option<wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1>,
@@ -679,6 +685,8 @@ struct LockView {
     origin: (i32, i32),
     /// Its background, blurred and toned once, and for what.
     backdrop: Option<(lock::BackdropKey, Vec<u8>)>,
+    /// The background being made for it (on a worker).
+    backdrop_wanted: Option<lock::BackdropKey>,
 }
 
 /// Lock screen transitions: the UI fading in after locking, out before
@@ -1132,6 +1140,7 @@ impl Ui {
     // ----- Panel -----------------------------------------------------------
 
     fn draw_panel(&mut self) {
+        let _busy = crate::watchdog::scope("draw panel");
         if !self.panel_configured || self.panel_width == 0 {
             return;
         }
@@ -1231,7 +1240,6 @@ impl Ui {
             configured: false,
             content: Rect { x: 0, y: 0, w: 0, h: 0 },
             rows: Vec::new(),
-            icons: HashMap::new(),
             grid: app_grid::GridView::new(crate::item_feedback::motion()),
             output: None,
         });
@@ -1686,6 +1694,7 @@ impl Ui {
     }
 
     fn draw_switcher(&mut self) {
+        let _busy = crate::watchdog::scope("draw switcher");
         let Some(mut overlay) = self.switcher.take() else { return };
         if overlay.configured && overlay.width > 0 {
             self.paint_switcher(&mut overlay);
@@ -1848,23 +1857,25 @@ impl Ui {
             if !name.is_empty() {
                 let key = format!("name:{name}@{px}");
                 let source = crate::icons::IconSource::Names(vec![name.clone()]);
-                if let Some(found) = self.icon_cache.entry(key).or_insert_with(|| crate::icons::load(&source, px)).clone() {
+                if let Some(found) = self.icon_cache.get(key.clone(), move || crate::icons::load(&source, px)) {
                     return Some(found);
+                }
+                if self.icon_cache.is_pending(&key) {
+                    // Its own icon is on the way: not the app's meanwhile.
+                    return None;
                 }
             }
         }
         let app_id = self.windows.mru().iter().find(|e| e.id == id).map(|e| e.app_id.clone())?;
         let key = format!("app:{app_id}@{px}");
-        self.icon_cache
-            .entry(key)
-            .or_insert_with(|| {
-                let source = crate::icons::IconSource::for_app(&app_id).or_else(|| crate::icons::IconSource::for_app(&app_id.to_lowercase()))?;
-                crate::icons::load(&source, px)
-            })
-            .clone()
+        self.icon_cache.get(key, move || {
+            let source = crate::icons::IconSource::for_app(&app_id).or_else(|| crate::icons::IconSource::for_app(&app_id.to_lowercase()))?;
+            crate::icons::load(&source, px)
+        })
     }
 
     fn draw_launcher(&mut self) {
+        let _busy = crate::watchdog::scope("draw launcher");
         let Some(mut view) = self.launcher.take() else { return };
         if view.configured && view.width > 0 && view.height > 0 {
             self.paint_launcher(&mut view);
@@ -1956,8 +1967,7 @@ impl Ui {
             // A search result's icon at the row's start.
             let mut text_x = rect.x + 12;
             if let Some(hit) = found {
-                let key = (hit.provider, hit.id.clone());
-                let icon = view.icons.entry(key).or_insert_with(|| hit.icon.as_ref().and_then(|s| crate::icons::load(s, 40))).clone();
+                let icon = hit.icon.clone().and_then(|source| source_icon(&mut self.icon_cache, source, 40));
                 if let Some(icon) = icon {
                     canvas.image(f64::from(text_x), f64::from(rect.y + (rect.h - 20) / 2), 20.0, 20.0, &icon);
                     text_x += 28;
@@ -2282,7 +2292,7 @@ impl Ui {
         let surface = self.compositor.create_surface(qh);
         let lock_surface = session.create_lock_surface(surface, &output, qh);
         let origin = self.output_state.info(&output).and_then(|i| i.logical_position).unwrap_or_default();
-        self.lock.surfaces.push(LockView { surface: lock_surface, output, width: 0, height: 0, hits: Vec::new(), origin, backdrop: None });
+        self.lock.surfaces.push(LockView { surface: lock_surface, output, width: 0, height: 0, hits: Vec::new(), origin, backdrop: None, backdrop_wanted: None });
     }
 
     /// Draw the lock surfaces (`prompt_only`: just the one with the
@@ -2353,7 +2363,16 @@ impl Ui {
         }
     }
 
+    /// A lock surface's background was made: shown if still wanted.
+    fn lock_backdrop_made(&mut self, output: &wl_output::WlOutput, key: lock::BackdropKey, pixels: Vec<u8>) {
+        let Some(view) = self.lock.surfaces.iter_mut().find(|v| &v.output == output && v.backdrop_wanted == Some(key)) else { return };
+        view.backdrop_wanted = None;
+        view.backdrop = Some((key, pixels));
+        self.draw_lock();
+    }
+
     fn paint_lock(&mut self, view: &mut LockView, prompt: bool) {
+        let _busy = crate::watchdog::scope("draw lock screen");
         let (w, h) = (view.width as usize, view.height as usize);
         if w == 0 || h == 0 {
             return;
@@ -2362,18 +2381,22 @@ impl Ui {
         let counts = self.lock_note_counts();
         let icons = self.lock_icons(scale, &counts);
         let (pw, ph) = (physical(w, scale), physical(h, scale));
+        // The background, blurred and toned once per picture and size, on
+        // a worker (a large picture takes a while). Meanwhile the one
+        // before if it fits, else plain black.
+        let key = lock::BackdropKey { serial: self.lock_background_serial, size: (pw, ph), scale: scale.to_bits(), high_contrast: helix_draw::high_contrast() };
+        if view.backdrop.as_ref().is_none_or(|(k, _)| *k != key) && view.backdrop_wanted != Some(key) {
+            view.backdrop_wanted = Some(key);
+            let (background, output) = (self.lock_background.clone(), view.output.clone());
+            self.offload(move || lock::backdrop(&background, (w, h), scale), move |ui, pixels| ui.lock_backdrop_made(&output, key, pixels));
+        }
         let Ok((buffer, data)) = self.pool.create_buffer(pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Argb8888) else {
             tracing::warn!("cannot allocate lock screen buffer");
             return;
         };
-        // The background, blurred and toned once per picture and size.
-        let key = lock::BackdropKey { serial: self.lock_background_serial, size: (pw, ph), scale: scale.to_bits(), high_contrast: helix_draw::high_contrast() };
-        if view.backdrop.as_ref().is_none_or(|(k, _)| *k != key) {
-            let pixels = lock::backdrop(&self.lock_background, (w, h), scale);
-            view.backdrop = Some((key, pixels));
-        }
-        if let Some((_, pixels)) = &view.backdrop {
-            data.copy_from_slice(pixels);
+        match &view.backdrop {
+            Some((k, pixels)) if k.size == key.size => data.copy_from_slice(pixels),
+            _ => helix_draw::backdrop::high_contrast(data),
         }
         let mut canvas = Canvas::scaled(data, w, h, scale);
         let (clock, suffix, date) = lock_clock();
@@ -2902,6 +2925,7 @@ impl Ui {
             UiEvent::PanelLayout(keys) => self.panel_layout_changed(keys),
             UiEvent::IconTheme => {
                 // Every cached icon came from the old theme.
+                crate::icons::forget_theme();
                 self.icon_cache.clear();
                 self.draw_panel();
                 self.dock_update();
@@ -3466,6 +3490,13 @@ pub fn run(
 
     let pool = SlotPool::new((1920 * PANEL_HEIGHT * 4) as usize, &shm)?;
     let (auth_tx, auth_rx) = channel::channel();
+    // Icons and pictures are made on workers; results come back here.
+    let (finished_tx, finished_rx) = channel::channel::<offload::Finish>();
+    let icons_done = std::sync::Mutex::new(finished_tx.clone());
+    let icon_sink: crate::icon_cache::Sink = Arc::new(move |done| {
+        let finish: offload::Finish = Box::new(move |ui: &mut Ui| ui.icon_done(done));
+        let _ = icons_done.lock().unwrap_or_else(|e| e.into_inner()).send(finish);
+    });
     let mut ui = Ui {
         registry_state: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &qh),
@@ -3513,7 +3544,9 @@ pub fn run(
         menu_by_key: false,
         window_sources: HashMap::new(),
         window_icons: HashMap::new(),
-        icon_cache: HashMap::new(),
+        icon_cache: crate::icon_cache::IconCache::spawning(crate::workers::Workers::sized("icons"), icon_sink),
+        icon_redraw: None,
+        offload: offload::Offload::new(finished_tx),
         im_manager,
         vk_manager,
         ime: None,
@@ -3619,25 +3652,42 @@ pub fn run(
     let mut event_loop: EventLoop<Ui> = EventLoop::try_new()?;
     let handle = event_loop.handle();
     ui.loop_handle = Some(handle.clone());
-    WaylandSource::new(conn, event_queue)
-        .insert(handle.clone())
+    // Work on the UI thread is timed: while it runs, the Wayland socket
+    // is not read.
+    crate::watchdog::start();
+    handle
+        .insert_source(WaylandSource::new(conn, event_queue), |_, queue, ui| {
+            let _busy = crate::watchdog::scope("Wayland events");
+            queue.dispatch_pending(ui)
+        })
         .map_err(|e| format!("cannot watch the Wayland connection: {e}"))?;
     handle
         .insert_source(events, |event, _, ui| {
             if let channel::Event::Msg(event) = event {
+                let _busy = crate::watchdog::event_scope(&event);
                 ui.handle(event);
             }
         })
         .map_err(|e| format!("cannot watch UI events: {e}"))?;
     handle
+        .insert_source(finished_rx, |event, _, ui| {
+            if let channel::Event::Msg(finish) = event {
+                let _busy = crate::watchdog::scope("background work done");
+                finish(ui);
+            }
+        })
+        .map_err(|e| format!("cannot watch background work: {e}"))?;
+    handle
         .insert_source(auth_rx, |event, _, ui| {
             if let channel::Event::Msg(result) = event {
+                let _busy = crate::watchdog::scope("password checked");
                 ui.password_checked(result);
             }
         })
         .map_err(|e| format!("cannot watch password checks: {e}"))?;
     handle
         .insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, ui| {
+            let _busy = crate::watchdog::scope("clock tick");
             ui.tick();
             TimeoutAction::ToDuration(Duration::from_secs(1))
         })
@@ -3653,6 +3703,7 @@ pub fn run(
             tracing::warn!(%err, "lost the compositor connection; shell UI stopping");
             break;
         }
+        let _busy = crate::watchdog::scope("accessibility tree");
         ui.atspi_sync();
     }
     Ok(())

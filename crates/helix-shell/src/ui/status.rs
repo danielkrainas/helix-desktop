@@ -20,7 +20,8 @@ impl Ui {
         let px = (f64::from(ICON) * scale).round() as u32;
         let key = format!("sym:{name}@{px}");
         let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];
-        self.icon_cache.entry(key).or_insert_with(|| crate::icons::symbolic(name, px, rgb)).clone()
+        let name = name.to_owned();
+        self.icon_cache.get(key, move || crate::icons::symbolic(&name, px, rgb))
     }
 
     /// A symbolic icon `logical` px large in the panel's text color,
@@ -29,7 +30,8 @@ impl Ui {
         let px = (logical * scale).round() as u32;
         let key = format!("sym:{name}@{px}");
         let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];
-        self.icon_cache.entry(key).or_insert_with(|| crate::icons::symbolic(name, px, rgb)).clone()
+        let name = name.to_owned();
+        self.icon_cache.get(key, move || crate::icons::symbolic(&name, px, rgb))
     }
 
     /// The icon of the app with desktop file id `id`, `logical` px large,
@@ -40,7 +42,8 @@ impl Ui {
         }
         let px = (logical * scale).round() as u32;
         let key = format!("app:{id}@{px}");
-        self.icon_cache.entry(key).or_insert_with(|| crate::icons::IconSource::for_app(id).and_then(|s| crate::icons::load(&s, px))).clone()
+        let id = id.to_owned();
+        self.icon_cache.get(key, move || crate::icons::IconSource::for_app(&id).and_then(|s| crate::icons::load(&s, px)))
     }
 
     /// The status area's items, right to left.

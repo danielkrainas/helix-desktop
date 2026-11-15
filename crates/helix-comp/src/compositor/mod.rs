@@ -240,6 +240,10 @@ pub struct Helix {
     /// delta, time in ms), for the hot corner's pressure; `None` for
     /// absolute pointers.
     pub relative_motion: Option<RelativeMotion>,
+    /// Pointer motion held back while the shell under the pointer is
+    /// behind reading its socket, and the timer that sends it.
+    pub held_motion: helix_comp::client_socket::MotionCoalescer,
+    pub held_motion_timer: Option<smithay::reexports::calloop::RegistrationToken>,
     /// `PowerSaveMode` turned the monitors off.
     pub screens_off: bool,
     /// Where a dragged window would go if released now (edge tiling).
@@ -372,6 +376,8 @@ impl Helix {
             zoom: Default::default(),
             hot_corner: Default::default(),
             relative_motion: None,
+            held_motion: Default::default(),
+            held_motion_timer: None,
             screens_off: false,
             tile_target: None,
             wm: Default::default(),
@@ -392,10 +398,8 @@ impl Helix {
         let name = socket.socket_name().to_os_string();
         let handle = event_loop.handle();
         handle.insert_source(socket, |stream, _, state| {
-            if let Err(err) = state
-                .display_handle
-                .insert_client(stream, Arc::new(ClientState::default()))
-            {
+            let data = Arc::new(ClientState::connected(&stream));
+            if let Err(err) = state.display_handle.insert_client(stream, data) {
                 tracing::warn!(%err, "failed to add Wayland client");
             }
         })?;
@@ -420,15 +424,20 @@ impl Helix {
         use std::os::unix::process::CommandExt;
 
         let (ours, theirs) = UnixStream::pair()?;
-        self.display_handle
-            .insert_client(
-                ours,
-                Arc::new(ClientState {
-                    privileged: true,
-                    ..ClientState::default()
-                }),
-            )
-            .map_err(std::io::Error::other)?;
+        // Room for a shell that stalls for a while: a large kernel send
+        // buffer, and a large one in the server library (both only fill
+        // while it is not reading).
+        match helix_comp::client_socket::enlarge_send_buffer(std::os::fd::AsFd::as_fd(&ours), helix_comp::client_socket::SHELL_SEND_BUFFER) {
+            Ok(granted) => tracing::info!(granted, "shell socket send buffer"),
+            Err(err) => tracing::warn!(%err, "cannot enlarge the shell socket's send buffer"),
+        }
+        let data = Arc::new(ClientState {
+            privileged: true,
+            socket: std::sync::Mutex::new(ours.try_clone().ok().map(std::os::fd::OwnedFd::from)),
+            ..ClientState::default()
+        });
+        let client = self.display_handle.insert_client(ours, data.clone()).map_err(std::io::Error::other)?;
+        client.set_max_buffer_size(&self.display_handle, helix_comp::client_socket::SHELL_MAX_BUFFER);
         let fd = theirs.as_raw_fd();
         let mut cmd = std::process::Command::new(program);
         cmd.env("WAYLAND_SOCKET", fd.to_string());
@@ -458,6 +467,8 @@ impl Helix {
         }
         let child = cmd.spawn()?;
         drop(theirs);
+        let command = std::path::Path::new(program).file_name().map_or_else(|| program.to_owned(), |n| n.to_string_lossy().into_owned());
+        let _ = data.identity.set((child.id(), command));
         Ok(child)
     }
 
@@ -662,10 +673,52 @@ pub struct ClientState {
     pub compositor_state: CompositorClientState,
     /// The shell launched by the compositor (may use private protocols).
     pub privileged: bool,
+    /// Its process id and command, for the log (set when it connects, or
+    /// for the shell once it is started).
+    pub identity: std::sync::OnceLock<(u32, String)>,
+    /// The shell's socket (a second descriptor of it), to see how much it
+    /// has not read yet; closed when it disconnects (so the connection
+    /// really ends however long this state is kept).
+    pub socket: std::sync::Mutex<Option<std::os::fd::OwnedFd>>,
+}
+
+impl ClientState {
+    /// A client that connected on `stream`: who it is.
+    fn connected(stream: &std::os::unix::net::UnixStream) -> Self {
+        use std::os::fd::AsFd;
+        let state = Self::default();
+        if let Some(pid) = helix_comp::client_socket::peer_pid(stream.as_fd()) {
+            let _ = state.identity.set((pid, helix_comp::client_socket::command_of(pid)));
+        }
+        state
+    }
+
+    /// Bytes queued for it that it has not read.
+    pub fn unread(&self) -> Option<usize> {
+        use std::os::fd::AsFd;
+        let socket = self.socket.lock().unwrap_or_else(|e| e.into_inner());
+        socket.as_ref().and_then(|s| helix_comp::client_socket::unread_bytes(s.as_fd()))
+    }
 }
 
 impl ClientData for ClientState {
     fn initialized(&self, _client_id: ClientId) {}
-    fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
-
+    fn disconnected(&self, _client_id: ClientId, reason: DisconnectReason) {
+        let (pid, command) = self.identity.get().cloned().unwrap_or_default();
+        let unread = self.unread();
+        drop(self.socket.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let why = helix_comp::client_socket::describe_disconnect(&reason, unread);
+        if self.privileged {
+            // The shell went: say why (it is restarted).
+            match (&reason, unread) {
+                (DisconnectReason::ConnectionClosed, Some(n)) if n > 0 => {
+                    tracing::warn!(pid, command, reason = %why, "dropped the shell: it stopped reading its Wayland socket")
+                }
+                (DisconnectReason::ProtocolError(_), _) => tracing::warn!(pid, command, reason = %why, "dropped the shell for a protocol error"),
+                _ => tracing::warn!(pid, command, reason = %why, "the shell's Wayland connection ended"),
+            }
+        } else {
+            tracing::debug!(pid, command, reason = %why, "Wayland client disconnected");
+        }
+    }
 }

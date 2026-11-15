@@ -2,7 +2,6 @@
 //! "Desktop icons"): a see-through surface just above the primary
 //! monitor's background, with the desktop folder's files.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::*;
@@ -29,7 +28,6 @@ pub(super) struct DesktopIconsState {
     selected: Option<PathBuf>,
     /// The last press: on which item, when (ms).
     last_press: Option<(PathBuf, u32)>,
-    icons: HashMap<PathBuf, Option<helix_draw::Image>>,
 }
 
 impl Ui {
@@ -61,7 +59,6 @@ impl Ui {
     /// New items (`None`: no icons).
     pub(super) fn desktop_icons_set(&mut self, items: Option<Vec<DesktopItem>>) {
         if let Some(items) = items.as_ref() {
-            self.desktop_icons.icons.retain(|p, _| items.iter().any(|i| &i.path == p));
             if self.desktop_icons.selected.as_ref().is_some_and(|s| !items.iter().any(|i| &i.path == s)) {
                 self.desktop_icons.selected = None;
             }
@@ -88,10 +85,11 @@ impl Ui {
     }
 
     fn desktop_icon(&mut self, item: &DesktopItem, px: u32) -> Option<helix_draw::Image> {
-        self.desktop_icons.icons.entry(item.path.clone()).or_insert_with(|| crate::icons::load(&item.icon, px)).clone()
+        super::source_icon(&mut self.icon_cache, item.icon.clone(), px)
     }
 
     pub(super) fn draw_desktop_icons(&mut self) {
+        let _busy = crate::watchdog::scope("draw desktop icons");
         let Some(view) = self.desktop_icons.view.as_ref().filter(|v| v.configured && v.width > 0 && v.height > 0) else { return };
         let (w, h) = (view.width as usize, view.height as usize);
         let scale = self.scales.of(view.layer.wl_surface());

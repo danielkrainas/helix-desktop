@@ -16,6 +16,9 @@ pub(super) struct BackgroundView {
     pub(super) layer: LayerSurface,
     pub(super) width: u32,
     pub(super) height: u32,
+    /// What its buffer shows, and what is being painted for it.
+    pub(super) shown: Option<BackgroundKey>,
+    pub(super) wanted: Option<BackgroundKey>,
 }
 
 fn lerp(a: [u8; 3], b: [u8; 3], t: f32) -> [f32; 3] {
@@ -127,7 +130,7 @@ impl Ui {
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.set_size(0, 0);
         layer.commit();
-        self.backgrounds.push(BackgroundView { output, layer, width: 0, height: 0 });
+        self.backgrounds.push(BackgroundView { output, layer, width: 0, height: 0, shown: None, wanted: None });
     }
 
     pub(super) fn remove_background(&mut self, output: &WlOutput) {
@@ -152,6 +155,8 @@ impl Ui {
         }
     }
 
+    /// Paint background `index` on a worker (scaling a large picture
+    /// takes a while); it is shown when done.
     fn draw_background(&mut self, index: usize) {
         let view = &self.backgrounds[index];
         let (w, h) = (view.width as usize, view.height as usize);
@@ -161,6 +166,29 @@ impl Ui {
         let scale = self.scales.of(view.layer.wl_surface());
         let (pw, ph) = (physical(w, scale), physical(h, scale));
         let span = self.span_of(&view.output);
+        let key = BackgroundKey { serial: self.lock_background_serial, size: (pw, ph), scale: scale.to_bits(), span };
+        if view.shown == Some(key) || view.wanted == Some(key) {
+            return;
+        }
+        let output = view.output.clone();
+        self.backgrounds[index].wanted = Some(key);
+        let background = self.desktop_background.clone();
+        self.offload(
+            move || {
+                let mut pixels = vec![0u8; pw * ph * 4];
+                paint(&mut pixels, pw, ph, scale, &background, (w as f64, h as f64), span);
+                pixels
+            },
+            move |ui, pixels| ui.background_painted(&output, key, &pixels),
+        );
+    }
+
+    /// A background was painted: shown if still wanted.
+    fn background_painted(&mut self, output: &WlOutput, key: BackgroundKey, pixels: &[u8]) {
+        let Some(index) = self.backgrounds.iter().position(|b| &b.output == output && b.wanted == Some(key)) else { return };
+        let view = &self.backgrounds[index];
+        let (w, h) = (view.width as usize, view.height as usize);
+        let (pw, ph) = key.size;
         let pool = match self.background_pool.as_mut() {
             Some(pool) => pool,
             None => match SlotPool::new(pw * ph * 4, &self.shm) {
@@ -172,8 +200,10 @@ impl Ui {
             },
         };
         let Ok((buffer, data)) = pool.create_buffer(pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Xrgb8888) else { return };
-        paint(data, pw, ph, scale, &self.desktop_background, (w as f64, h as f64), span);
-        let view = &self.backgrounds[index];
+        data.copy_from_slice(pixels);
+        let view = &mut self.backgrounds[index];
+        view.wanted = None;
+        view.shown = Some(key);
         let surface = view.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
@@ -181,6 +211,17 @@ impl Ui {
             view.layer.commit();
         }
     }
+}
+
+/// What a background surface's picture was painted for: the picture (its
+/// serial), the buffer size, the scale (its bits) and its part of a
+/// spanned picture.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct BackgroundKey {
+    serial: u64,
+    size: (usize, usize),
+    scale: u64,
+    span: Option<Span>,
 }
 
 #[cfg(test)]

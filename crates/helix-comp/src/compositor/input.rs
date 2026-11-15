@@ -9,6 +9,8 @@ use smithay::backend::input::KeyState;
 use smithay::input::keyboard::FilterResult;
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
+use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+use helix_comp::client_socket::Motion;
 
 use super::shortcuts::{Action, Mods};
 
@@ -27,6 +29,85 @@ impl Helix {
         pointer.frame(self);
         self.focus_follows_pointer(pos);
         self.hot_corner(pos);
+    }
+
+    /// A pointer device moved. While the pointer is over the shell and the
+    /// shell is behind reading its socket, motion is held and sent
+    /// coalesced every `COALESCED_MOTION` (where the pointer is then), so
+    /// a stalled shell is not flooded; other clients get every motion.
+    fn device_motion(&mut self, motion: Motion) {
+        let behind = self.pointer_focus_behind();
+        if behind != self.held_motion.behind {
+            self.held_motion.behind = behind;
+            let unread = self.pointer_focus_unread();
+            if behind {
+                tracing::debug!(?unread, "the shell is behind reading its socket; coalescing pointer motion");
+            } else {
+                tracing::debug!(?unread, "the shell caught up; pointer motion as it comes");
+            }
+        }
+        if !behind {
+            self.release_held_motion();
+            self.apply_motion(motion);
+            return;
+        }
+        if let Some(earlier) = self.held_motion.push(motion) {
+            self.apply_motion(earlier);
+        }
+        if self.held_motion_timer.is_none() {
+            let timer = Timer::from_duration(helix_comp::client_socket::COALESCED_MOTION);
+            self.held_motion_timer = self
+                .loop_handle
+                .insert_source(timer, |_, _, state| {
+                    state.held_motion_timer = None;
+                    if let Some((motion, _)) = state.held_motion.take() {
+                        state.apply_motion(motion);
+                    }
+                    TimeoutAction::Drop
+                })
+                .ok();
+            if self.held_motion_timer.is_none() {
+                // No timer: nothing can be held.
+                self.release_held_motion();
+            }
+        }
+    }
+
+    /// Send motion held for a shell that was behind, now.
+    pub(super) fn release_held_motion(&mut self) {
+        if let Some(token) = self.held_motion_timer.take() {
+            self.loop_handle.remove(token);
+        }
+        if let Some((motion, count)) = self.held_motion.take() {
+            tracing::trace!(count, "coalesced pointer motion");
+            self.apply_motion(motion);
+        }
+    }
+
+    fn apply_motion(&mut self, motion: Motion) {
+        let time = match motion {
+            Motion::Relative { delta, unaccel, utime, time } => {
+                self.pointer_moved_by(delta.into(), unaccel.into(), utime, time);
+                time
+            }
+            Motion::Absolute { position, utime, time } => {
+                self.pointer_moved_to_host(position.into(), utime, time);
+                time
+            }
+        };
+        self.device_moved(time);
+    }
+
+    /// Bytes the shell under the pointer has not read (None for others).
+    fn pointer_focus_unread(&self) -> Option<usize> {
+        use smithay::reexports::wayland_server::Resource;
+        let client = self.seat.get_pointer()?.current_focus()?.client()?;
+        client.get_data::<super::ClientState>().filter(|d| d.privileged)?.unread()
+    }
+
+    /// Whether the client under the pointer is the shell, behind.
+    fn pointer_focus_behind(&self) -> bool {
+        self.pointer_focus_unread().is_some_and(|n| n > helix_comp::client_socket::BEHIND)
     }
 
     /// Toggle the overview when the pointer reaches the hot corner.
@@ -140,6 +221,11 @@ impl Helix {
         ) {
             self.note_activity();
         }
+        // Anything but motion happens where the pointer is now: held
+        // motion goes first.
+        if !matches!(event, InputEvent::PointerMotion { .. } | InputEvent::PointerMotionAbsolute { .. }) {
+            self.release_held_motion();
+        }
 
         match event {
             InputEvent::Keyboard { event, .. } => {
@@ -153,13 +239,12 @@ impl Helix {
                     return;
                 };
                 let pos = event.position_transformed(output_geo.size) + output_geo.loc.to_f64();
-                self.pointer_moved_to_host(pos, Event::time(&event), event.time_msec());
-                self.device_moved(event.time_msec());
+                self.device_motion(Motion::Absolute { position: (pos.x, pos.y), utime: Event::time(&event), time: event.time_msec() });
             }
             InputEvent::PointerMotion { event, .. } => {
                 // Relative motion (real mice/touchpads on bare hardware).
-                self.pointer_moved_by(event.delta(), event.delta_unaccel(), Event::time(&event), event.time_msec());
-                self.device_moved(event.time_msec());
+                let (delta, unaccel) = (event.delta(), event.delta_unaccel());
+                self.device_motion(Motion::Relative { delta: (delta.x, delta.y), unaccel: (unaccel.x, unaccel.y), utime: Event::time(&event), time: event.time_msec() });
             }
             InputEvent::GestureSwipeBegin { event } => self.gesture_swipe_begin(event.fingers(), event.time_msec()),
             InputEvent::GestureSwipeUpdate { event } => self.gesture_swipe_update(event.delta(), event.time_msec()),

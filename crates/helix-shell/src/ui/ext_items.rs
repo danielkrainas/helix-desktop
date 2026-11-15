@@ -61,7 +61,7 @@ impl Ui {
         let px = (f64::from(status::ICON) * scale).round() as u32;
         let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];
         if !item.icon_data.is_empty() {
-            let image = crate::icons::decode(&item.icon_data, px)?;
+            let image = ext_data_icon(&mut self.icon_cache, &item.icon_data, px)?;
             return (image.width <= ICON_DATA_MAX && image.height <= ICON_DATA_MAX).then_some(image);
         }
         ext_named_icon(&mut self.icon_cache, &item.icon, &item.dir, px, rgb)
@@ -255,28 +255,32 @@ fn menu_tree(entries: &[MenuEntry], parent: i32, ids: &mut Vec<i32>) -> Vec<Opti
 
 /// An icon named by an extension: a theme name, or a file inside its
 /// directory (other paths are ignored).
-pub(super) fn ext_named_icon(cache: &mut std::collections::HashMap<String, Option<Image>>, name: &str, dir: &std::path::Path, px: u32, rgb: [u8; 3]) -> Option<Image> {
+pub(super) fn ext_named_icon(cache: &mut crate::icon_cache::IconCache, name: &str, dir: &std::path::Path, px: u32, rgb: [u8; 3]) -> Option<Image> {
     if name.is_empty() {
         return None;
     }
     let key = format!("ext:{}:{name}@{px}", dir.display());
-    cache
-        .entry(key)
-        .or_insert_with(|| {
-            if name.contains('/') {
-                let path = dir.join(name);
-                let (real, root) = (path.canonicalize().ok()?, dir.canonicalize().ok()?);
-                if !real.starts_with(&root) {
-                    return None;
-                }
-                crate::icons::decode(&std::fs::read(real).ok()?, px)
-            } else if name.ends_with("-symbolic") {
-                crate::icons::symbolic(name, px, rgb)
-            } else {
-                crate::icons::load(&crate::icons::IconSource::Names(vec![name.to_owned()]), px)
+    let (name, dir) = (name.to_owned(), dir.to_path_buf());
+    cache.get(key, move || {
+        if name.contains('/') {
+            let path = dir.join(&name);
+            let (real, root) = (path.canonicalize().ok()?, dir.canonicalize().ok()?);
+            if !real.starts_with(&root) {
+                return None;
             }
-        })
-        .clone()
+            crate::icons::decode_file(&real, px)
+        } else if name.ends_with("-symbolic") {
+            crate::icons::symbolic(&name, px, rgb)
+        } else {
+            crate::icons::load(&crate::icons::IconSource::Names(vec![name]), px)
+        }
+    })
+}
+
+/// An icon an extension gave as encoded bytes, decoded on a worker
+/// (cached by its contents).
+pub(super) fn ext_data_icon(cache: &mut crate::icon_cache::IconCache, data: &[u8], px: u32) -> Option<Image> {
+    super::source_icon(cache, crate::icons::IconSource::Bytes(data.to_vec()), px)
 }
 
 #[cfg(test)]

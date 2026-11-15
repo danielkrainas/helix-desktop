@@ -26,6 +26,7 @@ pub mod display_switch;
 pub mod eraser_button;
 pub mod color_management;
 pub mod colorimetry;
+pub mod client_socket;
 pub mod cursor_shape;
 pub mod edid;
 pub mod icc;

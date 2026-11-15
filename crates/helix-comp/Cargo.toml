@@ -31,6 +31,9 @@ pipewire.workspace = true
 xcursor.workspace = true
 # The XKB extension (X11 bells), on Smithay's x11rb.
 x11rb = { version = "0.13", default-features = false, features = ["xkb"] }
+# Per-client output buffer sizes (an API gate only: the Rust backend has
+# it whatever libwayland is installed).
+wayland-server = { version = "0.31", features = ["libwayland_1_23"] }
 
 [[bin]]
 name = "helix-comp"

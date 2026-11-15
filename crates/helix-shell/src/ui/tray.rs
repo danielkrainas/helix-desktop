@@ -44,13 +44,17 @@ impl Ui {
 
     fn tray_image(&mut self, icon: &crate::tray::Icon, px: u32) -> Option<Image> {
         let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];
-        if icon.pixmaps.is_empty() {
+        // The named icon (decoded on a worker), else the pixmap (which can
+        // change without the name changing: not cached).
+        let named = (!icon.name.is_empty()).then(|| {
             let key = format!("tray:{}:{}@{px}", icon.name, icon.theme_path);
-            self.icon_cache.entry(key).or_insert_with(|| tray_icon(icon, px, rgb)).clone()
-        } else {
-            // Pixmaps can change without their name changing.
-            tray_icon(icon, px, rgb)
-        }
+            let (name, theme_path) = (icon.name.clone(), icon.theme_path.clone());
+            self.icon_cache.get(key, move || tray_named(&name, &theme_path, px, rgb))
+        });
+        named.flatten().or_else(|| {
+            let (w, h, rgba) = crate::tray::best_pixmap(&icon.pixmaps, px)?;
+            Some(Image { width: *w as usize, height: *h as usize, rgba: rgba.clone() })
+        })
     }
 
     /// The status icon at panel `x` within the tray drawn at `tray_x`:
@@ -180,21 +184,15 @@ fn menu_items(entries: &[MenuEntry], ids: &mut Vec<i32>) -> Vec<Option<MenuItem>
         .collect()
 }
 
-/// A status icon's picture at `px`.
-fn tray_icon(icon: &crate::tray::Icon, px: u32, rgb: [u8; 3]) -> Option<Image> {
-    if !icon.name.is_empty() {
-        let from_dir = (!icon.theme_path.is_empty()).then(|| find_in_dir(std::path::Path::new(&icon.theme_path), &icon.name, 4)).flatten();
-        let found = match from_dir {
-            Some(path) => crate::icons::decode(&std::fs::read(path).ok()?, px),
-            None if icon.name.ends_with("-symbolic") => crate::icons::symbolic(&icon.name, px, rgb),
-            None => crate::icons::load(&crate::icons::IconSource::Names(vec![icon.name.clone()]), px),
-        };
-        if found.is_some() {
-            return found;
-        }
+/// A status icon's named picture at `px`: from the item's own theme
+/// directory, else the icon theme.
+fn tray_named(name: &str, theme_path: &str, px: u32, rgb: [u8; 3]) -> Option<Image> {
+    let from_dir = (!theme_path.is_empty()).then(|| find_in_dir(std::path::Path::new(theme_path), name, 4)).flatten();
+    match from_dir {
+        Some(path) => crate::icons::decode_file(&path, px),
+        None if name.ends_with("-symbolic") => crate::icons::symbolic(name, px, rgb),
+        None => crate::icons::load(&crate::icons::IconSource::Names(vec![name.to_owned()]), px),
     }
-    let (w, h, rgba) = crate::tray::best_pixmap(&icon.pixmaps, px)?;
-    Some(Image { width: *w as usize, height: *h as usize, rgba: rgba.clone() })
 }
 
 /// `name.png` or `name.svg` in `dir` or (up to `depth` levels) below it.

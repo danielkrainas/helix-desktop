@@ -150,11 +150,11 @@ pub(super) fn forget_desktop_ids() {
 }
 
 fn find_desktop_id(id: &str) -> Option<String> {
-    use gio::prelude::*;
     if id.is_empty() {
         return None;
     }
-    let ids: Vec<String> = gio::AppInfo::all().iter().filter_map(|a| a.id().map(|i| i.to_string())).collect();
+    let apps = crate::icons::apps();
+    let ids = &apps.ids;
     ids.iter()
         .find(|d| d.strip_suffix(".desktop").unwrap_or(d).eq_ignore_ascii_case(id))
         .cloned()
@@ -372,8 +372,7 @@ impl Ui {
     /// Update the current view, on `output` at `area`.
     fn dock_update_view(&mut self, output: wl_output::WlOutput, area: (i32, i32, i32, i32)) {
         let s = self.dock.settings.clone();
-        use gio::prelude::*;
-        let installed: Vec<String> = gio::AppInfo::all().into_iter().filter(|a| a.should_show()).filter_map(|a| a.id().map(|i| i.to_string())).collect();
+        let installed = crate::icons::apps().shown.clone();
         let running: Vec<String> = self.dock_running().into_iter().map(|a| desktop_id(&a).map_or(a, |d| d.trim_end_matches(".desktop").to_owned())).collect();
         let items = logic::items(&s, &crate::favorites::favorites(), &installed, &running, self.dock.mounts.len(), if self.lock.session.is_some() { 0 } else { self.ext.dock.len() });
         let room = logic::room(&s, if s.edge.vertical() { area.3 } else { area.2 }, panel_height() as i32);
@@ -646,7 +645,7 @@ impl Ui {
         if let Item::Ext(i) = item {
             let d = self.ext.dock.get(*i)?.clone();
             let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];
-            let image = if d.icon_data.is_empty() { super::ext_items::ext_named_icon(&mut self.icon_cache, &d.icon, &d.dir, px, rgb) } else { crate::icons::decode(&d.icon_data, px) };
+            let image = if d.icon_data.is_empty() { super::ext_items::ext_named_icon(&mut self.icon_cache, &d.icon, &d.dir, px, rgb) } else { super::ext_items::ext_data_icon(&mut self.icon_cache, &d.icon_data, px) };
             // Dimmed while its extension is not running.
             return image.map(|mut im| {
                 if !d.running {
@@ -674,13 +673,10 @@ impl Ui {
             Item::App { id, .. } => Some(id.clone()),
             _ => None,
         };
-        self.icon_cache
-            .entry(key)
-            .or_insert_with(|| {
-                let source = source.or_else(|| id.and_then(|id| crate::icons::IconSource::for_app(&desktop_id(&id).map_or(id, |d| d.trim_end_matches(".desktop").to_owned()))));
-                source.and_then(|s| crate::icons::load(&s, px))
-            })
-            .clone()
+        self.icon_cache.get(key, move || {
+            let source = source.or_else(|| id.and_then(|id| crate::icons::IconSource::for_app(&desktop_id(&id).map_or(id, |d| d.trim_end_matches(".desktop").to_owned()))));
+            source.and_then(|s| crate::icons::load(&s, px))
+        })
     }
 
     /// App `id`'s launcher entry (by its id or desktop file).
@@ -698,6 +694,7 @@ impl Ui {
 
     /// Draw every dock.
     pub(super) fn dock_draw(&mut self) {
+        let _busy = crate::watchdog::scope("draw dock");
         for i in 0..self.dock.views.len() {
             self.dock.cur = i;
             self.dock_draw_view();
@@ -1565,8 +1562,7 @@ impl Ui {
         if !shown.is_empty() {
             return shown;
         }
-        use gio::prelude::*;
-        let installed: Vec<String> = gio::AppInfo::all().into_iter().filter(|a| a.should_show()).filter_map(|a| a.id().map(|i| i.to_string())).collect();
+        let installed = crate::icons::apps().shown.clone();
         let settings = DockSettings { show_mounts: false, show_trash: false, show_apps_button: false, ..self.dock.settings.clone() };
         let running = self.dock_running();
         logic::items(&settings, &crate::favorites::favorites(), &installed, &running, 0, 0)

@@ -142,8 +142,6 @@ pub(super) struct NotifyState {
     pub list: List,
     pub do_not_disturb: bool,
     pub view: Option<ListView>,
-    /// Decoded icons by notification id (and where they came from).
-    icons: HashMap<u32, (Option<IconSource>, Option<Image>)>,
 }
 
 fn spans(banner: &Banner) -> Vec<Span> {
@@ -206,16 +204,9 @@ impl Ui {
         Some(Fonts { regular: self.text.as_ref()?, bold: self.bold.as_ref() })
     }
 
-    /// The icon of notification `id`, decoded once.
-    fn notification_icon(&mut self, id: u32, source: &Option<IconSource>) -> Option<Image> {
-        if let Some((cached_source, image)) = self.notify.icons.get(&id) {
-            if cached_source == source {
-                return image.clone();
-            }
-        }
-        let image = source.as_ref().and_then(|s| crate::icons::load(s, ICON_PX));
-        self.notify.icons.insert(id, (source.clone(), image.clone()));
-        image
+    /// The icon of a notification, decoded once (on a worker).
+    fn notification_icon(&mut self, source: &Option<IconSource>) -> Option<Image> {
+        super::source_icon(&mut self.icon_cache, source.clone()?, ICON_PX)
     }
 
     /// Body lines of a notification at `width`.
@@ -238,7 +229,7 @@ impl Ui {
 
     pub(super) fn paint_banner(&mut self, view: &mut BannerView) {
         let (w, h) = (view.width as usize, view.height as usize);
-        let icon = self.notification_icon(view.data.id, &view.data.icon);
+        let icon = self.notification_icon(&view.data.icon);
         let scale = self.scales.of(view.layer.wl_surface());
         let Ok((buffer, data)) =
             self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
@@ -333,7 +324,6 @@ impl Ui {
     /// The list changed (or what is unseen).
     pub(super) fn notifications_changed(&mut self, list: List) {
         let had_dot = self.notify.list.unseen && !self.notify.list.entries.is_empty();
-        self.notify.icons.retain(|id, _| list.entries.iter().any(|e| e.id == *id));
         self.notify.list = list;
         if self.notify.view.is_some() {
             if self.notify.list.unseen {
@@ -404,6 +394,7 @@ impl Ui {
     }
 
     pub(super) fn draw_notification_list(&mut self) {
+        let _busy = crate::watchdog::scope("draw notification list");
         let Some(mut view) = self.notify.view.take() else { return };
         if view.configured && view.width > 0 && view.height > 0 {
             self.paint_notification_list(&mut view);
@@ -430,7 +421,7 @@ impl Ui {
             .iter()
             .skip(view.scroll)
             .map(|row| match row {
-                Row::Entry(i) => self.notification_icon(entries[*i].id, &entries[*i].icon),
+                Row::Entry(i) => self.notification_icon(&entries[*i].icon),
                 Row::Header { .. } => None,
             })
             .collect();

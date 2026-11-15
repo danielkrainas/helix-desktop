@@ -41,9 +41,8 @@ pub(super) fn dash_apps(favorites: &[String], installed: &[String], window_apps:
 impl Ui {
     /// The dash's entries, with their icons.
     pub(super) fn dash_entries(&mut self, scale: f64) -> Vec<DashEntry> {
-        use gio::prelude::*;
         // As the launcher counts them: apps shown in menus.
-        let installed: Vec<String> = gio::AppInfo::all().into_iter().filter(|a| a.should_show()).filter_map(|a| a.id().map(|i| i.to_string())).collect();
+        let installed = crate::icons::apps().shown.clone();
         let window_apps: Vec<String> = self.windows.mru().iter().map(|e| e.app_id.clone()).collect();
         let px = (f64::from(DASH_ICON) * scale).round() as u32;
         dash_apps(&crate::favorites::favorites(), &installed, &window_apps)
@@ -51,11 +50,8 @@ impl Ui {
             .map(|(app, running_only)| {
                 let windows = self.windows.mru().iter().filter(|e| e.app_id.eq_ignore_ascii_case(&app)).map(|e| e.id).collect();
                 let key = format!("app:{app}@{px}");
-                let icon = self
-                    .icon_cache
-                    .entry(key)
-                    .or_insert_with(|| crate::icons::IconSource::for_app(&app).and_then(|s| crate::icons::load(&s, px)))
-                    .clone();
+                let id = app.clone();
+                let icon = self.icon_cache.get(key, move || crate::icons::IconSource::for_app(&id).and_then(|s| crate::icons::load(&s, px)));
                 DashEntry { app, icon, windows, running_only }
             })
             .collect()

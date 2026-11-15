@@ -294,6 +294,7 @@ impl Ui {
     }
 
     pub(super) fn draw_overview(&mut self) {
+        let _busy = crate::watchdog::scope("draw overview");
         let Some(mut overlay) = self.overview.take() else { return };
         if overlay.configured && overlay.width > 0 {
             self.paint_overview(&mut overlay);
@@ -632,29 +633,48 @@ impl Ui {
 
 impl Dispatch<HelixScreenshotFrameV1, ShotData> for Ui {
     fn event(ui: &mut Self, frame: &HelixScreenshotFrameV1, event: helix_screenshot_frame_v1::Event, data: &ShotData, _: &Connection, _: &QueueHandle<Self>) {
-        let image = match event {
+        match event {
             helix_screenshot_frame_v1::Event::Done { .. } => {
-                let mut bytes = Vec::new();
-                let mut file = &data.file;
-                let read = file.seek(SeekFrom::Start(0)).is_ok() && file.read_to_end(&mut bytes).is_ok();
-                read.then(|| crate::icons::decode(&bytes, 0)).flatten()
+                frame.destroy();
+                // Read and decoded on a worker (a large window's PNG takes
+                // a while).
+                let window = data.window;
+                match data.file.try_clone() {
+                    Ok(mut file) => ui.offload(
+                        move || {
+                            let mut bytes = Vec::new();
+                            let read = file.seek(SeekFrom::Start(0)).is_ok() && file.read_to_end(&mut bytes).is_ok();
+                            read.then(|| crate::icons::decode(&bytes, 0)).flatten()
+                        },
+                        move |ui, image| ui.window_shot(window, image),
+                    ),
+                    Err(_) => ui.window_shot(window, None),
+                }
             }
-            helix_screenshot_frame_v1::Event::Failed { .. } => None,
-            _ => return,
-        };
-        frame.destroy();
-        ui.overview_shots.requested.remove(&data.window);
+            helix_screenshot_frame_v1::Event::Failed { .. } => {
+                frame.destroy();
+                ui.window_shot(data.window, None);
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Ui {
+    /// Window `window`'s picture came (or not).
+    fn window_shot(&mut self, window: u32, image: Option<helix_draw::Image>) {
+        self.overview_shots.requested.remove(&window);
         if let Some(image) = image {
-            ui.overview_shots.pictures.insert(data.window, image);
+            self.overview_shots.pictures.insert(window, image);
         }
-        if ui.overview.is_some() {
-            ui.draw_overview();
+        if self.overview.is_some() {
+            self.draw_overview();
         }
-        if ui.window_menu.as_ref().is_some_and(|m| m.previews.contains(&data.window)) {
-            ui.draw_window_menu();
+        if self.window_menu.as_ref().is_some_and(|m| m.previews.contains(&window)) {
+            self.draw_window_menu();
         }
-        if ui.switcher.as_ref().is_some_and(|s| s.state.switcher.entries.iter().any(|e| e.id == data.window)) {
-            ui.draw_switcher();
+        if self.switcher.as_ref().is_some_and(|s| s.state.switcher.entries.iter().any(|e| e.id == window)) {
+            self.draw_switcher();
         }
     }
 }

@@ -92,21 +92,69 @@ impl IconSource {
     /// The icon of the application with desktop file id `id` (no
     /// `.desktop`).
     pub fn for_app(id: &str) -> Option<Self> {
-        use gio::prelude::*;
         if id.is_empty() {
             return None;
         }
-        let wanted = format!("{id}.desktop");
-        let info = gio::AppInfo::all().into_iter().find(|a| a.id().is_some_and(|i| i == wanted))?;
-        let icon = info.icon()?;
-        if let Some(themed) = icon.downcast_ref::<gio::ThemedIcon>() {
-            return Some(Self::Names(themed.names().iter().map(|n| n.to_string()).collect()));
-        }
-        if let Some(file) = icon.downcast_ref::<gio::FileIcon>() {
-            return file.file().path().map(Self::File);
-        }
-        None
+        apps().icons.get(&format!("{id}.desktop")).cloned().flatten()
     }
+}
+
+/// How long one reading of the installed apps is used: asking for every
+/// app's icon (the app grid), or the dock updating for every window
+/// opened, reads them (some hundred desktop files) once, not each time.
+const APPS_FRESH: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The installed apps, as GIO lists them.
+#[derive(Default)]
+pub struct Apps {
+    /// Desktop file ids, in GIO's order.
+    pub ids: Vec<String>,
+    /// The ones shown in menus (`should_show`).
+    pub shown: Vec<String>,
+    /// Icons by desktop file id.
+    icons: HashMap<String, Option<IconSource>>,
+}
+
+/// The installed apps (read again when older than [`APPS_FRESH`]).
+pub fn apps() -> std::sync::Arc<Apps> {
+    use gio::prelude::*;
+    static APPS: Mutex<Option<(std::time::Instant, std::sync::Arc<Apps>)>> = Mutex::new(None);
+    let mut cached = APPS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, apps)) = cached.as_ref().filter(|(read, _)| read.elapsed() < APPS_FRESH) {
+        return apps.clone();
+    }
+    let mut apps = Apps::default();
+    for info in gio::AppInfo::all() {
+        let Some(id) = info.id().map(|i| i.to_string()) else { continue };
+        let icon = info.icon().and_then(|icon| {
+            if let Some(themed) = icon.downcast_ref::<gio::ThemedIcon>() {
+                return Some(IconSource::Names(themed.names().iter().map(|n| n.to_string()).collect()));
+            }
+            icon.downcast_ref::<gio::FileIcon>().and_then(|file| file.file().path()).map(IconSource::File)
+        });
+        if info.should_show() {
+            apps.shown.push(id.clone());
+        }
+        apps.ids.push(id.clone());
+        apps.icons.insert(id, icon);
+    }
+    let apps = std::sync::Arc::new(apps);
+    *cached = Some((std::time::Instant::now(), apps.clone()));
+    apps
+}
+
+/// A key for `source`'s picture (the same picture gives the same key), to
+/// cache it by.
+pub fn source_key(source: &IconSource) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    match source {
+        IconSource::Data(image) => (0u8, image.width, image.height, &image.rgba).hash(&mut h),
+        IconSource::File(path) => (1u8, path).hash(&mut h),
+        IconSource::Names(names) => (2u8, names).hash(&mut h),
+        IconSource::Bytes(bytes) => (3u8, bytes).hash(&mut h),
+    }
+    format!("{:016x}", h.finish())
 }
 
 /// The value inside any number of variant wrappers.
@@ -325,9 +373,9 @@ pub async fn follow(ui: tokio::sync::mpsc::UnboundedSender<crate::UiEvent>) {
     }
     let watched = helix_settings::GSettings::new(&[SCHEMA]);
     let (mut changes, _watch) = watched.watch();
-    let mut theme = current_theme();
+    let mut theme = read_theme();
     while changes.recv().await.is_some() {
-        let now = current_theme();
+        let now = read_theme();
         if now != theme {
             theme = now;
             if ui.send(crate::UiEvent::IconTheme).is_err() {
@@ -337,7 +385,20 @@ pub async fn follow(ui: tokio::sync::mpsc::UnboundedSender<crate::UiEvent>) {
     }
 }
 
+/// The icon theme in use (read once, until [`forget_theme`]).
 fn current_theme() -> String {
+    let mut theme = THEME.lock().unwrap_or_else(|e| e.into_inner());
+    theme.get_or_insert_with(read_theme).clone()
+}
+
+static THEME: Mutex<Option<String>> = Mutex::new(None);
+
+/// `icon-theme` changed: read it again.
+pub fn forget_theme() {
+    *THEME.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+fn read_theme() -> String {
     use gio::prelude::*;
     const SCHEMA: &str = "org.gnome.desktop.interface";
     if helix_settings::has_schema(SCHEMA) {
@@ -350,7 +411,7 @@ fn current_theme() -> String {
 /// A symbolic icon from the theme (else Adwaita) at `px`, drawn in `rgb`.
 pub fn symbolic(name: &str, px: u32, rgb: [u8; 3]) -> Option<Image> {
     let path = find_icon(name, px, &current_theme()).or_else(|| find_icon(name, px, "Adwaita"))?;
-    let mut image = decode(&std::fs::read(path).ok()?, px)?;
+    let mut image = decode_file(&path, px)?;
     recolor(&mut image, rgb);
     Some(image)
 }
@@ -372,10 +433,150 @@ pub fn load(source: &IconSource, px: u32) -> Option<Image> {
     match source {
         IconSource::Data(image) => Some(image.clone()),
         IconSource::Bytes(bytes) => decode(bytes, px),
-        IconSource::File(path) => decode(&std::fs::read(path).ok()?, px),
+        IconSource::File(path) => decode_file(path, px),
         IconSource::Names(names) => {
             let theme = current_theme();
-            names.iter().find_map(|name| decode(&std::fs::read(find_icon(name, px, &theme)?).ok()?, px))
+            names.iter().find_map(|name| decode_file(&find_icon(name, px, &theme)?, px))
+        }
+    }
+}
+
+/// The icon file at `path` decoded at about `px` pixels; rendered SVGs
+/// come from the disk cache when it has them.
+pub fn decode_file(path: &Path, px: u32) -> Option<Image> {
+    decode_file_with(disk_cache(), path, px)
+}
+
+fn decode_file_with(cache: Option<&DiskCache>, path: &Path, px: u32) -> Option<Image> {
+    let meta = std::fs::metadata(path).ok()?;
+    if let Some(found) = cache.and_then(|c| c.get(path, &meta, px)) {
+        return Some(found);
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let image = decode(&bytes, px)?;
+    // PNGs decode quickly (and at their own size): only rendered SVGs
+    // are kept.
+    if !bytes.starts_with(b"\x89PNG") {
+        if let Some(cache) = cache {
+            cache.put(path, &meta, px, &image);
+        }
+    }
+    Some(image)
+}
+
+fn disk_cache() -> Option<&'static DiskCache> {
+    static CACHE: OnceLock<Option<DiskCache>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            if cfg!(test) {
+                // Unit tests use their own (`DiskCache::at`).
+                return None;
+            }
+            let base = std::env::var_os("XDG_CACHE_HOME")
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".cache")))?;
+            let cache = DiskCache::at(base.join("helix/icons"));
+            cache.prune(DISK_CACHE_UNUSED);
+            Some(cache)
+        })
+        .as_ref()
+}
+
+/// Cached icons not used for this long are removed (when the shell
+/// starts using the cache).
+const DISK_CACHE_UNUSED: std::time::Duration = std::time::Duration::from_secs(60 * 24 * 3600);
+
+/// A used entry's time is renewed when it is older than this.
+const DISK_CACHE_RENEW: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
+
+/// Rendered icons kept between runs (`$XDG_CACHE_HOME/helix/icons`), so a
+/// restarted shell does not render every SVG again. An entry is for one
+/// icon file as it is (path, modification time and size) at one pixel
+/// size (logical size × scale), named by a hash of those; it holds
+/// `HXIC`, a version byte, width, height and key length (u32, little
+/// endian), the key itself (checked on reading), then premultiplied RGBA.
+/// An icon file that changes gets a new key; old entries go when unused.
+pub struct DiskCache {
+    dir: PathBuf,
+}
+
+const DISK_MAGIC: &[u8; 5] = b"HXIC\x01";
+
+/// A file's age by its modification time.
+fn age(meta: std::io::Result<std::fs::Metadata>) -> Option<std::time::Duration> {
+    meta.and_then(|m| m.modified()).ok()?.elapsed().ok()
+}
+
+impl DiskCache {
+    pub fn at(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+
+    fn key(path: &Path, meta: &std::fs::Metadata, px: u32) -> Option<String> {
+        let mtime = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+        Some(format!("{}\n{}.{:09}\n{}\n{px}", path.display(), mtime.as_secs(), mtime.subsec_nanos(), meta.len()))
+    }
+
+    fn file(&self, key: &str) -> PathBuf {
+        // FNV-1a: the same name in every build.
+        let hash = key.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+        self.dir.join(format!("{hash:016x}.icon"))
+    }
+
+    /// The icon kept for `path` (as `meta` says it is now) at `px`.
+    pub fn get(&self, path: &Path, meta: &std::fs::Metadata, px: u32) -> Option<Image> {
+        let key = Self::key(path, meta, px)?;
+        let file = self.file(&key);
+        let data = std::fs::read(&file).ok()?;
+        let rest = data.strip_prefix(DISK_MAGIC.as_slice())?;
+        let u32_at = |i: usize| rest.get(i..i + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
+        let (w, h, key_len) = (u32_at(0)?, u32_at(4)?, u32_at(8)?);
+        let stored = rest.get(12..12 + key_len)?;
+        let rgba = rest.get(12 + key_len..)?;
+        if stored != key.as_bytes() || w == 0 || h == 0 || rgba.len() != w.checked_mul(h)?.checked_mul(4)? {
+            return None;
+        }
+        // Still in use: not to be pruned.
+        if age(std::fs::metadata(&file)).is_some_and(|a| a > DISK_CACHE_RENEW) {
+            let _ = std::fs::File::options().write(true).open(&file).and_then(|f| f.set_modified(std::time::SystemTime::now()));
+        }
+        Some(Image { width: w, height: h, rgba: rgba.to_vec() })
+    }
+
+    /// Keep `image`, rendered from `path` at `px`.
+    pub fn put(&self, path: &Path, meta: &std::fs::Metadata, px: u32, image: &Image) {
+        static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let Some(key) = Self::key(path, meta, px) else { return };
+        let (Ok(w), Ok(h), Ok(key_len)) = (u32::try_from(image.width), u32::try_from(image.height), u32::try_from(key.len())) else { return };
+        let mut data = Vec::with_capacity(DISK_MAGIC.len() + 12 + key.len() + image.rgba.len());
+        data.extend_from_slice(DISK_MAGIC);
+        for v in [w, h, key_len] {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        data.extend_from_slice(key.as_bytes());
+        data.extend_from_slice(&image.rgba);
+        let file = self.file(&key);
+        // Written whole, then renamed: no reader sees half a file.
+        let n = SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = file.with_extension(format!("tmp-{}-{n}", std::process::id()));
+        let written = std::fs::create_dir_all(&self.dir).and_then(|()| std::fs::write(&tmp, &data)).and_then(|()| std::fs::rename(&tmp, &file));
+        if let Err(err) = written {
+            let _ = std::fs::remove_file(&tmp);
+            tracing::debug!(%err, dir = %self.dir.display(), "cannot keep a rendered icon");
+        }
+    }
+
+    /// Remove entries untouched for `unused` (and temporary files left
+    /// by a shell that stopped while writing).
+    pub fn prune(&self, unused: std::time::Duration) {
+        let Ok(entries) = std::fs::read_dir(&self.dir) else { return };
+        for entry in entries.flatten() {
+            let Some(age) = age(entry.metadata()) else { continue };
+            let tmp = entry.file_name().to_string_lossy().contains(".tmp-");
+            if age > unused || (tmp && age > std::time::Duration::from_secs(3600)) {
+                let _ = std::fs::remove_file(entry.path());
+            }
         }
     }
 }
@@ -450,6 +651,72 @@ mod tests {
         let mut image = Image { width: 2, height: 1, rgba: vec![0, 0, 0, 255, 0, 0, 0, 128] };
         recolor(&mut image, [255, 200, 0]);
         assert_eq!(image.rgba, vec![255, 200, 0, 255, 128, 100, 0, 128]);
+    }
+
+    fn red_or_blue(fill: &str) -> Vec<u8> {
+        format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="{fill}"/></svg>"#).into_bytes()
+    }
+
+    #[test]
+    fn rendered_svgs_are_kept_on_disk_until_the_file_changes() {
+        let root = std::env::temp_dir().join(format!("helix-icon-disk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let cache = DiskCache::at(root.join("cache"));
+        let icon = root.join("app.svg");
+        std::fs::write(&icon, red_or_blue("red")).unwrap();
+        let entries = || std::fs::read_dir(root.join("cache")).map_or(0, |d| d.count());
+
+        let first = decode_file_with(Some(&cache), &icon, 16).unwrap();
+        assert_eq!(&first.rgba[0..4], &[255, 0, 0, 255]);
+        assert_eq!(entries(), 1, "kept");
+        // Read back from the cache, not rendered again: what the cache
+        // holds is what comes back.
+        let meta = std::fs::metadata(&icon).unwrap();
+        let marked = Image { width: 1, height: 1, rgba: vec![1, 2, 3, 4] };
+        cache.put(&icon, &meta, 16, &marked);
+        assert_eq!(decode_file_with(Some(&cache), &icon, 16), Some(marked));
+        // Another size is another entry.
+        assert_eq!(decode_file_with(Some(&cache), &icon, 32).map(|i| i.width), Some(32));
+        assert_eq!(entries(), 2);
+
+        // The file changes (new contents, a later time): rendered again.
+        std::fs::write(&icon, red_or_blue("blue")).unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        std::fs::File::options().write(true).open(&icon).unwrap().set_modified(later).unwrap();
+        let changed = decode_file_with(Some(&cache), &icon, 16).unwrap();
+        assert_eq!(&changed.rgba[0..4], &[0, 0, 255, 255], "not the old picture");
+        assert_eq!(entries(), 3);
+
+        // A damaged entry is ignored (and replaced).
+        for entry in std::fs::read_dir(root.join("cache")).unwrap().flatten() {
+            std::fs::write(entry.path(), b"HXIC\x01junk").unwrap();
+        }
+        assert_eq!(&decode_file_with(Some(&cache), &icon, 16).unwrap().rgba[0..4], &[0, 0, 255, 255]);
+
+        // Pruning removes what was not used for that long.
+        cache.prune(std::time::Duration::ZERO);
+        assert_eq!(entries(), 0);
+        // PNGs are not kept.
+        let mut png = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png, 1, 1);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.write_header().unwrap().write_image_data(&[0, 0, 255, 255]).unwrap();
+        }
+        std::fs::write(root.join("app.png"), &png).unwrap();
+        assert!(decode_file_with(Some(&cache), &root.join("app.png"), 16).is_some());
+        assert_eq!(entries(), 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn source_keys_follow_the_picture() {
+        let a = IconSource::Names(vec!["a".into()]);
+        assert_eq!(source_key(&a), source_key(&IconSource::Names(vec!["a".into()])));
+        assert_ne!(source_key(&a), source_key(&IconSource::Names(vec!["b".into()])));
+        assert_ne!(source_key(&IconSource::Bytes(vec![1])), source_key(&IconSource::Bytes(vec![2])));
     }
 
     #[test]

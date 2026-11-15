@@ -549,12 +549,14 @@ impl Ui {
     }
 }
 
-pub(super) type Icons = HashMap<String, Option<helix_draw::Image>>;
+pub(super) type Icons = crate::icon_cache::IconCache;
 
+/// App `id`'s icon, if decoded yet (the cell is drawn without it until it
+/// is: a grid of 169 apps would otherwise keep the UI thread for seconds).
 fn grid_icon(cache: &mut Icons, id: &str, px: u32) -> Option<helix_draw::Image> {
     let app = id.strip_suffix(".desktop").unwrap_or(id).to_owned();
     let key = format!("app:{app}@{px}");
-    cache.entry(key).or_insert_with(|| crate::icons::IconSource::for_app(&app).and_then(|s| crate::icons::load(&s, px))).clone()
+    cache.get(key, move || crate::icons::IconSource::for_app(&app).and_then(|s| crate::icons::load(&s, px)))
 }
 
 /// Draw one grid cell (an app or a folder) at `cell`.
