@@ -12,11 +12,14 @@ pub struct Config {
     pub user_list: bool,
     /// Text under the clock.
     pub banner: Option<String>,
+    /// The accent color's name, as `accent-color` takes it (the greeter
+    /// user has no settings of their own); blue when unset or unknown.
+    pub accent: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { user_list: true, banner: None }
+        Self { user_list: true, banner: None, accent: None }
     }
 }
 
@@ -38,6 +41,15 @@ impl Config {
             Err(_) => Self::default(),
         }
     }
+
+    /// The accent to draw with.
+    pub fn accent(&self) -> helix_draw::accent::Accent {
+        let Some(name) = self.accent.as_deref() else { return Default::default() };
+        helix_draw::accent::Accent::from_name(name.trim()).unwrap_or_else(|| {
+            tracing::warn!(name, "unknown accent; using blue");
+            Default::default()
+        })
+    }
 }
 
 #[cfg(test)]
@@ -47,9 +59,13 @@ mod tests {
     #[test]
     fn parses() {
         assert_eq!(Config::parse("").unwrap(), Config::default());
-        assert_eq!(Config::parse("user-list = false\nbanner = \"Authorized use only.\"\n").unwrap(), Config { user_list: false, banner: Some("Authorized use only.".into()) });
+        assert_eq!(Config::parse("user-list = false\nbanner = \"Authorized use only.\"\n").unwrap(), Config { user_list: false, banner: Some("Authorized use only.".into()), accent: None });
         assert_eq!(Config::parse("banner = \"  \"").unwrap().banner, None);
         assert!(Config::parse("user-list = \"no\"").is_err());
+        use helix_draw::accent::Accent;
+        assert_eq!(Config::default().accent(), Accent::Blue);
+        assert_eq!(Config::parse("accent = \"orange\"").unwrap().accent(), Accent::Orange);
+        assert_eq!(Config::parse("accent = \"magenta\"").unwrap().accent(), Accent::Blue, "unknown: blue");
         // Unknown keys are allowed (newer configuration, older greeter).
         assert!(Config::parse("theme = \"x\"").is_ok());
     }

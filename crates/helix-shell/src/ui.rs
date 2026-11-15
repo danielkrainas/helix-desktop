@@ -104,12 +104,24 @@ const FG: u32 = theme::TEXT;
 /// Secondary text (on the panel, popovers and dialogs; not on controls).
 const DIM_FG: u32 = theme::TEXT_DIM;
 const TRACK: u32 = theme::TRACK;
+// The accent follows `accent-color` (helix_draw::accent), so it is read
+// at each use.
 /// The accent: rings, indicators, a slider's filled part.
-const ACCENT: u32 = theme::ACCENT;
+fn accent() -> u32 {
+    theme::accent()
+}
 /// The accent under text (selected rows, buttons, switches on).
-const ACCENT_FILL: u32 = theme::ACCENT_FILL;
+fn accent_fill() -> u32 {
+    theme::accent_fill()
+}
+/// Text and symbols on [`accent_fill`]: dark on a light accent.
+fn on_accent() -> u32 {
+    theme::on_accent()
+}
 /// Accent-colored words (links, "Connected").
-const ACCENT_TEXT: u32 = theme::TEXT_ACCENT;
+fn accent_text() -> u32 {
+    theme::text_accent()
+}
 /// Words in red: errors, "Sharing" and "Recording".
 const ERROR_TEXT: u32 = theme::TEXT_ERROR;
 const SCRIM: u32 = 0xB00C0C10;
@@ -718,7 +730,7 @@ fn baseline(text: Option<&Text>, top: i32, height: i32, px: f32) -> f32 {
 /// fields"): an accent ring while it takes typing, a faint outline
 /// otherwise.
 fn text_field(canvas: &mut Canvas, r: Rect, focused: bool) {
-    let (ring, width) = if focused { (ACCENT, 2) } else { (0x30FFFFFF, 1) };
+    let (ring, width) = if focused { (accent(), 2) } else { (0x30FFFFFF, 1) };
     canvas.rect(r.x - width, r.y - width, r.w + 2 * width, r.h + 2 * width, ring);
     canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
 }
@@ -837,7 +849,7 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
                             canvas.circle(f64::from(tx + clock_w + 9), f64::from(h as i32) / 2.0, 3.0, FG);
                         }
                         if m.list_open {
-                            canvas.rect(tx - 8, h as i32 - 3, clock_w + 16, 2, ACCENT);
+                            canvas.rect(tx - 8, h as i32 - 3, clock_w + 16, 2, accent());
                         }
                     }
                     None => {
@@ -860,7 +872,7 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
                         canvas.image(f64::from(ix + half), f64::from(y + half), f64::from(half), f64::from(half), overlay);
                     }
                     if *attention {
-                        canvas.rect(ix, h as i32 - 4, status::ICON, 2, ACCENT);
+                        canvas.rect(ix, h as i32 - 4, status::ICON, 2, accent());
                     }
                 }
             }
@@ -919,14 +931,14 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
     }
     // Dragging in the editor: where the item would go.
     if let Some(lx) = m.drag_target {
-        canvas.rect(lx - 1, 3, 3, h as i32 - 6, ACCENT);
+        canvas.rect(lx - 1, 3, 3, h as i32 - 6, accent());
     }
     // Keyboard focus ring (switch-panels).
     let controls = panel_controls(&placed, m.tray_images.len());
     if let Some(&(_, x, iw)) = m.focus.and_then(|i| controls.get(i)) {
         let (y, bh) = (3, h as i32 - 6);
         for (rx, ry, rw, rh) in [(x, y, iw, 2), (x, y + bh - 2, iw, 2), (x, y, 2, bh), (x + iw - 2, y, 2, bh)] {
-            canvas.rect(rx, ry, rw, rh, ACCENT);
+            canvas.rect(rx, ry, rw, rh, accent());
         }
     }
     if let Some(osd) = m.osd {
@@ -1038,7 +1050,7 @@ canvas.fill(SCRIM);
         let r = Rect { x: bx + 24, y: by + bh - grow(56) - grow(42), w: bw - 48, h: grow(26) };
         // Outlined, so an empty box shows.
         canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
-        canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if on { ACCENT } else { FIELD_BG });
+        canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if on { accent() } else { FIELD_BG });
         let name = "Install pending software updates";
         label(text, canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
         extra_hits.push((r, OverlayHit::EndInstall));
@@ -1104,7 +1116,7 @@ fn draw_osd(text: Option<&Text>, canvas: &mut Canvas, osd: &Osd, w: usize, h: us
     }
     let bar_y = h as i32 / 2 - 3;
     canvas.rect(x0, bar_y, bar_w, 6, TRACK);
-    canvas.rect(x0, bar_y, (fraction * f64::from(bar_w)) as i32, 6, ACCENT);
+    canvas.rect(x0, bar_y, (fraction * f64::from(bar_w)) as i32, 6, accent());
     if text.is_some() {
         let base = baseline(text, 0, h as i32, 14.0);
         label(text, canvas, &percent, (x0 + bar_w + 12) as f32, base, 14.0, FG, 48.0);
@@ -1609,6 +1621,32 @@ impl Ui {
         }
     }
 
+    /// `accent-color` changed: every surface showing the accent is drawn
+    /// again with it (high contrast keeps its own colors, so nothing
+    /// changes on screen while it is on).
+    fn accent_changed(&mut self, accent: helix_draw::accent::Accent) {
+        if accent == helix_draw::accent::chosen() {
+            return;
+        }
+        tracing::info!(accent = accent.name(), "accent");
+        helix_draw::accent::set(accent);
+        if helix_draw::high_contrast() {
+            return;
+        }
+        self.redraw_all();
+        self.draw_power_menu();
+        self.draw_workspace_popup();
+        self.draw_overview();
+        self.dock_draw();
+        self.draw_desktop_icons();
+        self.draw_osk();
+        self.draw_candidates();
+        self.draw_click_type();
+        self.draw_panel_editor();
+        self.draw_extensions_dialog();
+        self.draw_break();
+    }
+
     /// Draw every open surface again (their scale changed).
     /// `text-scaling-factor` changed: the panel grows (or shrinks) and
     /// everything shown is drawn again at the new size.
@@ -1704,7 +1742,7 @@ impl Ui {
             let entry = &switcher.entries[index];
             let r = Rect { x: bx + 8, y: by + 8 + row as i32 * ROW_H, w: bw - 16, h: ROW_H };
             if index == switcher.selected {
-                canvas.rect(r.x, r.y, r.w, r.h, ACCENT_FILL);
+                canvas.rect(r.x, r.y, r.w, r.h, accent_fill());
             }
             let base = baseline(text, r.y, r.h, 15.0);
             let detail_w = text.map_or(0.0, |t| t.width(&entry.detail, 13.0).min(160.0));
@@ -1714,8 +1752,9 @@ impl Ui {
                 canvas.image(f64::from(r.x + 10), y, f64::from(ICON_PX), f64::from(ICON_PX), icon);
                 label_x = r.x + 18 + ICON_PX;
             }
-            label(text, &mut canvas, &entry.label, label_x as f32, base, 15.0, FG, (r.x + r.w - label_x) as f32 - 24.0 - detail_w);
-            let detail_color = if index == switcher.selected { FG } else { DIM_FG };
+            let fg = if index == switcher.selected { on_accent() } else { FG };
+            label(text, &mut canvas, &entry.label, label_x as f32, base, 15.0, fg, (r.x + r.w - label_x) as f32 - 24.0 - detail_w);
+            let detail_color = if index == switcher.selected { fg } else { DIM_FG };
             label(text, &mut canvas, &entry.detail, r.x as f32 + r.w as f32 - 12.0 - detail_w, base, 13.0, detail_color, 160.0);
             overlay.hits.push((r, OverlayHit::Window(entry.id)));
         }
@@ -1771,7 +1810,7 @@ impl Ui {
             let entry = &switcher.entries[index];
             let tile = Rect { x: bx + THUMB_GAP + slot as i32 * (THUMB_W + THUMB_GAP), y: by + THUMB_GAP, w: THUMB_W, h: THUMB_H + THUMB_TITLE_H };
             if index == switcher.selected {
-                canvas.round_rect(f64::from(tile.x - 4), f64::from(tile.y - 4), f64::from(tile.w + 8), f64::from(tile.h + 4), 8.0, ACCENT);
+                canvas.round_rect(f64::from(tile.x - 4), f64::from(tile.y - 4), f64::from(tile.w + 8), f64::from(tile.h + 4), 8.0, accent());
             }
             let pic = Rect { x: tile.x + 4, y: tile.y + 4, w: tile.w - 8, h: THUMB_H - 8 };
             match self.overview_shots.picture(entry.id) {
@@ -1866,7 +1905,7 @@ impl Ui {
         label(self.text.as_ref(), &mut canvas, q_text, text_x as f32, base, 17.0, q_color, (bw - 40) as f32);
         if let Some(text) = &self.text {
             let caret_x = bx + 16 + text.width(&view.model.query, 17.0) as i32 + 1;
-            canvas.rect(caret_x, field.y + field.h * 13 / 48, 2, field.h - field.h * 26 / 48, ACCENT);
+            canvas.rect(caret_x, field.y + field.h * 13 / 48, 2, field.h - field.h * 26 / 48, accent());
         }
 
         // An empty search: the app grid.
@@ -1901,7 +1940,7 @@ impl Ui {
         for (row, &result) in shown.iter().enumerate() {
             let rect = Rect { x: bx + 4, y: list_top + 4 + row as i32 * row_h, w: bw - 8, h: row_h };
             if result == view.model.selected {
-                canvas.rect(rect.x, rect.y, rect.w, rect.h, ACCENT_FILL);
+                canvas.rect(rect.x, rect.y, rect.w, rect.h, accent_fill());
             }
             let (name, _) = view.model.row_label(view.model.results[result]);
             let more = matches!(view.model.results[result], launcher::Hit::More(_));
@@ -1932,19 +1971,19 @@ impl Ui {
             };
             let tag_w = tag_text.map_or(0.0, |t| self.text.as_ref().map_or(96.0, |f| f.width(t, 13.0)).min(160.0) + 8.0);
             let name_max = rect.w as f32 - 24.0 - tag_w - (text_x - rect.x - 12) as f32;
-            let name_color = if more && result != view.model.selected { DIM_FG } else { FG };
+            let name_color = if result == view.model.selected { on_accent() } else if more { DIM_FG } else { FG };
             label(self.text.as_ref(), &mut canvas, name, text_x as f32, base, 15.0, name_color, name_max);
             // A search result's description after its name, dimmer.
             if let Some(hit) = found.filter(|h| !h.description.is_empty()) {
                 let nw = self.text.as_ref().map_or(0.0, |t| t.width(name, 15.0)) + 12.0;
                 if nw < name_max - 40.0 {
-                    let color = if result == view.model.selected { FG } else { DIM_FG };
+                    let color = if result == view.model.selected { on_accent() } else { DIM_FG };
                     label(self.text.as_ref(), &mut canvas, &hit.description, text_x as f32 + nw, base, 13.0, color, name_max - nw);
                 }
             }
             if let Some(tag) = tag_text {
                 let tw = self.text.as_ref().map_or(0.0, |t| t.width(tag, 13.0));
-                let color = if result == view.model.selected { FG } else { DIM_FG };
+                let color = if result == view.model.selected { on_accent() } else { DIM_FG };
                 label(self.text.as_ref(), &mut canvas, tag, rect.x as f32 + rect.w as f32 - 12.0 - tw, base, 13.0, color, tag_w);
             }
             view.rows.push((rect, result));
@@ -2749,24 +2788,25 @@ impl Ui {
         for (i, (_, name, connector)) in sources.iter().take(8).enumerate() {
             let r = Rect { x: bx + 24, y: top + i as i32 * (ROW_H + 8), w: bw - 48, h: ROW_H };
             let on = picked.contains(&i);
-            canvas.rect(r.x, r.y, r.w, r.h, if on { ACCENT_FILL } else { HOVER_BG });
+            canvas.rect(r.x, r.y, r.w, r.h, if on { accent_fill() } else { HOVER_BG });
+            let fg = if on { on_accent() } else { FG };
             let base = baseline(text, r.y, r.h, 15.0);
             let mut nx = r.x + 12;
             if *multiple {
                 // A check box per row.
                 let (cx, cy) = (r.x + 12, r.y + (r.h - 14) / 2);
                 for (rx, ry, rw, rh) in [(cx, cy, 14, 1), (cx, cy + 13, 14, 1), (cx, cy, 1, 14), (cx + 13, cy, 1, 14)] {
-                    canvas.rect(rx, ry, rw, rh, FG);
+                    canvas.rect(rx, ry, rw, rh, fg);
                 }
                 if on {
-                    canvas.line((f64::from(cx) + 3.0, f64::from(cy) + 7.5), (f64::from(cx) + 6.0, f64::from(cy) + 10.5), 1.8, FG);
-                    canvas.line((f64::from(cx) + 6.0, f64::from(cy) + 10.5), (f64::from(cx) + 11.0, f64::from(cy) + 3.5), 1.8, FG);
+                    canvas.line((f64::from(cx) + 3.0, f64::from(cy) + 7.5), (f64::from(cx) + 6.0, f64::from(cy) + 10.5), 1.8, fg);
+                    canvas.line((f64::from(cx) + 6.0, f64::from(cy) + 10.5), (f64::from(cx) + 11.0, f64::from(cy) + 3.5), 1.8, fg);
                 }
                 nx += 24;
             }
-            label(text, &mut canvas, name, nx as f32, base, 15.0, FG, (r.x + r.w - nx) as f32 - 120.0);
+            label(text, &mut canvas, name, nx as f32, base, 15.0, fg, (r.x + r.w - nx) as f32 - 120.0);
             let cw = text.map_or(0.0, |t| t.width(connector, 13.0).min(100.0));
-            label(text, &mut canvas, connector, r.x as f32 + r.w as f32 - 12.0 - cw, base, 13.0, DIM_FG, 100.0);
+            label(text, &mut canvas, connector, r.x as f32 + r.w as f32 - 12.0 - cw, base, 13.0, if on { fg } else { DIM_FG }, 100.0);
             hits.push((r, OverlayHit::Monitor(i)));
         }
         // Cancel; with several to choose, Share beside it.
@@ -2780,7 +2820,7 @@ impl Ui {
             let share = Rect { x: cancel.x + cw + 12, y: cancel.y, w: cw, h: 36 };
             theme::control(&mut canvas, share.x, share.y, share.w, share.h, theme::Look { on: !picked.is_empty(), ..Default::default() });
             let sw = text.map_or(0.0, |t| t.width("Share", 15.0));
-            label(text, &mut canvas, "Share", share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, if picked.is_empty() { DIM_FG } else { FG }, share.w as f32);
+            label(text, &mut canvas, "Share", share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, if picked.is_empty() { DIM_FG } else { on_accent() }, share.w as f32);
             if !picked.is_empty() {
                 hits.push((share, OverlayHit::Confirm));
             }
@@ -3024,6 +3064,7 @@ impl Ui {
                 }
             }
             UiEvent::TextScale(factor) => self.text_scale_changed(factor),
+            UiEvent::Accent(accent) => self.accent_changed(accent),
             UiEvent::HighContrast(on) => {
                 if on != helix_draw::high_contrast() {
                     tracing::info!(on, "high contrast");
@@ -4418,7 +4459,8 @@ mod tests {
     fn focused_field_has_ring_and_caret() {
         // B, G, R, A at logical (x, y) of a 60×40 canvas at scale 1.
         let px = |data: &[u8], x: usize, y: usize| -> [u8; 4] { data[(y * 60 + x) * 4..][..4].try_into().unwrap() };
-        let accent = [0xE4, 0x84, 0x35, 0xFF];
+        let [r, g, b, a] = helix_draw::rgba(super::accent()).map(|c| (c * 255.0).round() as u8);
+        let accent = [b, g, r, a];
         let [r, g, b, a] = helix_draw::rgba(super::FG).map(|c| (c * 255.0).round() as u8);
         let fg = [b, g, r, a];
         let r = super::Rect { x: 10, y: 10, w: 40, h: 20 };
@@ -4495,19 +4537,35 @@ mod tests {
             (FG, opaque(PANEL_BG), "the panel"),
             (FG, FIELD_BG, "text on controls"),
             (FG, HOVER_BG, "the selected menu row"),
-            (FG, ACCENT_FILL, "switches on, selected rows, buttons"),
             (DIM_FG, BANNER_BG, "secondary text: notification bodies, percentages, weekdays, dialog messages"),
             (DIM_FG, opaque(PANEL_BG), "secondary text on the panel"),
             (DIM_FG, opaque(BOX_BG), "the launcher's tags"),
             (DIM_FG, theme::WELL, "\"No Networks\""),
             (ERROR_TEXT, BANNER_BG, "a prompt's error"),
             (ERROR_TEXT, opaque(PANEL_BG), "\"Sharing\", \"Recording\""),
-            (ACCENT_TEXT, BANNER_BG, "links in notifications"),
-            (ACCENT_TEXT, theme::WELL, "\"Connected\""),
         ];
         for (fg, bg, what) in pairs {
             let ratio = helix_draw::backdrop::contrast(fg, bg);
             assert!(ratio >= 4.5, "{what}: {fg:08x} on {bg:08x} is {ratio:.2}:1");
+        }
+        // The accent's, for every accent.
+        for accent in helix_draw::accent::Accent::ALL {
+            let p = accent.palette();
+            let name = accent.name();
+            for (fg, bg, what) in [
+                (p.on_fill, p.fill, "switches on, selected rows, buttons"),
+                (p.on_fill, p.fill_hover, "a hovered default button"),
+                (p.text, BANNER_BG, "links in notifications"),
+                (p.text, theme::WELL, "\"Connected\""),
+                (p.text, opaque(PANEL_BG), "accent words on the panel"),
+            ] {
+                let ratio = helix_draw::backdrop::contrast(fg, bg);
+                assert!(ratio >= 4.5, "{name}: {what}: {fg:08x} on {bg:08x} is {ratio:.2}:1");
+            }
+            for (fg, bg, what) in [(p.color, BANNER_BG, "focus rings on popovers"), (p.color, opaque(PANEL_BG), "panel indicators")] {
+                let ratio = helix_draw::backdrop::contrast(fg, bg);
+                assert!(ratio >= 3.0, "{name}: {what}: {fg:08x} on {bg:08x} is {ratio:.2}:1");
+            }
         }
     }
 

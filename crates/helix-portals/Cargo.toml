@@ -14,6 +14,7 @@ futures-util.workspace = true
 tracing.workspace = true
 helix-session.workspace = true
 helix-settings.workspace = true
+helix-draw.workspace = true
 tracing-subscriber.workspace = true
 gio.workspace = true
 serde.workspace = true

@@ -176,15 +176,16 @@ impl Ui {
         y += 16;
         for (hit, name, x) in [(EditorHit::Reset, "Reset", bx + PAD), (EditorHit::Done, "Done", bx + bw - PAD - BOTTOM_W)] {
             let r = Rect { x, y, w: BOTTOM_W, h: BOTTOM_H };
-            theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look { on: hit == EditorHit::Done, ..Default::default() });
+            let look = theme::Look { on: hit == EditorHit::Done, ..Default::default() };
+            theme::control(&mut canvas, r.x, r.y, r.w, r.h, look);
             let tw = text.map_or(0.0, |t| t.width(name, 15.0));
-            label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
+            label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, theme::control_text(look), r.w as f32);
             hits.push((r, hit));
         }
         // Keyboard focus ring.
         if let Some(r) = overlay.state.focus.and_then(|i| hits.get(i)).map(|(r, _)| *r) {
             for (rx, ry, rw, rh) in [(r.x - 2, r.y - 2, r.w + 4, 2), (r.x - 2, r.y + r.h, r.w + 4, 2), (r.x - 2, r.y - 2, 2, r.h + 4), (r.x + r.w, r.y - 2, 2, r.h + 4)] {
-                canvas.rect(rx, ry, rw, rh, ACCENT);
+                canvas.rect(rx, ry, rw, rh, accent());
             }
         }
         overlay.hits = hits.into_iter().map(|(r, hit)| (r, OverlayHit::PanelEditor(hit))).collect();

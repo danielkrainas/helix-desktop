@@ -524,9 +524,9 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
         if let Some(checked) = item.checked {
             let (bx, by) = (x, r.y + (r.h - 14) / 2);
             if checked {
-                canvas.rect(bx, by, 14, 14, ACCENT);
-                canvas.line((f64::from(bx) + 3.0, f64::from(by) + 7.5), (f64::from(bx) + 6.0, f64::from(by) + 10.5), 1.8, FG);
-                canvas.line((f64::from(bx) + 6.0, f64::from(by) + 10.5), (f64::from(bx) + 11.0, f64::from(by) + 3.5), 1.8, FG);
+                canvas.rect(bx, by, 14, 14, accent_fill());
+                canvas.line((f64::from(bx) + 3.0, f64::from(by) + 7.5), (f64::from(bx) + 6.0, f64::from(by) + 10.5), 1.8, on_accent());
+                canvas.line((f64::from(bx) + 6.0, f64::from(by) + 10.5), (f64::from(bx) + 11.0, f64::from(by) + 3.5), 1.8, on_accent());
             } else {
                 for (rx, ry, rw, rh) in [(bx, by, 14, 1), (bx, by + 13, 14, 1), (bx, by, 1, 14), (bx + 13, by, 1, 14)] {
                     canvas.rect(rx, ry, rw, rh, DIM_FG);
@@ -536,7 +536,7 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
         }
         if radio_marks {
             if item.active {
-                canvas.circle(f64::from(x) + 4.0, f64::from(r.y + r.h / 2), 3.5, ACCENT);
+                canvas.circle(f64::from(x) + 4.0, f64::from(r.y + r.h / 2), 3.5, accent());
             }
             x += 16;
         }

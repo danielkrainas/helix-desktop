@@ -180,7 +180,7 @@ impl Frames {
             let k = (t + offset).fract();
             let r = LOCATE_R * (1.0 - k) + 4.0;
             let alpha = ((1.0 - k) * 200.0) as u32;
-            let color = (alpha << 24) | 0x003584E4;
+            let color = (alpha << 24) | (helix_draw::theme::accent() & 0x00FF_FFFF);
             let steps = 48;
             for i in 0..steps {
                 let a0 = i as f64 / steps as f64 * std::f64::consts::TAU;

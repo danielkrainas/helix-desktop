@@ -422,7 +422,7 @@ pub(super) fn paint(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, w: us
             y: f64::from(field.y),
             w: f64::from(field.w),
             focused: m.revealed && !m.checking && m.focus.is_none() && m.confirming.is_none(),
-            ring: if m.failed { ERROR } else { ACCENT },
+            ring: if m.failed { ERROR } else { accent() },
             // While checking: as many dots as were typed, dimmed.
             dots: m.typed,
             dots_alpha: if m.checking { 0.5 } else { 1.0 },
@@ -448,7 +448,7 @@ pub(super) fn paint(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, w: us
             let fill = if st.pressed { 0x59FFFFFF } else if st.hovered { 0x40FFFFFF } else { 0x26FFFFFF };
             canvas.round_rect(px, cy - 12.0, pw, 24.0, 12.0, fade(fill, pa));
             if st.focused {
-                canvas.round_outline(px - 2.0, cy - 14.0, pw + 4.0, 28.0, 14.0, 2.0, fade(ACCENT, pa));
+                canvas.round_outline(px - 2.0, cy - 14.0, pw + 4.0, 28.0, 14.0, 2.0, fade(accent(), pa));
             }
             let tw = text.map_or(0.0, |t| t.width(name, CAPTION));
             label(text, canvas, name, (px + (pw - f64::from(tw)) / 2.0) as f32, (cy + 4.5) as f32, CAPTION, fade(FG, pa), pw as f32);
@@ -881,6 +881,27 @@ pub(super) mod tests {
             paint(&mut canvas, &fonts, m, *w, *h);
             save_png(&dir.join(format!("{name}.png")), &data, pw, ph);
         }
+        // The user's accent (and high contrast, which ignores it).
+        use helix_draw::accent::Accent;
+        for (accent, hc) in [(Accent::Blue, false), (Accent::Orange, false), (Accent::Yellow, false), (Accent::Slate, false), (Accent::Yellow, true)] {
+            helix_draw::accent::set(accent);
+            helix_draw::set_high_contrast(hc);
+            let shown = [
+                ("typing", LockModel { typed: 6, ..base }),
+                ("go-hover", LockModel { typed: 6, hover: Some(LockHit::Unlock), ..base }),
+                ("confirm-focus", LockModel { confirming: Some(PowerAction::Restart), focus: Some(LockHit::Power(LockPowerHit::Cancel)), ..base }),
+            ];
+            for (what, m) in &shown {
+                let name = format!("20-accent-{}{}-{what}", accent.name(), if hc { "-hc" } else { "" });
+                let (w, h, scale) = (1280, 720, 1.0);
+                let (pw, ph) = (physical(w, scale), physical(h, scale));
+                let mut data = backdrop(&picture("ubuntu-wallpaper-d.png"), (w, h), scale);
+                let mut canvas = Canvas::scaled(&mut data, w, h, scale);
+                paint(&mut canvas, &fonts, m, w, h);
+                save_png(&dir.join(format!("{name}.png")), &data, pw, ph);
+            }
+        }
+        helix_draw::accent::set(Accent::Blue);
         helix_draw::set_high_contrast(false);
     }
 }

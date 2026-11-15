@@ -192,7 +192,7 @@ fn paint_notification(
         let fonts = Fonts { regular, bold };
         let spans = spans(banner);
         let lines = wrap_spans(&fonts, &spans, BODY_PX, text_w, max_lines);
-        let areas = draw_lines(canvas, &fonts, &spans, &lines, (text_x as f32, (bottom + grow(14)) as f32), BODY_PX, body_line() as f32, (DIM_FG, ACCENT_TEXT));
+        let areas = draw_lines(canvas, &fonts, &spans, &lines, (text_x as f32, (bottom + grow(14)) as f32), BODY_PX, body_line() as f32, (DIM_FG, accent_text()));
         for ((lx, ly, lw, lh), uri) in areas {
             links.push((Rect { x: lx as i32, y: ly as i32, w: lw.ceil() as i32, h: lh as i32 }, uri));
         }
@@ -248,7 +248,7 @@ impl Ui {
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
         // Lighter than the desktop, with a thin border, so it stands out.
-        canvas.fill(if view.focused { ACCENT } else { BANNER_BORDER });
+        canvas.fill(if view.focused { accent() } else { BANNER_BORDER });
         let edge = if view.focused { 2 } else { 1 };
         canvas.rect(edge, edge, w as i32 - 2 * edge, h as i32 - 2 * edge, BANNER_BG);
         view.hits.clear();
@@ -861,7 +861,7 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     // Header: Do Not Disturb switch and Clear.
     let switch = Rect { x: bx + LIST_PAD, y: by + 10, w: 40, h: 22 };
     let on = m.do_not_disturb;
-    let track = if on { ACCENT } else { TRACK };
+    let track = if on { accent() } else { TRACK };
     canvas.circle(f64::from(switch.x + 11), f64::from(switch.y + 11), 11.0, track);
     canvas.circle(f64::from(switch.x + switch.w - 11), f64::from(switch.y + 11), 11.0, track);
     canvas.rect(switch.x + 11, switch.y, switch.w - 22, switch.h, track);
@@ -952,7 +952,7 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     // The focus ring: a circle around a day, a box around anything else.
     if let Some((r, hit)) = focus.and_then(|f| stops.iter().find(|(_, h)| h == f)) {
         if matches!(hit, ListHit::Day(..)) {
-            canvas.ring(f64::from(r.x) + f64::from(r.w) / 2.0, f64::from(r.y) + f64::from(r.h) / 2.0, 16.5, 2.0, helix_draw::theme::FOCUS);
+            canvas.ring(f64::from(r.x) + f64::from(r.w) / 2.0, f64::from(r.y) + f64::from(r.h) / 2.0, 16.5, 2.0, helix_draw::theme::focus());
         } else if matches!(hit, ListHit::Entry(_) | ListHit::GroupToggle(_)) {
             helix_draw::theme::focus_ring(canvas, r.x + LIST_PAD / 2, r.y + 2, r.w - LIST_PAD, r.h - 3);
         } else {

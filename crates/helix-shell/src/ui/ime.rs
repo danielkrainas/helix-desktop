@@ -247,7 +247,7 @@ impl Ui {
         }
     }
 
-    fn draw_candidates(&mut self) {
+    pub(super) fn draw_candidates(&mut self) {
         let Some(ime) = self.ime.as_mut() else { return };
         let Some(candidates) = ime.candidates.clone().filter(|(c, _)| !c.is_empty()) else {
             if let Some((surface, _)) = &ime.popup {
@@ -276,10 +276,10 @@ impl Ui {
         let mut x = 4;
         for (i, (label_text, width)) in labels.iter().zip(&widths).enumerate() {
             if i == selected {
-                canvas.rect(x, 4, *width, POPUP_ROW_H, ACCENT_FILL);
+                canvas.rect(x, 4, *width, POPUP_ROW_H, accent_fill());
             }
             let base = baseline(text, 4, POPUP_ROW_H, 15.0);
-            label(text, &mut canvas, label_text, (x + 8) as f32, base, 15.0, FG, *width as f32);
+            label(text, &mut canvas, label_text, (x + 8) as f32, base, 15.0, if i == selected { on_accent() } else { FG }, *width as f32);
             x += width;
         }
         let Some(ime) = self.ime.as_ref() else { return };

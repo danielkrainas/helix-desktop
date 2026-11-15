@@ -305,3 +305,54 @@ fn menus() {
     }
     helix_draw::set_high_contrast(false);
 }
+
+/// The surfaces that show the accent, in several accents and in high
+/// contrast (which keeps its own colors whatever the accent):
+/// `accent-{name}-…`.
+#[test]
+#[ignore]
+fn accents() {
+    use helix_draw::accent::Accent;
+    use notify::tests::{paint_sample, sample, sample_calendar};
+    let Some(dir) = dir() else { return };
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    let entries = sample();
+    let open: std::collections::HashSet<String> = ["app:org.example.Chat".to_owned()].into();
+    let cal = sample_calendar(true);
+    let (w, h) = (1280, 720);
+    let looks: Vec<(String, Accent, bool)> = [Accent::Blue, Accent::Orange, Accent::Yellow, Accent::Slate, Accent::Purple, Accent::Teal]
+        .into_iter()
+        .map(|a| (a.name().to_owned(), a, false))
+        .chain([("yellow-hc".to_owned(), Accent::Yellow, true)])
+        .collect();
+    for (name, accent, hc) in &looks {
+        helix_draw::accent::set(*accent);
+        helix_draw::set_high_contrast(*hc);
+        let ph = panel_height() as usize;
+        render(&dir, &format!("accent-{name}-quick-menu"), DARK, (w, h, 1.0), |canvas| {
+            let focus = Some(OverlayHit::Switch(quick::Switch::Bluetooth));
+            quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(None), focus, &mut Default::default());
+            window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph as i32 + 4), &menu_items(), Some(1), false);
+            let mut data = vec![0u8; w * ph * 4];
+            let mut bar = Canvas::scaled(&mut data, w, ph, 1.0);
+            panel(&mut bar, text.as_ref(), (w, ph), 1.0, Some(6), true);
+            blit(canvas, &data, w, ph);
+        });
+        render(&dir, &format!("accent-{name}-wifi"), DARK, (w, h, 1.0), |canvas| {
+            quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(Some(3)), Some(OverlayHit::Network(1)), &mut Default::default());
+        });
+        render(&dir, &format!("accent-{name}-list"), DARK, (w, h, 1.0), |canvas| {
+            paint_sample(canvas, (text.as_ref(), bold.as_ref()), (w, h), &entries, &open, &cal, Some(&notify::ListHit::Entry(4)));
+        });
+        render(&dir, &format!("accent-{name}-dialog"), DARK, (w, h, 1.0), |canvas| {
+            let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60);
+            paint_question(canvas, text.as_ref(), (w, h), &state);
+        });
+        render(&dir, &format!("accent-{name}-dialog-focus"), DARK, (w, h, 1.0), |canvas| {
+            let state = DialogState { focus: Some(Choice::Canceled), ..DialogState::new(DialogKind::NotResponding { id: 1, title: "Text Editor".into() }, 0) };
+            paint_question(canvas, text.as_ref(), (w, h), &state);
+        });
+    }
+    helix_draw::set_high_contrast(false);
+    helix_draw::accent::set(Accent::Blue);
+}

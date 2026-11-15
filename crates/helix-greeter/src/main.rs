@@ -62,6 +62,7 @@ fn main() -> ExitCode {
     };
 
     let config = config::Config::load();
+    helix_draw::accent::set(config.accent());
     let state = state::State::load();
     let sessions = sessions::load(std::path::Path::new(sessions::SESSIONS_DIR));
     if sessions.is_empty() {

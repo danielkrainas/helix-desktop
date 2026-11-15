@@ -305,7 +305,7 @@ pub(super) fn paint_calendar(
             let (cx, cy) = (gx + col * cw + cw / 2, ry + grow(CELL_H) / 2);
             let is_today = ymd == today;
             if is_today {
-                canvas.circle(f64::from(cx), f64::from(cy), 13.0, ACCENT_FILL);
+                canvas.circle(f64::from(cx), f64::from(cy), 13.0, accent_fill());
             } else if ymd == cal.selected {
                 if helix_draw::high_contrast() {
                     canvas.ring(f64::from(cx), f64::from(cy), 12.5, 1.5, 0xFFFFFFFF);
@@ -314,11 +314,11 @@ pub(super) fn paint_calendar(
                 }
             }
             let n = ymd.2.to_string();
-            let color = if (ymd.0, ymd.1) == cal.month || is_today { FG } else { DIM_FG };
+            let color = if is_today { on_accent() } else if (ymd.0, ymd.1) == cal.month { FG } else { DIM_FG };
             let tw = text.map_or(0.0, |t| t.width(&n, 13.0));
             label(text, canvas, &n, cx as f32 - tw / 2.0, baseline(text, ry, grow(CELL_H), 13.0) - 2.0, 13.0, color, cw as f32);
             if !cal.day_events(ymd).is_empty() {
-                canvas.circle(f64::from(cx), f64::from(cy + 10), 1.8, if is_today { FG } else { DIM_FG });
+                canvas.circle(f64::from(cx), f64::from(cy + 10), 1.8, if is_today { on_accent() } else { DIM_FG });
             }
             hits.push((Rect { x: cx - cw / 2, y: ry, w: cw, h: grow(CELL_H) }, ListHit::Day(ymd.0, ymd.1, ymd.2)));
         }

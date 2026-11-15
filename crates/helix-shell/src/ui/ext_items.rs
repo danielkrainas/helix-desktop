@@ -108,14 +108,14 @@ pub(super) fn draw_ext_item(text: Option<&Text>, canvas: &mut Canvas, item: &cra
             let step = f64::from(GRAPH_W) / (n.max(2) - 1) as f64;
             let point = |k: usize| (f64::from(gx) + k as f64 * step, f64::from(gy + gh) - item.graph[k] * f64::from(gh));
             for k in 1..n {
-                canvas.line(point(k - 1), point(k), 1.4, if item.running { ACCENT } else { DIM_FG });
+                canvas.line(point(k - 1), point(k), 1.4, if item.running { accent() } else { DIM_FG });
             }
         }
         if item.meter >= 0.0 {
-            canvas.rect(x + 2, h - 3, ((f64::from(w - 4)) * item.meter).round() as i32, 2, ACCENT);
+            canvas.rect(x + 2, h - 3, ((f64::from(w - 4)) * item.meter).round() as i32, 2, accent());
         }
         if item.attention {
-            canvas.rect(x + 2, h - 5, w - 4, 2, ACCENT);
+            canvas.rect(x + 2, h - 5, w - 4, 2, accent());
         }
     }
 }

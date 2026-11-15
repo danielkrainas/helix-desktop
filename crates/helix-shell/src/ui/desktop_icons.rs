@@ -12,7 +12,6 @@ use crate::desktop_icons::{self as logic, DesktopItem};
 /// fade it like other shell surfaces.
 pub(super) const NAMESPACE: &str = "helix-background-icons";
 const LABEL_PX: f32 = 13.0;
-const SELECTED: u32 = 0x553584E4;
 
 pub(super) struct IconsView {
     layer: LayerSurface,
@@ -92,7 +91,7 @@ impl Ui {
         self.desktop_icons.icons.entry(item.path.clone()).or_insert_with(|| crate::icons::load(&item.icon, px)).clone()
     }
 
-    fn draw_desktop_icons(&mut self) {
+    pub(super) fn draw_desktop_icons(&mut self) {
         let Some(view) = self.desktop_icons.view.as_ref().filter(|v| v.configured && v.width > 0 && v.height > 0) else { return };
         let (w, h) = (view.width as usize, view.height as usize);
         let scale = self.scales.of(view.layer.wl_surface());
@@ -107,7 +106,7 @@ impl Ui {
         let text = self.text.as_ref();
         for ((item, &(x, y)), image) in items.iter().zip(&cells).zip(&images) {
             if self.desktop_icons.selected.as_ref() == Some(&item.path) {
-                canvas.round_rect(f64::from(x + 2), f64::from(y + 2), f64::from(logic::CELL_W - 4), f64::from(logic::CELL_H - 4), 8.0, SELECTED);
+                canvas.round_rect(f64::from(x + 2), f64::from(y + 2), f64::from(logic::CELL_W - 4), f64::from(logic::CELL_H - 4), 8.0, helix_draw::accent::current().selection);
             }
             let ix = x + (logic::CELL_W - logic::ICON) / 2;
             if let Some(image) = image {

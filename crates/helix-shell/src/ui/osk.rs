@@ -353,7 +353,7 @@ impl Ui {
         false
     }
 
-    fn draw_osk(&mut self) {
+    pub(super) fn draw_osk(&mut self) {
         let Some(mut view) = self.osk.view.take() else { return };
         if view.configured && view.width > 0 {
             self.paint_osk(&mut view);
@@ -414,7 +414,7 @@ impl Ui {
                 let r = Rect { x: x as i32 + GAP / 2, y: y + GAP / 2, w: kw as i32 - GAP, h: ROW_H - GAP };
                 let lit = matches!(key.kind, KeyKind::Special(Special::Shift)) && view.shift;
                 let dark = matches!(key.kind, KeyKind::Special(s) if s != Special::Space);
-                canvas.rect(r.x, r.y, r.w, r.h, if lit { ACCENT_FILL } else if dark { BANNER_BG } else { FIELD_BG });
+                canvas.rect(r.x, r.y, r.w, r.h, if lit { accent_fill() } else if dark { BANNER_BG } else { FIELD_BG });
                 let caption = match &key.kind {
                     KeyKind::Char(normal, shifted) => Some(if view.shift { shifted.clone() } else { normal.clone() }),
                     KeyKind::Special(Special::Shift) => Some("Shift".into()),
@@ -436,7 +436,7 @@ impl Ui {
                     let px = if matches!(key.kind, KeyKind::Char(..)) { 20.0 } else { 14.0 };
                     let font = if view.page == Page::Emoji && matches!(key.kind, KeyKind::Char(..)) { emoji } else { text };
                     let tw = font.map_or(0.0, |t| t.width(&caption, px));
-                    label(font, &mut canvas, &caption, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(font, r.y, r.h, px), px, FG, r.w as f32);
+                    label(font, &mut canvas, &caption, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(font, r.y, r.h, px), px, if lit { on_accent() } else { FG }, r.w as f32);
                 }
                 view.hits.push((r, (ri, ki)));
                 x += kw;

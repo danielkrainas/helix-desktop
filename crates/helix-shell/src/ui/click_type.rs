@@ -87,9 +87,9 @@ impl Ui {
                 for (i, (name, label_text)) in TYPES.iter().enumerate() {
                     let r = Rect { x: GAP, y: GAP + i as i32 * (BUTTON_H + GAP), w: BUTTON_W, h: BUTTON_H };
                     let current = self.click_type.current == *name;
-                    canvas.rect(r.x, r.y, r.w, r.h, if current { ACCENT_FILL } else { FIELD_BG });
+                    canvas.rect(r.x, r.y, r.w, r.h, if current { accent_fill() } else { FIELD_BG });
                     let tw = text.map_or(0.0, |t| t.width(label_text, 14.0));
-                    label(text, &mut canvas, label_text, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 14.0), 14.0, FG, r.w as f32);
+                    label(text, &mut canvas, label_text, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 14.0), 14.0, if current { on_accent() } else { FG }, r.w as f32);
                     view.hits.push((r, i));
                 }
                 let surface = view.layer.wl_surface();

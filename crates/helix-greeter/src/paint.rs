@@ -11,8 +11,6 @@ use crate::power::PowerAction;
 const FG: u32 = 0xFFEDEDEF;
 const DIM_FG: u32 = 0xFF9A9AA4;
 const ERROR_FG: u32 = 0xFFFF8A80;
-const ACCENT: u32 = 0xFF3584E4;
-const ACCENT_HOVER: u32 = 0xFF4A92EA;
 const FIELD_BG: u32 = 0xFF2C2C33;
 const BUTTON: u32 = 0xFF33343D;
 const BUTTON_HOVER: u32 = 0xFF41424D;
@@ -111,7 +109,7 @@ fn focus_ring(canvas: &mut Canvas, r: Rect, color: u32) {
 /// A text field's box: an accent ring while it takes typing, a faint
 /// outline otherwise.
 fn text_field(canvas: &mut Canvas, r: Rect, focused: bool) {
-    let (ring, width) = if focused { (ACCENT, 2) } else { (0x30FFFFFF, 1) };
+    let (ring, width) = if focused { (accent(), 2) } else { (0x30FFFFFF, 1) };
     let o = r.grow(width);
     canvas.rect(o.x, o.y, o.w, o.h, ring);
     canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
@@ -154,6 +152,12 @@ fn field_contents(canvas: &mut Canvas, text: Option<&Text>, field: Rect, value: 
     }
 }
 
+/// The accent (focus rings, check marks): from the greeter's
+/// configuration (`helix_draw::accent`).
+fn accent() -> u32 {
+    helix_draw::theme::accent()
+}
+
 /// A round picture standing in for the user: their initial on a color
 /// picked from their name.
 fn avatar(canvas: &mut Canvas, text: Option<&Text>, name: &str, cx: i32, cy: i32, r: i32) {
@@ -166,17 +170,19 @@ fn avatar(canvas: &mut Canvas, text: Option<&Text>, name: &str, cx: i32, cy: i32
 fn button(canvas: &mut Canvas, text: Option<&Text>, x: i32, y: i32, s: &str, strong: bool, hovered: bool, focused: bool) -> Rect {
     let w = width(text, s, 15.0).ceil() as i32 + 32;
     let r = Rect { x, y, w, h: BUTTON_H };
+    let palette = helix_draw::accent::current();
     let bg = match (strong, hovered) {
-        (true, false) => ACCENT,
-        (true, true) => ACCENT_HOVER,
+        (true, false) => palette.fill,
+        (true, true) => palette.fill_hover,
         (false, false) => BUTTON,
         (false, true) => BUTTON_HOVER,
     };
     if focused {
-        focus_ring(canvas, r, if strong { FG } else { ACCENT });
+        focus_ring(canvas, r, if strong { FG } else { accent() });
     }
     canvas.rect(r.x, r.y, r.w, r.h, bg);
-    label(canvas, text, s, (r.x + 16) as f32, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
+    let fg = if strong { palette.on_fill } else { FG };
+    label(canvas, text, s, (r.x + 16) as f32, baseline(text, r.y, r.h, 15.0), 15.0, fg, r.w as f32);
     r
 }
 
@@ -230,7 +236,7 @@ pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i
                 let row = Rect { x: col_x, y, w: col_w, h: ROW_H };
                 if i == *selected {
                     if main_focused {
-                        focus_ring(canvas, row, ACCENT);
+                        focus_ring(canvas, row, accent());
                     }
                     canvas.rect(row.x, row.y, row.w, row.h, ROW_SELECTED);
                 } else if hovered(Hit::User(i)) {
@@ -311,7 +317,7 @@ pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i
         let bw = width(text, name, 15.0).ceil() as i32 + 32 + 22;
         let r = Rect { x: w - MARGIN - bw, y, w: bw, h: BUTTON_H };
         if view.focus == Focus::Session {
-            focus_ring(canvas, r, ACCENT);
+            focus_ring(canvas, r, accent());
         }
         let open = view.session_menu.is_some();
         canvas.rect(r.x, r.y, r.w, r.h, if hovered(Hit::SessionButton) || open { BUTTON_HOVER } else { BUTTON });
@@ -341,8 +347,8 @@ pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i
                 if i == view.session {
                     // A check mark.
                     let (cx, cy) = (f64::from(item.x + 14), f64::from(item.y + item.h / 2));
-                    canvas.line((cx - 5.0, cy), (cx - 1.5, cy + 4.0), 2.0, ACCENT);
-                    canvas.line((cx - 1.5, cy + 4.0), (cx + 5.0, cy - 4.5), 2.0, ACCENT);
+                    canvas.line((cx - 5.0, cy), (cx - 1.5, cy + 4.0), 2.0, accent());
+                    canvas.line((cx - 1.5, cy + 4.0), (cx + 5.0, cy - 4.5), 2.0, accent());
                 }
                 label(canvas, text, s, (item.x + 30) as f32, baseline(text, item.y, item.h, 15.0), 15.0, FG, (item.w - 36) as f32);
                 hits.push((item, Hit::SessionItem(i)));
@@ -448,10 +454,10 @@ mod tests {
         assert_eq!(rows[0].x, (W - 360) / 2, "centered");
         // The selected row has the focus ring and the selected fill.
         let sel = rows[1];
-        assert_eq!(p.px(sel.x - 1, sel.y + 30), ACCENT);
+        assert_eq!(p.px(sel.x - 1, sel.y + 30), accent());
         assert_eq!(p.px(sel.x + sel.w - 4, sel.y + 4), ROW_SELECTED);
         // Others don't.
-        assert_ne!(p.px(rows[0].x - 1, rows[0].y + 30), ACCENT);
+        assert_ne!(p.px(rows[0].x - 1, rows[0].y + 30), accent());
         // Power at the bottom left, the session at the bottom right.
         let restart = p.rect(Hit::Power(PowerAction::Restart));
         let session = p.rect(Hit::SessionButton);
@@ -481,7 +487,7 @@ mod tests {
     fn password_prompt() {
         let p = render(&view(password("secret", false)), 1.0, "password");
         let field = p.rect(Hit::Field);
-        assert_eq!(p.px(field.x - 1, field.y + 20), ACCENT, "focused ring");
+        assert_eq!(p.px(field.x - 1, field.y + 20), accent(), "focused ring");
         // Six dots, the first at x+20.
         assert_eq!(p.px(field.x + 20, field.y + field.h / 2), FG);
         assert_eq!(p.px(field.x + 20 + 5 * 14, field.y + field.h / 2), FG);
@@ -493,7 +499,7 @@ mod tests {
         // Checking: no ring, no caret, the dots stay.
         let p = render(&view(password("secret", true)), 1.0, "password-checking");
         let field = p.rect(Hit::Field);
-        assert_ne!(p.px(field.x - 1, field.y + 20), ACCENT);
+        assert_ne!(p.px(field.x - 1, field.y + 20), accent());
         assert_eq!(p.px(field.x + 20, field.y + field.h / 2), FG);
         assert_eq!(p.px(field.x + 14 + 6 * 14, field.y + 12), FIELD_BG);
     }
@@ -530,7 +536,7 @@ mod tests {
         let button = p.rect(Hit::SessionButton);
         let items: Vec<Rect> = (0..3).map(|i| p.rect(Hit::SessionItem(i))).collect();
         assert!(items[2].y + items[2].h < button.y, "the menu opens above the button");
-        assert_eq!(p.px(button.x - 1, button.y + 10), ACCENT, "focused");
+        assert_eq!(p.px(button.x - 1, button.y + 10), accent(), "focused");
         assert_eq!(p.px(items[1].x + items[1].w - 3, items[1].y + 18), BUTTON_HOVER, "highlighted item");
         // Items are on top of anything under them.
         assert_eq!(hit_at(&p.hits, f64::from(items[0].x + 4), f64::from(items[0].y + 4)), Some(Hit::SessionItem(0)));
@@ -545,10 +551,38 @@ mod tests {
         let confirm = p.rect(Hit::PowerConfirm);
         let cancel = p.rect(Hit::PowerCancel);
         assert!(confirm.x > cancel.x);
-        assert_eq!(p.px(confirm.x + 4, confirm.y + 4), ACCENT);
+        assert_eq!(p.px(confirm.x + 4, confirm.y + 4), helix_draw::accent::current().fill);
         // Tiny monitors don't panic.
         let mut data = vec![0u8; 200 * 150 * 4];
         let mut canvas = Canvas::scaled(&mut data, 200, 150, 1.0);
         paint(&mut canvas, Text::load().as_ref(), &view(password("x", false)), 200, 150);
+    }
+
+    /// The greeter in several accents (`accent` in its configuration):
+    /// `HELIX_GREETER_PNG_DIR=dir cargo test -p helix-greeter accents --
+    /// --ignored --test-threads=1`. It changes the process's accent, so it
+    /// runs alone.
+    #[test]
+    #[ignore]
+    fn accents() {
+        use helix_draw::accent::Accent;
+        for accent in [Accent::Blue, Accent::Orange, Accent::Yellow, Accent::Slate] {
+            helix_draw::accent::set(accent);
+            let name = accent.name();
+            let p = render(&view(password("secret", false)), 1.0, &format!("accent-{name}-password"));
+            let field = p.rect(Hit::Field);
+            assert_eq!(p.px(field.x - 1, field.y + 20), accent.palette().color);
+            let mut v = view(users());
+            v.power = PowerView::Confirm(PowerAction::PowerOff);
+            v.focus = Focus::Power(0);
+            let p = render(&v, 1.0, &format!("accent-{name}-power"));
+            let confirm = p.rect(Hit::PowerConfirm);
+            assert_eq!(p.px(confirm.x + 4, confirm.y + 4), accent.palette().fill);
+            let mut v = view(users());
+            v.session_menu = Some(1);
+            v.focus = Focus::Session;
+            render(&v, 1.0, &format!("accent-{name}-sessions"));
+        }
+        helix_draw::accent::set(Accent::Blue);
     }
 }

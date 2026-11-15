@@ -129,7 +129,7 @@ impl Ui {
                 let x0 = (w as i32 - row) / 2;
                 for i in 0..n {
                     let x = x0 + i * (BOX_W + GAP);
-                    let color = if i as u32 == popup.active { ACCENT } else { FIELD_BG };
+                    let color = if i as u32 == popup.active { accent() } else { FIELD_BG };
                     canvas.rect(x, PAD, BOX_W, BOX_H, color);
                 }
                 let name = workspace_name(&names, popup.active);

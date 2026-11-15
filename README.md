@@ -49,8 +49,6 @@ Known gaps are tracked as
 [issues](https://github.com/danielkrainas/helix-desktop/issues) and in the
 spec's `gaps.md`. The most visible ones today:
 
-- the shell's own UI always uses the default blue accent rather than the
-  system accent colour (#47);
 - Large Text does not yet cover every shell surface (#16);
 - menus are not yet exposed to screen readers;
 - the greeter offers Wayland sessions only (greetd starts no X server).

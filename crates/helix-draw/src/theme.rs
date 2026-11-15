@@ -54,11 +54,28 @@ pub const CONTROL_PRESSED: u32 = 0xFF686872;
 pub const TRACK: u32 = 0xFF5E5E68;
 /// A list set into a popover (networks, devices, a prompt's rows).
 pub const WELL: u32 = 0xFF1E1E24;
+
+// ----- The accent ------------------------------------------------------------
+//
+// Follows the accent chosen (`crate::accent`); fixed in high contrast.
+// `crate::accent::tests` checks every accent's contrast.
+
 /// The accent: focus rings, a slider's filled part, indicators.
-pub const ACCENT: u32 = crate::screen::ACCENT;
+pub fn accent() -> u32 {
+    crate::accent::current().color
+}
+
 /// The accent as a fill under text (switches on, the selected row):
-/// darker, so text on it reaches 4.5:1.
-pub const ACCENT_FILL: u32 = 0xFF1A64C0;
+/// shaded so that [`on_accent`] text on it reaches 4.5:1.
+pub fn accent_fill() -> u32 {
+    crate::accent::current().fill
+}
+
+/// Text and symbols on [`accent_fill`] (and its hovered and pressed
+/// shades): light, or dark on a light accent.
+pub fn on_accent() -> u32 {
+    crate::accent::current().on_fill
+}
 
 // ----- Text ------------------------------------------------------------------
 //
@@ -74,7 +91,9 @@ pub const TEXT_DIM: u32 = 0xFFA4A4AD;
 /// surfaces (the saturated red is for fills and rings only).
 pub const TEXT_ERROR: u32 = 0xFFFF7B63;
 /// Accent-colored words (links, "Connected") on dark surfaces.
-pub const TEXT_ACCENT: u32 = 0xFF78AEED;
+pub fn text_accent() -> u32 {
+    crate::accent::current().text
+}
 /// Red fills: a recording dot, an error ring.
 pub const ERROR: u32 = crate::screen::ERROR;
 
@@ -130,14 +149,20 @@ pub struct Look {
 
 /// The fill of a control in `look`.
 pub fn control_fill(look: Look) -> u32 {
+    let accent = crate::accent::current();
     match (look.on, look.pressed, look.hovered) {
-        (true, true, _) => 0xFF1856A8,
-        (true, false, true) => 0xFF1D69C6,
-        (true, false, false) => ACCENT_FILL,
+        (true, true, _) => accent.fill_pressed,
+        (true, false, true) => accent.fill_hover,
+        (true, false, false) => accent.fill,
         (false, true, _) => CONTROL_PRESSED,
         (false, false, true) => CONTROL_HOVER,
         (false, false, false) => CONTROL,
     }
+}
+
+/// The color of text (and symbolic icons) on a control in `look`.
+pub fn control_text(look: Look) -> u32 {
+    if look.on { on_accent() } else { TEXT }
 }
 
 /// A control (a switch, a choice, a button, a key) at (x, y, w, h). High
@@ -149,7 +174,7 @@ pub fn control(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, look: Look) 
 
 fn control_in(canvas: &mut Canvas, (x, y, w, h): (i32, i32, i32, i32), look: Look, hc: bool) {
     if hc {
-        canvas.rect(x, y, w, h, if look.on { ACCENT_FILL } else { BLACK });
+        canvas.rect(x, y, w, h, if look.on { crate::accent::Accent::Blue.palette().fill } else { BLACK });
         outline(canvas, x, y, w, h, if look.hovered || look.pressed { 2 } else { 1 }, WHITE);
         return;
     }
@@ -180,7 +205,7 @@ pub fn slider(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, fraction: f64
     let hc = crate::high_contrast();
     canvas.rect(x, y, w, h, if hc { BLACK } else { TRACK });
     let filled = (f64::from(w) * fraction.clamp(0.0, 1.0)).round() as i32;
-    canvas.rect(x, y, filled, h, if dim { TEXT_DIM } else { ACCENT });
+    canvas.rect(x, y, filled, h, if dim { TEXT_DIM } else { accent() });
     if hc {
         outline(canvas, x - 1, y - 1, w + 2, h + 2, 1, WHITE);
     }
@@ -197,12 +222,14 @@ pub fn workspace_dot(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, active
 }
 
 /// The keyboard focus ring's color.
-pub const FOCUS: u32 = crate::screen::ACCENT;
+pub fn focus() -> u32 {
+    accent()
+}
 
 /// A focus ring: 2 logical px just outside the rectangle (x, y, w, h).
 pub fn focus_ring(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32) {
     for (rx, ry, rw, rh) in [(x - 2, y - 2, w + 4, 2), (x - 2, y + h, w + 4, 2), (x - 2, y, 2, h), (x + w, y, 2, h)] {
-        canvas.rect(rx, ry, rw, rh, FOCUS);
+        canvas.rect(rx, ry, rw, rh, focus());
     }
 }
 
@@ -225,10 +252,10 @@ mod tests {
             (CONTROL_PRESSED, CONTROL_HOVER, 1.2, "a pressed control"),
             (CONTROL, opaque(PANEL), 1.3, "a key on the panel color"),
             (TRACK, POPOVER, 1.8, "a slider's track"),
-            (ACCENT, TRACK, 1.5, "a slider's filled part"),
+            (accent(), TRACK, 1.5, "a slider's filled part"),
             (WELL, POPOVER, 1.2, "a list's well"),
             (BORDER, POPOVER, 1.3, "a popover's edge"),
-            (ACCENT, POPOVER, 3.0, "the focus ring"),
+            (accent(), POPOVER, 3.0, "the focus ring"),
         ] {
             let c = contrast(a, b);
             assert!(c >= min, "{what}: {a:08x} on {b:08x} is {c:.2}:1");
@@ -240,14 +267,15 @@ mod tests {
     fn text() {
         let opaque = |c: u32| c | 0xFF00_0000;
         let surfaces = [opaque(PANEL), POPOVER, WELL];
-        for fg in [TEXT, TEXT_DIM, TEXT_ERROR, TEXT_ACCENT] {
+        for fg in [TEXT, TEXT_DIM, TEXT_ERROR, text_accent()] {
             for bg in surfaces {
                 let c = contrast(fg, bg);
                 assert!(c >= 4.5, "{fg:08x} on {bg:08x} is {c:.2}:1");
             }
         }
-        for bg in [CONTROL, CONTROL_HOVER, CONTROL_PRESSED, ACCENT_FILL, control_fill(Look { on: true, hovered: true, ..Default::default() }), control_fill(Look { on: true, pressed: true, ..Default::default() })] {
-            let c = contrast(TEXT, bg);
+        for look in [Look::default(), Look { hovered: true, ..Default::default() }, Look { pressed: true, ..Default::default() }, Look { on: true, ..Default::default() }, Look { on: true, hovered: true, ..Default::default() }, Look { on: true, pressed: true, ..Default::default() }] {
+            let bg = control_fill(look);
+            let c = contrast(control_text(look), bg);
             assert!(c >= 4.5, "text on {bg:08x} is {c:.2}:1");
         }
     }

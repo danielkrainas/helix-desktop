@@ -7,6 +7,7 @@
 
 use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
 
+pub mod accent;
 pub mod backdrop;
 pub mod motion;
 pub mod screen;
@@ -401,7 +402,8 @@ mod tests {
         assert_eq!(contrast_shape(0xFF9A9AA2), 0xFFFFFFFF);
         assert_eq!(contrast_shape(0xFF45454D), 0xFF000000, "mid gray fills go dark");
         // The accent stays.
-        assert_eq!(contrast_shape(0xFF3584E4), 0xFF3584E4);
+        let blue = crate::accent::Accent::Blue.palette().color;
+        assert_eq!(contrast_shape(blue), blue);
         // Text is white, whatever gray it was.
         assert_eq!(contrast_text(0xFF9A9AA2), 0xFFFFFFFF);
         assert_eq!(contrast_text(0x80303030), 0x80FFFFFF);

@@ -657,7 +657,7 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         if *page == current {
             let i = (*index).min(items.len());
             let (cx, cy) = (gx + (i % cols) as i32 * cell_w(), top + (i / cols) as i32 * cell_h());
-            canvas.rect(cx - 2, cy + 8, 3, cell_h() - 16, ACCENT);
+            canvas.rect(cx - 2, cy + 8, 3, cell_h() - 16, accent());
         }
     }
     // Page dots.

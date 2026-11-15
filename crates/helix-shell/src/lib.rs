@@ -245,6 +245,8 @@ pub enum UiEvent {
     HighContrast(bool),
     /// `org.gnome.desktop.interface` `text-scaling-factor`.
     TextScale(f64),
+    /// `org.gnome.desktop.interface` `accent-color`.
+    Accent(helix_draw::accent::Accent),
     /// `show-status-shapes` and `keyboard-focus-visible-timeout`.
     InterfaceA11y { shapes: bool, focus_timeout: i32 },
     /// System status (panel icons, quick settings switches).

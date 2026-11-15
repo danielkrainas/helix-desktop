@@ -864,20 +864,23 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
     for (i, t) in m.toggles.iter().enumerate() {
         let (row, col) = (i as i32 / 3, i as i32 % 3);
         let r = Rect { x: mx + PAD + col * (sw + 8), y: y + 2 + row * tile_step, w: sw, h: tile_h };
-        theme::control(canvas, r.x, r.y, r.w, r.h, theme::Look { on: t.on, ..Default::default() });
+        let look = theme::Look { on: t.on, ..Default::default() };
+        theme::control(canvas, r.x, r.y, r.w, r.h, look);
+        // Text on it: dark on a light accent while on.
+        let on_fg = theme::control_text(look);
         // Wi-Fi and Bluetooth: a "›" for their list; an extension's
         // toggle for its details menu.
         let arrow_w = if t.more.is_some() { grow(20) } else { 0 };
         // `show-status-shapes`: a bar for on, a ring for off.
         let shape_w = if m.status_shapes {
-            canvas.status_shape(f64::from(r.x) + 11.0, f64::from(r.y) + f64::from(r.h) / 2.0, 10.0, t.on, FG);
+            canvas.status_shape(f64::from(r.x) + 11.0, f64::from(r.y) + f64::from(r.h) / 2.0, 10.0, t.on, on_fg);
             16
         } else {
             0
         };
         let room = r.w - 8 - arrow_w - shape_w;
         let tw = text.map_or(0.0, |x| x.width(&t.name, 12.0)).min(room as f32);
-        let fg = if t.dim { DIM_FG } else { FG };
+        let fg = if t.dim && !t.on { DIM_FG } else { on_fg };
         let mid = (r.x + shape_w) as f32 + (r.w - arrow_w - shape_w) as f32 / 2.0;
         if t.subtitle.is_empty() {
             label(text, canvas, &t.name, mid - tw / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, fg, room as f32);
@@ -885,13 +888,13 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
             // The subtitle under the title.
             label(text, canvas, &t.name, mid - tw / 2.0, (r.y + r.h * 17 / 40) as f32, 12.0, fg, room as f32);
             let sw2 = text.map_or(0.0, |x| x.width(&t.subtitle, 10.0)).min(room as f32);
-            label(text, canvas, &t.subtitle, mid - sw2 / 2.0, (r.y + r.h * 31 / 40) as f32, 10.0, FG, room as f32);
+            label(text, canvas, &t.subtitle, mid - sw2 / 2.0, (r.y + r.h * 31 / 40) as f32, 10.0, on_fg, room as f32);
         }
         if let Some((hit, _)) = &t.more {
             let a = Rect { x: r.x + r.w - arrow_w, y: r.y, w: arrow_w, h: r.h };
-            canvas.rect(a.x, a.y + 8, 1, a.h - 16, if t.on { FG } else { DIM_FG });
+            canvas.rect(a.x, a.y + 8, 1, a.h - 16, if t.on { on_fg } else { DIM_FG });
             let glyph = if m.list_open == Some(t.switch) { "‹" } else { "›" };
-            label(text, canvas, glyph, (a.x + 6) as f32, baseline(text, a.y, a.h, 16.0), 16.0, FG, (arrow_w - 6) as f32);
+            label(text, canvas, glyph, (a.x + 6) as f32, baseline(text, a.y, a.h, 16.0), 16.0, on_fg, (arrow_w - 6) as f32);
             hits.push((a, *hit));
             drawn.push((a, *hit));
             drawn.push((Rect { w: r.w - arrow_w, ..r }, OverlayHit::Switch(t.switch)));
@@ -932,7 +935,7 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
                 }
             }
             if *connected {
-                label(text, canvas, "Connected", (r.x + r.w - state_w) as f32, baseline(text, r.y, r.h, 12.0), 12.0, theme::TEXT_ACCENT, (state_w - 8) as f32);
+                label(text, canvas, "Connected", (r.x + r.w - state_w) as f32, baseline(text, r.y, r.h, 12.0), 12.0, theme::text_accent(), (state_w - 8) as f32);
             }
             if let Some(hit) = hit {
                 hits.push((r, *hit));
@@ -957,9 +960,10 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
         let bw = (menu_w - 2 * PAD - (n - 1) * 8) / n;
         for (i, (name, active)) in m.profiles.iter().enumerate() {
             let r = Rect { x: mx + PAD + i as i32 * (bw + 8), y: y + grow(26), w: bw, h: item_h };
-            theme::control(canvas, r.x, r.y, r.w, r.h, theme::Look { on: *active, ..Default::default() });
+            let look = theme::Look { on: *active, ..Default::default() };
+            theme::control(canvas, r.x, r.y, r.w, r.h, look);
             let tw = text.map_or(0.0, |t| t.width(name, 12.0)).min((r.w - 8) as f32);
-            label(text, canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, FG, (r.w - 8) as f32);
+            label(text, canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, theme::control_text(look), (r.w - 8) as f32);
             hits.push((r, OverlayHit::Profile(i)));
             drawn.push((r, OverlayHit::Profile(i)));
         }

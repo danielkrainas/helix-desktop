@@ -144,8 +144,10 @@ pub fn avatar(canvas: &mut Canvas, text: Option<&Text>, bold: Option<&Text>, nam
     face.draw(canvas, &letters, cx as f32 - w / 2.0, cy as f32 + cap / 2.0, Style { px, color: fade(0xFFFFFFFF, opacity), max_width: f32::MAX });
 }
 
-/// The accent (focus rings, default buttons).
-pub const ACCENT: u32 = 0xFF3584E4;
+/// The accent (focus rings), as chosen (`crate::accent`).
+pub fn accent() -> u32 {
+    crate::accent::current().color
+}
 /// Errors (a field's ring after a failed check).
 pub const ERROR: u32 = 0xFFE01B24;
 /// Destructive buttons' fill.
@@ -231,13 +233,14 @@ pub fn entry(canvas: &mut Canvas, text: Option<&Text>, e: &Entry) -> EntryPlaced
     match e.trailing {
         Trailing::None => {}
         Trailing::Go { enabled, hovered } => {
+            let accent = crate::accent::current();
             let fill = match (enabled, hovered) {
-                (true, false) => ACCENT,
-                (true, true) => 0xFF4A92EA,
+                (true, false) => accent.fill,
+                (true, true) => accent.fill_hover,
                 (false, _) => 0x1FFFFFFF,
             };
             canvas.circle(center.0, center.1, BUTTON_D / 2.0, fade(fill, a));
-            arrow(canvas, center.0, center.1, fade(if enabled { 0xFFFFFFFF } else { PLACEHOLDER }, a));
+            arrow(canvas, center.0, center.1, fade(if enabled { accent.on_fill } else { PLACEHOLDER }, a));
             placed.button = Some((x + w - h, y, h, h));
             placed.room_end = center.0 - h / 2.0 - 4.0;
         }
@@ -320,10 +323,10 @@ fn button_fill(kind: ButtonKind, state: ButtonState) -> u32 {
         (ButtonKind::Normal, true, _) => 0x59FFFFFF,
         (ButtonKind::Normal, false, true) => 0x40FFFFFF,
         (ButtonKind::Normal, false, false) => 0x26FFFFFF,
-        // The accent darkened: white text on it keeps 4.5:1.
-        (ButtonKind::Suggested, true, _) => 0xFF1856A8,
-        (ButtonKind::Suggested, false, true) => 0xFF1D69C6,
-        (ButtonKind::Suggested, false, false) => 0xFF1A64C0,
+        // The accent's fills: its label color keeps 4.5:1 on them.
+        (ButtonKind::Suggested, true, _) => crate::accent::current().fill_pressed,
+        (ButtonKind::Suggested, false, true) => crate::accent::current().fill_hover,
+        (ButtonKind::Suggested, false, false) => crate::accent::current().fill,
         // Darker than ERROR: white text on it keeps 4.5:1.
         (ButtonKind::Destructive, true, _) => 0xFFA51D2D,
         (ButtonKind::Destructive, false, true) => 0xFFC92A35,
@@ -346,7 +349,7 @@ pub fn round_button(canvas: &mut Canvas, cx: f64, cy: f64, d: f64, icon: Option<
         canvas.image_alpha(cx - icon_px / 2.0, cy - icon_px / 2.0, icon_px, icon_px, icon, alpha as f32);
     }
     if state.focused {
-        canvas.ring(cx, cy, r + 3.0, 2.0, fade(ACCENT, alpha));
+        canvas.ring(cx, cy, r + 3.0, 2.0, fade(accent(), alpha));
     }
 }
 
@@ -362,15 +365,20 @@ pub fn push_button(canvas: &mut Canvas, text: Option<&Text>, (x, y, w, h): (f64,
         canvas.round_rect(x, y, w, h, radius, fade(button_fill(kind, state), alpha));
     }
     if state.focused {
-        let ring = if kind == ButtonKind::Normal || crate::high_contrast() { ACCENT } else { FG };
+        let ring = if kind == ButtonKind::Normal || crate::high_contrast() { accent() } else { FG };
         canvas.round_outline(x - 2.0, y - 2.0, w + 4.0, h + 4.0, radius + 2.0, 2.0, fade(ring, alpha));
     }
     if let Some(t) = text {
         let px = BODY;
         let lw = t.width(label, px).min(w as f32 - 16.0);
         let cap = t.ascent(px) * 0.72;
-        t.draw(canvas, label, x as f32 + (w as f32 - lw) / 2.0, (y + h / 2.0) as f32 + cap / 2.0, Style { px, color: fade(FG, alpha), max_width: w as f32 - 16.0 });
+        t.draw(canvas, label, x as f32 + (w as f32 - lw) / 2.0, (y + h / 2.0) as f32 + cap / 2.0, Style { px, color: fade(button_text(kind), alpha), max_width: w as f32 - 16.0 });
     }
+}
+
+/// The label color on a button of `kind` (dark on a light accent).
+fn button_text(kind: ButtonKind) -> u32 {
+    if kind == ButtonKind::Suggested && !crate::high_contrast() { crate::accent::current().on_fill } else { FG }
 }
 
 /// `color` with its opacity multiplied by `alpha` (0 to 1).
@@ -413,8 +421,13 @@ mod tests {
     #[test]
     fn button_text_contrast() {
         let hovered = ButtonState { hovered: true, ..Default::default() };
-        for fill in [DESTRUCTIVE, button_fill(ButtonKind::Destructive, hovered), button_fill(ButtonKind::Suggested, ButtonState::default()), button_fill(ButtonKind::Suggested, hovered)] {
+        for fill in [DESTRUCTIVE, button_fill(ButtonKind::Destructive, hovered)] {
             assert!(crate::backdrop::contrast(FG, fill) >= 4.5, "{fill:08x}: {}", crate::backdrop::contrast(FG, fill));
+        }
+        let suggested = [ButtonState::default(), hovered, ButtonState { pressed: true, ..Default::default() }].map(|state| button_fill(ButtonKind::Suggested, state));
+        for fill in suggested {
+            let c = crate::backdrop::contrast(button_text(ButtonKind::Suggested), fill);
+            assert!(c >= 4.5, "{fill:08x}: {c:.2}");
         }
     }
 
@@ -425,7 +438,7 @@ mod tests {
             let pw = (w as f64 * scale) as usize;
             let mut data = vec![0u8; pw * (h as f64 * scale) as usize * 4];
             let mut canvas = Canvas::scaled(&mut data, w, h, scale);
-            let e = Entry { x: 10.0, y: 6.0, w: 280.0, focused: true, ring: ACCENT, dots: 40, dots_alpha: 1.0, placeholder: "Password", trailing: Trailing::Go { enabled: true, hovered: false }, reserve: 0.0, alpha: 1.0 };
+            let e = Entry { x: 10.0, y: 6.0, w: 280.0, focused: true, ring: accent(), dots: 40, dots_alpha: 1.0, placeholder: "Password", trailing: Trailing::Go { enabled: true, hovered: false }, reserve: 0.0, alpha: 1.0 };
             let placed = entry(&mut canvas, None, &e);
             let (bx, _, bw, _) = placed.button.expect("a button");
             assert!(bw >= 44.0 && bx + bw <= 290.5, "{:?}", placed.button);

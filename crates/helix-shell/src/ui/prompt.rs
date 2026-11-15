@@ -6,7 +6,7 @@ use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym};
 use smithay_client_toolkit::shell::WaylandSurface;
 use tokio::sync::oneshot;
 
-use super::{baseline, caret, label, text_field, physical, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, ACCENT, DIM_FG, FG, FIELD_BG, SCRIM, ACCENT_FILL, ERROR_TEXT};
+use super::{accent, accent_fill, baseline, caret, label, on_accent, text_field, physical, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, DIM_FG, FG, FIELD_BG, SCRIM, ERROR_TEXT};
 use crate::auth::Secret;
 use crate::prompt::{Answer, Prompt, Request};
 
@@ -422,7 +422,7 @@ impl Ui {
             let r = Rect { x: bx + 24, y: y + i as i32 * grow(LIST_ROW), w: side - 12, h: grow(LIST_ROW) };
             if p.place_current == Some(i) {
                 canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
-                canvas.rect(r.x, r.y + 6, 3, r.h - 12, ACCENT);
+                canvas.rect(r.x, r.y + 6, 3, r.h - 12, accent());
             }
             label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 16) as f32);
             hits.push((r, OverlayHit::Place(i)));
@@ -433,7 +433,7 @@ impl Ui {
                 let r = Rect { x: bx + 24 + side, y: y + (i - first) as i32 * grow(LIST_ROW), w: bw - 48 - side, h: grow(LIST_ROW) };
                 if p.multiple {
                     if view.picked[i] {
-                        canvas.rect(r.x, r.y, r.w, r.h, ACCENT_FILL);
+                        canvas.rect(r.x, r.y, r.w, r.h, accent_fill());
                     }
                     if i == view.selected {
                         // The current row: an outline.
@@ -442,9 +442,10 @@ impl Ui {
                         }
                     }
                 } else if i == view.selected {
-                    canvas.rect(r.x, r.y, r.w, r.h, ACCENT_FILL);
+                    canvas.rect(r.x, r.y, r.w, r.h, accent_fill());
                 }
-                label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 24) as f32);
+                let lit = if p.multiple { view.picked[i] } else { i == view.selected };
+                label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, if lit { on_accent() } else { FG }, (r.w - 24) as f32);
                 hits.push((r, OverlayHit::Row(i)));
             }
         }
@@ -528,9 +529,9 @@ impl Ui {
             let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
             // Outlined, so an empty box shows.
             canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
-            canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if view.choice { ACCENT } else { FIELD_BG });
+            canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if view.choice { accent() } else { FIELD_BG });
             if view.focus == 2 {
-                canvas.rect(r.x, r.y + (r.h + 18) / 2 + 1, 18, 2, ACCENT);
+                canvas.rect(r.x, r.y + (r.h + 18) / 2 + 1, 18, 2, accent());
             }
             label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
             hits.push((r, OverlayHit::Toggle));
@@ -540,9 +541,9 @@ impl Ui {
             let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
             // Outlined, so an empty box shows.
             canvas.rect(r.x - 1, r.y + (r.h - 20) / 2, 20, 20, DIM_FG);
-            canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if view.checks[i] { ACCENT } else { FIELD_BG });
+            canvas.rect(r.x, r.y + (r.h - 18) / 2, 18, 18, if view.checks[i] { accent() } else { FIELD_BG });
             if view.focus == CHECK_FOCUS + i {
-                canvas.rect(r.x, r.y + (r.h + 18) / 2 + 1, 18, 2, ACCENT);
+                canvas.rect(r.x, r.y + (r.h + 18) / 2 + 1, 18, 2, accent());
             }
             label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
             hits.push((r, OverlayHit::Check(i)));
@@ -561,9 +562,10 @@ impl Ui {
         theme::control(&mut canvas, confirm.x, confirm.y, confirm.w, confirm.h, theme::Look { on: !view.busy, ..Default::default() });
         let cancel_label = if p.cancel_label.is_empty() { "Cancel" } else { &p.cancel_label };
         let confirm_label = if p.continue_label.is_empty() { "Continue" } else { &p.continue_label };
-        for (r, s) in [(cancel, cancel_label), (confirm, confirm_label)] {
+        for (r, s, on) in [(cancel, cancel_label, false), (confirm, confirm_label, !view.busy)] {
             let lw = text.map_or(0.0, |t| t.width(s, 15.0));
-            label(text, &mut canvas, s, r.x as f32 + (r.w as f32 - lw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
+            let fg = theme::control_text(theme::Look { on, ..Default::default() });
+            label(text, &mut canvas, s, r.x as f32 + (r.w as f32 - lw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, fg, r.w as f32);
         }
         hits.push((cancel, OverlayHit::Cancel));
         hits.push((confirm, OverlayHit::Confirm));

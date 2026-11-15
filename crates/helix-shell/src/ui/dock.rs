@@ -886,7 +886,7 @@ impl Ui {
                 let (px0, py0, pw) = (f64::from(ix + 3), f64::from(iy + icon - 7), f64::from(icon - 6));
                 canvas.round_rect(px0, py0, pw, 5.0, 2.5, 0xC0202024);
                 if progress > 0.0 {
-                    canvas.round_rect(px0, py0, (pw * progress).max(5.0), 5.0, 2.5, ACCENT);
+                    canvas.round_rect(px0, py0, (pw * progress).max(5.0), 5.0, 2.5, accent());
                 }
             }
             let (windows, badge) = counts[i];
@@ -920,7 +920,7 @@ impl Ui {
         if let Some((d, at)) = drag {
             let marker = drop_marker.unwrap_or(pos);
             let (mx, my, mw, mh) = if vertical { (bar.x + 6, marker - 1, t - 12, 3) } else { (marker - 1, bar.y + 6, 3, t - 12) };
-            canvas.rect(mx, my, mw, mh, ACCENT);
+            canvas.rect(mx, my, mw, mh, accent());
             if let Some(Some(image)) = icons.get(d) {
                 canvas.image(at.0 - f64::from(icon) / 2.0, at.1 - f64::from(icon) / 2.0, f64::from(icon), f64::from(icon), image);
             }

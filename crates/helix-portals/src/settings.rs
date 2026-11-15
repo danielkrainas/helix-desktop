@@ -117,22 +117,10 @@ pub fn appearance(raw: &Snapshot) -> Namespace {
     ])
 }
 
-/// An `accent-color` name as sRGB values from 0 to 1.
+/// An `accent-color` name as sRGB values from 0 to 1 (Helix's one accent
+/// table, `helix_draw::accent`).
 pub fn accent_rgb(name: &str) -> Option<(f64, f64, f64)> {
-    let hex: u32 = match name {
-        "blue" => 0x3584e4,
-        "teal" => 0x2190a4,
-        "green" => 0x3a944a,
-        "yellow" => 0xc88800,
-        "orange" => 0xed5b00,
-        "red" => 0xe62d42,
-        "pink" => 0xd56199,
-        "purple" => 0x9141ac,
-        "slate" => 0x6f8396,
-        _ => return None,
-    };
-    let channel = |shift: u32| f64::from((hex >> shift) & 0xff) / 255.0;
-    Some((channel(16), channel(8), channel(0)))
+    helix_draw::accent::Accent::from_name(name).map(|a| a.rgb_f64())
 }
 
 /// Raw namespaces plus the derived appearance namespace.

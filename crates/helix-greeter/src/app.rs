@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn username_field() {
-        let config = Config { user_list: false, banner: Some("Hi".into()) };
+        let config = Config { user_list: false, banner: Some("Hi".into()), accent: None };
         let mut g = Greeter::new(config, vec![session("helix", "Helix")], &State::default());
         g.set_users(vec![user("ann", "Ann")]);
         assert_eq!(g.view(0).main, Main::Username { text: String::new() });

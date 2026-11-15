@@ -17,7 +17,7 @@ use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, BTN_
 use smithay_client_toolkit::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerSurface};
 use smithay_client_toolkit::shell::WaylandSurface;
 
-use super::{baseline, label, physical, Canvas, Overlay, Rect, Ui, ACCENT, BANNER_BORDER, DIM_FG, FG, FIELD_BG, SCRIM};
+use super::{accent, baseline, label, physical, Canvas, Overlay, Rect, Ui, BANNER_BORDER, DIM_FG, FG, FIELD_BG, SCRIM};
 use crate::UiRequest;
 
 /// Workspace thumbnail height (logical pixels).
@@ -348,7 +348,7 @@ impl Ui {
         for n in 0..count as u32 {
             let r = Rect { x: tx, y: ty, w: thumb_w, h: THUMB_H };
             let dropping = state.drag.is_some_and(|(_, (x, y))| r.contains(x, y));
-            let border = if n == self.windows.active || dropping { ACCENT } else { BANNER_BORDER };
+            let border = if n == self.windows.active || dropping { accent() } else { BANNER_BORDER };
             canvas.rect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, border);
             canvas.rect(r.x, r.y, r.w, r.h, 0xFF1E1E24);
             let s = f64::from(THUMB_H) / f64::from(ph);
@@ -413,7 +413,7 @@ impl Ui {
                 if py >= f64::from(dy) - DASH_UNPIN {
                     let i = dash_insert_index(&favorites, px);
                     let mx = favorites.get(i).map_or_else(|| favorites.last().map_or(dx + 12, |r| r.x + r.w + DASH_GAP / 2), |r| r.x - DASH_GAP / 2);
-                    canvas.rect(mx - 1, dy + 6, 3, DASH_H - 12, ACCENT);
+                    canvas.rect(mx - 1, dy + 6, 3, DASH_H - 12, accent());
                 }
                 if let Some(icon) = dash.iter().find(|e| e.app == app).and_then(|e| e.icon.as_ref()) {
                     canvas.image(px - f64::from(DASH_ICON) / 2.0, py - f64::from(DASH_ICON) / 2.0, f64::from(DASH_ICON), f64::from(DASH_ICON), icon);
@@ -444,7 +444,7 @@ impl Ui {
             let dragged = state.drag.is_some_and(|(d, _)| d == *id);
             let highlighted = state.selected == Some(*id) || state.hover == Some(*id);
             if highlighted && !dragged {
-                canvas.rect(r.x - 4, r.y - 4, r.w + 8, r.h + 8, ACCENT);
+                canvas.rect(r.x - 4, r.y - 4, r.w + 8, r.h + 8, accent());
             }
             match self.overview_shots.pictures.get(id) {
                 Some(shot) if !dragged => canvas.image(f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), shot),

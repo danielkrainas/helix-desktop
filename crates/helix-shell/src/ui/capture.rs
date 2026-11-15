@@ -268,7 +268,7 @@ impl Ui {
         match clear {
             _ if screen_mode => {
                 for (rx, ry, rw, rh) in [(0, 0, w as i32, 2), (0, h as i32 - 2, w as i32, 2), (0, 0, 2, h as i32), (w as i32 - 2, 0, 2, h as i32)] {
-                    canvas.rect(rx, ry, rw, rh, ACCENT);
+                    canvas.rect(rx, ry, rw, rh, accent());
                 }
             }
             Some((x, y, sw, sh)) => {
@@ -277,7 +277,7 @@ impl Ui {
                 canvas.rect(0, y.max(0), x.max(0), sh.min(h as i32), PICK_SCRIM);
                 canvas.rect((x + sw).max(0), y.max(0), w as i32 - (x + sw).max(0), sh.min(h as i32), PICK_SCRIM);
                 for (rx, ry, rw, rh) in [(x - 1, y - 1, sw + 2, 2), (x - 1, y + sh - 1, sw + 2, 2), (x - 1, y, 2, sh), (x + sw - 1, y, 2, sh)] {
-                    canvas.rect(rx, ry, rw, rh, ACCENT);
+                    canvas.rect(rx, ry, rw, rh, accent());
                 }
             }
             None => canvas.rect(0, 0, w as i32, h as i32, PICK_SCRIM),
@@ -318,12 +318,16 @@ impl Ui {
                     }
                     let r = Rect { x, y: ty + TOOL_GAP, w: *bw, h: TOOL_H };
                     let bg = match tool {
-                        Tool::Capture => ACCENT,
+                        Tool::Capture => accent_fill(),
                         _ if *on => 0xFF4A4A55,
                         _ => FIELD_BG,
                     };
                     canvas.rect(r.x, r.y, r.w, r.h, bg);
-                    let fg = if *enabled { FG } else { DIM_FG };
+                    let fg = match tool {
+                        Tool::Capture => on_accent(),
+                        _ if *enabled => FG,
+                        _ => DIM_FG,
+                    };
                     label(text, &mut canvas, name, (r.x + TOOL_PAD + 4) as f32, baseline(text, r.y, r.h, 14.0), 14.0, fg, (r.w - 2 * TOOL_PAD) as f32);
                     if *enabled {
                         tools.push((r, *tool));
