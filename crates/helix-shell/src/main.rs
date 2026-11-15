@@ -112,8 +112,8 @@ fn main() -> ExitCode {
             }
         }
     });
-    // Large Text: `text-scaling-factor` scales the shell's text; and the
-    // shell's accent follows `accent-color`.
+    // Large Text: `text-scaling-factor` scales the shell's text; the
+    // shell's accent follows `accent-color` and its font `font-name`.
     let scale_ui = service.ui_sender();
     runtime.spawn(async move {
         const SCHEMA: &str = "org.gnome.desktop.interface";
@@ -124,17 +124,19 @@ fn main() -> ExitCode {
                     let s = gio::Settings::new(SCHEMA);
                     let scale = if schema.has_key("text-scaling-factor") { s.double("text-scaling-factor") } else { 1.0 };
                     let accent = if schema.has_key("accent-color") { helix_draw::accent::Accent::from_name(&s.string("accent-color")).unwrap_or_default() } else { Default::default() };
-                    (scale, accent)
+                    let font = if schema.has_key("font-name") { helix_draw::font_family(&s.string("font-name")) } else { None };
+                    (scale, accent, font)
                 }
-                None => (1.0, Default::default()),
+                None => (1.0, Default::default(), None),
             }
         };
         let watched = helix_settings::GSettings::new(&[SCHEMA]);
         let (mut changes, _watch) = watched.watch();
         loop {
-            let (scale, accent) = read();
+            let (scale, accent, font) = read();
             let _ = scale_ui.send(helix_shell::UiEvent::TextScale(scale));
             let _ = scale_ui.send(helix_shell::UiEvent::Accent(accent));
+            let _ = scale_ui.send(helix_shell::UiEvent::InterfaceFont(font));
             if changes.recv().await.is_none() {
                 break;
             }

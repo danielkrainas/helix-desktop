@@ -50,13 +50,13 @@ impl Ui {
         let view = &overlay.state;
         let center = |t: Option<&Text>, s: &str, px: f32| (w as f32 - t.map_or(0.0, |t| t.width(s, px))) / 2.0;
         let mut y = h as i32 / 2 - 90;
-        label(bold.or(text), &mut canvas, &view.title, center(bold.or(text), &view.title, 30.0), y as f32, 30.0, FG, w as f32);
+        label(bold.or(text), &mut canvas, &view.title, center(bold.or(text), &view.title, size::LARGE_TITLE), y as f32, size::LARGE_TITLE, FG, w as f32);
         y += 44;
-        label(text, &mut canvas, &view.message, center(text, &view.message, 17.0), y as f32, 17.0, DIM_FG, w as f32);
+        label(text, &mut canvas, &view.message, center(text, &view.message, 17.0), y as f32, size::ENTRY, DIM_FG, w as f32);
         if let Some(left) = view.left {
             y += 64;
             let clock = format!("{}:{:02}", left / 60, left % 60);
-            label(bold.or(text), &mut canvas, &clock, center(bold.or(text), &clock, 40.0), y as f32, 40.0, FG, w as f32);
+            label(bold.or(text), &mut canvas, &clock, center(bold.or(text), &clock, 40.0), y as f32, size::DISPLAY, FG, w as f32);
         }
         y += 48;
         overlay.hits.clear();
@@ -64,8 +64,8 @@ impl Ui {
         for (i, (name, hit)) in [(tr("Delay"), OverlayHit::Cancel), (tr("Skip"), OverlayHit::Confirm)].into_iter().enumerate() {
             let r = Rect { x: bx + i as i32 * (BUTTON_W + 16), y, w: BUTTON_W, h: BUTTON_H };
 theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
-            let tw = text.map_or(0.0, |t| t.width(name, 15.0));
-            label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
+            let tw = text.map_or(0.0, |t| t.width(name, size::BODY));
+            label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, size::BODY), size::BODY, FG, r.w as f32);
             overlay.hits.push((r, hit));
         }
         let nodes = break_nodes(view, &overlay.hits);

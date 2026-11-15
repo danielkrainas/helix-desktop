@@ -2045,15 +2045,15 @@ pub(super) fn paint_dock(canvas: &mut Canvas, text: Option<&Text>, m: &DockPaint
             let (nx, ny) = (f64::from(ix) + 4.0, f64::from(iy) + 4.0);
             canvas.circle(nx, ny, 10.0, 0xF0505058);
             let label_text = (number % 10).to_string();
-            let tw = text.map_or(6.0, |t| t.width(&label_text, 13.0));
-            label(text, canvas, &label_text, (nx - f64::from(tw) / 2.0) as f32, ny as f32 + 5.0, 13.0, FG, 20.0);
+            let tw = text.map_or(6.0, |t| t.width(&label_text, size::CAPTION));
+            label(text, canvas, &label_text, (nx - f64::from(tw) / 2.0) as f32, ny as f32 + 5.0, size::CAPTION, FG, 20.0);
         }
         if badge > 0 {
             let (bx, by) = (f64::from(ix + icon) - 4.0, f64::from(iy) + 4.0);
             canvas.circle(bx, by, 9.0, BADGE);
             let label_text = if badge > 9 { "9+".to_owned() } else { badge.to_string() };
-            let tw = text.map_or(6.0, |t| t.width(&label_text, 11.0));
-            label(text, canvas, &label_text, (bx - f64::from(tw) / 2.0) as f32, by as f32 + 4.0, 11.0, FG, 20.0);
+            let tw = text.map_or(6.0, |t| t.width(&label_text, size::TINY));
+            label(text, canvas, &label_text, (bx - f64::from(tw) / 2.0) as f32, by as f32 + 4.0, size::TINY, FG, 20.0);
         }
         hits.push((cell, i));
         pos += slot;
@@ -2076,7 +2076,7 @@ pub(super) fn paint_dock(canvas: &mut Canvas, text: Option<&Text>, m: &DockPaint
     // The item's name (and windows), beside the bar.
     if let Some((i, lines)) = &m.tooltip {
         if let Some(&(cell, _)) = hits.iter().find(|(_, n)| n == i) {
-            let px = 13.0;
+            let px = size::CAPTION;
             let line_h = helix_draw::theme::grow(18);
             let widest = lines.iter().map(|l| text.map_or(80.0, |t| t.width(l, px))).fold(0.0f32, f32::max);
             let tw = widest.ceil() as i32 + 28;

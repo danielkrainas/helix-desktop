@@ -73,7 +73,7 @@ impl Ui {
         if !item.visible {
             return 0;
         }
-        let label_w = if item.label.is_empty() { 0 } else { self.text.as_ref().map_or(0.0, |t| t.width(&item.label, 14.0)).ceil() as i32 };
+        let label_w = if item.label.is_empty() { 0 } else { self.text.as_ref().map_or(0.0, |t| t.width(&item.label, size::LABEL)).ceil() as i32 };
         let parts = [if has_icon { status::ICON } else { 0 }, label_w, if item.graph.is_empty() { 0 } else { GRAPH_W }];
         let shown: Vec<i32> = parts.into_iter().filter(|w| *w > 0).collect();
         if shown.is_empty() {
@@ -95,9 +95,9 @@ pub(super) fn draw_ext_item(text: Option<&Text>, canvas: &mut Canvas, item: &cra
             cx += status::ICON + 4;
         }
         if !item.label.is_empty() {
-            let base = baseline(text, 0, h, 14.0);
-            let lw = text.map_or(0.0, |t| t.width(&item.label, 14.0)).ceil() as i32;
-            label(text, canvas, &item.label, cx as f32, base, 14.0, color, lw as f32 + 1.0);
+            let base = baseline(text, 0, h, size::LABEL);
+            let lw = text.map_or(0.0, |t| t.width(&item.label, size::LABEL)).ceil() as i32;
+            label(text, canvas, &item.label, cx as f32, base, size::LABEL, color, lw as f32 + 1.0);
             cx += lw + 4;
         }
         if !item.graph.is_empty() {

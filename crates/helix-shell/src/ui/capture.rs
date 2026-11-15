@@ -316,11 +316,11 @@ impl Ui {
         if index == 0 {
             let text = self.text.as_ref();
             let message = hint(picker.mode);
-            let tw = text.map_or(0.0, |t| t.width(message, 14.0)) as i32;
+            let tw = text.map_or(0.0, |t| t.width(message, size::LABEL)) as i32;
             let (bw, bh) = (tw + 32, 36);
             let bx = (w as i32 - bw) / 2;
             theme::popover_round(&mut canvas, f64::from(bx), 24.0, f64::from(bw), f64::from(bh), theme::pill(f64::from(bh)));
-            label(text, &mut canvas, message, (bx + 16) as f32, baseline(text, 24, bh, 14.0), 14.0, FG, tw as f32 + 1.0);
+            label(text, &mut canvas, message, (bx + 16) as f32, baseline(text, 24, bh, size::LABEL), size::LABEL, FG, tw as f32 + 1.0);
             nodes.push(crate::a11y::Node::label(message).id("hint").at(crate::a11y::Rect::new(bx, 24, bw, bh)));
             if let (true, Some((x, y, sw, sh))) = (is_ui && picker.shot.mode != ShotMode::Screen, clear) {
                 // The area or window that will be captured.
@@ -340,7 +340,7 @@ impl Ui {
                 }
                 buttons.push((tr("Show Pointer").into(), Tool::Pointer, st.pointer, true));
                 buttons.push((if st.record { tr("Start Recording") } else { tr("Capture") }.into(), Tool::Capture, true, true));
-                let widths: Vec<i32> = buttons.iter().map(|(t, ..)| text.map_or(60.0, |f| f.width(t, 14.0)) as i32 + 2 * TOOL_PAD + 8).collect();
+                let widths: Vec<i32> = buttons.iter().map(|(t, ..)| text.map_or(60.0, |f| f.width(t, size::LABEL)) as i32 + 2 * TOOL_PAD + 8).collect();
                 let groups = if st.allow_record { 3 } else { 2 };
                 let total: i32 = widths.iter().sum::<i32>() + TOOL_GAP * (widths.len() as i32 - 1) + 2 * TOOL_GAP + 8 * groups;
                 let (tx, ty) = ((w as i32 - total) / 2, h as i32 - TOOL_H - 2 * TOOL_GAP - 32);
@@ -357,7 +357,7 @@ impl Ui {
                     let look = theme::Look { on: *on || *tool == Tool::Capture, ..Default::default() };
                     theme::control(&mut canvas, r.x, r.y, r.w, r.h, look);
                     let fg = if *enabled { theme::control_text(look) } else { theme::disabled_text() };
-                    label(text, &mut canvas, name, (r.x + TOOL_PAD + 4) as f32, baseline(text, r.y, r.h, 14.0), 14.0, fg, (r.w - 2 * TOOL_PAD) as f32);
+                    label(text, &mut canvas, name, (r.x + TOOL_PAD + 4) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, fg, (r.w - 2 * TOOL_PAD) as f32);
                     if *enabled {
                         tools.push((r, *tool));
                     }

@@ -257,6 +257,9 @@ pub enum UiEvent {
     TextScale(f64),
     /// `org.gnome.desktop.interface` `accent-color`.
     Accent(helix_draw::accent::Accent),
+    /// The family of `org.gnome.desktop.interface` `font-name` (`None`:
+    /// the system font).
+    InterfaceFont(Option<String>),
     /// `show-status-shapes` and `keyboard-focus-visible-timeout`.
     InterfaceA11y { shapes: bool, focus_timeout: i32 },
     /// System status (panel icons, quick settings switches).

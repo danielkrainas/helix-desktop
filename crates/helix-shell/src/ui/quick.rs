@@ -6,7 +6,7 @@ use smithay_client_toolkit::reexports::client::protocol::wl_shm;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
 use smithay_client_toolkit::shell::WaylandSurface;
 
-use super::{baseline, label, physical, power_menu_items, theme, Canvas, KeyEvent, Keysym, OverlayHit, Rect, Text, Ui, DIM_FG, FG, panel_height};
+use super::{baseline, label, physical, power_menu_items, size, theme, Canvas, KeyEvent, Keysym, OverlayHit, Rect, Text, Ui, DIM_FG, FG, panel_height};
 use crate::PowerAction;
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind};
 use crate::status::Toggle;
@@ -845,7 +845,7 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
     // Sliders: a label, a bar, the value.
     for s in &m.sliders {
         let name_r = Rect { x: mx + PAD, y, w: name_w, h: row_h };
-        label(text, canvas, &s.label, name_r.x as f32, baseline(text, y, row_h, 14.0), 14.0, if s.dim { DIM_FG } else { FG }, name_w as f32);
+        label(text, canvas, &s.label, name_r.x as f32, baseline(text, y, row_h, size::LABEL), size::LABEL, if s.dim { DIM_FG } else { FG }, name_w as f32);
         if s.mute.is_some() {
             hits.push((name_r, OverlayHit::Mute));
             drawn.push((Rect { x: name_r.x - 4, y: y + 6, w: name_w - 4, h: row_h - 12 }, OverlayHit::Mute));
@@ -853,7 +853,7 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
         let bar = Rect { x: mx + PAD + name_w + 4, y: y + row_h / 2 - 9, w: menu_w - 2 * PAD - name_w - 4 - value_w, h: 18 };
         theme::slider(canvas, bar.x, bar.y, bar.w, bar.h, f64::from(s.value.min(s.max)) / f64::from(s.max.max(1)), s.dim);
         let pct = helix_i18n::format_percent(f64::from(s.value));
-        label(text, canvas, &pct, (bar.x + bar.w + 10) as f32, baseline(text, y, row_h, 13.0), 13.0, DIM_FG, (value_w - 8) as f32);
+        label(text, canvas, &pct, (bar.x + bar.w + 10) as f32, baseline(text, y, row_h, size::CAPTION), size::CAPTION, DIM_FG, (value_w - 8) as f32);
         if let Some(hit) = s.hit {
             // The whole row height is clickable on the bar.
             hits.push((Rect { x: bar.x, y, w: bar.w, h: row_h }, hit));
@@ -881,22 +881,22 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
             0
         };
         let room = r.w - 8 - arrow_w - shape_w;
-        let tw = text.map_or(0.0, |x| x.width(&t.name, 12.0)).min(room as f32);
+        let tw = text.map_or(0.0, |x| x.width(&t.name, size::CAPTION)).min(room as f32);
         let fg = if t.dim && !t.on { DIM_FG } else { on_fg };
         let mid = (r.x + shape_w) as f32 + (r.w - arrow_w - shape_w) as f32 / 2.0;
         if t.subtitle.is_empty() {
-            label(text, canvas, &t.name, mid - tw / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, fg, room as f32);
+            label(text, canvas, &t.name, mid - tw / 2.0, baseline(text, r.y, r.h, size::CAPTION), size::CAPTION, fg, room as f32);
         } else {
             // The subtitle under the title.
-            label(text, canvas, &t.name, mid - tw / 2.0, (r.y + r.h * 17 / 40) as f32, 12.0, fg, room as f32);
-            let sw2 = text.map_or(0.0, |x| x.width(&t.subtitle, 10.0)).min(room as f32);
-            label(text, canvas, &t.subtitle, mid - sw2 / 2.0, (r.y + r.h * 31 / 40) as f32, 10.0, on_fg, room as f32);
+            label(text, canvas, &t.name, mid - tw / 2.0, (r.y + r.h * 17 / 40) as f32, size::CAPTION, fg, room as f32);
+            let sw2 = text.map_or(0.0, |x| x.width(&t.subtitle, size::CAPTION)).min(room as f32);
+            label(text, canvas, &t.subtitle, mid - sw2 / 2.0, (r.y + r.h * 31 / 40) as f32, size::CAPTION, on_fg, room as f32);
         }
         if let Some((hit, _)) = &t.more {
             let a = Rect { x: r.x + r.w - arrow_w, y: r.y, w: arrow_w, h: r.h };
             canvas.rect(a.x, a.y + 8, 1, a.h - 16, if t.on { on_fg } else { DIM_FG });
             let glyph = if m.list_open == Some(t.switch) { "‹" } else { "›" };
-            label(text, canvas, glyph, (a.x + 6) as f32, baseline(text, a.y, a.h, 16.0), 16.0, on_fg, (arrow_w - 6) as f32);
+            label(text, canvas, glyph, (a.x + 6) as f32, baseline(text, a.y, a.h, size::HEADING), size::HEADING, on_fg, (arrow_w - 6) as f32);
             hits.push((a, *hit));
             drawn.push((a, *hit));
             drawn.push((Rect { w: r.w - arrow_w, ..r }, OverlayHit::Switch(t.switch)));
@@ -916,7 +916,7 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
         let mut ry = y + 8 - scroll.list as i32 * list_row_h;
         if m.rows.is_empty() {
             let empty = if open == Switch::Wifi { tr("No Networks") } else { tr("No Devices") };
-            label(text, canvas, empty, (lx + 12) as f32, baseline(text, ry, list_row_h, 13.0), 13.0, DIM_FG, (lw - 24) as f32);
+            label(text, canvas, empty, (lx + 12) as f32, baseline(text, ry, list_row_h, size::CAPTION), size::CAPTION, DIM_FG, (lw - 24) as f32);
         }
         let list_area = Rect { x: lx, y: y + 4, w: lw, h: list_h - 8 };
         list_view = Some(list_area);
@@ -930,14 +930,14 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
             }
             let state_w = if *connected { grow(76) } else { 0 };
             let lock_w = if *secured { 22 } else { 0 };
-            label(text, canvas, name, tx as f32, baseline(text, r.y, r.h, 13.0), 13.0, if *dim { DIM_FG } else { FG }, (r.x + r.w - tx - state_w - lock_w - 8) as f32);
+            label(text, canvas, name, tx as f32, baseline(text, r.y, r.h, size::CAPTION), size::CAPTION, if *dim { DIM_FG } else { FG }, (r.x + r.w - tx - state_w - lock_w - 8) as f32);
             if *secured {
                 if let Some(lock) = &m.lock {
                     canvas.image(f64::from(r.x + r.w - state_w - lock_w - 4), f64::from(r.y + (r.h - 14) / 2), 14.0, 14.0, lock);
                 }
             }
             if *connected {
-                label(text, canvas, tr("Connected"), (r.x + r.w - state_w) as f32, baseline(text, r.y, r.h, 12.0), 12.0, theme::text_accent(), (state_w - 8) as f32);
+                label(text, canvas, tr("Connected"), (r.x + r.w - state_w) as f32, baseline(text, r.y, r.h, size::CAPTION), size::CAPTION, theme::text_accent(), (state_w - 8) as f32);
             }
             if let Some(hit) = hit {
                 hits.push((r, *hit));
@@ -957,15 +957,15 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
     }
     // Power mode: one button per profile.
     if !m.profiles.is_empty() {
-        label(text, canvas, tr("Power Mode"), (mx + PAD) as f32, (y + grow(18)) as f32, 13.0, DIM_FG, (menu_w - 2 * PAD) as f32);
+        label(text, canvas, tr("Power Mode"), (mx + PAD) as f32, (y + grow(18)) as f32, size::CAPTION, DIM_FG, (menu_w - 2 * PAD) as f32);
         let n = m.profiles.len() as i32;
         let bw = (menu_w - 2 * PAD - (n - 1) * 8) / n;
         for (i, (name, active)) in m.profiles.iter().enumerate() {
             let r = Rect { x: mx + PAD + i as i32 * (bw + 8), y: y + grow(26), w: bw, h: item_h };
             let look = theme::Look { on: *active, ..Default::default() };
             theme::control(canvas, r.x, r.y, r.w, r.h, look);
-            let tw = text.map_or(0.0, |t| t.width(name, 12.0)).min((r.w - 8) as f32);
-            label(text, canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 12.0), 12.0, theme::control_text(look), (r.w - 8) as f32);
+            let tw = text.map_or(0.0, |t| t.width(name, size::CAPTION)).min((r.w - 8) as f32);
+            label(text, canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, size::CAPTION), size::CAPTION, theme::control_text(look), (r.w - 8) as f32);
             hits.push((r, OverlayHit::Profile(i)));
             drawn.push((r, OverlayHit::Profile(i)));
         }
@@ -990,7 +990,7 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
     // Power actions.
     for (i, (name, action)) in m.items.iter().enumerate() {
         let r = Rect { x: mx + 4, y: y + 4 + i as i32 * item_h, w: menu_w - 8, h: item_h };
-        label(text, canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 15.0), 15.0, FG, (r.w - 24) as f32);
+        label(text, canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, size::BODY), size::BODY, FG, (r.w - 24) as f32);
         hits.push((r, OverlayHit::Power(*action)));
         drawn.push((Rect { x: r.x + 2, y: r.y + 2, w: r.w - 4, h: r.h - 4 }, OverlayHit::Power(*action)));
     }

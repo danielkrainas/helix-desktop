@@ -121,16 +121,16 @@ impl Ui {
         let typical = 56 + 30 + layout::Item::ALL.len() as i32 * ROW_H + 16 + BOTTOM_H + PAD;
         let (bx, by) = ((w as i32 - bw) / 2, ((h as i32 - typical) / 2).max(8).min((h as i32 - bh).max(8)));
         theme::popover(&mut canvas, bx, by, bw, bh);
-        label(bold.or(text), &mut canvas, tr("Customize Panel"), (bx + PAD) as f32, (by + 36) as f32, 20.0, FG, (bw - 2 * PAD) as f32);
+        label(bold.or(text), &mut canvas, tr("Customize Panel"), (bx + PAD) as f32, (by + 36) as f32, size::TITLE, FG, (bw - 2 * PAD) as f32);
         let mut y = by + 56;
         if !saved {
-            label(text, &mut canvas, tr("Changes cannot be saved: the org.helix.shell settings are not installed."), (bx + PAD) as f32, (y + 16) as f32, 13.0, DIM_FG, (bw - 2 * PAD) as f32);
+            label(text, &mut canvas, tr("Changes cannot be saved: the org.helix.shell settings are not installed."), (bx + PAD) as f32, (y + 16) as f32, size::CAPTION, DIM_FG, (bw - 2 * PAD) as f32);
             y += note_h;
         }
         let mut hits: Vec<(Rect, EditorHit)> = Vec::new();
         let col_x = |c: usize| bx + PAD + c as i32 * (col_w + PAD);
         for (c, title) in COLUMNS.iter().enumerate() {
-            label(bold.or(text), &mut canvas, tr(title), col_x(c) as f32, (y + 18) as f32, 14.0, DIM_FG, col_w as f32);
+            label(bold.or(text), &mut canvas, tr(title), col_x(c) as f32, (y + 18) as f32, size::LABEL, DIM_FG, col_w as f32);
         }
         let rows_y = y + 30;
         for (c, rows) in columns.iter().enumerate() {
@@ -161,7 +161,7 @@ impl Ui {
                     x += BUTTON;
                 }
                 let x = label_end;
-                label(text, &mut canvas, &row.name, (col_x(c) + 10) as f32, baseline(text, ry, ROW_H, 14.0), 14.0, FG, (x - col_x(c) - 14) as f32);
+                label(text, &mut canvas, &row.name, (col_x(c) + 10) as f32, baseline(text, ry, ROW_H, size::LABEL), size::LABEL, FG, (x - col_x(c) - 14) as f32);
             }
         }
         y = rows_y + rows_max * ROW_H + 16;
@@ -170,14 +170,14 @@ impl Ui {
                 if hidden_in(c).is_empty() {
                     continue;
                 }
-                label(bold.or(text), &mut canvas, tr("Hidden"), col_x(c) as f32, (y + 18) as f32, 14.0, DIM_FG, col_w as f32);
+                label(bold.or(text), &mut canvas, tr("Hidden"), col_x(c) as f32, (y + 18) as f32, size::LABEL, DIM_FG, col_w as f32);
                 for (r, (n, (_, _, name))) in hidden_in(c).into_iter().enumerate() {
                     let ry = y + 32 + r as i32 * ROW_H;
                     let br = Rect { x: col_x(c) + col_w - 4 - BUTTON, y: ry + (ROW_H - BUTTON) / 2, w: BUTTON, h: BUTTON };
                     theme::round_flat(&mut canvas, f64::from(br.x) + f64::from(BUTTON) / 2.0, f64::from(br.y) + f64::from(BUTTON) / 2.0, f64::from(BUTTON), overlay.state.look(EditorHit::Add(n)), false);
                     draw_glyph(&mut canvas, br, Glyph::Plus);
                     hits.push((br, EditorHit::Add(n)));
-                    label(text, &mut canvas, name, (col_x(c) + 10) as f32, baseline(text, ry, ROW_H, 14.0), 14.0, DIM_FG, (col_w - BUTTON - 20) as f32);
+                    label(text, &mut canvas, name, (col_x(c) + 10) as f32, baseline(text, ry, ROW_H, size::LABEL), size::LABEL, DIM_FG, (col_w - BUTTON - 20) as f32);
                 }
             }
             y += hidden_h;

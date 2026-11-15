@@ -642,7 +642,7 @@ impl Ui {
         let (cells, folder_cells, selected, dots, page) = view.grid.a11y();
         let grid_focus = !results && selected.is_some();
         // Painted from x + 16 at 17 px (see `draw_launcher`).
-        let advances = self.text.as_ref().map(|t| t.advances(&model.query, 17.0)).unwrap_or_default();
+        let advances = self.text.as_ref().map(|t| t.advances(&model.query, size::ENTRY)).unwrap_or_default();
         let chars = crate::a11y::Chars { x: (field.x + 16) as f32, y: field.y, h: field.h, advances };
         let search = Node::text_field(Role::SearchInput, tr("Search"), &model.query, field.into()).id("search").chars(chars);
         let mut out = vec![search.focused(!results && !grid_focus)];

@@ -6,7 +6,7 @@ use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym};
 use smithay_client_toolkit::shell::WaylandSurface;
 use tokio::sync::oneshot;
 
-use super::{accent, baseline, caret, label, text_field, physical, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, DIM_FG, FG, SCRIM, ERROR_TEXT};
+use super::{accent, baseline, caret, label, text_field, physical, size, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, DIM_FG, FG, SCRIM, ERROR_TEXT};
 use crate::auth::Secret;
 use crate::prompt::{Answer, Prompt, Request};
 use helix_i18n::tr;
@@ -442,8 +442,8 @@ impl Ui {
                 text.map_or_else(|| vec![s.to_owned()], |t| t.wrap(s, px, inner, 4))
             }
         };
-        let message = wrap(&p.message, 14.0);
-        let description = wrap(&p.description, 13.0);
+        let message = wrap(&p.message, size::LABEL);
+        let description = wrap(&p.description, size::CAPTION);
         let fields = usize::from(p.entry.is_some()) + usize::from(p.password.is_some()) + usize::from(p.confirm.is_some());
         // The picture: at most the inner width and 220 high.
         let picture = p.picture.as_deref().filter(|i| i.width > 0 && i.height > 0).map(|i| {
@@ -471,14 +471,16 @@ impl Ui {
         }
         // Below the icon, laid out as without it.
         let (by, bh) = (by + top, bh - top);
-        label(text, &mut canvas, &p.title, center(&p.title, 20.0), (by + grow(44)) as f32, 20.0, FG, inner);
+        let bold = self.bold.as_ref().or(text);
+        let tw = bold.map_or(0.0, |t| t.width(&p.title, size::TITLE).min(inner));
+        label(bold, &mut canvas, &p.title, bx as f32 + (bw as f32 - tw) / 2.0, (by + grow(44)) as f32, size::TITLE, FG, inner);
         let mut y = by + grow(76);
         for line in &message {
-            label(text, &mut canvas, line, center(line, 14.0), y as f32, 14.0, FG, inner);
+            label(text, &mut canvas, line, center(line, size::LABEL), y as f32, size::LABEL, FG, inner);
             y += grow(19);
         }
         for line in &description {
-            label(text, &mut canvas, line, center(line, 13.0), y as f32, 13.0, DIM_FG, inner);
+            label(text, &mut canvas, line, center(line, size::CAPTION), y as f32, size::CAPTION, DIM_FG, inner);
             y += grow(17);
         }
         y += 8;
@@ -498,7 +500,7 @@ impl Ui {
             } else {
                 theme::row(&mut canvas, r.x, r.y, r.w, r.h, look);
             }
-            label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, (r.w - 16) as f32);
+            label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, (r.w - 16) as f32);
             hits.push((r, OverlayHit::Place(i)));
         }
         if shown > 0 {
@@ -513,7 +515,7 @@ impl Ui {
                     // The current row: an outline.
                     canvas.round_outline(f64::from(r.x + 3), f64::from(r.y + 2), f64::from(r.w - 6), f64::from(r.h - 4), theme::RADIUS_ROW - 1.0, 1.0, FG);
                 }
-                label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, 14.0), 14.0, theme::control_text(look), (r.w - 24) as f32);
+                label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, theme::control_text(look), (r.w - 24) as f32);
                 hits.push((r, OverlayHit::Row(i)));
             }
         }
@@ -529,7 +531,7 @@ impl Ui {
             if let Some(crate::Preview::Text(lines)) = preview {
                 // A text file's first lines, small.
                 for (i, line) in lines.iter().enumerate() {
-                    label(text, &mut canvas, line, (area.x + 10) as f32, (area.y + 18 + i as i32 * 16) as f32, 12.0, FG, (area.w - 20) as f32);
+                    label(text, &mut canvas, line, (area.x + 10) as f32, (area.y + 18 + i as i32 * 16) as f32, size::CAPTION, FG, (area.w - 20) as f32);
                 }
             } else if let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) {
                 let k = (f64::from(area.w) / image.width as f64).min(f64::from(area.h) / image.height as f64).min(1.0);
@@ -537,41 +539,41 @@ impl Ui {
                 canvas.image_rounded(f64::from(area.x) + (f64::from(area.w) - iw) / 2.0, f64::from(area.y) + (f64::from(area.h) - ih) / 2.0, iw, ih, theme::RADIUS_ROW, image, 1.0);
             } else {
                 let none = tr("No preview");
-                let tw = text.map_or(0.0, |t| t.width(none, 13.0));
-                label(text, &mut canvas, none, area.x as f32 + (area.w as f32 - tw) / 2.0, baseline(text, area.y, area.h, 13.0), 13.0, DIM_FG, inner);
+                let tw = text.map_or(0.0, |t| t.width(none, size::CAPTION));
+                label(text, &mut canvas, none, area.x as f32 + (area.w as f32 - tw) / 2.0, baseline(text, area.y, area.h, size::CAPTION), size::CAPTION, DIM_FG, inner);
             }
             y += preview_h;
         }
         if let Some((name, _)) = &p.entry {
-            label(text, &mut canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, 13.0, DIM_FG, inner);
+            label(text, &mut canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, size::CAPTION, DIM_FG, inner);
             let r = Rect { x: bx + 24, y: y + grow(22), w: bw - 48, h: grow(34) };
             let focused = view.focus == 3 && !view.busy;
             text_field(&mut canvas, r, focused);
             // The end of the text when it does not fit, and a caret.
             let room = (r.w - 24) as f32;
             let mut shown = view.entry.as_str();
-            while text.is_some_and(|t| t.width(shown, 14.0) > room) && !shown.is_empty() {
+            while text.is_some_and(|t| t.width(shown, size::LABEL) > room) && !shown.is_empty() {
                 let next = shown.char_indices().nth(1).map_or(shown.len(), |(i, _)| i);
                 shown = &shown[next..];
             }
-            label(text, &mut canvas, shown, (r.x + 10) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, room);
+            label(text, &mut canvas, shown, (r.x + 10) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, room);
             if focused {
-                caret(&mut canvas, r, r.x + 10 + text.map_or(0.0, |t| t.width(shown, 14.0)) as i32 + 1, 14.0);
+                caret(&mut canvas, r, r.x + 10 + text.map_or(0.0, |t| t.width(shown, size::LABEL)) as i32 + 1, size::LABEL);
             }
             hits.push((r, OverlayHit::Field(3)));
             y += grow(62);
         }
         for (index, field) in [&p.password, &p.confirm].into_iter().enumerate() {
             let Some(name) = field else { continue };
-            label(text, &mut canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, 13.0, DIM_FG, inner);
+            label(text, &mut canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, size::CAPTION, DIM_FG, inner);
             let r = Rect { x: bx + 24, y: y + grow(22), w: bw - 48, h: grow(34) };
             let focused = view.focus == index && !view.busy;
             text_field(&mut canvas, r, focused);
             let show_w = if view.can_show { SHOW_W } else { 0 };
             let end = if view.shown[index] {
                 let room = (r.w - 24 - show_w) as f32;
-                label(text, &mut canvas, &view.fields[index], (r.x + 10) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, room);
-                r.x + 10 + text.map_or(0.0, |t| t.width(&view.fields[index], 14.0).min(room)) as i32 + 1
+                label(text, &mut canvas, &view.fields[index], (r.x + 10) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, room);
+                r.x + 10 + text.map_or(0.0, |t| t.width(&view.fields[index], size::LABEL).min(room)) as i32 + 1
             } else {
                 // One dot per character (drawn: not every font has a bullet).
                 let count = view.fields[index].chars().count().min(((r.w - 28 - show_w) / 12) as usize);
@@ -581,7 +583,7 @@ impl Ui {
                 r.x + 10 + count as i32 * 12
             };
             if focused {
-                caret(&mut canvas, r, end, 14.0);
+                caret(&mut canvas, r, end, size::LABEL);
             }
             if view.can_show {
                 let b = Rect { x: r.x + r.w - SHOW_W, y: r.y, w: SHOW_W, h: r.h };
@@ -590,8 +592,8 @@ impl Ui {
                 let look = theme::Look { hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
                 let inside = (f64::from(b.x + 4), f64::from(b.y + 5), f64::from(b.w - 8), f64::from(b.h - 10));
                 theme::flat(&mut canvas, inside, theme::RADIUS_ROW, look);
-                let lw = text.map_or(0.0, |t| t.width(s, 13.0));
-                label(text, &mut canvas, s, b.x as f32 + (b.w as f32 - lw) / 2.0, baseline(text, b.y, b.h, 13.0), 13.0, if look.hovered || look.pressed { FG } else { DIM_FG }, b.w as f32);
+                let lw = text.map_or(0.0, |t| t.width(s, size::CAPTION));
+                label(text, &mut canvas, s, b.x as f32 + (b.w as f32 - lw) / 2.0, baseline(text, b.y, b.h, size::CAPTION), size::CAPTION, if look.hovered || look.pressed { FG } else { DIM_FG }, b.w as f32);
                 if view.focus == SHOW_FOCUS + index && !view.busy {
                     theme::focus_ring_round(&mut canvas, inside.0, inside.1, inside.2, inside.3, theme::RADIUS_ROW);
                 }
@@ -604,7 +606,7 @@ impl Ui {
             let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
             let look = theme::Look { hovered: overlay.state.hover == Some(OverlayHit::Toggle), pressed: overlay.state.pressed == Some(OverlayHit::Toggle), ..Default::default() };
             check(&mut canvas, r, view.choice, look, view.focus == 2);
-            label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
+            label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, inner - 28.0);
             hits.push((r, OverlayHit::Toggle));
             y += grow(34);
         }
@@ -612,14 +614,14 @@ impl Ui {
             let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
             let look = theme::Look { hovered: overlay.state.hover == Some(OverlayHit::Check(i)), pressed: overlay.state.pressed == Some(OverlayHit::Check(i)), ..Default::default() };
             check(&mut canvas, r, view.checks[i], look, view.focus == CHECK_FOCUS + i);
-            label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
+            label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, inner - 28.0);
             hits.push((r, OverlayHit::Check(i)));
             y += grow(34);
         }
         let status = if view.busy { tr("Authenticating…") } else { p.warning.as_str() };
         if !status.is_empty() {
             let color = if view.busy { DIM_FG } else { ERROR_TEXT };
-            label(text, &mut canvas, status, center(status, 13.0), (y + grow(14)) as f32, 13.0, color, inner);
+            label(text, &mut canvas, status, center(status, size::CAPTION), (y + grow(14)) as f32, size::CAPTION, color, inner);
         }
         let by2 = by + bh - grow(56);
         let half = (bw - 24 * 2 - 12) / 2;
@@ -689,7 +691,7 @@ fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, c
         // Painted from r.x + 10, its start scrolled out when it is long.
         let r = at(OverlayHit::Field(3));
         let room = (r.w - 24) as f32;
-        let advances = text.map(|t| t.advances(&view.entry, 14.0)).unwrap_or_default();
+        let advances = text.map(|t| t.advances(&view.entry, size::LABEL)).unwrap_or_default();
         let total: f32 = advances.iter().sum();
         let mut hidden = 0.0;
         for a in &advances {
@@ -705,7 +707,7 @@ fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, c
         let Some(name) = field else { continue };
         let r = at(OverlayHit::Field(index));
         let node = if view.shown[index] {
-            let advances = text.map(|t| t.advances(&view.fields[index], 14.0)).unwrap_or_default();
+            let advances = text.map(|t| t.advances(&view.fields[index], size::LABEL)).unwrap_or_default();
             Node::text_field(Role::TextInput, name, &view.fields[index], r).chars(crate::a11y::Chars { x: (r.x + 10) as f32, y: r.y, h: r.h, advances })
         } else {
             // One dot per character, 12 apart from r.x + 12.

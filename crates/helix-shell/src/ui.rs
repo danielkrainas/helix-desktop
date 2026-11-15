@@ -52,6 +52,7 @@ use helix_protocols::client::helix_screenshot_manager_v1::HelixScreenshotManager
 use crate::windows::{SwitchEntry, SwitchMode, Switcher, WindowAction};
 use helix_draw::motion::{Motion, Tween};
 use helix_draw::theme;
+use helix_draw::theme::size;
 use std::collections::HashMap;
 use helix_i18n::tr;
 use helix_i18n::trf;
@@ -193,9 +194,12 @@ struct Ui {
     panel_width: u32,
     panel_configured: bool,
     launcher: Option<LauncherView>,
+    /// The interface font (`font-name`'s family; the system font
+    /// without one): its regular face, and its bold one (titles,
+    /// headings, the clock, bold markup).
     text: Option<Text>,
-    /// The bold face of the UI font (summaries, bold markup).
     bold: Option<Text>,
+    font_family: Option<String>,
     /// The face of big clocks (light, else bold).
     display: Option<Text>,
     notify: notify::NotifyState,
@@ -866,7 +870,7 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
     // Measure, place, then draw each item (helix-desktop-spec
     // `contracts/wayland/README.md`, "Panel layout").
     use crate::panel_layout::{Item, Slot};
-    let px = 14.0;
+    let px = size::LABEL;
     let base = baseline(text, 0, h as i32, px);
     let text_w = |s: &str| text.map_or(0.0, |t| t.width(s, px)) as i32;
     let clock = m.clock;
@@ -1021,7 +1025,7 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
 
 /// A question dialog (not the share dialog or a prompt) over a scrim on a
 /// `w`×`h` surface: its clickable parts and its accessible node.
-fn paint_question(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), state: &DialogState) -> Option<(Vec<(Rect, OverlayHit)>, crate::a11y::Node)> {
+fn paint_question(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text>), (w, h): (usize, usize), state: &DialogState) -> Option<(Vec<(Rect, OverlayHit)>, crate::a11y::Node)> {
 canvas.fill(SCRIM);
     let remaining = state.remaining;
     let no_blockers = Vec::new();
@@ -1088,7 +1092,7 @@ canvas.fill(SCRIM);
     let grow = helix_draw::theme::grow;
     let bw = grow(460).min(w as i32 - 40);
     let rows = blockers.len().min(6) as i32;
-    let message_lines = text.map_or(1, |t| t.wrap(&message, 14.0, (bw - 48) as f32, 2).len().max(1)) as i32;
+    let message_lines = text.map_or(1, |t| t.wrap(&message, size::LABEL, (bw - 48) as f32, 2).len().max(1)) as i32;
     let install = match &state.kind {
         DialogKind::End(d) => d.install,
         _ => None,
@@ -1101,20 +1105,23 @@ canvas.fill(SCRIM);
     theme::popover(canvas, bx, by, bw, bh);
     let inner = (bw - 48) as f32;
     let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
-    label(text, canvas, &title, center(&title, 20.0), (by + grow(44)) as f32, 20.0, FG, inner);
+    // The title in bold; centered as measured in that face.
+    let title_face = bold.or(text);
+    let tw = title_face.map_or(0.0, |t| t.width(&title, size::TITLE).min(inner));
+    label(title_face, canvas, &title, bx as f32 + (bw as f32 - tw) / 2.0, (by + grow(44)) as f32, size::TITLE, FG, inner);
     let mut y = by + grow(78);
     if blocked {
-        label(text, canvas, list_header, (bx + 24) as f32, y as f32, 14.0, DIM_FG, inner);
+        label(text, canvas, list_header, (bx + 24) as f32, y as f32, size::LABEL, DIM_FG, inner);
         y += grow(16);
         for (app, reason) in blockers.iter().take(6) {
-            label(text, canvas, app, (bx + 24) as f32, (y + grow(18)) as f32, 15.0, FG, inner);
-            label(text, canvas, reason, (bx + 24) as f32, (y + grow(36)) as f32, 13.0, DIM_FG, inner);
+            label(text, canvas, app, (bx + 24) as f32, (y + grow(18)) as f32, size::BODY, FG, inner);
+            label(text, canvas, reason, (bx + 24) as f32, (y + grow(36)) as f32, size::CAPTION, DIM_FG, inner);
             y += row_h;
         }
     } else {
-        let lines = text.map_or_else(|| vec![message.clone()], |t| t.wrap(&message, 14.0, inner, 2));
+        let lines = text.map_or_else(|| vec![message.clone()], |t| t.wrap(&message, size::LABEL, inner, 2));
         for (i, line) in lines.iter().enumerate() {
-            label(text, canvas, line, center(line, 14.0), (y + i as i32 * grow(19)) as f32, 14.0, DIM_FG, inner);
+            label(text, canvas, line, center(line, size::LABEL), (y + i as i32 * grow(19)) as f32, size::LABEL, DIM_FG, inner);
         }
     }
     let mut extra_hits = Vec::new();
@@ -1122,7 +1129,7 @@ canvas.fill(SCRIM);
         let r = Rect { x: bx + 24, y: by + bh - grow(56) - grow(42), w: bw - 48, h: grow(26) };
         theme::check_box(canvas, f64::from(r.x), f64::from(r.y + (r.h - 18) / 2), 18.0, on, theme::Look { hovered: state.hover == Some(OverlayHit::EndInstall), pressed: state.pressed == Some(OverlayHit::EndInstall), ..Default::default() });
         let name = tr("Install pending software updates");
-        label(text, canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, 14.0), 14.0, FG, inner - 28.0);
+        label(text, canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, inner - 28.0);
         extra_hits.push((r, OverlayHit::EndInstall));
     }
     // Buttons: Cancel and the action.
@@ -1753,7 +1760,38 @@ impl Ui {
         self.draw_break();
     }
 
-    /// Draw every open surface again (their scale changed).
+    /// The interface font (`font-name`) changed: its faces are loaded and
+    /// everything shown is drawn again with them.
+    fn font_changed(&mut self, family: Option<String>) {
+        if family == self.font_family {
+            return;
+        }
+        tracing::info!(?family, "interface font");
+        let regular = Text::load_family(family.as_deref(), None);
+        if regular.is_none() {
+            return;
+        }
+        self.text = regular;
+        self.bold = Text::load_family(family.as_deref(), Some("bold"));
+        self.display = helix_draw::screen::display_face_of(family.as_deref());
+        self.font_family = family;
+        if let Some(data) = self.banner.as_ref().map(|b| b.data.clone()) {
+            self.show_banner(Some(data));
+        }
+        self.redraw_all();
+        self.draw_power_menu();
+        self.draw_workspace_popup();
+        self.draw_overview();
+        self.dock_draw();
+        self.draw_desktop_icons();
+        self.draw_osk();
+        self.draw_candidates();
+        self.draw_click_type();
+        self.draw_panel_editor();
+        self.draw_extensions_dialog();
+        self.draw_break();
+    }
+
     /// `text-scaling-factor` changed: the panel grows (or shrinks) and
     /// everything shown is drawn again at the new size.
     fn text_scale_changed(&mut self, factor: f64) {
@@ -1851,8 +1889,8 @@ impl Ui {
             if index == switcher.selected {
                 theme::row(&mut canvas, r.x, r.y, r.w, r.h, theme::Look { on: true, ..Default::default() });
             }
-            let base = baseline(text, r.y, r.h, 15.0);
-            let detail_w = text.map_or(0.0, |t| t.width(&entry.detail, 13.0).min(160.0));
+            let base = baseline(text, r.y, r.h, size::BODY);
+            let detail_w = text.map_or(0.0, |t| t.width(&entry.detail, size::CAPTION).min(160.0));
             let mut label_x = r.x + 12;
             if let Some(icon) = icons.get(index).and_then(|i| i.as_ref()) {
                 let y = f64::from(r.y + (r.h - ICON_PX) / 2);
@@ -1860,9 +1898,9 @@ impl Ui {
                 label_x = r.x + 18 + ICON_PX;
             }
             let fg = if index == switcher.selected { on_accent() } else { FG };
-            label(text, &mut canvas, &entry.label, label_x as f32, base, 15.0, fg, (r.x + r.w - label_x) as f32 - 24.0 - detail_w);
+            label(text, &mut canvas, &entry.label, label_x as f32, base, size::BODY, fg, (r.x + r.w - label_x) as f32 - 24.0 - detail_w);
             let detail_color = if index == switcher.selected { fg } else { DIM_FG };
-            label(text, &mut canvas, &entry.detail, r.x as f32 + r.w as f32 - 12.0 - detail_w, base, 13.0, detail_color, 160.0);
+            label(text, &mut canvas, &entry.detail, r.x as f32 + r.w as f32 - 12.0 - detail_w, base, size::CAPTION, detail_color, 160.0);
             overlay.hits.push((r, OverlayHit::Window(entry.id)));
         }
         let surface = overlay.layer.wl_surface();
@@ -1934,8 +1972,8 @@ impl Ui {
                     None => theme::control(&mut canvas, pic.x, pic.y, pic.w, pic.h, theme::Look::default()),
                 },
             }
-            let tw = text.map_or(0.0, |t| t.width(&entry.label, 13.0)).min((tile.w - 8) as f32);
-            label(text, &mut canvas, &entry.label, tile.x as f32 + (tile.w as f32 - tw) / 2.0, baseline(text, tile.y + THUMB_H, THUMB_TITLE_H, 13.0), 13.0, FG, (tile.w - 8) as f32);
+            let tw = text.map_or(0.0, |t| t.width(&entry.label, size::CAPTION)).min((tile.w - 8) as f32);
+            label(text, &mut canvas, &entry.label, tile.x as f32 + (tile.w as f32 - tw) / 2.0, baseline(text, tile.y + THUMB_H, THUMB_TITLE_H, size::CAPTION), size::CAPTION, FG, (tile.w - 8) as f32);
             overlay.hits.push((tile, OverlayHit::Window(entry.id)));
         }
         let surface = overlay.layer.wl_surface();
@@ -2004,12 +2042,12 @@ impl Ui {
         } else {
             (view.model.query.as_str(), FG)
         };
-        let base = baseline(self.text.as_ref(), field.y, field.h, 17.0);
+        let base = baseline(self.text.as_ref(), field.y, field.h, size::ENTRY);
         // Leave room for the caret before the placeholder.
         let text_x = if view.model.query.is_empty() { bx + 22 } else { bx + 16 };
-        label(self.text.as_ref(), &mut canvas, q_text, text_x as f32, base, 17.0, q_color, (bw - 40) as f32);
+        label(self.text.as_ref(), &mut canvas, q_text, text_x as f32, base, size::ENTRY, q_color, (bw - 40) as f32);
         if let Some(text) = &self.text {
-            let caret_x = bx + 16 + text.width(&view.model.query, 17.0) as i32 + 1;
+            let caret_x = bx + 16 + text.width(&view.model.query, size::ENTRY) as i32 + 1;
             canvas.rect(caret_x, field.y + field.h * 13 / 48, 2, field.h - field.h * 26 / 48, accent());
         }
 
@@ -2039,8 +2077,8 @@ impl Ui {
         theme::popover(&mut canvas, bx, list_top, bw, list_h);
         view.rows.clear();
         if shown.is_empty() {
-            let base = baseline(self.text.as_ref(), list_top + 4, row_h, 15.0);
-            label(self.text.as_ref(), &mut canvas, tr("No matching apps"), (bx + 16) as f32, base, 15.0, DIM_FG, (bw - 32) as f32);
+            let base = baseline(self.text.as_ref(), list_top + 4, row_h, size::BODY);
+            label(self.text.as_ref(), &mut canvas, tr("No matching apps"), (bx + 16) as f32, base, size::BODY, DIM_FG, (bw - 32) as f32);
         }
         for (row, &result) in shown.iter().enumerate() {
             let rect = Rect { x: bx + 4, y: list_top + 4 + row as i32 * row_h, w: bw - 8, h: row_h };
@@ -2056,7 +2094,7 @@ impl Ui {
             } else {
                 name
             };
-            let base = baseline(self.text.as_ref(), rect.y, rect.h, 15.0);
+            let base = baseline(self.text.as_ref(), rect.y, rect.h, size::BODY);
             let found = view.model.search_hit(view.model.results[result]).filter(|_| !more);
             // A search result's icon at the row's start.
             let mut text_x = rect.x + 12;
@@ -2073,22 +2111,22 @@ impl Ui {
                 launcher::Hit::App(i) if view.model.is_favorite(i) => Some(tr("Favorite")),
                 _ => found.map(|h| h.app.as_str()),
             };
-            let tag_w = tag_text.map_or(0.0, |t| self.text.as_ref().map_or(96.0, |f| f.width(t, 13.0)).min(160.0) + 8.0);
+            let tag_w = tag_text.map_or(0.0, |t| self.text.as_ref().map_or(96.0, |f| f.width(t, size::CAPTION)).min(160.0) + 8.0);
             let name_max = rect.w as f32 - 24.0 - tag_w - (text_x - rect.x - 12) as f32;
             let name_color = if result == view.model.selected { on_accent() } else if more { DIM_FG } else { FG };
-            label(self.text.as_ref(), &mut canvas, name, text_x as f32, base, 15.0, name_color, name_max);
+            label(self.text.as_ref(), &mut canvas, name, text_x as f32, base, size::BODY, name_color, name_max);
             // A search result's description after its name, dimmer.
             if let Some(hit) = found.filter(|h| !h.description.is_empty()) {
-                let nw = self.text.as_ref().map_or(0.0, |t| t.width(name, 15.0)) + 12.0;
+                let nw = self.text.as_ref().map_or(0.0, |t| t.width(name, size::BODY)) + 12.0;
                 if nw < name_max - 40.0 {
                     let color = if result == view.model.selected { on_accent() } else { DIM_FG };
-                    label(self.text.as_ref(), &mut canvas, &hit.description, text_x as f32 + nw, base, 13.0, color, name_max - nw);
+                    label(self.text.as_ref(), &mut canvas, &hit.description, text_x as f32 + nw, base, size::CAPTION, color, name_max - nw);
                 }
             }
             if let Some(tag) = tag_text {
-                let tw = self.text.as_ref().map_or(0.0, |t| t.width(tag, 13.0));
+                let tw = self.text.as_ref().map_or(0.0, |t| t.width(tag, size::CAPTION));
                 let color = if result == view.model.selected { on_accent() } else { DIM_FG };
-                label(self.text.as_ref(), &mut canvas, tag, rect.x as f32 + rect.w as f32 - 12.0 - tw, base, 13.0, color, tag_w);
+                label(self.text.as_ref(), &mut canvas, tag, rect.x as f32 + rect.w as f32 - 12.0 - tw, base, size::CAPTION, color, tag_w);
             }
             view.rows.push((rect, result));
         }
@@ -2857,7 +2895,7 @@ impl Ui {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
-        let Some((hits, node)) = paint_question(&mut canvas, self.text.as_ref(), (w, h), &overlay.state) else { return };
+        let Some((hits, node)) = paint_question(&mut canvas, (self.text.as_ref(), self.bold.as_ref()), (w, h), &overlay.state) else { return };
         overlay.hits = hits;
         overlay.state.shown.get_or_insert_with(Instant::now);
         self.atspi_record(overlay.layer.wl_surface(), vec![node]);
@@ -2889,16 +2927,18 @@ impl Ui {
         let inner = (bw - 48) as f32;
         let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
         let title = tr("Share your screen?");
-        label(text, &mut canvas, title, center(title, 20.0), (by + helix_draw::theme::grow(44)) as f32, 20.0, FG, inner);
+        let bold = self.bold.as_ref().or(text);
+        let tw = bold.map_or(0.0, |t| t.width(title, size::TITLE).min(inner));
+        label(bold, &mut canvas, title, bx as f32 + (bw as f32 - tw) / 2.0, (by + helix_draw::theme::grow(44)) as f32, size::TITLE, FG, inner);
         let message = if control.is_empty() {
             trf!("{app} wants to see your screen. Choose what to share.", app = app)
         } else {
             trf!("{app} wants to see your screen and control your {devices}.", app = app, devices = crate::screencast_chooser::device_list(control))
         };
-        label(text, &mut canvas, &message, center(&message, 14.0), (by + helix_draw::theme::grow(78)) as f32, 14.0, DIM_FG, inner);
+        label(text, &mut canvas, &message, center(&message, size::LABEL), (by + helix_draw::theme::grow(78)) as f32, size::LABEL, DIM_FG, inner);
         if *remember {
             let note = tr("It will be able to share the same screen again without asking.");
-            label(text, &mut canvas, note, center(note, 13.0), (by + helix_draw::theme::grow(96)) as f32, 13.0, DIM_FG, inner);
+            label(text, &mut canvas, note, center(note, size::CAPTION), (by + helix_draw::theme::grow(96)) as f32, size::CAPTION, DIM_FG, inner);
         }
         let mut hits = Vec::new();
         let top = if *remember { by + helix_draw::theme::grow(112) } else { by + helix_draw::theme::grow(100) };
@@ -2909,7 +2949,7 @@ impl Ui {
             let look = theme::Look { on, hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit) };
             theme::control(&mut canvas, r.x, r.y, r.w, r.h, look);
             let fg = theme::control_text(look);
-            let base = baseline(text, r.y, r.h, 15.0);
+            let base = baseline(text, r.y, r.h, size::BODY);
             let mut nx = r.x + 12;
             if *multiple {
                 // A check mark per row (the row itself is the box).
@@ -2921,9 +2961,9 @@ impl Ui {
                 }
                 nx += 24;
             }
-            label(text, &mut canvas, name, nx as f32, base, 15.0, fg, (r.x + r.w - nx) as f32 - 120.0);
-            let cw = text.map_or(0.0, |t| t.width(connector, 13.0).min(100.0));
-            label(text, &mut canvas, connector, r.x as f32 + r.w as f32 - 12.0 - cw, base, 13.0, if on { fg } else { DIM_FG }, 100.0);
+            label(text, &mut canvas, name, nx as f32, base, size::BODY, fg, (r.x + r.w - nx) as f32 - 120.0);
+            let cw = text.map_or(0.0, |t| t.width(connector, size::CAPTION).min(100.0));
+            label(text, &mut canvas, connector, r.x as f32 + r.w as f32 - 12.0 - cw, base, size::CAPTION, if on { fg } else { DIM_FG }, 100.0);
             hits.push((r, OverlayHit::Monitor(i)));
         }
         // Cancel; with several to choose, Share beside it.
@@ -2937,8 +2977,8 @@ impl Ui {
             if picked.is_empty() {
                 // Nothing picked: Share cannot be used yet.
                 theme::control(&mut canvas, share.x, share.y, share.w, share.h, theme::Look::default());
-                let sw = text.map_or(0.0, |t| t.width(tr("Share"), 15.0));
-                label(text, &mut canvas, tr("Share"), share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, hint_text(), share.w as f32);
+                let sw = text.map_or(0.0, |t| t.width(tr("Share"), size::BODY));
+                label(text, &mut canvas, tr("Share"), share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, size::BODY), size::BODY, hint_text(), share.w as f32);
             } else {
                 theme::button(&mut canvas, text, (share.x, share.y, share.w, share.h), tr("Share"), theme::Kind::Suggested, look(OverlayHit::Confirm), false);
             }
@@ -3007,7 +3047,7 @@ impl Ui {
         theme::popover(&mut canvas, 2, 2, w as i32 - 4, h as i32 - 4);
         let text = self.text.as_ref();
         let number = overlay.state.0.to_string();
-        let px = 40.0;
+        let px = size::DISPLAY;
         let width = text.map(|t| t.width(&number, px)).unwrap_or(0.0);
         let base = baseline(text, 0, h as i32, px);
         label(text, &mut canvas, &number, (w as f32 - width) / 2.0, base, px, FG, w as f32);
@@ -3188,6 +3228,7 @@ impl Ui {
             }
             UiEvent::TextScale(factor) => self.text_scale_changed(factor),
             UiEvent::Accent(accent) => self.accent_changed(accent),
+            UiEvent::InterfaceFont(family) => self.font_changed(family),
             UiEvent::HighContrast(on) => {
                 if on != helix_draw::high_contrast() {
                     tracing::info!(on, "high contrast");
@@ -3615,6 +3656,7 @@ pub fn run(
         launcher: None,
         text,
         bold: Text::load_matching("sans-serif:bold"),
+        font_family: None,
         display: helix_draw::screen::display_face(),
         notify: Default::default(),
         calendar: Default::default(),
@@ -4644,7 +4686,7 @@ mod tests {
         let mut data = vec![0u8; 60 * 40 * 4];
         let mut canvas = super::Canvas::scaled(&mut data, 60, 40, 1.0);
         super::text_field(&mut canvas, r, true);
-        super::caret(&mut canvas, r, 20, 14.0);
+        super::caret(&mut canvas, r, 20, size::LABEL);
         assert_eq!(px(&data, 25, 8), accent, "ring above");
         assert_eq!(px(&data, 9, 20), accent, "ring left");
         assert_eq!(px(&data, 20, 20), fg, "caret");

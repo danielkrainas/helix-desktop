@@ -264,7 +264,7 @@ impl Ui {
         let (list, selected) = candidates;
         let text = self.text.as_ref();
         let labels: Vec<String> = list.iter().enumerate().map(|(i, c)| format!("{} {c}", i + 1)).collect();
-        let widths: Vec<i32> = labels.iter().map(|l| text.map_or(l.chars().count() as f32 * 9.0, |t| t.width(l, 15.0)) as i32 + 16).collect();
+        let widths: Vec<i32> = labels.iter().map(|l| text.map_or(l.chars().count() as f32 * 9.0, |t| t.width(l, size::BODY)) as i32 + 16).collect();
         let w = widths.iter().sum::<i32>().max(40) + 8;
         let h = POPUP_ROW_H + 8;
         let scale = self.ime.as_ref().and_then(|i| i.popup.as_ref()).map_or(1.0, |(surface, _)| self.scales.of(surface));
@@ -278,8 +278,8 @@ impl Ui {
             if i == selected {
                 theme::row(&mut canvas, x, 4, *width, POPUP_ROW_H, theme::Look { on: true, ..Default::default() });
             }
-            let base = baseline(text, 4, POPUP_ROW_H, 15.0);
-            label(text, &mut canvas, label_text, (x + 8) as f32, base, 15.0, if i == selected { on_accent() } else { FG }, *width as f32);
+            let base = baseline(text, 4, POPUP_ROW_H, size::BODY);
+            label(text, &mut canvas, label_text, (x + 8) as f32, base, size::BODY, if i == selected { on_accent() } else { FG }, *width as f32);
             x += width;
         }
         let Some(ime) = self.ime.as_ref() else { return };

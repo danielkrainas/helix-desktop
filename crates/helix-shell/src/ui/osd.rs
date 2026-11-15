@@ -60,7 +60,7 @@ pub(super) fn paint_osd(canvas: &mut Canvas, text: Option<&Text>, icon: Option<&
         canvas.image(f64::from(x), f64::from((h - OSD_ICON) / 2), f64::from(OSD_ICON), f64::from(OSD_ICON), image);
         x += OSD_ICON + 14;
     }
-    let px = 14.0;
+    let px = size::LABEL;
     let Some(level) = osd.level else {
         let caption = osd_caption(osd);
         // Words only (e.g. "Microphone off"), centered beside the icon.

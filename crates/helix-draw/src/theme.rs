@@ -112,10 +112,14 @@ pub mod size {
     pub const HEADING: f32 = 15.0;
     /// What is typed in a search field, a folder's name.
     pub const ENTRY: f32 = 17.0;
+    /// The calendar's date, bold.
+    pub const SUBTITLE: f32 = 18.0;
     /// Titles of dialogs and popovers, the calendar's date (bold).
     pub const TITLE: f32 = 20.0;
     /// Big titles (the break screen's), bold.
     pub const LARGE_TITLE: f32 = 30.0;
+    /// A monitor's number (the labels "Displays" shows).
+    pub const DISPLAY: f32 = 40.0;
 }
 
 // ----- The accent ------------------------------------------------------------

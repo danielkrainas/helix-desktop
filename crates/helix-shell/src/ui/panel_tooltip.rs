@@ -68,7 +68,7 @@ impl Ui {
         let widest = lines
             .iter()
             .enumerate()
-            .map(|(i, l)| if i == 0 { bold.or(text) } else { text }.map_or(0.0, |t| t.width(l, 14.0)).ceil() as i32 + 4)
+            .map(|(i, l)| if i == 0 { bold.or(text) } else { text }.map_or(0.0, |t| t.width(l, size::LABEL)).ceil() as i32 + 4)
             .max()
             .unwrap_or(0);
         ((widest + 2 * PAD).min(MAX_W) as u32, (lines.len() as i32 * LINE_H + 2 * PAD) as u32)
@@ -152,8 +152,8 @@ impl Ui {
                 for (i, line) in tip.lines.iter().enumerate() {
                     let font = if i == 0 { bold.or(text) } else { text };
                     let color = if i == 0 { FG } else { DIM_FG };
-                    let base = baseline(font, PAD + i as i32 * LINE_H, LINE_H, 14.0);
-                    label(font, &mut canvas, line, PAD as f32, base, 14.0, color, (w as i32 - 2 * PAD) as f32);
+                    let base = baseline(font, PAD + i as i32 * LINE_H, LINE_H, size::LABEL);
+                    label(font, &mut canvas, line, PAD as f32, base, size::LABEL, color, (w as i32 - 2 * PAD) as f32);
                 }
                 let surface = tip.layer.wl_surface();
                 self.scales.prepare(&self.qh, surface, w as i32, h as i32);

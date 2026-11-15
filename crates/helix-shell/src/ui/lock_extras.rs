@@ -384,12 +384,12 @@ pub(super) fn paint_media(canvas: &mut Canvas, (text, bold): (Option<&Text>, Opt
     if compact {
         // The title only, beside the buttons.
         let tw = (right as i32 - 8 - tx) as f32;
-        label(bold.or(text), canvas, title, tx as f32, baseline(bold.or(text), y, card_h, 15.0), 15.0, fade(FG, alpha), tw);
+        label(bold.or(text), canvas, title, tx as f32, baseline(bold.or(text), y, card_h, size::BODY), size::BODY, fade(FG, alpha), tw);
     } else {
         let tw = (x + w - CARD_PAD - tx) as f32;
-        label(bold.or(text), canvas, title, tx as f32, (y + CARD_PAD + 18) as f32, 15.0, fade(FG, alpha), tw);
+        label(bold.or(text), canvas, title, tx as f32, (y + CARD_PAD + 18) as f32, size::BODY, fade(FG, alpha), tw);
         let artist = if player.artist.is_empty() && !player.title.is_empty() { player.identity.as_str() } else { player.artist.as_str() };
-        label(text, canvas, artist, tx as f32, (y + CARD_PAD + 38) as f32, 13.0, fade(CARD_DIM, alpha), tw);
+        label(text, canvas, artist, tx as f32, (y + CARD_PAD + 38) as f32, size::CAPTION, fade(CARD_DIM, alpha), tw);
     }
     hits
 }
@@ -416,20 +416,20 @@ pub(super) fn paint_notes(canvas: &mut Canvas, (text, bold): (Option<&Text>, Opt
         }
         // The count in a pill at the right.
         let count = app.count.to_string();
-        let cw = text.map_or(10.0, |t| t.width(&count, 13.0)).ceil() as i32 + 16;
+        let cw = text.map_or(10.0, |t| t.width(&count, size::CAPTION)).ceil() as i32 + 16;
         let (px, py) = (x + w - CARD_PAD - cw, mid - 11);
         canvas.round_rect(f64::from(px), f64::from(py), f64::from(cw), 22.0, 11.0, fade(0x33FFFFFF, alpha));
-        label(text, canvas, &count, (px + 8) as f32, baseline(text, py, 22, 13.0), 13.0, fade(FG, alpha), cw as f32);
-        label(bold.or(text), canvas, &app.name, tx as f32, baseline(bold.or(text), row, APP_ROW, 14.0), 14.0, fade(FG, alpha), (px - 8 - tx) as f32);
+        label(text, canvas, &count, (px + 8) as f32, baseline(text, py, 22, size::CAPTION), size::CAPTION, fade(FG, alpha), cw as f32);
+        label(bold.or(text), canvas, &app.name, tx as f32, baseline(bold.or(text), row, APP_ROW, size::LABEL), size::LABEL, fade(FG, alpha), (px - 8 - tx) as f32);
         row += APP_ROW;
         for (summary, body) in &app.details {
             let max = (x + w - CARD_PAD - tx) as f32;
             let base = (row + 14) as f32;
             // The summary in bold, then the body's first line.
-            let sw = bold.or(text).map_or(0.0, |t| t.width(summary, 13.0)).min(max);
-            label(bold.or(text), canvas, summary, tx as f32, base, 13.0, fade(FG, alpha), max);
+            let sw = bold.or(text).map_or(0.0, |t| t.width(summary, size::CAPTION)).min(max);
+            label(bold.or(text), canvas, summary, tx as f32, base, size::CAPTION, fade(FG, alpha), max);
             if !body.is_empty() && sw + 24.0 < max {
-                label(text, canvas, body, tx as f32 + sw + 6.0, base, 13.0, fade(CARD_DIM, alpha), max - sw - 6.0);
+                label(text, canvas, body, tx as f32 + sw + 6.0, base, size::CAPTION, fade(CARD_DIM, alpha), max - sw - 6.0);
             }
             row += DETAIL_ROW;
         }
@@ -437,7 +437,7 @@ pub(super) fn paint_notes(canvas: &mut Canvas, (text, bold): (Option<&Text>, Opt
     if more > 0 {
         let line = helix_i18n::trnf!("+{n} more notification", "+{n} more notifications", more);
         let lx = if counts.is_empty() { ix } else { tx };
-        label(text, canvas, &line, lx as f32, (row + 16) as f32, 13.0, fade(CARD_DIM, alpha), (w - 2 * CARD_PAD) as f32);
+        label(text, canvas, &line, lx as f32, (row + 16) as f32, size::CAPTION, fade(CARD_DIM, alpha), (w - 2 * CARD_PAD) as f32);
     }
     h
 }

@@ -247,13 +247,13 @@ pub(super) fn paint_calendar(
     let inner = cal_w() - 2 * PAD;
     let mut y = y;
     // Today.
-    label(text, canvas, &fmt(&now, &trc("calendar today weekday", "%A")), (x + PAD) as f32, (y + grow(20)) as f32, 13.0, DIM_FG, inner as f32);
+    label(text, canvas, &fmt(&now, &trc("calendar today weekday", "%A")), (x + PAD) as f32, (y + grow(20)) as f32, size::CAPTION, DIM_FG, inner as f32);
     // Translators: today's date over the calendar (GLib DateTime format).
-    label(bold.or(text), canvas, &fmt(&now, &trc("calendar today", "%B %e %Y")), (x + PAD) as f32, (y + grow(44)) as f32, 18.0, FG, inner as f32);
+    label(bold.or(text), canvas, &fmt(&now, &trc("calendar today", "%B %e %Y")), (x + PAD) as f32, (y + grow(44)) as f32, size::SUBTITLE, FG, inner as f32);
     y += grow(HEADER_H);
     // The month and its buttons.
     if let Some(first) = local_date(cal.month.0, cal.month.1, 1) {
-        label(bold.or(text), canvas, &fmt(&first, &trc("month and year", "%OB %Y")), (x + PAD) as f32, baseline(text, y, grow(MONTH_H), 14.0), 14.0, FG, (inner - 70) as f32);
+        label(bold.or(text), canvas, &fmt(&first, &trc("month and year", "%OB %Y")), (x + PAD) as f32, baseline(text, y, grow(MONTH_H), size::LABEL), size::LABEL, FG, (inner - 70) as f32);
     }
     // Previous and next month: round flat buttons with chevrons.
     for (i, (towards, delta)) in [(theme::Towards::Left, -1), (theme::Towards::Right, 1)].into_iter().enumerate() {
@@ -277,8 +277,8 @@ pub(super) fn paint_calendar(
     for col in 0..7 {
         let Ok(day) = first.add_days(col) else { continue };
         let initial: String = fmt(&day, "%a").chars().take(1).collect();
-        let tw = text.map_or(0.0, |t| t.width(&initial, 12.0));
-        label(text, canvas, &initial, gx as f32 + (col * cw) as f32 + (cw as f32 - tw) / 2.0, (y + grow(15)) as f32, 12.0, DIM_FG, cw as f32);
+        let tw = text.map_or(0.0, |t| t.width(&initial, size::CAPTION));
+        label(text, canvas, &initial, gx as f32 + (col * cw) as f32 + (cw as f32 - tw) / 2.0, (y + grow(15)) as f32, size::CAPTION, DIM_FG, cw as f32);
     }
     y += grow(WEEKDAYS_H);
     for row in 0..6 {
@@ -286,7 +286,7 @@ pub(super) fn paint_calendar(
         if cal.show_weeks {
             if let Ok(day) = first.add_days(row * 7 + 3) {
                 let wk = day.week_of_year().to_string();
-                label(text, canvas, &wk, (x + PAD) as f32, baseline(text, ry, grow(CELL_H), 11.0), 11.0, DIM_FG, 24.0);
+                label(text, canvas, &wk, (x + PAD) as f32, baseline(text, ry, grow(CELL_H), size::TINY), size::TINY, DIM_FG, 24.0);
             }
         }
         for col in 0..7 {
@@ -309,8 +309,8 @@ pub(super) fn paint_calendar(
             }
             let n = ymd.2.to_string();
             let color = if is_today { on_accent() } else if (ymd.0, ymd.1) == cal.month { FG } else { DIM_FG };
-            let tw = text.map_or(0.0, |t| t.width(&n, 13.0));
-            label(text, canvas, &n, cx as f32 - tw / 2.0, baseline(text, ry, grow(CELL_H), 13.0) - 2.0, 13.0, color, cw as f32);
+            let tw = text.map_or(0.0, |t| t.width(&n, size::CAPTION));
+            label(text, canvas, &n, cx as f32 - tw / 2.0, baseline(text, ry, grow(CELL_H), size::CAPTION) - 2.0, size::CAPTION, color, cw as f32);
             if !cal.day_events(ymd).is_empty() {
                 canvas.circle(f64::from(cx), f64::from(cy + 10), 1.8, if is_today { on_accent() } else { DIM_FG });
             }
@@ -328,11 +328,11 @@ pub(super) fn paint_calendar(
         None => String::new(),
     };
     theme::separator(canvas, x + PAD, y, inner);
-    label(bold.or(text), canvas, &heading, (x + PAD) as f32, (y + grow(19)) as f32, 13.0, FG, inner as f32);
+    label(bold.or(text), canvas, &heading, (x + PAD) as f32, (y + grow(19)) as f32, size::CAPTION, FG, inner as f32);
     y += grow(SECTION_H);
     let events = cal.day_events(cal.selected);
     if events.is_empty() {
-        label(text, canvas, tr("No Events"), (x + PAD) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
+        label(text, canvas, tr("No Events"), (x + PAD) as f32, (y + grow(16)) as f32, size::CAPTION, DIM_FG, inner as f32);
         y += grow(LINE_H);
     }
     for e in events.iter().take(MAX_EVENTS) {
@@ -341,12 +341,12 @@ pub(super) fn paint_calendar(
         } else {
             DateTime::from_unix_local(e.start).map(|d| crate::clock::time_of_day(crate::clock::current(), &d)).unwrap_or_default()
         };
-        label(text, canvas, &when, (x + PAD) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, (grow(62) - 6) as f32);
-        label(text, canvas, &e.summary, (x + PAD + grow(62)) as f32, (y + grow(16)) as f32, 13.0, FG, (inner - grow(62)) as f32);
+        label(text, canvas, &when, (x + PAD) as f32, (y + grow(16)) as f32, size::CAPTION, DIM_FG, (grow(62) - 6) as f32);
+        label(text, canvas, &e.summary, (x + PAD + grow(62)) as f32, (y + grow(16)) as f32, size::CAPTION, FG, (inner - grow(62)) as f32);
         y += grow(LINE_H);
     }
     if events.len() > MAX_EVENTS {
-        label(text, canvas, &helix_i18n::trnf!("{n} more", "{n} more", events.len() - MAX_EVENTS), (x + PAD + grow(62)) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
+        label(text, canvas, &helix_i18n::trnf!("{n} more", "{n} more", events.len() - MAX_EVENTS), (x + PAD + grow(62)) as f32, (y + grow(16)) as f32, size::CAPTION, DIM_FG, inner as f32);
         y += grow(LINE_H);
     }
     let Some(data) = &cal.data else { return };
@@ -354,7 +354,7 @@ pub(super) fn paint_calendar(
     if !data.clocks.is_empty() {
         y += GAP;
         theme::separator(canvas, x + PAD, y, inner);
-        label(bold.or(text), canvas, tr("World Clocks"), (x + PAD) as f32, (y + grow(19)) as f32, 13.0, FG, inner as f32);
+        label(bold.or(text), canvas, tr("World Clocks"), (x + PAD) as f32, (y + grow(19)) as f32, size::CAPTION, FG, inner as f32);
         y += grow(SECTION_H);
         for (name, zone) in &data.clocks {
             let there = crate::ical::zone(zone).and_then(|tz| DateTime::now(&tz).ok());
@@ -364,9 +364,9 @@ pub(super) fn paint_calendar(
                 Some(t) => crate::clock::time_of_day(crate::clock::current(), t),
                 None => String::new(),
             };
-            let tw = text.map_or(0.0, |t| t.width(&time, 13.0)) as i32;
-            label(text, canvas, name, (x + PAD) as f32, (y + grow(16)) as f32, 13.0, FG, (inner - tw - 8) as f32);
-            label(text, canvas, &time, (x + cal_w() - PAD - tw) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, tw as f32 + 1.0);
+            let tw = text.map_or(0.0, |t| t.width(&time, size::CAPTION)) as i32;
+            label(text, canvas, name, (x + PAD) as f32, (y + grow(16)) as f32, size::CAPTION, FG, (inner - tw - 8) as f32);
+            label(text, canvas, &time, (x + cal_w() - PAD - tw) as f32, (y + grow(16)) as f32, size::CAPTION, DIM_FG, tw as f32 + 1.0);
             y += grow(LINE_H);
         }
     }
@@ -374,7 +374,7 @@ pub(super) fn paint_calendar(
     if let Some(weather) = &data.weather {
         y += GAP;
         theme::separator(canvas, x + PAD, y, inner);
-        label(bold.or(text), canvas, tr("Weather"), (x + PAD) as f32, (y + grow(19)) as f32, 13.0, FG, inner as f32);
+        label(bold.or(text), canvas, tr("Weather"), (x + PAD) as f32, (y + grow(19)) as f32, size::CAPTION, FG, inner as f32);
         y += grow(SECTION_H);
         let unit = data.unit.unwrap_or(crate::weather::Unit::Celsius);
         match weather {
@@ -384,18 +384,18 @@ pub(super) fn paint_calendar(
                     canvas.image(f64::from(x + PAD), f64::from(y + 3), 16.0, 16.0, icon);
                 }
                 let now = format!("{}  {}, {words}", f.location, crate::weather::temperature_text(f.temperature, unit));
-                label(text, canvas, &now, (x + PAD + 24) as f32, (y + grow(16)) as f32, 13.0, FG, (inner - 24) as f32);
+                label(text, canvas, &now, (x + PAD + 24) as f32, (y + grow(16)) as f32, size::CAPTION, FG, (inner - 24) as f32);
                 y += grow(LINE_H) + 6;
                 let cw = inner / crate::weather::HOURS as i32;
                 for (i, (time, temp, _)) in f.hours.iter().enumerate() {
                     let hour = DateTime::from_unix_local(*time).map(|d| crate::clock::time_of_day(crate::clock::current(), &d)).unwrap_or_default();
                     let cell = format!("{hour} {}", crate::weather::temperature_text(*temp, unit));
-                    label(text, canvas, &cell, (x + PAD + i as i32 * cw) as f32, (y + grow(16)) as f32, 12.0, DIM_FG, cw as f32);
+                    label(text, canvas, &cell, (x + PAD + i as i32 * cw) as f32, (y + grow(16)) as f32, size::CAPTION, DIM_FG, cw as f32);
                 }
                 y += grow(LINE_H);
             }
             None => {
-                label(text, canvas, tr("Weather unavailable"), (x + PAD) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
+                label(text, canvas, tr("Weather unavailable"), (x + PAD) as f32, (y + grow(16)) as f32, size::CAPTION, DIM_FG, inner as f32);
                 y += 2 * grow(LINE_H) + 6;
             }
         }
@@ -404,10 +404,10 @@ pub(super) fn paint_calendar(
     if let Some(player) = &data.player {
         y += GAP;
         theme::separator(canvas, x + PAD, y, inner);
-        label(text, canvas, &player.identity, (x + PAD) as f32, (y + grow(18)) as f32, 12.0, DIM_FG, inner as f32);
+        label(text, canvas, &player.identity, (x + PAD) as f32, (y + grow(18)) as f32, size::CAPTION, DIM_FG, inner as f32);
         let title = if player.title.is_empty() { tr("Unknown Title") } else { player.title.as_str() };
-        label(bold.or(text), canvas, title, (x + PAD) as f32, (y + grow(38)) as f32, 14.0, FG, inner as f32);
-        label(text, canvas, &player.artist, (x + PAD) as f32, (y + grow(57)) as f32, 13.0, DIM_FG, inner as f32);
+        label(bold.or(text), canvas, title, (x + PAD) as f32, (y + grow(38)) as f32, size::LABEL, FG, inner as f32);
+        label(text, canvas, &player.artist, (x + PAD) as f32, (y + grow(57)) as f32, size::CAPTION, DIM_FG, inner as f32);
         let by = y + 64;
         let commands = [Playback::Previous, Playback::PlayPause, Playback::Next];
         let bw = 44;

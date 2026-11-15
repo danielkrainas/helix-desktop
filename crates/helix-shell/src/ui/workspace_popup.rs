@@ -134,9 +134,9 @@ impl Ui {
                 }
                 let name = workspace_name(&names, popup.active);
                 let text = self.text.as_ref();
-                let nw = text.map_or(0.0, |t| t.width(&name, 15.0)).min((w as i32 - 2 * PAD) as f32);
-                let base = baseline(text, PAD + BOX_H + 4, NAME_H, 15.0);
-                label(text, &mut canvas, &name, (w as f32 - nw) / 2.0, base, 15.0, FG, (w as i32 - 2 * PAD) as f32);
+                let nw = text.map_or(0.0, |t| t.width(&name, size::BODY)).min((w as i32 - 2 * PAD) as f32);
+                let base = baseline(text, PAD + BOX_H + 4, NAME_H, size::BODY);
+                label(text, &mut canvas, &name, (w as f32 - nw) / 2.0, base, size::BODY, FG, (w as i32 - 2 * PAD) as f32);
                 let surface = popup.layer.wl_surface();
                 self.scales.prepare(&self.qh, surface, w as i32, h as i32);
                 if buffer.attach_to(surface).is_ok() {

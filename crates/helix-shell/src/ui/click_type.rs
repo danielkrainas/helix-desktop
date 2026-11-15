@@ -89,8 +89,8 @@ impl Ui {
                     let current = self.click_type.current == *name;
                     let look = theme::Look { on: current, ..Default::default() };
                     theme::control(&mut canvas, r.x, r.y, r.w, r.h, look);
-                    let tw = text.map_or(0.0, |t| t.width(label_text, 14.0));
-                    label(text, &mut canvas, label_text, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 14.0), 14.0, theme::control_text(look), r.w as f32);
+                    let tw = text.map_or(0.0, |t| t.width(label_text, size::LABEL));
+                    label(text, &mut canvas, label_text, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, size::LABEL), size::LABEL, theme::control_text(look), r.w as f32);
                     view.hits.push((r, i));
                 }
                 let surface = view.layer.wl_surface();

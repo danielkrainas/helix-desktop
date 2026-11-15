@@ -617,8 +617,8 @@ pub(super) fn paint_cell(p: &mut Paint, model: &Launcher, canvas: &mut Canvas, c
             }
         }
     }
-    let tw = text.map_or(0.0, |t| t.width(&name, 13.0)).min((cell.w - 12) as f32);
-    label(text, canvas, &name, cell.x as f32 + (cell.w as f32 - tw) / 2.0, (iy + ICON + helix_draw::theme::grow(22)) as f32, 13.0, FG, (cell.w - 12) as f32);
+    let tw = text.map_or(0.0, |t| t.width(&name, size::CAPTION)).min((cell.w - 12) as f32);
+    label(text, canvas, &name, cell.x as f32 + (cell.w as f32 - tw) / 2.0, (iy + ICON + helix_draw::theme::grow(22)) as f32, size::CAPTION, FG, (cell.w - 12) as f32);
 }
 
 /// Paint the grid below the search field (from `top`).
@@ -706,9 +706,9 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         let bh = frows * cell_h() + 72 + dots_h;
         let b = Rect { x: (w - bw) / 2, y: top + 8, w: bw, h: bh };
         theme::popover_round(canvas, f64::from(b.x), f64::from(b.y), f64::from(b.w), f64::from(b.h), theme::RADIUS_POPOVER + 8.0);
-        let tw = text.map_or(0.0, |t| t.width(&folder.name, 17.0));
+        let tw = text.map_or(0.0, |t| t.width(&folder.name, size::ENTRY));
         let title = Rect { x: b.x + (b.w - tw as i32) / 2 - 8, y: b.y + 10, w: tw as i32 + 16, h: 34 };
-        label(text, canvas, &folder.name, (title.x + 8) as f32, baseline(text, title.y, title.h, 17.0), 17.0, FG, (b.w - 32) as f32);
+        label(text, canvas, &folder.name, (title.x + 8) as f32, baseline(text, title.y, title.h, size::ENTRY), size::ENTRY, FG, (b.w - 32) as f32);
         for (k, id) in folder.apps.iter().enumerate().skip(fpage * per).take(per) {
             let i = k - fpage * per;
             let cell = Rect { x: b.x + 16 + (i as i32 % fcols) * cell_w(), y: b.y + 52 + (i as i32 / fcols) * cell_h(), w: cell_w(), h: cell_h() };

@@ -213,12 +213,12 @@ impl Ui {
         let bh = (h as i32 - panel_height() as i32 - 64).min(720);
         let (bx, by) = ((w as i32 - bw) / 2, panel_height() as i32 + 32);
         theme::popover(&mut canvas, bx, by, bw, bh);
-        label(bold.or(text), &mut canvas, tr("Extensions"), (bx + PAD) as f32, (by + 36) as f32, 20.0, FG, (bw - 2 * PAD) as f32);
+        label(bold.or(text), &mut canvas, tr("Extensions"), (bx + PAD) as f32, (by + 36) as f32, size::TITLE, FG, (bw - 2 * PAD) as f32);
         let mut hits: Vec<(Rect, DialogHit)> = Vec::new();
         let bottom = by + bh - PAD - 36;
         let mut y = by + 56;
         if list.is_empty() {
-            label(text, &mut canvas, tr("No extensions are installed."), (bx + PAD) as f32, (y + 20) as f32, 14.0, DIM_FG, (bw - 2 * PAD) as f32);
+            label(text, &mut canvas, tr("No extensions are installed."), (bx + PAD) as f32, (y + 20) as f32, size::LABEL, DIM_FG, (bw - 2 * PAD) as f32);
         }
         let scroll = overlay.state.scroll.min(list.len().saturating_sub(1));
         overlay.state.scroll = scroll;
@@ -236,13 +236,13 @@ impl Ui {
             let tx = bx + PAD + 12;
             let room = (bw - 2 * PAD - 24 - SWITCH_W - 12) as f32;
             let title = if info.version.is_empty() { info.name.clone() } else { format!("{}  {}", info.name, info.version) };
-            label(bold.or(text), &mut canvas, &title, tx as f32, (y + 22) as f32, 15.0, FG, room);
-            label(text, &mut canvas, &info.description, tx as f32, (y + 42) as f32, 13.0, DIM_FG, room);
+            label(bold.or(text), &mut canvas, &title, tx as f32, (y + 22) as f32, size::BODY, FG, room);
+            label(text, &mut canvas, &info.description, tx as f32, (y + 42) as f32, size::CAPTION, DIM_FG, room);
             let state = state_text(info);
             let state_color = if matches!(info.state, State::Invalid(_) | State::Crashed(_) | State::NeedsApproval) { 0xFFE0_8040 } else { DIM_FG };
-            label(text, &mut canvas, &state, tx as f32, (y + 62) as f32, 12.0, state_color, room);
+            label(text, &mut canvas, &state, tx as f32, (y + 62) as f32, size::CAPTION, state_color, room);
             let can = can_text(info);
-            label(text, &mut canvas, &can, tx as f32, (y + 78) as f32, 12.0, if info.sandboxed { DIM_FG } else { 0xFFE0_8040 }, room);
+            label(text, &mut canvas, &can, tx as f32, (y + 78) as f32, size::CAPTION, if info.sandboxed { DIM_FG } else { 0xFFE0_8040 }, room);
             // The on/off switch (development extensions run regardless).
             if info.kind != crate::ext_host::store::Kind::Development && !matches!(info.state, State::Invalid(_)) {
                 let on = info.enabled && info.approved;
@@ -254,24 +254,24 @@ impl Ui {
             // `helix-extensions bind`).
             let mut cy = y + ENTRY_H - 8;
             for (_, title, keys) in &info.commands {
-                label(text, &mut canvas, title, (tx + 8) as f32, baseline(text, cy, SETTING_H, 13.0), 13.0, FG, 200.0);
+                label(text, &mut canvas, title, (tx + 8) as f32, baseline(text, cy, SETTING_H, size::CAPTION), size::CAPTION, FG, 200.0);
                 let shown = if keys.is_empty() { tr("None") } else { keys.as_str() };
-                label(text, &mut canvas, shown, (tx + 216) as f32, baseline(text, cy, SETTING_H, 12.0), 12.0, DIM_FG, 220.0);
+                label(text, &mut canvas, shown, (tx + 216) as f32, baseline(text, cy, SETTING_H, size::CAPTION), size::CAPTION, DIM_FG, 220.0);
                 cy += SETTING_H;
             }
             let commands_h = info.commands.len() as i32 * SETTING_H;
             if !info.settings.is_empty() {
                 let name = if expanded { tr("Hide Settings") } else { tr("Settings") };
-                let tw = text.map_or(0.0, |t| t.width(name, 12.0)) as i32;
+                let tw = text.map_or(0.0, |t| t.width(name, size::CAPTION)) as i32;
                 let r = Rect { x: bx + bw - PAD - 12 - tw - 16, y: y + 46, w: tw + 16, h: 24 };
                 theme::control(&mut canvas, r.x, r.y, r.w, r.h, overlay.state.look(DialogHit::Settings(n)));
-                label(text, &mut canvas, name, (r.x + 8) as f32, baseline(text, r.y, r.h, 12.0), 12.0, FG, tw as f32 + 1.0);
+                label(text, &mut canvas, name, (r.x + 8) as f32, baseline(text, r.y, r.h, size::CAPTION), size::CAPTION, FG, tw as f32 + 1.0);
                 hits.push((r, DialogHit::Settings(n)));
             }
             if expanded {
                 let mut sy = y + ENTRY_H - 8 + commands_h;
                 for (s, (decl, value)) in info.settings.iter().enumerate() {
-                    label(text, &mut canvas, &decl.label, (tx + 8) as f32, baseline(text, sy, SETTING_H, 13.0), 13.0, FG, 220.0);
+                    label(text, &mut canvas, &decl.label, (tx + 8) as f32, baseline(text, sy, SETTING_H, size::CAPTION), size::CAPTION, FG, 220.0);
                     let right = bx + bw - PAD - 12;
                     match &decl.ty {
                         SettingType::Bool => {
@@ -282,10 +282,10 @@ impl Ui {
                         }
                         SettingType::Enum(_) => {
                             let shown = value.display();
-                            let tw = text.map_or(0.0, |t| t.width(&shown, 13.0)) as i32;
+                            let tw = text.map_or(0.0, |t| t.width(&shown, size::CAPTION)) as i32;
                             let r = Rect { x: right - tw - 24, y: sy + 5, w: tw + 24, h: 26 };
                             theme::control(&mut canvas, r.x, r.y, r.w, r.h, overlay.state.look(DialogHit::Next(n, s)));
-                            label(text, &mut canvas, &shown, (r.x + 12) as f32, baseline(text, r.y, r.h, 13.0), 13.0, FG, tw as f32 + 1.0);
+                            label(text, &mut canvas, &shown, (r.x + 12) as f32, baseline(text, r.y, r.h, size::CAPTION), size::CAPTION, FG, tw as f32 + 1.0);
                             hits.push((r, DialogHit::Next(n, s)));
                         }
                         SettingType::Int | SettingType::Double => {
@@ -293,21 +293,21 @@ impl Ui {
                             let minus = Rect { x: right - 3 * SMALL - 60, y: sy + 4, w: SMALL, h: SMALL };
                             for (r, glyph, hit) in [(minus, "-", DialogHit::Down(n, s)), (plus, "+", DialogHit::Up(n, s))] {
                                 theme::control(&mut canvas, r.x, r.y, r.w, r.h, overlay.state.look(hit));
-                                let gw = text.map_or(0.0, |t| t.width(glyph, 15.0));
-                                label(text, &mut canvas, glyph, r.x as f32 + (r.w as f32 - gw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
+                                let gw = text.map_or(0.0, |t| t.width(glyph, size::BODY));
+                                label(text, &mut canvas, glyph, r.x as f32 + (r.w as f32 - gw) / 2.0, baseline(text, r.y, r.h, size::BODY), size::BODY, FG, r.w as f32);
                             }
                             let shown = value.display();
-                            let tw = text.map_or(0.0, |t| t.width(&shown, 13.0));
+                            let tw = text.map_or(0.0, |t| t.width(&shown, size::CAPTION));
                             let mid = (minus.x + minus.w + plus.x) as f32 / 2.0;
-                            label(text, &mut canvas, &shown, mid - tw / 2.0, baseline(text, sy, SETTING_H, 13.0), 13.0, FG, 80.0);
+                            label(text, &mut canvas, &shown, mid - tw / 2.0, baseline(text, sy, SETTING_H, size::CAPTION), size::CAPTION, FG, 80.0);
                             hits.push((minus, DialogHit::Down(n, s)));
                             hits.push((plus, DialogHit::Up(n, s)));
                         }
                         SettingType::String | SettingType::StringList => {
                             let shown = value.display();
                             let shown = if shown.is_empty() { tr("(empty)").to_owned() } else { shown };
-                            let tw = text.map_or(0.0, |t| t.width(&shown, 13.0)).min(240.0);
-                            label(text, &mut canvas, &shown, right as f32 - tw, baseline(text, sy, SETTING_H, 13.0), 13.0, DIM_FG, 240.0);
+                            let tw = text.map_or(0.0, |t| t.width(&shown, size::CAPTION)).min(240.0);
+                            label(text, &mut canvas, &shown, right as f32 - tw, baseline(text, sy, SETTING_H, size::CAPTION), size::CAPTION, DIM_FG, 240.0);
                         }
                     }
                     sy += SETTING_H;
@@ -317,7 +317,7 @@ impl Ui {
         }
         if scroll > 0 || more_below {
             let hint = tr("Scroll for more");
-            label(text, &mut canvas, hint, (bx + PAD) as f32, baseline(text, bottom, 36, 12.0), 12.0, DIM_FG, 200.0);
+            label(text, &mut canvas, hint, (bx + PAD) as f32, baseline(text, bottom, 36, size::CAPTION), size::CAPTION, DIM_FG, 200.0);
         }
         let done = Rect { x: bx + bw - PAD - 110, y: bottom, w: 110, h: 36 };
         theme::button(&mut canvas, text, (done.x, done.y, done.w, done.h), tr("Done"), theme::Kind::Suggested, overlay.state.look(DialogHit::Done), false);

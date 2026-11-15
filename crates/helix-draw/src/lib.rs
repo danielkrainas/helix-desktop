@@ -345,6 +345,28 @@ fn fallback_font(c: char) -> Option<Arc<FontVec>> {
 /// id, the kerning before it and its advance.
 type Laid = (Option<Arc<FontVec>>, GlyphId, f32, f32);
 
+/// The family of a font description such as `org.gnome.desktop.interface
+/// font-name`'s ("Cantarell 11", "Noto Sans Bold Italic 10", "Inter,
+/// Sans 11"): its first family, without the style words and the size.
+/// `None` when nothing is left.
+pub fn font_family(description: &str) -> Option<String> {
+    const STYLES: [&str; 26] = [
+        "thin", "ultra-light", "extra-light", "light", "semi-light", "demi-light", "book", "regular", "normal", "medium", "semi-bold", "semibold", "demi-bold", "bold", "ultra-bold", "extra-bold", "heavy", "black", "ultra-heavy",
+        "italic", "oblique", "condensed", "semi-condensed", "expanded", "semi-expanded", "small-caps",
+    ];
+    let first = description.split(',').next().unwrap_or("");
+    let mut words: Vec<&str> = first.split_whitespace().collect();
+    // The size ("11", "10.5", "12px"), when the description has one.
+    if words.last().is_some_and(|w| w.trim_end_matches("px").parse::<f64>().is_ok()) {
+        words.pop();
+    }
+    while words.len() > 1 && words.last().is_some_and(|w| STYLES.contains(&w.to_lowercase().as_str())) {
+        words.pop();
+    }
+    let family = words.join(" ");
+    (!family.is_empty()).then_some(family)
+}
+
 /// Size, color and clipping width for a run of text.
 #[derive(Debug, Clone, Copy)]
 pub struct Style {
@@ -403,6 +425,19 @@ impl Text {
             .filter(|out| out.status.success())
             .map(|out| String::from_utf8_lossy(&out.stdout).into_owned());
         matched.and_then(|path| load_path(&path)).or_else(Self::load)
+    }
+
+    /// The interface font: `family` (from [`font_family`]; the system
+    /// sans-serif without one) at `weight` (fontconfig's "bold", "light";
+    /// regular without one). Falls back to the system font.
+    pub fn load_family(family: Option<&str>, weight: Option<&str>) -> Option<Self> {
+        let family = family.filter(|f| !f.trim().is_empty()).unwrap_or("sans-serif");
+        // Fontconfig pattern syntax: escape what it treats as separators.
+        let family: String = family.chars().flat_map(|c| if matches!(c, '-' | ':' | ',' | '\\') { vec!['\\', c] } else { vec![c] }).collect();
+        match weight {
+            Some(weight) => Self::load_matching(&format!("{family}:{weight}")),
+            None => Self::load_matching(&family),
+        }
     }
 
     /// Whether the font has a glyph for every character of `text`.
@@ -536,6 +571,17 @@ impl Text {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn font_families() {
+        assert_eq!(font_family("Cantarell 11").as_deref(), Some("Cantarell"));
+        assert_eq!(font_family("Noto Sans Bold Italic 10.5").as_deref(), Some("Noto Sans"));
+        assert_eq!(font_family("Inter, Sans 11").as_deref(), Some("Inter"));
+        assert_eq!(font_family("Ubuntu Sans").as_deref(), Some("Ubuntu Sans"));
+        assert_eq!(font_family("Bold 11").as_deref(), Some("Bold"), "a family is never all style");
+        assert_eq!(font_family(" 11"), None);
+        assert_eq!(font_family(""), None);
+    }
 
     #[test]
     fn high_contrast_colors() {

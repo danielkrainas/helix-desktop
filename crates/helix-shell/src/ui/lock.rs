@@ -200,7 +200,7 @@ fn confirm_card(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, action: P
     canvas.round_outline(fx, fy, fw, fh, 14.0, 1.0, fade(if helix_draw::high_contrast() { 0xFFFFFFFF } else { 0xFF3C3D48 }, a));
     let inner = (cw - 48) as f32;
     let title_face = bold.or(text);
-    label(title_face, canvas, question, cx as f32 + 24.0, (cy + 24 + 22) as f32, 20.0, fade(FG, a), inner);
+    label(title_face, canvas, question, cx as f32 + 24.0, (cy + 24 + 22) as f32, size::TITLE, fade(FG, a), inner);
     let mut y = cy + 24 + 30;
     if anyway {
         label(text, canvas, tr("Some apps are busy:"), cx as f32 + 24.0, (y + 22) as f32, BODY, fade(SOFT_FG, a), inner);
@@ -494,7 +494,7 @@ pub(super) fn paint(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, w: us
     // Resting: how to go on.
     let hint_a = a * (1.0 - m.reveal_alpha);
     if hint_a > 0.0 {
-        label(text, canvas, tr(HINT), center(tr(HINT), CAPTION + 1.0), rest.hint_base as f32, CAPTION + 1.0, fade(SOFT_FG, hint_a), w as f32);
+        label(text, canvas, tr(HINT), center(tr(HINT), helix_draw::theme::size::LABEL), rest.hint_base as f32, helix_draw::theme::size::LABEL, fade(SOFT_FG, hint_a), w as f32);
     }
     // Restart and Power Off at the bottom left (`restart-enabled`),
     // "Switch User…" at the bottom right: round icon buttons, captioned.

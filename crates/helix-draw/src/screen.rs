@@ -58,7 +58,12 @@ pub fn display_px(h: f64) -> f32 {
 /// ("light", "semibold", "bold"); `None` when fontconfig has no face of
 /// that weight (it falls back to another weight).
 pub fn load_weight(weight: &str) -> Option<Text> {
-    let out = std::process::Command::new("fc-match").args(["-f", "%{file}\n%{style}", &format!("sans-serif:{weight}")]).output().ok().filter(|o| o.status.success())?;
+    load_weight_of("sans-serif", weight)
+}
+
+/// [`load_weight`] of the font `family`.
+pub fn load_weight_of(family: &str, weight: &str) -> Option<Text> {
+    let out = std::process::Command::new("fc-match").args(["-f", "%{file}\n%{style}", &format!("{family}:{weight}")]).output().ok().filter(|o| o.status.success())?;
     let out = String::from_utf8_lossy(&out.stdout).into_owned();
     let (file, style) = out.split_once('\n')?;
     let wanted = weight.replace('-', "").to_lowercase();
@@ -68,7 +73,14 @@ pub fn load_weight(weight: &str) -> Option<Text> {
 /// The face for a big clock: light if the system font has one, else
 /// bold, else `regular`.
 pub fn display_face() -> Option<Text> {
-    load_weight("light").or_else(|| load_weight("bold"))
+    display_face_of(None)
+}
+
+/// [`display_face`] of the interface font `family` (the system font
+/// without one).
+pub fn display_face_of(family: Option<&str>) -> Option<Text> {
+    let family = family.unwrap_or("sans-serif");
+    load_weight_of(family, "light").or_else(|| load_weight_of(family, "bold"))
 }
 
 /// Width of `s` with every digit as wide as the widest digit.

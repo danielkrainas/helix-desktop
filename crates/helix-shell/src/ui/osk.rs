@@ -639,7 +639,7 @@ pub(super) fn paint_keyboard(canvas: &mut Canvas, (text, emoji): (Option<&Text>,
             if m.accents {
                 canvas.round_rect(f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), KEY_RADIUS, KEY);
             }
-            let px = 16.0;
+            let px = size::HEADING;
             let tw = text.map_or(0.0, |t| t.width(word, px)).min(r.w as f32);
             label(text, canvas, word, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, px), px, FG, r.w as f32);
             bar_hits.push((r, i));
@@ -700,7 +700,7 @@ pub(super) fn paint_keyboard(canvas: &mut Canvas, (text, emoji): (Option<&Text>,
                 }
             };
             if let Some(caption) = &caption {
-                let px = if matches!(key.kind, KeyKind::Char(..)) { 20.0 } else { 14.0 };
+                let px = if matches!(key.kind, KeyKind::Char(..)) { size::TITLE } else { size::LABEL };
                 let font = if m.page == Page::Emoji && matches!(key.kind, KeyKind::Char(..)) { emoji } else { text };
                 let tw = font.map_or(0.0, |t| t.width(caption, px));
                 label(font, canvas, caption, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(font, r.y, r.h, px), px, ink, r.w as f32);
@@ -729,7 +729,7 @@ pub(super) fn paint_keyboard(canvas: &mut Canvas, (text, emoji): (Option<&Text>,
             canvas.round_rect(fx - 1.0, fy - 1.0, fw + 2.0, fh + 2.0, 11.0, MODIFIER_EDGE);
             canvas.round_rect(fx, fy, fw, fh, 10.0, KEY);
         }
-        let px = 40.0;
+        let px = size::DISPLAY;
         let tw = font.map_or(0.0, |t| t.width(&caption, px));
         label(font, canvas, &caption, bx as f32 + (bw as f32 - tw) / 2.0, baseline(font, by, bh, px), px, FG, bw as f32);
     }

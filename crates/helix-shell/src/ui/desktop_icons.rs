@@ -10,7 +10,7 @@ use crate::desktop_icons::{self as logic, DesktopItem};
 /// Under windows, above the background; named so the compositor does not
 /// fade it like other shell surfaces.
 pub(super) const NAMESPACE: &str = "helix-background-icons";
-const LABEL_PX: f32 = 13.0;
+const LABEL_PX: f32 = helix_draw::theme::size::CAPTION;
 
 pub(super) struct IconsView {
     layer: LayerSurface,

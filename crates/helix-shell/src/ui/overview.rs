@@ -17,7 +17,7 @@ use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, BTN_
 use smithay_client_toolkit::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerSurface};
 use smithay_client_toolkit::shell::WaylandSurface;
 
-use super::{accent, baseline, hint_text, label, physical, theme, Canvas, Overlay, Rect, Ui, DIM_FG, FG, SCRIM};
+use super::{accent, baseline, hint_text, label, physical, size, theme, Canvas, Overlay, Rect, Ui, DIM_FG, FG, SCRIM};
 use crate::UiRequest;
 use helix_i18n::tr;
 
@@ -381,7 +381,7 @@ impl Ui {
         let ty = if primary { field.y + field.h + 24 } else { -THUMB_H - 8 };
         if primary {
         theme::field(&mut canvas, (field.x, field.y, field.w, field.h), false, true);
-        label(text, &mut canvas, tr("Type to search…"), (field.x + 16) as f32, baseline(text, field.y, field.h, 15.0), 15.0, hint_text(), (field.w - 32) as f32);
+        label(text, &mut canvas, tr("Type to search…"), (field.x + 16) as f32, baseline(text, field.y, field.h, size::BODY), size::BODY, hint_text(), (field.w - 32) as f32);
         state.search = field;
 
         // Workspace thumbnails: the primary monitor, its windows in place.
@@ -492,8 +492,8 @@ impl Ui {
         state.closes.clear();
         if ids.is_empty() {
             let msg = tr("No open windows");
-            let tw = text.map_or(0.0, |t| t.width(msg, 15.0));
-            label(text, &mut canvas, msg, (w as f32 - tw) / 2.0, (area.y + 40) as f32, 15.0, DIM_FG, area.w as f32);
+            let tw = text.map_or(0.0, |t| t.width(msg, size::BODY));
+            label(text, &mut canvas, msg, (w as f32 - tw) / 2.0, (area.y + 40) as f32, size::BODY, DIM_FG, area.w as f32);
         }
         for (id, rect) in ids.iter().zip(rects) {
             let r = Rect { x: area.x + rect.x, y: area.y + rect.y, w: rect.w, h: rect.h };
@@ -512,13 +512,13 @@ impl Ui {
                 _ => canvas.rect(r.x, r.y, r.w, r.h, if dragged { 0xFF2A2A30 } else { 0xFF44444C }),
             }
             let title = self.windows.mru().iter().find(|e| e.id == *id).map(|e| e.label().to_owned()).unwrap_or_default();
-            let tw = text.map_or(0.0, |t| t.width(&title, 13.0)).min(r.w.max(120) as f32);
-            label(text, &mut canvas, &title, r.x as f32 + (r.w as f32 - tw) / 2.0, (r.y + r.h + 20) as f32, 13.0, FG, r.w.max(120) as f32);
+            let tw = text.map_or(0.0, |t| t.width(&title, size::CAPTION)).min(r.w.max(120) as f32);
+            label(text, &mut canvas, &title, r.x as f32 + (r.w as f32 - tw) / 2.0, (r.y + r.h + 20) as f32, size::CAPTION, FG, r.w.max(120) as f32);
             if highlighted && !dragged {
                 let c = Rect { x: r.x + r.w - 14, y: r.y - 14, w: 28, h: 28 };
-                canvas.rect(c.x, c.y, c.w, c.h, 0xFF2E2E36);
-                let xw = text.map_or(0.0, |t| t.width("×", 18.0));
-                label(text, &mut canvas, "×", c.x as f32 + (28.0 - xw) / 2.0, baseline(text, c.y, c.h, 18.0), 18.0, FG, 28.0);
+                let (cx, cy) = (f64::from(c.x) + 14.0, f64::from(c.y) + 14.0);
+                theme::round_control(&mut canvas, cx, cy, 28.0, theme::Look::default(), false);
+                theme::close_symbol(&mut canvas, cx, cy, 10.0, FG);
                 state.closes.push((c, *id));
             }
             state.tiles.push((r, *id));

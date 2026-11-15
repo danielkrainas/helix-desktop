@@ -138,12 +138,43 @@ fn shared_look() {
     });
     in_looks(&dir, "look-dialog", (1280, 720), &mut |canvas, (w, h)| {
         let state = DialogState { focus: Some(Choice::Canceled), ..DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60) };
-        paint_question(canvas, text.as_ref(), (w, h), &state);
+        paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &state);
     });
     in_looks(&dir, "look-dialog-hover", (1280, 720), &mut |canvas, (w, h)| {
         let state = DialogState { hover: Some(OverlayHit::Confirm), pressed: None, ..DialogState::new(DialogKind::NotResponding { id: 1, title: "Text Editor".into() }, 0) };
-        paint_question(canvas, text.as_ref(), (w, h), &state);
+        paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &state);
     });
+}
+
+/// The type scale in the interface font (`font-name`): the system font,
+/// then two others, on the list, quick settings and a dialog
+/// (`font-…`).
+#[test]
+#[ignore]
+fn interface_font() {
+    use notify::tests::{paint_sample, sample, sample_calendar};
+    let Some(dir) = dir() else { return };
+    let entries = sample();
+    let cal = sample_calendar(true);
+    for family in [None, Some("DejaVu Serif"), Some("Century Gothic")] {
+        let (text, bold) = (Text::load_family(family, None), Text::load_family(family, Some("bold")));
+        let tag = family.unwrap_or("system").replace(' ', "-");
+        render(&dir, &format!("font-{tag}-list"), DARK, (1280, 720, 1.0), |canvas| {
+            paint_sample(canvas, (text.as_ref(), bold.as_ref()), (1280, 720), &entries, &Default::default(), &cal, None);
+        });
+        render(&dir, &format!("font-{tag}-dialog"), DARK, (1280, 720, 1.0), |canvas| {
+            let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60);
+            paint_question(canvas, (text.as_ref(), bold.as_ref()), (1280, 720), &state);
+            let ph = panel_height() as usize;
+            let mut data = vec![0u8; 1280 * ph * 4];
+            let mut bar = Canvas::scaled(&mut data, 1280, ph, 1.0);
+            let layout = crate::panel_layout::Layout::default();
+            let clock = crate::clock::top_bar(crate::clock::ClockFormat { weekday: true, ..Default::default() }, &gio::glib::DateTime::new(&gio::glib::TimeZone::local(), 2026, 11, 14, 14, 5, 0.0).unwrap());
+            let model = PanelModel { layout: &layout, clock: &clock, status_items: &[], tray_images: &[], tray_w: 0, ext_items: &[], ext_icons: &[], ext_widths: &[], locked: false, launcher_open: false, power_open: false, list_open: false, menu_open: None, unseen_dot: false, workspaces: (4, 1), a11y_shown: false, source_label: Some("en"), sharing: false, recording: false, drag_target: None, focus: None, hover: None, pressed: None, power_icon: None, bold: bold.as_ref() };
+            paint_panel(&mut bar, text.as_ref(), (1280, ph), &model);
+            blit(canvas, &data, 1280, ph);
+        });
+    }
 }
 
 #[test]
@@ -164,7 +195,7 @@ fn dialogs() {
         for (name, state) in &scenes {
             let name = if hc { format!("{name}-hc") } else { (*name).to_owned() };
             render(&dir, &name, DARK, (1280, 720, 1.0), |canvas| {
-                paint_question(canvas, text.as_ref(), (1280, 720), state);
+                paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (1280, 720), state);
             });
         }
     }
@@ -378,7 +409,7 @@ fn text_scale() {
         });
         shot("scaled-dialog", &mut |canvas| {
             let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60);
-            paint_question(canvas, text.as_ref(), (w, h), &state);
+            paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &state);
         });
     }
     helix_draw::theme::set_text_scale(1.0);
@@ -478,11 +509,11 @@ fn accents() {
         });
         render(&dir, &format!("accent-{name}-dialog"), DARK, (w, h, 1.0), |canvas| {
             let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60);
-            paint_question(canvas, text.as_ref(), (w, h), &state);
+            paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &state);
         });
         render(&dir, &format!("accent-{name}-dialog-focus"), DARK, (w, h, 1.0), |canvas| {
             let state = DialogState { focus: Some(Choice::Canceled), ..DialogState::new(DialogKind::NotResponding { id: 1, title: "Text Editor".into() }, 0) };
-            paint_question(canvas, text.as_ref(), (w, h), &state);
+            paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &state);
         });
     }
     helix_draw::set_high_contrast(false);
@@ -748,7 +779,7 @@ fn locale() {
     ];
     for (what, state) in &dialogs {
         render(&dir, &name(what), DARK, (w, h, 1.0), |canvas| {
-            paint_question(canvas, text.as_ref(), (w, h), state);
+            paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), state);
         });
     }
     let osd = Osd { icon: Some("audio-volume-medium-symbolic".into()), label: Some(helix_i18n::tr("Volume").into()), level: Some(0.45), max_level: 1.0, connector: None };

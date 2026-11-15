@@ -577,7 +577,7 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
                 theme::focus_ring(canvas, r.x + 7, r.y + 7, r.w - 14, r.h - 14);
             }
         }
-        let base = baseline(text, r.y, r.h, 14.0);
+        let base = baseline(text, r.y, r.h, size::LABEL);
         let mut x = r.x + 12;
         if let Some(checked) = item.checked {
             theme::check_box(canvas, f64::from(x), f64::from(r.y + (r.h - 16) / 2), 16.0, checked, theme::Look::default());
@@ -600,7 +600,7 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
             _ => {}
         }
         let color = if item.choice == Choice::Disabled { disabled_text() } else { FG };
-        label(text, canvas, &item.label, x as f32, base, 14.0, color, (r.x + r.w - x - 24) as f32);
+        label(text, canvas, &item.label, x as f32, base, size::LABEL, color, (r.x + r.w - x - 24) as f32);
         hits.push((r, i));
         y += item_h;
     }
@@ -762,7 +762,7 @@ fn paint_previews(menu: &mut WindowMenu, canvas: &mut Canvas, w: i32, h: i32, te
             _ => theme::control(canvas, pic.x, pic.y, pic.w, pic.h, theme::Look::default()),
         }
         let title = menu.items.get(2 * i).and_then(|i| i.as_ref()).map(|i| i.label.clone()).unwrap_or_default();
-        label(text, canvas, &title, (tile.x + 6) as f32, baseline(text, tile.y + PICTURE_H, TILE_TITLE_H, 13.0), 13.0, FG, (tile.w - 12) as f32);
+        label(text, canvas, &title, (tile.x + 6) as f32, baseline(text, tile.y + PICTURE_H, TILE_TITLE_H, size::CAPTION), size::CAPTION, FG, (tile.w - 12) as f32);
         // The close button, at the picture's top right corner.
         let close = Rect { x: tile.x + tile.w - 26, y: tile.y + 2, w: 24, h: 24 };
         let hot = menu.selected == Some(2 * i + 1) && !menu.focus_hidden;

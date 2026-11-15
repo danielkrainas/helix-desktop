@@ -17,7 +17,7 @@ pub(super) const ICON: i32 = 32;
 /// Icons are decoded at this many pixels, sharp up to scale 2.
 const ICON_PX: u32 = 64;
 const LIST_PAD: i32 = 10;
-const BODY_PX: f32 = 14.0;
+const BODY_PX: f32 = helix_draw::theme::size::LABEL;
 
 /// The list column's width, a body line's height and a group header's:
 /// they grow with the text scale.
@@ -187,11 +187,11 @@ pub(super) fn paint_notification(
         (true, false) => when,
         (false, false) => format!("{} · {when}", banner.app_name),
     };
-    label(text, canvas, &head, text_x as f32, (y + grow(12)) as f32, 12.0, DIM_FG, text_w - 24.0);
+    label(text, canvas, &head, text_x as f32, (y + grow(12)) as f32, size::CAPTION, DIM_FG, text_w - 24.0);
     let mut bottom = y + grow(16);
     match bold {
-        Some(bold) => bold.draw(canvas, &banner.summary, text_x as f32, (bottom + grow(20)) as f32, Style { px: 16.0, color: FG, max_width: text_w }),
-        None => label(text, canvas, &banner.summary, text_x as f32, (bottom + grow(20)) as f32, 16.0, FG, text_w),
+        Some(bold) => bold.draw(canvas, &banner.summary, text_x as f32, (bottom + grow(20)) as f32, Style { px: size::HEADING, color: FG, max_width: text_w }),
+        None => label(text, canvas, &banner.summary, text_x as f32, (bottom + grow(20)) as f32, size::HEADING, FG, text_w),
     }
     bottom += grow(26);
     let mut links = Vec::new();
@@ -261,7 +261,8 @@ impl Ui {
         let text = self.text.as_ref();
         let (links, mut y) =
             paint_notification(&mut canvas, (text, self.bold.as_ref()), icon.as_ref(), &view.data, (BANNER_PAD, BANNER_PAD), inner - 24, banner_lines(&view.data));
-        label(text, &mut canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
+        let look = theme::Look { hovered: view.hover == Some(BannerHit::Close), pressed: view.pressed == Some(BannerHit::Close), ..Default::default() };
+        close_button(&mut canvas, close, look);
         view.hits.push((close, BannerHit::Close));
         for (rect, uri) in links {
             view.hits.push((rect, BannerHit::Link(uri)));
@@ -885,8 +886,8 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     // Header: Do Not Disturb switch and Clear.
     let switch = Rect { x: bx + LIST_PAD, y: by + 10, w: theme::SWITCH_W as i32, h: theme::SWITCH_H as i32 };
     theme::switch(canvas, f64::from(switch.x), f64::from(switch.y), m.do_not_disturb, m.look(&ListHit::DoNotDisturb));
-    label(text, canvas, tr("Do Not Disturb"), (switch.x + switch.w + 10) as f32, baseline(text, switch.y, switch.h, 14.0), 14.0, FG, helix_draw::theme::grow(160) as f32);
-    hits.push((Rect { x: switch.x, y: switch.y, w: switch.w + 10 + text.map_or(130, |t| t.width(tr("Do Not Disturb"), 14.0) as i32), h: switch.h }, ListHit::DoNotDisturb));
+    label(text, canvas, tr("Do Not Disturb"), (switch.x + switch.w + 10) as f32, baseline(text, switch.y, switch.h, size::LABEL), size::LABEL, FG, helix_draw::theme::grow(160) as f32);
+    hits.push((Rect { x: switch.x, y: switch.y, w: switch.w + 10 + text.map_or(130, |t| t.width(tr("Do Not Disturb"), size::LABEL) as i32), h: switch.h }, ListHit::DoNotDisturb));
     if !m.entries.is_empty() {
         let clear_w = helix_draw::theme::grow(64);
         let clear = Rect { x: bx + list_w() - LIST_PAD - clear_w, y: by + 8, w: clear_w, h: helix_draw::theme::grow(26) };
@@ -899,8 +900,8 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     let mut y = by + header;
     if m.entries.is_empty() {
         let message = tr("No Notifications");
-        let mw = text.map_or(0.0, |t| t.width(message, 15.0));
-        label(text, canvas, message, bx as f32 + (list_w() as f32 - mw) / 2.0, (y + 30) as f32, 15.0, DIM_FG, list_w() as f32);
+        let mw = text.map_or(0.0, |t| t.width(message, size::BODY));
+        label(text, canvas, message, bx as f32 + (list_w() as f32 - mw) / 2.0, (y + 30) as f32, size::BODY, DIM_FG, list_w() as f32);
     }
     // Entries of a group are indented under its header.
     let indents = row_indents(m.entries, m.rows);
@@ -917,11 +918,11 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
                 let towards = if *open { theme::Towards::Down } else { theme::Towards::Right };
                 theme::chevron(canvas, f64::from(bx + LIST_PAD + 8), f64::from(y + 15), 8.0, towards, DIM_FG);
                 let hb = bold.or(text);
-                label(hb, canvas, &head, (bx + LIST_PAD + 20) as f32, (y + 20) as f32, 14.0, FG, 200.0);
-                let hw = hb.map_or(0.0, |t| t.width(&head, 14.0).min(200.0));
-                label(text, canvas, &tail, bx as f32 + (LIST_PAD + 32) as f32 + hw, (y + 20) as f32, 13.0, DIM_FG, 140.0);
+                label(hb, canvas, &head, (bx + LIST_PAD + 20) as f32, (y + 20) as f32, size::LABEL, FG, 200.0);
+                let hw = hb.map_or(0.0, |t| t.width(&head, size::LABEL).min(200.0));
+                label(text, canvas, &tail, bx as f32 + (LIST_PAD + 32) as f32 + hw, (y + 20) as f32, size::CAPTION, DIM_FG, 140.0);
                 let close = Rect { x: bx + list_w() - LIST_PAD - 22, y: y + 4, w: 22, h: 22 };
-                label(text, canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
+                close_button(canvas, close, m.look(&ListHit::GroupClear(key.clone())));
                 hits.push((close, ListHit::GroupClear(key.clone())));
                 hits.push((row_r, ListHit::GroupToggle(key.clone())));
                 stops.push((row_r, ListHit::GroupToggle(key.clone())));
@@ -941,7 +942,7 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
         }
         let (links, _) = paint_notification(canvas, (text, bold), icon, entry, (bx + LIST_PAD + indent, y + LIST_PAD), entry_w(indent), 2);
         let close = Rect { x: bx + list_w() - LIST_PAD - 22, y: y + LIST_PAD - 2, w: 22, h: 22 };
-        label(text, canvas, "×", (close.x + 5) as f32, (close.y + 17) as f32, 18.0, DIM_FG, 20.0);
+        close_button(canvas, close, m.look(&ListHit::Dismiss(entry.id)));
         let row_r = Rect { x: bx, y, w: list_w(), h: eh };
         hits.push((close, ListHit::Dismiss(entry.id)));
         stops.push((row_r, ListHit::Entry(entry.id)));
@@ -980,6 +981,14 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     hits.push((Rect { x: bx, y: by, w: total_w, h: bh }, ListHit::Inside));
     hits.push((Rect { x: 0, y: 0, w: w as i32, h: h as i32 }, ListHit::Outside));
     ListPainted { hits, stops, cal_scroll, cal_area }
+}
+
+/// A round flat close button filling `r` (a square): the close symbol,
+/// dim at rest, lit under the pointer.
+fn close_button(canvas: &mut Canvas, r: Rect, look: theme::Look) {
+    let (cx, cy, d) = (f64::from(r.x) + f64::from(r.w) / 2.0, f64::from(r.y) + f64::from(r.h) / 2.0, f64::from(r.w.min(r.h)));
+    theme::round_flat(canvas, cx, cy, d, look, false);
+    theme::close_symbol(canvas, cx, cy, 9.0, if look.hovered || look.pressed { FG } else { DIM_FG });
 }
 
 /// Where a notification row's highlight goes: inside the list's
