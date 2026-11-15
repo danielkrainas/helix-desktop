@@ -10,6 +10,7 @@
 
 use futures_util::StreamExt;
 use zbus::Connection;
+use helix_i18n::tr;
 
 const SCHEMA: &str = "org.gnome.desktop.privacy";
 const USBGUARD: &str = "org.usbguard1";
@@ -87,7 +88,7 @@ pub async fn follow(conn: &Connection, center: &crate::notifications::Center) ->
         tracing::info!(id, "rejecting a USB device plugged in");
         match conn.call_method(Some(USBGUARD), DEVICES_PATH, Some(DEVICES), "applyDevicePolicy", &(id, REJECT, false)).await {
             Ok(_) => {
-                center.notice("USB Protection", "USB device blocked", "A USB device was plugged in while it is not allowed.", "drive-removable-media-symbolic", false);
+                center.notice(tr("USB Protection"), tr("USB device blocked"), tr("A USB device was plugged in while it is not allowed."), "drive-removable-media-symbolic", false);
             }
             Err(err) => tracing::warn!(%err, id, "USBGuard did not reject the device"),
         }

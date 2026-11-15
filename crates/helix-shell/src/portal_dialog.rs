@@ -12,6 +12,7 @@ use zbus::{interface, Connection};
 
 use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
+use helix_i18n::tr;
 
 pub const PATH: &str = "/org/helix/PortalDialog";
 
@@ -116,8 +117,8 @@ impl PortalDialog {
             message,
             list: items.iter().map(|(_, name)| name.clone()).collect(),
             selected: initial_index(&items, &selected),
-            continue_label: "Open".into(),
-            cancel_label: "Cancel".into(),
+            continue_label: tr("Open").into(),
+            cancel_label: tr("Cancel").into(),
             ..Prompt::default()
         };
         *self.choosing.lock().unwrap_or_else(|e| e.into_inner()) = Some(items);

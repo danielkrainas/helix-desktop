@@ -13,13 +13,15 @@ use zbus::{interface, Connection};
 
 use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
+use helix_i18n::{n_, tr};
+use helix_i18n::trf;
 
 pub const AGENT_PATH: &str = "/org/helix/PolicyKit1/AuthenticationAgent";
 const POLKIT: &str = "org.freedesktop.PolicyKit1";
 const AUTHORITY_PATH: &str = "/org/freedesktop/PolicyKit1/Authority";
 const AUTHORITY: &str = "org.freedesktop.PolicyKit1.Authority";
 const HELPERS: [&str; 2] = ["/usr/lib/polkit-1/polkit-agent-helper-1", "/usr/libexec/polkit-agent-helper-1"];
-const RETRY: &str = "Sorry, that didn't work. Please try again.";
+const RETRY: &str = n_("Sorry, that didn't work. Please try again.");
 
 #[derive(Debug, zbus::DBusError)]
 #[zbus(prefix = "org.freedesktop.PolicyKit1.Error")]
@@ -149,7 +151,7 @@ pub fn user_label(login: &str, real: &str) -> String {
 /// A helper prompt as a field label ("Password: " → "Password").
 pub fn field_label(prompt: &str) -> String {
     let label = prompt.trim_end().trim_end_matches(':').trim();
-    if label.is_empty() { "Password".into() } else { label.to_owned() }
+    if label.is_empty() { tr("Password").into() } else { label.to_owned() }
 }
 
 /// The served agent.
@@ -189,7 +191,7 @@ async fn authenticate(ui: &mpsc::UnboundedSender<UiEvent>, message: &str, cookie
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| PolkitError::Failed(format!("cannot run the polkit helper: {e}")))?;
+            .map_err(|e| PolkitError::Failed(trf!("cannot run the polkit helper: {e}", e = e)))?;
         let mut stdin = child.stdin.take().ok_or_else(|| PolkitError::Failed("no helper input".into()))?;
         let stdout = child.stdout.take().ok_or_else(|| PolkitError::Failed("no helper output".into()))?;
         stdin.write_all(format!("{cookie}\n").as_bytes()).await.map_err(|e| PolkitError::Failed(e.to_string()))?;
@@ -215,13 +217,13 @@ async fn authenticate(ui: &mpsc::UnboundedSender<UiEvent>, message: &str, cookie
             match kind {
                 "PAM_PROMPT_ECHO_OFF" | "PAM_PROMPT_ECHO_ON" => {
                     let p = Prompt {
-                        title: "Authentication Required".into(),
+                        title: tr("Authentication Required").into(),
                         message: message.into(),
-                        description: if info.is_empty() { format!("Authenticating as {shown}") } else { info.clone() },
+                        description: if info.is_empty() { trf!("Authenticating as {shown}", shown = shown) } else { info.clone() },
                         password: Some(field_label(text)),
                         warning: std::mem::take(&mut warning),
-                        continue_label: "Authenticate".into(),
-                        cancel_label: "Cancel".into(),
+                        continue_label: tr("Authenticate").into(),
+                        cancel_label: tr("Cancel").into(),
                         ..Prompt::default()
                     };
                     let answer = tokio::select! {
@@ -260,7 +262,7 @@ async fn authenticate(ui: &mpsc::UnboundedSender<UiEvent>, message: &str, cookie
             return Ok(());
         }
         if warning.is_empty() {
-            warning = RETRY.into();
+            warning = tr(RETRY).into();
         }
     }
 }
@@ -297,14 +299,14 @@ impl Agent {
             Some(0)
         } else {
             let choose = prompt::Prompt {
-                title: "Authentication Required".into(),
+                title: tr("Authentication Required").into(),
                 message: message.to_owned(),
-                description: "Choose the user to authenticate as.".into(),
+                description: tr("Choose the user to authenticate as.").into(),
                 list: users.iter().map(|(_, name, real)| user_label(name, real)).collect(),
                 selected: 0,
                 activate_rows: true,
-                continue_label: "Next".into(),
-                cancel_label: "Cancel".into(),
+                continue_label: tr("Next").into(),
+                cancel_label: tr("Cancel").into(),
                 ..Default::default()
             };
             tokio::select! {

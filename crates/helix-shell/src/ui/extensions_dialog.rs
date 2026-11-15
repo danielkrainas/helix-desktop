@@ -6,6 +6,8 @@
 use super::*;
 use crate::ext_host::manifest::{permission_text, SettingType, SettingValue};
 use crate::ext_host::{Info, State};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 const BOX_W: i32 = 640;
 const PAD: i32 = 18;
@@ -48,7 +50,7 @@ pub(super) fn open_in_settings() -> bool {
     if !installed {
         return false;
     }
-    let app = gio::AppInfo::create_from_commandline(format!("{SETTINGS_APP} extensions"), Some("Settings"), gio::AppInfoCreateFlags::NONE);
+    let app = gio::AppInfo::create_from_commandline(format!("{SETTINGS_APP} extensions"), Some(tr("Settings")), gio::AppInfoCreateFlags::NONE);
     match app.and_then(|a| gio::prelude::AppInfoExt::launch(&a, &[], None::<&gio::AppLaunchContext>)) {
         Ok(()) => true,
         Err(err) => {
@@ -60,15 +62,15 @@ pub(super) fn open_in_settings() -> bool {
 
 fn state_text(info: &Info) -> String {
     match &info.state {
-        State::Running => "Running".into(),
-        State::Starting => "Starting".into(),
-        State::Stopped => "Not running".into(),
-        State::Disabled if info.error == "Off for this session" => "Off for this session (Shift was held at login)".into(),
-        State::Disabled => "Off".into(),
-        State::NeedsApproval => "Needs approval: turn it on to allow what it asks".into(),
-        State::Invalid(reason) => format!("Cannot run: {reason}"),
-        State::Crashed(last) if last.is_empty() => "Stopped working".into(),
-        State::Crashed(last) => format!("Stopped working: {last}"),
+        State::Running => tr("Running").into(),
+        State::Starting => tr("Starting").into(),
+        State::Stopped => tr("Not running").into(),
+        State::Disabled if info.error == "Off for this session" => tr("Off for this session (Shift was held at login)").into(),
+        State::Disabled => tr("Off").into(),
+        State::NeedsApproval => tr("Needs approval: turn it on to allow what it asks").into(),
+        State::Invalid(reason) => trf!("Cannot run: {reason}", reason = reason),
+        State::Crashed(last) if last.is_empty() => tr("Stopped working").into(),
+        State::Crashed(last) => trf!("Stopped working: {last}", last = last),
     }
 }
 
@@ -119,12 +121,12 @@ impl Ui {
         for (rx, ry, rw, rh) in [(bx, by, bw, 1), (bx, by + bh - 1, bw, 1), (bx, by, 1, bh), (bx + bw - 1, by, 1, bh)] {
             canvas.rect(rx, ry, rw, rh, BANNER_BORDER);
         }
-        label(bold.or(text), &mut canvas, "Extensions", (bx + PAD) as f32, (by + 36) as f32, 20.0, FG, (bw - 2 * PAD) as f32);
+        label(bold.or(text), &mut canvas, tr("Extensions"), (bx + PAD) as f32, (by + 36) as f32, 20.0, FG, (bw - 2 * PAD) as f32);
         let mut hits: Vec<(Rect, DialogHit)> = Vec::new();
         let bottom = by + bh - PAD - 36;
         let mut y = by + 56;
         if list.is_empty() {
-            label(text, &mut canvas, "No extensions are installed.", (bx + PAD) as f32, (y + 20) as f32, 14.0, DIM_FG, (bw - 2 * PAD) as f32);
+            label(text, &mut canvas, tr("No extensions are installed."), (bx + PAD) as f32, (y + 20) as f32, 14.0, DIM_FG, (bw - 2 * PAD) as f32);
         }
         let scroll = overlay.state.scroll.min(list.len().saturating_sub(1));
         overlay.state.scroll = scroll;
@@ -148,9 +150,9 @@ impl Ui {
             // What it can do: sandboxed, with its permissions, or anything.
             let can = if info.sandboxed {
                 let what: Vec<&str> = info.permissions.iter().map(|p| permission_text(p)).collect();
-                if what.is_empty() { "Sandboxed".to_owned() } else { format!("Sandboxed. Can: {}", what.join(", ")) }
+                if what.is_empty() { tr("Sandboxed").to_owned() } else { trf!("Sandboxed. Can: {}", what.join(", ")) }
             } else {
-                "Full access: it can do anything you can".to_owned()
+                tr("Full access: it can do anything you can").to_owned()
             };
             label(text, &mut canvas, &can, tx as f32, (y + 78) as f32, 12.0, if info.sandboxed { DIM_FG } else { 0xFFE0_8040 }, room);
             // The on/off switch (development extensions run regardless).
@@ -167,13 +169,13 @@ impl Ui {
             let mut cy = y + ENTRY_H - 8;
             for (_, title, keys) in &info.commands {
                 label(text, &mut canvas, title, (tx + 8) as f32, baseline(text, cy, SETTING_H, 13.0), 13.0, FG, 200.0);
-                let shown = if keys.is_empty() { "None" } else { keys.as_str() };
+                let shown = if keys.is_empty() { tr("None") } else { keys.as_str() };
                 label(text, &mut canvas, shown, (tx + 216) as f32, baseline(text, cy, SETTING_H, 12.0), 12.0, DIM_FG, 220.0);
                 cy += SETTING_H;
             }
             let commands_h = info.commands.len() as i32 * SETTING_H;
             if !info.settings.is_empty() {
-                let name = if expanded { "Hide Settings" } else { "Settings" };
+                let name = if expanded { tr("Hide Settings") } else { tr("Settings") };
                 let tw = text.map_or(0.0, |t| t.width(name, 12.0)) as i32;
                 let r = Rect { x: bx + bw - PAD - 12 - tw - 16, y: y + 46, w: tw + 16, h: 24 };
                 theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
@@ -218,7 +220,7 @@ impl Ui {
                         }
                         SettingType::String | SettingType::StringList => {
                             let shown = value.display();
-                            let shown = if shown.is_empty() { "(empty)".to_owned() } else { shown };
+                            let shown = if shown.is_empty() { tr("(empty)").to_owned() } else { shown };
                             let tw = text.map_or(0.0, |t| t.width(&shown, 13.0)).min(240.0);
                             label(text, &mut canvas, &shown, right as f32 - tw, baseline(text, sy, SETTING_H, 13.0), 13.0, DIM_FG, 240.0);
                         }
@@ -229,13 +231,13 @@ impl Ui {
             y += entry_h;
         }
         if scroll > 0 || more_below {
-            let hint = "Scroll for more";
+            let hint = tr("Scroll for more");
             label(text, &mut canvas, hint, (bx + PAD) as f32, baseline(text, bottom, 36, 12.0), 12.0, DIM_FG, 200.0);
         }
         let done = Rect { x: bx + bw - PAD - 110, y: bottom, w: 110, h: 36 };
         canvas.rect(done.x, done.y, done.w, done.h, accent_fill());
-        let tw = text.map_or(0.0, |t| t.width("Done", 15.0));
-        label(text, &mut canvas, "Done", done.x as f32 + (done.w as f32 - tw) / 2.0, baseline(text, done.y, done.h, 15.0), 15.0, on_accent(), done.w as f32);
+        let tw = text.map_or(0.0, |t| t.width(tr("Done"), 15.0));
+        label(text, &mut canvas, tr("Done"), done.x as f32 + (done.w as f32 - tw) / 2.0, baseline(text, done.y, done.h, 15.0), 15.0, on_accent(), done.w as f32);
         hits.push((done, DialogHit::Done));
         if let Some(r) = overlay.state.focus.and_then(|i| hits.get(i)).map(|(r, _)| *r) {
             for (rx, ry, rw, rh) in [(r.x - 2, r.y - 2, r.w + 4, 2), (r.x - 2, r.y + r.h, r.w + 4, 2), (r.x - 2, r.y - 2, 2, r.h + 4), (r.x + r.w, r.y - 2, 2, r.h + 4)] {

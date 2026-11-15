@@ -18,6 +18,8 @@ use zbus::{interface, Connection};
 use crate::notifications::Center;
 use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 pub const OBEX: &str = "org.bluez.obex";
 pub const OBEX_PATH: &str = "/org/bluez/obex";
@@ -65,19 +67,10 @@ pub fn unique_in(dir: &Path, name: &str) -> PathBuf {
         .expect("some name is free")
 }
 
-/// A size as people read it (1 kB = 1000 bytes).
+/// A size as people read it (1 kB = 1000 bytes), in the locale's words
+/// and number format.
 pub fn size_text(bytes: u64) -> String {
-    if bytes < 1000 {
-        return if bytes == 1 { "1 byte".into() } else { format!("{bytes} bytes") };
-    }
-    let units = ["kB", "MB", "GB", "TB"];
-    let mut value = bytes as f64 / 1000.0;
-    let mut unit = 0;
-    while value >= 1000.0 && unit + 1 < units.len() {
-        value /= 1000.0;
-        unit += 1;
-    }
-    format!("{value:.1} {}", units[unit])
+    helix_i18n::format_size(bytes)
 }
 
 pub fn percent(done: u64, size: u64) -> u32 {
@@ -246,7 +239,7 @@ pub async fn send(conn: &Connection, address: &str, files: &[PathBuf], mut repor
     let reply = conn
         .call_method(Some(OBEX), OBEX_PATH, Some("org.bluez.obex.Client1"), "CreateSession", &(address, args))
         .await
-        .map_err(|e| format!("cannot connect to the device: {e}"))?;
+        .map_err(|e| trf!("cannot connect to the device: {e}", e = e))?;
     let session: OwnedObjectPath = reply.body().deserialize().map_err(|e| e.to_string())?;
     let result = async {
         for (index, file) in files.iter().enumerate() {
@@ -257,7 +250,7 @@ pub async fn send(conn: &Connection, address: &str, files: &[PathBuf], mut repor
             let reply = conn
                 .call_method(Some(OBEX), session.as_str(), Some("org.bluez.obex.ObjectPush1"), "SendFile", &(path,))
                 .await
-                .map_err(|e| format!("cannot send {name}: {e}"))?;
+                .map_err(|e| trf!("cannot send {name}: {e}", name = name, e = e))?;
             let (transfer, _props): (OwnedObjectPath, HashMap<String, OwnedValue>) = reply.body().deserialize().map_err(|e| e.to_string())?;
             let mut shown = 0;
             let watch = TransferWatch::new(conn, transfer.as_str()).await.map_err(|e| e.to_string())?;
@@ -271,7 +264,7 @@ pub async fn send(conn: &Connection, address: &str, files: &[PathBuf], mut repor
             .await
             .map_err(|e| e.to_string())?;
             if ended == Ended::Error {
-                return Err(format!("{name} was not sent"));
+                return Err(trf!("{name} was not sent", name = name));
             }
         }
         Ok(())
@@ -360,7 +353,7 @@ impl ObexAgent {
         };
         let device = match address {
             Some(address) => device_name(self.system.as_ref(), &address).await,
-            None => "A device".into(),
+            None => tr("A device").into(),
         };
         let offer = Offer { name: name.clone(), size, device };
         tracing::info!(?offer, "Bluetooth file offered");
@@ -453,13 +446,17 @@ impl Drop for PromptOpen {
 
 /// The question asked before accepting a pushed file.
 pub fn offer_prompt(offer: &Offer) -> Prompt {
-    let size = if offer.size > 0 { format!(" ({})", size_text(offer.size)) } else { String::new() };
+    let message = if offer.size > 0 {
+        trf!("{device} wants to send you “{file}” ({size}).", device = offer.device, file = offer.name, size = size_text(offer.size))
+    } else {
+        trf!("{device} wants to send you “{file}”.", device = offer.device, file = offer.name)
+    };
     Prompt {
-        title: "Receive a File?".into(),
-        message: format!("{} wants to send you “{}”{size}.", offer.device, offer.name),
-        description: "Accepted files are saved in Downloads.".into(),
-        continue_label: "Accept".into(),
-        cancel_label: "Decline".into(),
+        title: tr("Receive a File?").into(),
+        message,
+        description: tr("Accepted files are saved in Downloads.").into(),
+        continue_label: tr("Accept").into(),
+        cancel_label: tr("Decline").into(),
         ..Prompt::default()
     }
 }
@@ -467,13 +464,18 @@ pub fn offer_prompt(offer: &Offer) -> Prompt {
 /// A sending notification's summary and body.
 pub fn sending_text(device: &str, progress: &Sending) -> (String, String) {
     let Sending::File { index, count, name, percent } = progress;
-    let which = if *count > 1 { format!(" (file {} of {count})", index + 1) } else { String::new() };
-    (format!("Sending files to {device}"), format!("{name}{which}: {percent}%"))
+    let percent = helix_i18n::format_percent(f64::from(*percent));
+    let body = if *count > 1 {
+        trf!("{name} (file {index} of {count}): {percent}", name = name, index = index + 1, count = count, percent = percent)
+    } else {
+        trf!("{name}: {percent}", name = name, percent = percent)
+    };
+    (trf!("Sending files to {device}", device = device), body)
 }
 
 impl Shell {
     fn notice(&self, replaces: u32, summary: &str, body: &str) -> u32 {
-        self.center.notice_replacing(replaces, "Bluetooth", summary, body, "bluetooth-active-symbolic")
+        self.center.notice_replacing(replaces, tr("Bluetooth"), summary, body, "bluetooth-active-symbolic")
     }
 
     /// Ask which paired device to send to: (address, name).
@@ -483,17 +485,17 @@ impl Shell {
             None => Vec::new(),
         };
         if devices.is_empty() {
-            self.notice(0, "No Bluetooth devices", "Pair a device to send files to it.");
+            self.notice(0, tr("No Bluetooth devices"), tr("Pair a device to send files to it."));
             return None;
         }
         let _turn = prompt::turn().await;
         let _open = PromptOpen(self.ui.clone());
         let prompt = Prompt {
-            title: "Send Files".into(),
-            message: "Send files to which device?".into(),
+            title: tr("Send Files").into(),
+            message: tr("Send files to which device?").into(),
             list: devices.iter().map(|d| d.1.clone()).collect(),
-            continue_label: "Choose".into(),
-            cancel_label: "Cancel".into(),
+            continue_label: tr("Choose").into(),
+            cancel_label: tr("Cancel").into(),
             ..Prompt::default()
         };
         match prompt::ask(&self.ui, prompt).await {
@@ -510,7 +512,7 @@ impl Shell {
         let portal = std::env::var("HELIX_PORTALS_BUS_NAME").unwrap_or_else(|_| "org.freedesktop.impl.portal.desktop.helix".into());
         let mut options: HashMap<&str, Value<'_>> = HashMap::new();
         options.insert("multiple", Value::from(true));
-        options.insert("accept_label", Value::from("Send"));
+        options.insert("accept_label", Value::from(tr("Send")));
         let reply = self
             .session
             .call_method(
@@ -518,7 +520,7 @@ impl Shell {
                 "/org/freedesktop/portal/desktop",
                 Some("org.freedesktop.impl.portal.FileChooser"),
                 "OpenFile",
-                &(&handle, "org.gnome.Shell", "", "Choose Files to Send", options),
+                &(&handle, "org.gnome.Shell", "", tr("Choose Files to Send"), options),
             )
             .await;
         let Ok(reply) = reply else {
@@ -550,7 +552,7 @@ impl Shell {
             return;
         }
         tracing::info!(device = name, files = paths.len(), "sending files over Bluetooth");
-        let id = Arc::new(Mutex::new(self.notice(0, &format!("Sending files to {name}"), "Connecting…")));
+        let id = Arc::new(Mutex::new(self.notice(0, &trf!("Sending files to {name}", name = name), tr("Connecting…"))));
         let progress = {
             let (shell, id, name) = (self.clone(), id.clone(), name.clone());
             move |sending: Sending| {
@@ -563,12 +565,12 @@ impl Shell {
         let id = *id.lock().unwrap_or_else(|e| e.into_inner());
         match result {
             Ok(()) => {
-                let what = if paths.len() == 1 { "1 file".to_owned() } else { format!("{} files", paths.len()) };
-                self.notice(id, &format!("Files sent to {name}"), &format!("Sent {what}."));
+                let what = if paths.len() == 1 { tr("1 file").to_owned() } else { trf!("{} files", paths.len()) };
+                self.notice(id, &trf!("Files sent to {name}", name = name), &trf!("Sent {what}.", what = what));
             }
             Err(err) => {
                 tracing::warn!(err, "Bluetooth sending failed");
-                self.notice(id, "Sending failed", &err);
+                self.notice(id, tr("Sending failed"), &err);
             }
         }
     }
@@ -623,10 +625,10 @@ pub async fn run(session: Connection, ui: mpsc::UnboundedSender<UiEvent>, center
     let tell: Tell = Arc::new(move |received: Received| match received {
         Received::Saved { offer, path } => {
             let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            shell.notice(0, "File received", &format!("“{file}” from {} is in Downloads.", offer.device));
+            shell.notice(0, tr("File received"), &trf!("“{file}” from {device} is in Downloads.", file = file, device = offer.device));
         }
         Received::Failed { offer } => {
-            shell.notice(0, "File not received", &format!("“{}” from {} was not received.", offer.name, offer.device));
+            shell.notice(0, tr("File not received"), &trf!("“{}” from {} was not received.", offer.name, offer.device));
         }
     });
     let agent = ObexAgent::new(session.clone(), system, ask, tell, downloads_dir());
@@ -662,16 +664,18 @@ mod tests {
 
     #[test]
     fn texts() {
-        assert_eq!(size_text(1), "1 byte");
-        assert_eq!(size_text(999), "999 bytes");
-        assert_eq!(size_text(1_500), "1.5 kB");
-        assert_eq!(size_text(2_340_000), "2.3 MB");
+        // GLib writes sizes with a no-break space.
+        let size = |n| size_text(n).replace('\u{a0}', " ");
+        assert_eq!(size(1), "1 byte");
+        assert_eq!(size(999), "999 bytes");
+        assert_eq!(size(1_500), "1.5 kB");
+        assert_eq!(size(2_340_000), "2.3 MB");
         assert_eq!((percent(5, 0), percent(50, 200), percent(300, 200)), (0, 25, 100));
         assert_eq!(file_of("file:///tmp/a%20b.txt"), Some(PathBuf::from("/tmp/a b.txt")));
         assert_eq!(file_of("/tmp/x"), Some(PathBuf::from("/tmp/x")));
         assert_eq!(file_of("relative"), None);
         let offer = Offer { name: "a.jpg".into(), size: 2_000, device: "Phone".into() };
-        assert_eq!(offer_prompt(&offer).message, "Phone wants to send you “a.jpg” (2.0 kB).");
+        assert_eq!(offer_prompt(&offer).message.replace('\u{a0}', " "), "Phone wants to send you “a.jpg” (2.0 kB).");
         let progress = Sending::File { index: 1, count: 3, name: "b.png".into(), percent: 40 };
         assert_eq!(sending_text("Phone", &progress), ("Sending files to Phone".into(), "b.png (file 2 of 3): 40%".into()));
     }

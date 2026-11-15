@@ -10,6 +10,8 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::prompt::{Answer, Prompt};
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 /// Where VPN plugins describe themselves (`<name>.name` files).
 pub const PLUGIN_DIRS: &[&str] = &["/etc/NetworkManager/VPN", "/usr/lib/NetworkManager/VPN", "/usr/lib64/NetworkManager/VPN"];
@@ -187,10 +189,10 @@ pub fn pages(fields: &[Field]) -> Vec<Vec<usize>> {
 /// The dialog for one page of fields.
 pub fn page_prompt(described: &Described, fields: &[Field], page: &[usize], name: &str) -> Prompt {
     let mut prompt = Prompt {
-        title: if described.title.is_empty() { "VPN Connection".into() } else { described.title.clone() },
-        message: if described.description.is_empty() { format!("A password is needed to connect to “{name}”.") } else { described.description.clone() },
-        continue_label: "Connect".into(),
-        cancel_label: "Cancel".into(),
+        title: if described.title.is_empty() { tr("VPN Connection").into() } else { described.title.clone() },
+        message: if described.description.is_empty() { trf!("A password is needed to connect to “{name}”.", name = name) } else { described.description.clone() },
+        continue_label: tr("Connect").into(),
+        cancel_label: tr("Cancel").into(),
         ..Prompt::default()
     };
     for &i in page {

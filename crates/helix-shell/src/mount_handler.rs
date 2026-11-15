@@ -13,6 +13,8 @@ use zbus::interface;
 
 use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 pub const BUS_NAME: &str = "org.gtk.MountOperationHandler";
 pub const PATH: &str = "/org/gtk/MountOperationHandler";
@@ -48,14 +50,14 @@ pub struct Extras {
 /// name field) and "Hidden Volume" / "Windows System Volume" boxes.
 pub fn add_extras(prompt: &mut Prompt, flags: u32) {
     if flags & flags::ANONYMOUS_SUPPORTED != 0 {
-        prompt.checks.push(("Connect Anonymously".into(), false));
+        prompt.checks.push((tr("Connect Anonymously").into(), false));
     }
     if flags & flags::TCRYPT != 0 {
         if prompt.entry.is_none() {
-            prompt.entry = Some(("PIM (optional)".into(), String::new()));
+            prompt.entry = Some((tr("PIM (optional)").into(), String::new()));
         }
-        prompt.checks.push(("Hidden Volume".into(), false));
-        prompt.checks.push(("Windows System Volume".into(), false));
+        prompt.checks.push((tr("Hidden Volume").into(), false));
+        prompt.checks.push((tr("Windows System Volume").into(), false));
     }
 }
 
@@ -120,7 +122,7 @@ pub fn choice_prompt(mut prompt: Prompt, choices: &[String]) -> Option<(Prompt, 
         1 | 2 => {
             prompt.continue_label = choices[0].clone();
             let last = (choices.len() == 2).then(|| choices.len() as i32 - 1);
-            prompt.cancel_label = if choices.len() == 2 { choices[1].clone() } else { "Cancel".into() };
+            prompt.cancel_label = if choices.len() == 2 { choices[1].clone() } else { tr("Cancel").into() };
             Some((
                 prompt,
                 Box::new(move |answer| match answer {
@@ -133,8 +135,8 @@ pub fn choice_prompt(mut prompt: Prompt, choices: &[String]) -> Option<(Prompt, 
             prompt.list = choices.to_vec();
             prompt.selected = 0;
             prompt.activate_rows = true;
-            prompt.continue_label = "Choose".into();
-            prompt.cancel_label = "Cancel".into();
+            prompt.continue_label = tr("Choose").into();
+            prompt.cancel_label = tr("Cancel").into();
             Some((
                 prompt,
                 Box::new(move |answer| match answer {
@@ -156,20 +158,20 @@ pub fn password_prompt(message: &str, default_user: &str, default_domain: &str, 
     let entry = match (need(flags::NEED_USERNAME), need(flags::NEED_DOMAIN)) {
         (true, true) => {
             let text = if default_domain.is_empty() { default_user.to_owned() } else { format!("{default_domain}\\{default_user}") };
-            Some(("User name (domain\\name)".to_owned(), text))
+            Some((tr("User name (domain\\name)").to_owned(), text))
         }
-        (true, false) => Some(("User name".to_owned(), default_user.to_owned())),
-        (false, true) => Some(("Domain".to_owned(), default_domain.to_owned())),
+        (true, false) => Some((tr("User name").to_owned(), default_user.to_owned())),
+        (false, true) => Some((tr("Domain").to_owned(), default_domain.to_owned())),
         (false, false) => None,
     };
     Some(Prompt {
-        title: if title.is_empty() { "Password Required".into() } else { title },
+        title: if title.is_empty() { tr("Password Required").into() } else { title },
         message: rest,
         entry,
-        password: need(flags::NEED_PASSWORD).then(|| "Password".to_owned()),
-        choice: need(flags::SAVING_SUPPORTED).then(|| ("Remember Password".to_owned(), remember_default())),
-        continue_label: "Connect".into(),
-        cancel_label: "Cancel".into(),
+        password: need(flags::NEED_PASSWORD).then(|| tr("Password").to_owned()),
+        choice: need(flags::SAVING_SUPPORTED).then(|| (tr("Remember Password").to_owned(), remember_default())),
+        continue_label: tr("Connect").into(),
+        cancel_label: tr("Cancel").into(),
         ..Prompt::default()
     })
 }
@@ -376,7 +378,7 @@ impl MountHandler {
         tracing::info!(id, pids = ?application_pids, "mount operation shows busy apps");
         let (title, rest) = split_message(&message);
         let names: Vec<String> = application_pids.iter().map(|p| crate::media::process_name(*p)).collect();
-        let description = if names.is_empty() { String::new() } else { format!("In use by: {}", crate::media::program_list(&names)) };
+        let description = if names.is_empty() { String::new() } else { trf!("In use by: {}", crate::media::program_list(&names)) };
         let prompt = Prompt { title, message: rest, description, icon: icon(&icon_name), ..Prompt::default() };
         self.question(sender_of(&header), id, prompt, &choices).await
     }

@@ -66,6 +66,97 @@ msgstr ""
 msgid "Mouse Keys"
 msgstr ""
 
+#: crates/helix-shell/src/bluetooth_agent.rs:66
+#: crates/helix-shell/src/bluetooth_agent.rs:68
+#: crates/helix-shell/src/obex.rs:356
+msgid "A device"
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:99
+#: crates/helix-shell/src/bluetooth_agent.rs:124
+msgid "Pair with {name}"
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:100
+msgid "Type the code {name} asks for."
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:103
+#: crates/helix-shell/src/bluetooth_agent.rs:165
+msgid "Pair"
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:104
+#: crates/helix-shell/src/bluetooth_agent.rs:165
+#: crates/helix-shell/src/keyring_prompt.rs:85
+#: crates/helix-shell/src/lib.rs:1263 crates/helix-shell/src/lib.rs:1351
+#: crates/helix-shell/src/mount_handler.rs:125
+#: crates/helix-shell/src/mount_handler.rs:139
+#: crates/helix-shell/src/mount_handler.rs:174
+#: crates/helix-shell/src/network_agent.rs:213
+#: crates/helix-shell/src/network_agent.rs:448
+#: crates/helix-shell/src/notifications.rs:501
+#: crates/helix-shell/src/obex.rs:498 crates/helix-shell/src/polkit.rs:226
+#: crates/helix-shell/src/polkit.rs:309
+#: crates/helix-shell/src/portal_dialog.rs:121
+#: crates/helix-shell/src/run_dialog.rs:183 crates/helix-shell/src/ui.rs:1038
+#: crates/helix-shell/src/ui.rs:1041 crates/helix-shell/src/ui.rs:2921
+#: crates/helix-shell/src/ui.rs:2922 crates/helix-shell/src/ui/atspi.rs:568
+#: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:580
+#: crates/helix-shell/src/ui/prompt.rs:592
+#: crates/helix-shell/src/vpn_secrets.rs:195
+msgid "Cancel"
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:113
+msgid "This code is not valid."
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:124
+#: crates/helix-shell/src/lib.rs:1077 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/panel_layout.rs:219
+#: crates/helix-shell/src/ui/quick.rs:329
+msgid "Bluetooth"
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:124
+msgid "Type {code} on {name}, then press Enter."
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:153
+msgid "Passkey"
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:165
+msgid "Confirm that {code} is shown on {name}."
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:165
+msgid "Pair with {name}?"
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:170
+#: crates/helix-shell/src/bluetooth_agent.rs:175
+#: crates/helix-shell/src/geoclue_agent.rs:115
+#: crates/helix-shell/src/ui.rs:1046 crates/helix-shell/src/ui.rs:1053
+msgid "Allow"
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:170
+#: crates/helix-shell/src/bluetooth_agent.rs:175
+#: crates/helix-shell/src/geoclue_agent.rs:116
+#: crates/helix-shell/src/ui.rs:1045 crates/helix-shell/src/ui.rs:1052
+msgid "Deny"
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:170
+msgid "{name} wants to pair with this computer."
+msgstr ""
+
+#: crates/helix-shell/src/bluetooth_agent.rs:175
+msgid "{name} wants to connect to this computer."
+msgstr ""
+
 #: crates/helix-shell/src/dock.rs:513 crates/helix-shell/src/windows.rs:429
 msgid "{n} window"
 msgid_plural "{n} windows"
@@ -150,6 +241,7 @@ msgstr ""
 #: crates/helix-shell/src/ext_host/runner.rs:325
 #: crates/helix-shell/src/ext_host/runner.rs:549
 #: crates/helix-shell/src/ext_host/runner.rs:870
+#: crates/helix-shell/src/ui/extensions_dialog.rs:124
 msgid "Extensions"
 msgstr ""
 
@@ -161,7 +253,9 @@ msgstr ""
 msgid "Shift was held at login."
 msgstr ""
 
+#. Translators: the end of a list, "keyboard, pointer and touchscreen".
 #: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/screencast_chooser.rs:133
 msgid ", "
 msgstr ""
 
@@ -210,6 +304,48 @@ msgstr ""
 msgid "Unnamed Folder"
 msgstr ""
 
+#: crates/helix-shell/src/geoclue_agent.rs:112
+msgid "Location Access"
+msgstr ""
+
+#: crates/helix-shell/src/geoclue_agent.rs:113
+msgid "{} wants to use your location."
+msgstr ""
+
+#: crates/helix-shell/src/geoclue_agent.rs:114
+msgid "Location access can be changed at any time from the privacy settings."
+msgstr ""
+
+#: crates/helix-shell/src/keyring_prompt.rs:22
+msgid "The passwords do not match."
+msgstr ""
+
+#: crates/helix-shell/src/keyring_prompt.rs:77
+#: crates/helix-shell/src/media.rs:323 crates/helix-shell/src/ui/lock.rs:549
+#: crates/helix-shell/src/ui/lock.rs:556
+msgid "Unlock"
+msgstr ""
+
+#: crates/helix-shell/src/keyring_prompt.rs:80
+#: crates/helix-shell/src/mount_handler.rs:171
+#: crates/helix-shell/src/network_agent.rs:189
+#: crates/helix-shell/src/network_agent.rs:190
+#: crates/helix-shell/src/network_agent.rs:192
+#: crates/helix-shell/src/network_agent.rs:194
+#: crates/helix-shell/src/polkit.rs:154 crates/helix-shell/src/ui/lock.rs:430
+#: crates/helix-shell/src/ui/lock.rs:553
+msgid "Password"
+msgstr ""
+
+#: crates/helix-shell/src/keyring_prompt.rs:81
+msgid "Confirm"
+msgstr ""
+
+#: crates/helix-shell/src/keyring_prompt.rs:84
+#: crates/helix-shell/src/ui/prompt.rs:593
+msgid "Continue"
+msgstr ""
+
 #: crates/helix-shell/src/launcher_entry.rs:77
 msgid "More"
 msgstr ""
@@ -224,12 +360,6 @@ msgstr ""
 
 #: crates/helix-shell/src/lib.rs:933
 msgid "Updates could not be scheduled"
-msgstr ""
-
-#: crates/helix-shell/src/lib.rs:1077
-#: crates/helix-shell/src/panel_layout.rs:219
-#: crates/helix-shell/src/ui/quick.rs:329
-msgid "Bluetooth"
 msgstr ""
 
 #: crates/helix-shell/src/lib.rs:1077
@@ -256,15 +386,6 @@ msgstr ""
 
 #: crates/helix-shell/src/lib.rs:1262
 msgid "Rename"
-msgstr ""
-
-#: crates/helix-shell/src/lib.rs:1263 crates/helix-shell/src/lib.rs:1351
-#: crates/helix-shell/src/notifications.rs:501
-#: crates/helix-shell/src/run_dialog.rs:183 crates/helix-shell/src/ui.rs:1038
-#: crates/helix-shell/src/ui.rs:1041 crates/helix-shell/src/ui.rs:2921
-#: crates/helix-shell/src/ui.rs:2922 crates/helix-shell/src/ui/atspi.rs:568
-#: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:580
-msgid "Cancel"
 msgstr ""
 
 #: crates/helix-shell/src/lib.rs:1348
@@ -297,12 +418,8 @@ msgstr ""
 msgid "Unlock {title}"
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:323 crates/helix-shell/src/ui/lock.rs:549
-#: crates/helix-shell/src/ui/lock.rs:556
-msgid "Unlock"
-msgstr ""
-
 #: crates/helix-shell/src/media.rs:365
+#: crates/helix-shell/src/mount_handler.rs:381
 msgid "In use by: {}"
 msgstr ""
 
@@ -329,6 +446,152 @@ msgstr ""
 
 #: crates/helix-shell/src/media.rs:522 crates/helix-shell/src/media.rs:565
 msgid "Cannot eject {name}"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:53
+msgid "Connect Anonymously"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:57
+msgid "PIM (optional)"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:59
+msgid "Hidden Volume"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:60
+msgid "Windows System Volume"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:138
+#: crates/helix-shell/src/obex.rs:497
+msgid "Choose"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:161
+msgid "User name (domain\\name)"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:163
+#: crates/helix-shell/src/network_agent.rs:209
+msgid "User name"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:164
+msgid "Domain"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:168
+msgid "Password Required"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:172
+msgid "Remember Password"
+msgstr ""
+
+#: crates/helix-shell/src/mount_handler.rs:173
+#: crates/helix-shell/src/network_agent.rs:212
+#: crates/helix-shell/src/network_agent.rs:447
+#: crates/helix-shell/src/vpn_secrets.rs:194
+msgid "Connect"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:83
+#: crates/helix-shell/src/network_agent.rs:191
+msgid "Private key password"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:84
+msgid "Certificate password"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:189
+#: crates/helix-shell/src/network_agent.rs:192
+msgid "A password is needed to connect to “{}”."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:190
+#: crates/helix-shell/src/network_agent.rs:194
+msgid "A user name and password are needed to connect to “{}”."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:191
+msgid ""
+"Your identity and the password of your private key are needed to connect to "
+"“{}”."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:193
+msgid "The SIM card's PIN is needed to connect to “{}”."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:197
+msgid "{} is needed to connect to “{}”."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:201
+msgid "Mobile Broadband"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:202
+msgid "DSL Connection"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:203
+msgid "Wired Network"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:204
+msgid "Wi-Fi Network"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:298
+msgid "Wrong password? Try again."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:311
+msgid "A user name is needed."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:322
+msgid "A PIN has 4 to 8 digits."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:322
+msgid "This password is not valid."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:345
+msgid "Network secret for {id}/{setting}/{key}"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:437
+msgid "The private key is needed to connect to “{name}”."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:438
+msgid "The preshared key for peer {peer}… is needed to connect to “{name}”."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:440
+msgid "Wrong key? Try again."
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:443
+msgid "WireGuard Connection"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:445
+msgid "Preshared key"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:445
+msgid "Private key"
+msgstr ""
+
+#: crates/helix-shell/src/network_agent.rs:467
+msgid "This key is not valid."
 msgstr ""
 
 #: crates/helix-shell/src/notifications.rs:81
@@ -402,6 +665,7 @@ msgstr ""
 
 #: crates/helix-shell/src/notifications.rs:229
 #: crates/helix-shell/src/notifications.rs:344
+#: crates/helix-shell/src/portal_dialog.rs:120
 #: crates/helix-shell/src/ui/dock.rs:1444
 #: crates/helix-shell/src/ui/dock.rs:1459
 #: crates/helix-shell/src/ui/dock.rs:1487
@@ -453,6 +717,7 @@ msgid "Reply"
 msgstr ""
 
 #: crates/helix-shell/src/notifications.rs:500
+#: crates/helix-shell/src/obex.rs:515
 msgid "Send"
 msgstr ""
 
@@ -461,10 +726,12 @@ msgid "Application"
 msgstr ""
 
 #: crates/helix-shell/src/notifications.rs:792
+#: crates/helix-shell/src/obex.rs:458
 msgid "Accept"
 msgstr ""
 
 #: crates/helix-shell/src/notifications.rs:793
+#: crates/helix-shell/src/obex.rs:459
 msgid "Decline"
 msgstr ""
 
@@ -478,6 +745,110 @@ msgstr ""
 
 #: crates/helix-shell/src/notifications.rs:796
 msgid "Speaker Off"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:242
+msgid "cannot connect to the device: {e}"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:253
+msgid "cannot send {name}: {e}"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:267
+msgid "{name} was not sent"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:450
+msgid "{device} wants to send you “{file}” ({size})."
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:452
+msgid "{device} wants to send you “{file}”."
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:455
+msgid "Receive a File?"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:457
+msgid "Accepted files are saved in Downloads."
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:469
+msgid "{name} (file {index} of {count}): {percent}"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:471
+msgid "{name}: {percent}"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:473
+msgid "Sending files to {device}"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:488
+msgid "No Bluetooth devices"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:488
+msgid "Pair a device to send files to it."
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:494
+msgid "Send Files"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:495
+msgid "Send files to which device?"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:523
+msgid "Choose Files to Send"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:555
+msgid "Connecting…"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:555
+msgid "Sending files to {name}"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:568
+msgid "1 file"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:568
+msgid "{} files"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:569
+msgid "Files sent to {name}"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:569
+msgid "Sent {what}."
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:573
+msgid "Sending failed"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:628
+msgid "File received"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:628
+msgid "“{file}” from {device} is in Downloads."
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:631
+msgid "File not received"
+msgstr ""
+
+#: crates/helix-shell/src/obex.rs:631
+msgid "“{}” from {} was not received."
 msgstr ""
 
 #: crates/helix-shell/src/offline_updates.rs:49
@@ -558,6 +929,34 @@ msgstr ""
 msgid "Do Not Disturb"
 msgstr ""
 
+#: crates/helix-shell/src/polkit.rs:24
+msgid "Sorry, that didn't work. Please try again."
+msgstr ""
+
+#: crates/helix-shell/src/polkit.rs:194
+msgid "cannot run the polkit helper: {e}"
+msgstr ""
+
+#: crates/helix-shell/src/polkit.rs:220 crates/helix-shell/src/polkit.rs:302
+msgid "Authentication Required"
+msgstr ""
+
+#: crates/helix-shell/src/polkit.rs:222
+msgid "Authenticating as {shown}"
+msgstr ""
+
+#: crates/helix-shell/src/polkit.rs:225
+msgid "Authenticate"
+msgstr ""
+
+#: crates/helix-shell/src/polkit.rs:304
+msgid "Choose the user to authenticate as."
+msgstr ""
+
+#: crates/helix-shell/src/polkit.rs:308
+msgid "Next"
+msgstr ""
+
 #: crates/helix-shell/src/power.rs:311
 msgid "The power button follows the power settings"
 msgstr ""
@@ -604,6 +1003,33 @@ msgstr ""
 
 #: crates/helix-shell/src/run_dialog.rs:182
 msgid "Run"
+msgstr ""
+
+#. Translators: "… wants to control your keyboard".
+#: crates/helix-shell/src/screencast_chooser.rs:122
+msgid "keyboard"
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:123
+msgid "pointer"
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:124
+msgid "touchscreen"
+msgstr ""
+
+#. Translators: "… wants to control your input".
+#: crates/helix-shell/src/screencast_chooser.rs:130
+msgid "input"
+msgstr ""
+
+#. Translators: the end of a list, "keyboard, pointer and touchscreen".
+#: crates/helix-shell/src/screencast_chooser.rs:133
+msgid "{list} and {last}"
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:160
+msgid "An application"
 msgstr ""
 
 #: crates/helix-shell/src/screenshot.rs:315
@@ -686,14 +1112,6 @@ msgstr ""
 
 #: crates/helix-shell/src/ui.rs:1044
 msgid "{app} wants to control your {devices}."
-msgstr ""
-
-#: crates/helix-shell/src/ui.rs:1045 crates/helix-shell/src/ui.rs:1052
-msgid "Deny"
-msgstr ""
-
-#: crates/helix-shell/src/ui.rs:1046 crates/helix-shell/src/ui.rs:1053
-msgid "Allow"
 msgstr ""
 
 #: crates/helix-shell/src/ui.rs:1050
@@ -1189,6 +1607,85 @@ msgid_plural "Quit {n} Windows"
 msgstr[0] ""
 msgstr[1] ""
 
+#: crates/helix-shell/src/ui/extensions_dialog.rs:53
+#: crates/helix-shell/src/ui/extensions_dialog.rs:178
+msgid "Settings"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:65
+msgid "Running"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:66
+msgid "Starting"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:67
+msgid "Not running"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:68
+msgid "Off for this session (Shift was held at login)"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:69
+msgid "Off"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:70
+msgid "Needs approval: turn it on to allow what it asks"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:71
+msgid "Cannot run: {reason}"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:72
+msgid "Stopped working"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:73
+msgid "Stopped working: {last}"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:129
+msgid "No extensions are installed."
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:153
+msgid "Sandboxed"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:153
+msgid "Sandboxed. Can: {}"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:155
+msgid "Full access: it can do anything you can"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:172
+msgid "None"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:178
+msgid "Hide Settings"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:223
+msgid "(empty)"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:234
+msgid "Scroll for more"
+msgstr ""
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:239
+#: crates/helix-shell/src/ui/extensions_dialog.rs:240
+#: crates/helix-shell/src/ui/panel_editor.rs:178
+msgid "Done"
+msgstr ""
+
 #: crates/helix-shell/src/ui/lock.rs:113
 msgid "Caps Lock is on"
 msgstr ""
@@ -1215,10 +1712,6 @@ msgstr ""
 
 #: crates/helix-shell/src/ui/lock.rs:370
 msgid "Press a key or click to unlock"
-msgstr ""
-
-#: crates/helix-shell/src/ui/lock.rs:430 crates/helix-shell/src/ui/lock.rs:553
-msgid "Password"
 msgstr ""
 
 #: crates/helix-shell/src/ui/lock.rs:562
@@ -1259,10 +1752,6 @@ msgid "Hidden"
 msgstr ""
 
 #: crates/helix-shell/src/ui/panel_editor.rs:178
-msgid "Done"
-msgstr ""
-
-#: crates/helix-shell/src/ui/panel_editor.rs:178
 msgid "Reset"
 msgstr ""
 
@@ -1272,6 +1761,30 @@ msgstr ""
 
 #: crates/helix-shell/src/ui/panel_editor.rs:284
 msgid "Extensions…"
+msgstr ""
+
+#: crates/helix-shell/src/ui/prompt.rs:499
+msgid "No preview"
+msgstr ""
+
+#: crates/helix-shell/src/ui/prompt.rs:548
+msgid "Hide"
+msgstr ""
+
+#: crates/helix-shell/src/ui/prompt.rs:548
+msgid "Show"
+msgstr ""
+
+#: crates/helix-shell/src/ui/prompt.rs:583
+msgid "Authenticating…"
+msgstr ""
+
+#: crates/helix-shell/src/ui/prompt.rs:630
+msgid "Places"
+msgstr ""
+
+#: crates/helix-shell/src/ui/prompt.rs:653
+msgid "Show Password"
 msgstr ""
 
 #: crates/helix-shell/src/ui/quick.rs:21
@@ -1398,6 +1911,26 @@ msgstr ""
 
 #: crates/helix-shell/src/ui/workspace_popup.rs:22
 msgid "Workspace {}"
+msgstr ""
+
+#: crates/helix-shell/src/usb_protection.rs:91
+msgid "A USB device was plugged in while it is not allowed."
+msgstr ""
+
+#: crates/helix-shell/src/usb_protection.rs:91
+msgid "USB Protection"
+msgstr ""
+
+#: crates/helix-shell/src/usb_protection.rs:91
+msgid "USB device blocked"
+msgstr ""
+
+#: crates/helix-shell/src/vpn_secrets.rs:192
+msgid "VPN Connection"
+msgstr ""
+
+#: crates/helix-shell/src/vpn_secrets.rs:193
+msgid "A password is needed to connect to “{name}”."
 msgstr ""
 
 #: crates/helix-shell/src/weather.rs:63

@@ -14,11 +14,12 @@ use zbus::{interface, Connection};
 use crate::prompt::{self, Answer, Prompt};
 use crate::secret_exchange::Exchange;
 use crate::UiEvent;
+use helix_i18n::{n_, tr};
 
 pub const BUS_NAME: &str = "org.gnome.keyring.SystemPrompter";
 pub const OBJECT_PATH: &str = "/org/gnome/keyring/Prompter";
 const CALLBACK: &str = "org.gnome.keyring.internal.Prompter.Callback";
-const MISMATCH: &str = "The passwords do not match.";
+const MISMATCH: &str = n_("The passwords do not match.");
 
 #[derive(Debug, zbus::DBusError)]
 #[zbus(prefix = "org.gnome.keyring.Prompter")]
@@ -73,15 +74,15 @@ impl Props {
     pub fn prompt(&self, password: bool) -> Prompt {
         let or = |s: &str, d: &str| if s.is_empty() { d.to_owned() } else { s.to_owned() };
         Prompt {
-            title: or(&self.title, "Unlock"),
+            title: or(&self.title, tr("Unlock")),
             message: self.message.clone(),
             description: self.description.clone(),
-            password: password.then(|| "Password".to_owned()),
-            confirm: (password && self.password_new).then(|| "Confirm".to_owned()),
+            password: password.then(|| tr("Password").to_owned()),
+            confirm: (password && self.password_new).then(|| tr("Confirm").to_owned()),
             choice: (!self.choice_label.is_empty()).then(|| (self.choice_label.clone(), self.choice_chosen)),
             warning: self.warning.clone(),
-            continue_label: or(&self.continue_label, "Continue"),
-            cancel_label: or(&self.cancel_label, "Cancel"),
+            continue_label: or(&self.continue_label, tr("Continue")),
+            cancel_label: or(&self.cancel_label, tr("Cancel")),
             ..Prompt::default()
         }
     }
@@ -241,7 +242,7 @@ impl Prompter {
             let answer = loop {
                 match prompt::ask(&ui, dialog.clone()).await {
                     Answer::Continue { password: Some(p), confirm: Some(c), choice, .. } if p.bytes() != c.bytes() => {
-                        dialog.warning = MISMATCH.into();
+                        dialog.warning = tr(MISMATCH).into();
                         dialog.choice = dialog.choice.map(|(l, _)| (l, choice));
                     }
                     other => break other,

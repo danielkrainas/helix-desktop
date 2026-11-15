@@ -14,6 +14,8 @@ use zbus::{interface, Connection};
 
 use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 pub const AGENT_PATH: &str = "/org/freedesktop/NetworkManager/SecretAgent";
 const NM: &str = "org.freedesktop.NetworkManager";
@@ -78,8 +80,8 @@ const EAP_SECRETS: [&str; 7] = [
 fn eap_secret_names(key: &str) -> (&'static str, &'static str) {
     match key {
         "pin" => ("the smart card's PIN", "PIN"),
-        k if k.ends_with("private-key-password") => ("the password of your private key", "Private key password"),
-        _ => ("the certificate's password", "Certificate password"),
+        k if k.ends_with("private-key-password") => ("the password of your private key", tr("Private key password")),
+        _ => ("the certificate's password", tr("Certificate password")),
     }
 }
 
@@ -184,31 +186,31 @@ fn capitalize(s: &str) -> String {
 /// The dialog for `need`.
 pub fn prompt_for(need: &Need, user: &str, warning: String) -> Prompt {
     let (message, password) = match need.wanted {
-        Wanted::Psk | Wanted::Wep => (format!("A password is needed to connect to “{}”.", need.name), "Password"),
-        Wanted::Leap | Wanted::Eap { tls: false } => (format!("A user name and password are needed to connect to “{}”.", need.name), "Password"),
-        Wanted::Eap { tls: true } => (format!("Your identity and the password of your private key are needed to connect to “{}”.", need.name), "Private key password"),
-        Wanted::Mobile { .. } => (format!("A password is needed to connect to “{}”.", need.name), "Password"),
-        Wanted::Pin => (format!("The SIM card's PIN is needed to connect to “{}”.", need.name), "PIN"),
-        Wanted::Pppoe => (format!("A user name and password are needed to connect to “{}”.", need.name), "Password"),
+        Wanted::Psk | Wanted::Wep => (trf!("A password is needed to connect to “{}”.", need.name), tr("Password")),
+        Wanted::Leap | Wanted::Eap { tls: false } => (trf!("A user name and password are needed to connect to “{}”.", need.name), tr("Password")),
+        Wanted::Eap { tls: true } => (trf!("Your identity and the password of your private key are needed to connect to “{}”.", need.name), tr("Private key password")),
+        Wanted::Mobile { .. } => (trf!("A password is needed to connect to “{}”.", need.name), tr("Password")),
+        Wanted::Pin => (trf!("The SIM card's PIN is needed to connect to “{}”.", need.name), "PIN"),
+        Wanted::Pppoe => (trf!("A user name and password are needed to connect to “{}”.", need.name), tr("Password")),
         Wanted::EapSecret(key) => {
             let (what, field) = eap_secret_names(key);
-            (format!("{} is needed to connect to “{}”.", capitalize(what), need.name), field)
+            (trf!("{} is needed to connect to “{}”.", capitalize(what), need.name), field)
         }
     };
     let title = match need.wanted {
-        Wanted::Mobile { .. } | Wanted::Pin => "Mobile Broadband",
-        Wanted::Pppoe => "DSL Connection",
-        _ if need.wired => "Wired Network",
-        _ => "Wi-Fi Network",
+        Wanted::Mobile { .. } | Wanted::Pin => tr("Mobile Broadband"),
+        Wanted::Pppoe => tr("DSL Connection"),
+        _ if need.wired => tr("Wired Network"),
+        _ => tr("Wi-Fi Network"),
     };
     Prompt {
         title: title.into(),
         message,
-        entry: need.wanted.needs_user().then(|| ("User name".to_owned(), user.to_owned())),
+        entry: need.wanted.needs_user().then(|| (tr("User name").to_owned(), user.to_owned())),
         password: Some(password.into()),
         warning,
-        continue_label: "Connect".into(),
-        cancel_label: "Cancel".into(),
+        continue_label: tr("Connect").into(),
+        cancel_label: tr("Cancel").into(),
         ..Prompt::default()
     }
 }
@@ -293,7 +295,7 @@ impl Agent {
         let (cancel_tx, mut cancel_rx) = oneshot::channel();
         self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone(), cancel_tx);
         let _turn = prompt::turn().await;
-        let mut warning = if flags & REQUEST_NEW != 0 { "Wrong password? Try again.".to_owned() } else { String::new() };
+        let mut warning = if flags & REQUEST_NEW != 0 { tr("Wrong password? Try again.").to_owned() } else { String::new() };
         let mut user = need.user.clone();
         let result = loop {
             let ask = prompt::ask(&self.ui, prompt_for(&need, &user, warning.clone()));
@@ -306,7 +308,7 @@ impl Agent {
                     let password = String::from_utf8_lossy(p.bytes()).into_owned();
                     user = entry.unwrap_or_default().trim().to_owned();
                     if need.wanted.needs_user() && user.is_empty() {
-                        warning = "A user name is needed.".into();
+                        warning = tr("A user name is needed.").into();
                         continue;
                     }
                     if need.wanted.valid(&password) {
@@ -317,7 +319,7 @@ impl Agent {
                         }
                         break Ok(HashMap::from([(setting.to_owned(), secret)]));
                     }
-                    warning = if need.wanted == Wanted::Pin { "A PIN has 4 to 8 digits.".into() } else { "This password is not valid.".into() };
+                    warning = if need.wanted == Wanted::Pin { tr("A PIN has 4 to 8 digits.").into() } else { tr("This password is not valid.").into() };
                 }
                 _ => break Err(AgentError::UserCanceled("canceled".into())),
             }
@@ -340,7 +342,7 @@ impl Agent {
         let Ok(secrets) = crate::secret_service::Secrets::open(session).await else { return };
         for (setting, key, value) in agent_owned(&connection) {
             let attrs = HashMap::from([("xdg:schema", SCHEMA), (ATTR_UUID, uuid.as_str()), (ATTR_SETTING, setting.as_str()), (ATTR_KEY, key.as_str())]);
-            if let Err(err) = secrets.store(&format!("Network secret for {id}/{setting}/{key}"), &attrs, value.as_bytes()).await {
+            if let Err(err) = secrets.store(&trf!("Network secret for {id}/{setting}/{key}", id = id, setting = setting, key = key), &attrs, value.as_bytes()).await {
                 tracing::warn!(%err, setting, key, "cannot keep a network secret");
             }
         }
@@ -432,18 +434,18 @@ impl Agent {
         let mut result = Ok(());
         'secrets: for secret in &wanted {
             let message = match secret {
-                WgSecret::PrivateKey => format!("The private key is needed to connect to “{name}”."),
-                WgSecret::Preshared(peer) => format!("The preshared key for peer {}… is needed to connect to “{name}”.", peer.chars().take(8).collect::<String>()),
+                WgSecret::PrivateKey => trf!("The private key is needed to connect to “{name}”.", name = name),
+                WgSecret::Preshared(peer) => trf!("The preshared key for peer {peer}… is needed to connect to “{name}”.", peer = peer.chars().take(8).collect::<String>(), name = name),
             };
-            let mut warning = if flags & REQUEST_NEW != 0 { "Wrong key? Try again.".to_owned() } else { String::new() };
+            let mut warning = if flags & REQUEST_NEW != 0 { tr("Wrong key? Try again.").to_owned() } else { String::new() };
             loop {
                 let prompt = Prompt {
-                    title: "WireGuard Connection".into(),
+                    title: tr("WireGuard Connection").into(),
                     message: message.clone(),
-                    password: Some(if *secret == WgSecret::PrivateKey { "Private key".into() } else { "Preshared key".into() }),
+                    password: Some(if *secret == WgSecret::PrivateKey { tr("Private key").into() } else { tr("Preshared key").into() }),
                     warning: warning.clone(),
-                    continue_label: "Connect".into(),
-                    cancel_label: "Cancel".into(),
+                    continue_label: tr("Connect").into(),
+                    cancel_label: tr("Cancel").into(),
                     ..Prompt::default()
                 };
                 let answer = tokio::select! {
@@ -462,7 +464,7 @@ impl Agent {
                     answers.push((secret.clone(), value));
                     break;
                 }
-                warning = "This key is not valid.".into();
+                warning = tr("This key is not valid.").into();
             }
         }
         prompt::done(&self.ui);

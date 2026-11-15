@@ -12,6 +12,8 @@ use zbus::{interface, Connection};
 use crate::notifications::Center;
 use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 pub const AGENT_PATH: &str = "/org/helix/BluetoothAgent";
 const BLUEZ: &str = "org.bluez";
@@ -61,9 +63,9 @@ impl Agent {
         match proxy {
             Ok(p) => match p.get_property::<String>("Alias").await {
                 Ok(alias) => alias,
-                Err(_) => p.get_property::<String>("Address").await.unwrap_or_else(|_| "A device".into()),
+                Err(_) => p.get_property::<String>("Address").await.unwrap_or_else(|_| tr("A device").into()),
             },
-            Err(_) => "A device".into(),
+            Err(_) => tr("A device").into(),
         }
     }
 
@@ -94,12 +96,12 @@ impl Agent {
         let mut warning = String::new();
         loop {
             let prompt = Prompt {
-                title: format!("Pair with {name}"),
-                message: format!("Type the code {name} asks for."),
+                title: trf!("Pair with {name}", name = name),
+                message: trf!("Type the code {name} asks for.", name = name),
                 password: Some(field.into()),
                 warning: warning.clone(),
-                continue_label: "Pair".into(),
-                cancel_label: "Cancel".into(),
+                continue_label: tr("Pair").into(),
+                cancel_label: tr("Cancel").into(),
                 ..Prompt::default()
             };
             match self.ask(prompt).await {
@@ -108,7 +110,7 @@ impl Agent {
                     if check(&text) {
                         return Ok(text);
                     }
-                    warning = "This code is not valid.".into();
+                    warning = tr("This code is not valid.").into();
                 }
                 Asked::Answer(_) => return Err(AgentError::Rejected("refused".into())),
                 Asked::Canceled => return Err(AgentError::Canceled("canceled".into())),
@@ -119,7 +121,7 @@ impl Agent {
     fn show_code(&self, name: &str, code: &str) {
         let mut notice = self.notice.lock().unwrap_or_else(|e| e.into_inner());
         if notice.is_none() {
-            *notice = Some(self.center.notice("Bluetooth", &format!("Pair with {name}"), &format!("Type {code} on {name}, then press Enter."), "bluetooth-active-symbolic", false));
+            *notice = Some(self.center.notice(tr("Bluetooth"), &trf!("Pair with {name}", name = name), &trf!("Type {code} on {name}, then press Enter.", code = code, name = name), "bluetooth-active-symbolic", false));
         }
     }
 
@@ -148,7 +150,7 @@ impl Agent {
 
     async fn request_passkey(&self, device: ObjectPath<'_>) -> Result<u32, AgentError> {
         let name = self.name(&device).await;
-        let text = self.code(&name, "Passkey", |t| parse_passkey(t).is_some()).await?;
+        let text = self.code(&name, tr("Passkey"), |t| parse_passkey(t).is_some()).await?;
         parse_passkey(&text).ok_or_else(|| AgentError::Rejected("not a passkey".into()))
     }
 
@@ -160,17 +162,17 @@ impl Agent {
     async fn request_confirmation(&self, device: ObjectPath<'_>, passkey: u32) -> Result<(), AgentError> {
         let name = self.name(&device).await;
         tracing::info!(name, "Bluetooth pairing confirmation");
-        self.yes_no(format!("Pair with {name}?"), format!("Confirm that {} is shown on {name}.", passkey_text(passkey)), "Pair", "Cancel").await
+        self.yes_no(trf!("Pair with {name}?", name = name), trf!("Confirm that {code} is shown on {name}.", code = passkey_text(passkey), name = name), tr("Pair"), tr("Cancel")).await
     }
 
     async fn request_authorization(&self, device: ObjectPath<'_>) -> Result<(), AgentError> {
         let name = self.name(&device).await;
-        self.yes_no(name.clone(), format!("{name} wants to pair with this computer."), "Allow", "Deny").await
+        self.yes_no(name.clone(), trf!("{name} wants to pair with this computer.", name = name), tr("Allow"), tr("Deny")).await
     }
 
     async fn authorize_service(&self, device: ObjectPath<'_>, _uuid: String) -> Result<(), AgentError> {
         let name = self.name(&device).await;
-        self.yes_no(name.clone(), format!("{name} wants to connect to this computer."), "Allow", "Deny").await
+        self.yes_no(name.clone(), trf!("{name} wants to connect to this computer.", name = name), tr("Allow"), tr("Deny")).await
     }
 
     async fn cancel(&self) {

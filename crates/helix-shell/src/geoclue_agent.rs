@@ -13,6 +13,8 @@ use zbus::{interface, Connection};
 use crate::location::LOCATION;
 use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
+use helix_i18n::tr;
+use helix_i18n::trf;
 
 pub const AGENT_PATH: &str = "/org/freedesktop/GeoClue2/Agent";
 /// The id GeoClue's configuration lists for the GNOME shell.
@@ -107,11 +109,11 @@ impl Agent {
                 let answer = prompt::ask(
                     &self.ui,
                     Prompt {
-                        title: "Location Access".into(),
-                        message: format!("{} wants to use your location.", name.unwrap_or_default()),
-                        description: "Location access can be changed at any time from the privacy settings.".into(),
-                        continue_label: "Allow".into(),
-                        cancel_label: "Deny".into(),
+                        title: tr("Location Access").into(),
+                        message: trf!("{} wants to use your location.", name.unwrap_or_default()),
+                        description: tr("Location access can be changed at any time from the privacy settings.").into(),
+                        continue_label: tr("Allow").into(),
+                        cancel_label: tr("Deny").into(),
                         ..Prompt::default()
                     },
                 )

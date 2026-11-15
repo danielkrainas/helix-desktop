@@ -9,6 +9,7 @@ use tokio::sync::oneshot;
 use super::{accent, accent_fill, baseline, caret, label, on_accent, text_field, physical, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, DIM_FG, FG, FIELD_BG, SCRIM, ERROR_TEXT};
 use crate::auth::Secret;
 use crate::prompt::{Answer, Prompt, Request};
+use helix_i18n::tr;
 
 const LIST_ROW: i32 = 32;
 const LIST_SHOWN: usize = 10;
@@ -495,7 +496,7 @@ impl Ui {
                 let (iw, ih) = (image.width as f64 * k, image.height as f64 * k);
                 canvas.image(f64::from(area.x) + (f64::from(area.w) - iw) / 2.0, f64::from(area.y) + (f64::from(area.h) - ih) / 2.0, iw, ih, image);
             } else {
-                let none = "No preview";
+                let none = tr("No preview");
                 let tw = text.map_or(0.0, |t| t.width(none, 13.0));
                 label(text, &mut canvas, none, area.x as f32 + (area.w as f32 - tw) / 2.0, baseline(text, area.y, area.h, 13.0), 13.0, DIM_FG, inner);
             }
@@ -544,7 +545,7 @@ impl Ui {
             }
             if view.can_show {
                 let b = Rect { x: r.x + r.w - SHOW_W, y: r.y, w: SHOW_W, h: r.h };
-                let s = if view.shown[index] { "Hide" } else { "Show" };
+                let s = if view.shown[index] { tr("Hide") } else { tr("Show") };
                 let lw = text.map_or(0.0, |t| t.width(s, 13.0));
                 label(text, &mut canvas, s, b.x as f32 + (b.w as f32 - lw) / 2.0, baseline(text, b.y, b.h, 13.0), 13.0, DIM_FG, b.w as f32);
                 if view.focus == SHOW_FOCUS + index && !view.busy {
@@ -579,7 +580,7 @@ impl Ui {
             hits.push((r, OverlayHit::Check(i)));
             y += grow(34);
         }
-        let status = if view.busy { "Authenticating…" } else { p.warning.as_str() };
+        let status = if view.busy { tr("Authenticating…") } else { p.warning.as_str() };
         if !status.is_empty() {
             let color = if view.busy { DIM_FG } else { ERROR_TEXT };
             label(text, &mut canvas, status, center(status, 13.0), (y + grow(14)) as f32, 13.0, color, inner);
@@ -588,8 +589,8 @@ impl Ui {
         let half = (bw - 24 * 2 - 12) / 2;
         let cancel = Rect { x: bx + 24, y: by2, w: half, h: grow(36) };
         let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: grow(36) };
-        let cancel_label = if p.cancel_label.is_empty() { "Cancel" } else { &p.cancel_label };
-        let confirm_label = if p.continue_label.is_empty() { "Continue" } else { &p.continue_label };
+        let cancel_label = if p.cancel_label.is_empty() { tr("Cancel") } else { &p.cancel_label };
+        let confirm_label = if p.continue_label.is_empty() { tr("Continue") } else { &p.continue_label };
         // Rounded buttons; the confirm button is the default one (the
         // suggested style; Enter presses it).
         use helix_draw::screen::{push_button, ButtonKind, ButtonState};
@@ -626,7 +627,7 @@ fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, c
     }
     if !p.places.is_empty() {
         let places = p.places.iter().enumerate().take(PLACES_SHOWN).map(|(i, name)| Node::button(name, at(OverlayHit::Place(i))).selected(p.place_current == Some(i)));
-        out = out.child(Node::new(Role::List, "Places").children(places));
+        out = out.child(Node::new(Role::List, tr("Places")).children(places));
     }
     if !p.list.is_empty() {
         let list_focused = view.focus == 2 && p.choice.is_none() && !view.busy;
@@ -649,7 +650,7 @@ fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, c
         };
         out = out.child(node.id(format!("password:{index}")).focused(typing(index)));
         if view.can_show {
-            out = out.child(Node::new(Role::Button, "Show Password").id(format!("show:{index}")).at(at(OverlayHit::ShowPassword(index))).click().toggled(view.shown[index]).focusable().focused(view.focus == SHOW_FOCUS + index && !view.busy));
+            out = out.child(Node::new(Role::Button, tr("Show Password")).id(format!("show:{index}")).at(at(OverlayHit::ShowPassword(index))).click().toggled(view.shown[index]).focusable().focused(view.focus == SHOW_FOCUS + index && !view.busy));
         }
     }
     if let Some((name, _)) = &p.choice {

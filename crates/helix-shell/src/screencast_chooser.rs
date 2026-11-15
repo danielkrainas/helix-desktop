@@ -12,6 +12,7 @@ use zbus::message::Header;
 use zbus::{interface, Connection};
 
 use crate::UiEvent;
+use helix_i18n::tr;
 
 pub const OBJECT_PATH: &str = "/org/helix/ScreenCastChooser";
 const ALLOWED_CALLER: &str = "org.freedesktop.impl.portal.desktop.helix";
@@ -114,10 +115,22 @@ pub fn find_window(windows: &WindowInfo, app_id: &str, title: &str) -> Option<u3
 
 /// "keyboard and pointer", "keyboard, pointer and touchscreen".
 pub fn device_list(devices: &[String]) -> String {
-    match devices {
-        [] => "input".into(),
+    // The portal names the devices in English (`keyboard`, `pointer`,
+    // `touchscreen`); they are translated here, where they are shown.
+    let name = |d: &String| match d.as_str() {
+        // Translators: "… wants to control your keyboard".
+        "keyboard" => helix_i18n::tr("keyboard").to_owned(),
+        "pointer" => helix_i18n::tr("pointer").to_owned(),
+        "touchscreen" => helix_i18n::tr("touchscreen").to_owned(),
+        other => other.to_owned(),
+    };
+    let names: Vec<String> = devices.iter().map(name).collect();
+    match names.as_slice() {
+        // Translators: "… wants to control your input".
+        [] => helix_i18n::tr("input").into(),
         [one] => one.clone(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        // Translators: the end of a list, "keyboard, pointer and touchscreen".
+        [rest @ .., last] => helix_i18n::trf!("{list} and {last}", list = rest.join(helix_i18n::tr(", ")), last = last),
     }
 }
 
@@ -144,7 +157,7 @@ impl PartialEq for QuestionSlot {
 /// The app as the user knows it.
 pub fn app_label(app_id: &str) -> String {
     if app_id.is_empty() {
-        return "An application".into();
+        return tr("An application").into();
     }
     crate::windows::app_names().get(&app_id.to_lowercase()).cloned().unwrap_or_else(|| app_id.to_owned())
 }
