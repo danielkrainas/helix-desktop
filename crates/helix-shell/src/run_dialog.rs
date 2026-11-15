@@ -57,11 +57,10 @@ pub fn with_command(mut history: Vec<String>, command: &str) -> Vec<String> {
 }
 
 fn history() -> Vec<String> {
-    use gio::prelude::*;
     if !helix_settings::has_schema(SHELL) {
         return Vec::new();
     }
-    let s = gio::Settings::new(SHELL);
+    let s = helix_settings::Settings::new(SHELL);
     if !s.settings_schema().is_some_and(|x| x.has_key("command-history")) {
         return Vec::new();
     }
@@ -69,9 +68,8 @@ fn history() -> Vec<String> {
 }
 
 fn save_history(list: &[String]) {
-    use gio::prelude::*;
     if helix_settings::has_schema(SHELL) {
-        let s = gio::Settings::new(SHELL);
+        let s = helix_settings::Settings::new(SHELL);
         if s.settings_schema().is_some_and(|x| x.has_key("command-history")) {
             let refs: Vec<&str> = list.iter().map(String::as_str).collect();
             let _ = s.set_strv("command-history", refs);

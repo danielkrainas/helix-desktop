@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use gio::prelude::*;
 use tokio::sync::mpsc;
 use zbus::Connection;
 
@@ -185,7 +184,7 @@ fn break_settings(kind: Kind) -> Option<BreakSettings> {
     if !helix_settings::has_schema(&id) {
         return None;
     }
-    let s = gio::Settings::new(&id);
+    let s = helix_settings::Settings::new(&id);
     let secs = |k: &str| u64::from(s.uint(k));
     Some(BreakSettings {
         interval: secs("interval-seconds"),
@@ -206,7 +205,7 @@ fn selected_breaks() -> Vec<(Kind, BreakSettings)> {
     if !helix_settings::has_schema(BREAKS) {
         return Vec::new();
     }
-    let selected: Vec<String> = gio::Settings::new(BREAKS).strv("selected-breaks").iter().map(|s| s.to_string()).collect();
+    let selected: Vec<String> = helix_settings::Settings::new(BREAKS).strv("selected-breaks").iter().map(|s| s.to_string()).collect();
     [Kind::Eyesight, Kind::Movement]
         .into_iter()
         .filter(|k| selected.iter().any(|s| s == k.key()))
@@ -265,14 +264,14 @@ fn limits() -> Option<Limits> {
     if !helix_settings::has_schema(LIMITS) {
         return None;
     }
-    let s = gio::Settings::new(LIMITS);
+    let s = helix_settings::Settings::new(LIMITS);
     Some(Limits { history: s.boolean("history-enabled"), enabled: s.boolean("daily-limit-enabled"), limit: u64::from(s.uint("daily-limit-seconds")), grayscale: s.boolean("grayscale") })
 }
 
 /// Seconds of idleness after which time stops counting as screen time.
 fn screen_idle_limit() -> u64 {
     const SESSION: &str = "org.gnome.desktop.session";
-    let delay = if helix_settings::has_schema(SESSION) { u64::from(gio::Settings::new(SESSION).uint("idle-delay")) } else { 0 };
+    let delay = if helix_settings::has_schema(SESSION) { u64::from(helix_settings::Settings::new(SESSION).uint("idle-delay")) } else { 0 };
     if delay == 0 { 300 } else { delay }
 }
 

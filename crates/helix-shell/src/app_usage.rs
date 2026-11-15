@@ -23,11 +23,10 @@ fn now() -> i64 {
 
 /// `remember-app-usage` (true without the key).
 pub fn enabled() -> bool {
-    use gio::prelude::*;
     if !helix_settings::has_schema(SCHEMA) {
         return true;
     }
-    let s = gio::Settings::new(SCHEMA);
+    let s = helix_settings::Settings::new(SCHEMA);
     !s.settings_schema().is_some_and(|x| x.has_key("remember-app-usage")) || s.boolean("remember-app-usage")
 }
 

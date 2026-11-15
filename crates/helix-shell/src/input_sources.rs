@@ -32,8 +32,8 @@ pub fn with_front(mru: &[Source], chosen: &Source) -> Vec<Source> {
     out
 }
 
-fn settings(schema: &str) -> Option<gio::Settings> {
-    helix_settings::has_schema(schema).then(|| gio::Settings::new(schema))
+fn settings(schema: &str) -> Option<helix_settings::Settings> {
+    helix_settings::has_schema(schema).then(|| helix_settings::Settings::new(schema))
 }
 
 /// The XKB rules listing layouts and variants with their descriptions.
@@ -143,7 +143,7 @@ pub fn per_window() -> bool {
     gio::SettingsSchemaSource::default()
         .and_then(|s| s.lookup(INPUT_SOURCES, true))
         .filter(|s| s.has_key("per-window"))
-        .is_some_and(|_| gio::Settings::new(INPUT_SOURCES).boolean("per-window"))
+        .is_some_and(|_| helix_settings::Settings::new(INPUT_SOURCES).boolean("per-window"))
 }
 
 /// The active source.

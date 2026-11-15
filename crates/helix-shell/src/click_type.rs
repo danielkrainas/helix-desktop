@@ -21,11 +21,10 @@ pub fn window_wanted(dwell: bool, mode: &str, visible: bool) -> bool {
 }
 
 fn read() -> bool {
-    use gio::prelude::*;
     if !helix_settings::has_schema(SCHEMA) {
         return false;
     }
-    let s = gio::Settings::new(SCHEMA);
+    let s = helix_settings::Settings::new(SCHEMA);
     window_wanted(s.boolean("dwell-click-enabled"), &s.string("dwell-mode"), s.boolean("click-type-window-visible"))
 }
 

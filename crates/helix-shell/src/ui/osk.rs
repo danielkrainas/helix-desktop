@@ -234,8 +234,7 @@ fn active_layout() -> (String, String) {
 }
 
 fn enabled() -> bool {
-    use gio::prelude::*;
-    helix_settings::has_schema(A11Y_APPS) && gio::Settings::new(A11Y_APPS).boolean("screen-keyboard-enabled")
+    helix_settings::has_schema(A11Y_APPS) && helix_settings::Settings::new(A11Y_APPS).boolean("screen-keyboard-enabled")
 }
 
 pub(super) struct Osk {

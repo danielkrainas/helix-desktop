@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use gio::prelude::*;
 use zbus::zvariant::OwnedValue;
 use zbus::Connection;
 
@@ -44,7 +43,7 @@ pub fn location(lat: f64, lon: f64) -> Option<(f64, f64)> {
 pub fn read() -> Settings {
     let d = Settings::default();
     let Some(schema) = gio::SettingsSchemaSource::default().and_then(|s| s.lookup(SCHEMA, true)) else { return d };
-    let s = gio::Settings::new(SCHEMA);
+    let s = helix_settings::Settings::new(SCHEMA);
     let has = |k: &str| schema.has_key(k);
     Settings {
         enabled: if has("night-light-enabled") { s.boolean("night-light-enabled") } else { d.enabled },

@@ -26,12 +26,11 @@ pub const LAUNCH_LINGER: Duration = Duration::from_millis(250);
 
 /// `org.gnome.desktop.interface enable-animations` (true without it).
 pub fn animations_enabled() -> bool {
-    use gio::prelude::*;
     const SCHEMA: &str = "org.gnome.desktop.interface";
     if !helix_settings::has_schema(SCHEMA) {
         return true;
     }
-    let s = gio::Settings::new(SCHEMA);
+    let s = helix_settings::Settings::new(SCHEMA);
     !s.settings_schema().is_some_and(|k| k.has_key("enable-animations")) || s.boolean("enable-animations")
 }
 
@@ -39,10 +38,9 @@ pub fn animations_enabled() -> bool {
 /// `org.gnome.desktop.a11y.interface reduced-motion` (no preference
 /// without that key).
 pub fn motion() -> helix_draw::motion::Motion {
-    use gio::prelude::*;
     const A11Y: &str = "org.gnome.desktop.a11y.interface";
     let reduce = helix_settings::has_schema(A11Y) && {
-        let s = gio::Settings::new(A11Y);
+        let s = helix_settings::Settings::new(A11Y);
         s.settings_schema().is_some_and(|k| k.has_key("reduced-motion")) && s.string("reduced-motion") == "reduce"
     };
     helix_draw::motion::Motion::from_settings(animations_enabled(), reduce)

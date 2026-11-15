@@ -30,8 +30,8 @@ pub struct FolderSpec {
     pub excluded: Vec<String>,
 }
 
-fn settings(schema: &str) -> Option<gio::Settings> {
-    gio::SettingsSchemaSource::default()?.lookup(schema, true).map(|_| gio::Settings::new(schema))
+fn settings(schema: &str) -> Option<helix_settings::Settings> {
+    gio::SettingsSchemaSource::default()?.lookup(schema, true).map(|_| helix_settings::Settings::new(schema))
 }
 
 fn strv(s: &gio::Settings, key: &str) -> Vec<String> {
@@ -68,7 +68,7 @@ fn directory_name(file: &str) -> Option<String> {
 
 /// The favorites (desktop file ids, in order).
 pub fn favorites() -> Vec<String> {
-    settings(SHELL).filter(|s| s.settings_schema().is_some_and(|x| x.has_key("favorite-apps"))).map(|s| strv(&s, "favorite-apps")).unwrap_or_default()
+    settings(SHELL).filter(|s| s.settings_schema().is_some_and(|x| x.has_key("favorite-apps"))).map(|s| s.strv("favorite-apps")).unwrap_or_default()
 }
 
 /// Replace the favorites (desktop file ids, in order).
@@ -82,7 +82,7 @@ pub fn set_favorites(list: &[String]) {
 /// Add `id` to the favorites, or remove it; true when it is one now.
 pub fn toggle_favorite(id: &str) -> bool {
     let Some(s) = settings(SHELL).filter(|s| s.settings_schema().is_some_and(|x| x.has_key("favorite-apps"))) else { return false };
-    let mut list = strv(&s, "favorite-apps");
+    let mut list = s.strv("favorite-apps");
     let now = if let Some(i) = list.iter().position(|f| f == id) {
         list.remove(i);
         false
@@ -121,7 +121,7 @@ pub fn folder_name(spec: &FolderSpec) -> String {
 pub fn folders(apps: &[App]) -> Vec<Folder> {
     let Some(parent) = settings(FOLDERS) else { return Vec::new() };
     let Some(schema) = gio::SettingsSchemaSource::default().and_then(|s| s.lookup(FOLDER, true)) else { return Vec::new() };
-    strv(&parent, "folder-children")
+    parent.strv("folder-children")
         .into_iter()
         .filter_map(|id| {
             let path = format!("/org/gnome/desktop/app-folders/folders/{id}/");
@@ -142,7 +142,7 @@ fn folder_settings(id: &str) -> Option<gio::Settings> {
 /// A new folder `name` holding `apps`; its id.
 pub fn create_folder(name: &str, apps: &[String]) -> Option<String> {
     let parent = settings(FOLDERS)?;
-    let mut children = strv(&parent, "folder-children");
+    let mut children = parent.strv("folder-children");
     let base: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     let base = if base.is_empty() { tr("Folder").to_owned() } else { base };
     let mut id = base.clone();
@@ -214,7 +214,7 @@ pub fn rename_folder(id: &str, name: &str) {
 /// Remove folder `id` (its settings reset).
 pub fn delete_folder(id: &str) {
     if let Some(parent) = settings(FOLDERS) {
-        let children: Vec<String> = strv(&parent, "folder-children").into_iter().filter(|c| c != id).collect();
+        let children: Vec<String> = parent.strv("folder-children").into_iter().filter(|c| c != id).collect();
         let refs: Vec<&str> = children.iter().map(String::as_str).collect();
         let _ = parent.set_strv("folder-children", refs.as_slice());
     }

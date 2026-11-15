@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use gio::prelude::*;
 use helix_i18n::{tr, trf};
 
 const SCHEMA: &str = "org.gnome.shell.weather";
@@ -105,7 +104,7 @@ pub fn unit_for(setting: &str, measurement: Option<u32>) -> Unit {
 }
 
 pub fn unit() -> Unit {
-    let setting = if helix_settings::has_schema(GWEATHER) { gio::Settings::new(GWEATHER).string("temperature-unit").to_string() } else { "default".into() };
+    let setting = if helix_settings::has_schema(GWEATHER) { helix_settings::Settings::new(GWEATHER).string("temperature-unit").to_string() } else { "default".into() };
     unit_for(&setting, helix_i18n::measurement_system())
 }
 
@@ -119,7 +118,7 @@ fn location() -> Option<(String, f64, f64)> {
     if !helix_settings::has_schema(SCHEMA) {
         return None;
     }
-    let settings = gio::Settings::new(SCHEMA);
+    let settings = helix_settings::Settings::new(SCHEMA);
     if settings.boolean("automatic-location") {
         if let Some((lat, lon)) = crate::location::current() {
             let tab = std::fs::read_to_string("/usr/share/zoneinfo/zone1970.tab").unwrap_or_default();

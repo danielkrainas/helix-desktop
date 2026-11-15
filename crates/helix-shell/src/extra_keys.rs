@@ -54,9 +54,9 @@ pub enum KbdKey {
     Toggle,
 }
 
-fn settings_with(schema: &str, key: &str) -> Option<gio::Settings> {
+fn settings_with(schema: &str, key: &str) -> Option<helix_settings::Settings> {
     let found = gio::SettingsSchemaSource::default()?.lookup(schema, true)?;
-    found.has_key(key).then(|| gio::Settings::new(schema))
+    found.has_key(key).then(|| helix_settings::Settings::new(schema))
 }
 
 // ----- Launching --------------------------------------------------------
@@ -387,7 +387,7 @@ pub fn follow(schemas: &'static [&'static str], changed: impl Fn() + Send + 'sta
                 }
             };
             add_paths();
-            if let Some(list) = settings_with(MEDIA_KEYS, "custom-keybindings") {
+            if let Some(list) = settings_with(MEDIA_KEYS, "custom-keybindings").and_then(|s| s.inner().cloned()) {
                 let add = add_paths.clone();
                 list.connect_changed(Some("custom-keybindings"), move |_, _| add());
                 let _ = list.value("custom-keybindings");

@@ -8,7 +8,6 @@
 
 use std::collections::HashMap;
 
-use gio::prelude::*;
 use zbus::zvariant::OwnedValue;
 use zbus::Connection;
 
@@ -284,10 +283,10 @@ const KEYS: &[(&str, &str, &[&str], KeyAction)] = &[
 ];
 
 /// The installed schema, if it has `key`.
-fn settings_with(schema: &str, key: &str) -> Option<gio::Settings> {
+fn settings_with(schema: &str, key: &str) -> Option<helix_settings::Settings> {
     let source = gio::SettingsSchemaSource::default()?;
     let found = source.lookup(schema, true)?;
-    found.has_key(key).then(|| gio::Settings::new(schema))
+    found.has_key(key).then(|| helix_settings::Settings::new(schema))
 }
 
 fn strv(schema: &str, key: &str, defaults: &[&str]) -> Vec<String> {

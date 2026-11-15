@@ -84,11 +84,10 @@ pub fn allowed() -> bool {
 /// Whether the lock screen offers it too (`org.gnome.desktop.screensaver`
 /// `user-switch-enabled`, true without the key).
 pub fn on_lock_screen() -> bool {
-    use gio::prelude::*;
     const SCREENSAVER: &str = "org.gnome.desktop.screensaver";
     if !helix_settings::has_schema(SCREENSAVER) {
         return true;
     }
-    let s = gio::Settings::new(SCREENSAVER);
+    let s = helix_settings::Settings::new(SCREENSAVER);
     !s.settings_schema().is_some_and(|schema| schema.has_key("user-switch-enabled")) || s.boolean("user-switch-enabled")
 }

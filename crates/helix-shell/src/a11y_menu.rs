@@ -52,13 +52,12 @@ pub fn shown(always: bool, switches: &[Option<bool>]) -> bool {
     always || switches.contains(&Some(true))
 }
 
-fn settings_with(schema: &str, key: &str) -> Option<gio::Settings> {
+fn settings_with(schema: &str, key: &str) -> Option<helix_settings::Settings> {
     let source = gio::SettingsSchemaSource::default()?;
-    source.lookup(schema, true)?.has_key(key).then(|| gio::Settings::new(schema))
+    source.lookup(schema, true)?.has_key(key).then(|| helix_settings::Settings::new(schema))
 }
 
 pub fn read() -> Status {
-    use gio::prelude::*;
     let switches: Vec<Option<bool>> = SWITCHES
         .iter()
         .map(|s| {
@@ -72,7 +71,6 @@ pub fn read() -> Status {
 
 /// Turn switch `index` to `on`.
 pub fn set(index: usize, on: bool) {
-    use gio::prelude::*;
     let Some(s) = SWITCHES.get(index) else { return };
     let Some(settings) = settings_with(s.schema, s.key) else { return };
     let result = if s.key == "text-scaling-factor" {

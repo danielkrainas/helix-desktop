@@ -81,9 +81,8 @@ pub(super) fn lock_counts(entries: &[Banner], known: &HashSet<u32>, policy: impl
 }
 
 fn show_in_lock_screen() -> bool {
-    use gio::prelude::*;
     const SCHEMA: &str = "org.gnome.desktop.notifications";
-    !helix_settings::has_schema(SCHEMA) || gio::Settings::new(SCHEMA).boolean("show-in-lock-screen")
+    !helix_settings::has_schema(SCHEMA) || helix_settings::Settings::new(SCHEMA).boolean("show-in-lock-screen")
 }
 
 /// The lock screen's pictures: the media buttons' icons (previous, play

@@ -7,7 +7,6 @@
 use std::sync::RwLock;
 
 use gio::glib::DateTime;
-use gio::prelude::*;
 use helix_i18n::{trc, trf};
 
 pub const SCHEMA: &str = "org.gnome.desktop.interface";
@@ -35,7 +34,7 @@ pub fn read() -> ClockFormat {
     if !helix_settings::has_schema(SCHEMA) {
         return ClockFormat::default();
     }
-    let s = gio::Settings::new(SCHEMA);
+    let s = helix_settings::Settings::new(SCHEMA);
     let has = |k: &str| s.settings_schema().is_some_and(|schema| schema.has_key(k));
     let flag = |k: &str, default: bool| if has(k) { s.boolean(k) } else { default };
     ClockFormat {

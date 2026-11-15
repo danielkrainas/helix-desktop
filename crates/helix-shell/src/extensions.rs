@@ -161,18 +161,16 @@ pub fn switched(keys: &Keys, uuid: &str, on: bool) -> (Vec<String>, Vec<String>)
 
 const SCHEMA: &str = "org.gnome.shell";
 
-fn settings() -> Option<gio::Settings> {
+fn settings() -> Option<helix_settings::Settings> {
     let schema = gio::SettingsSchemaSource::default()?.lookup(SCHEMA, true)?;
-    schema.has_key("enabled-extensions").then(|| gio::Settings::new(SCHEMA))
+    schema.has_key("enabled-extensions").then(|| helix_settings::Settings::new(SCHEMA))
 }
 
-fn has(s: &gio::Settings, key: &str) -> bool {
-    use gio::prelude::*;
+fn has(s: &helix_settings::Settings, key: &str) -> bool {
     s.settings_schema().is_some_and(|x| x.has_key(key))
 }
 
 fn keys() -> Keys {
-    use gio::prelude::*;
     let Some(s) = settings() else { return Keys::default() };
     let strv = |k: &str| if has(&s, k) { s.strv(k).iter().map(|v| v.to_string()).collect() } else { Vec::new() };
     let flag = |k: &str| has(&s, k) && s.boolean(k);
@@ -180,7 +178,6 @@ fn keys() -> Keys {
 }
 
 fn store(enabled: &[String], disabled: &[String]) -> bool {
-    use gio::prelude::*;
     let Some(s) = settings() else { return false };
     fn refs(l: &[String]) -> Vec<&str> {
         l.iter().map(String::as_str).collect()
@@ -304,7 +301,6 @@ impl Extensions {
 
     #[zbus(property)]
     async fn set_user_extensions_enabled(&mut self, on: bool, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) {
-        use gio::prelude::*;
         if let Some(s) = settings().filter(|s| has(s, "disable-user-extensions")) {
             let _ = s.set_boolean("disable-user-extensions", !on);
             gio::Settings::sync();

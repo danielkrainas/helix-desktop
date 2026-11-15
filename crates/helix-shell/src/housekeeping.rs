@@ -25,11 +25,10 @@ pub struct Settings {
 }
 
 pub fn read() -> Settings {
-    use gio::prelude::*;
     if !helix_settings::has_schema(SCHEMA) {
         return Settings::default();
     }
-    let s = gio::Settings::new(SCHEMA);
+    let s = helix_settings::Settings::new(SCHEMA);
     let has = |k: &str| s.settings_schema().is_some_and(|schema| schema.has_key(k));
     Settings {
         trash: has("remove-old-trash-files") && s.boolean("remove-old-trash-files"),

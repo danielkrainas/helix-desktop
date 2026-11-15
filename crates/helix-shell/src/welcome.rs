@@ -37,8 +37,8 @@ pub async fn run(ui: mpsc::UnboundedSender<UiEvent>) {
     if !helix_settings::has_schema(SHELL) {
         return;
     }
-    let has_key = gio::Settings::new(SHELL).settings_schema().is_some_and(|s| s.has_key(KEY));
-    if !has_key || !due(&gio::Settings::new(SHELL).string(KEY), crate::SHELL_VERSION) || tour().is_none() {
+    let has_key = helix_settings::Settings::new(SHELL).settings_schema().is_some_and(|s| s.has_key(KEY));
+    if !has_key || !due(&helix_settings::Settings::new(SHELL).string(KEY), crate::SHELL_VERSION) || tour().is_none() {
         return;
     }
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -52,7 +52,7 @@ pub async fn run(ui: mpsc::UnboundedSender<UiEvent>) {
     };
     let answer = prompt::ask(&ui, p).await;
     prompt::done(&ui);
-    let _ = gio::Settings::new(SHELL).set_string(KEY, crate::SHELL_VERSION);
+    let _ = helix_settings::Settings::new(SHELL).set_string(KEY, crate::SHELL_VERSION);
     if let Answer::Continue { .. } = answer {
         if let Some(app) = tour() {
             tracing::info!("starting the tour");

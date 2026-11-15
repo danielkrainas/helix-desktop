@@ -23,12 +23,11 @@ pub(super) fn workspace_name(names: &[String], n: u32) -> String {
 }
 
 pub(super) fn read_names() -> Vec<String> {
-    use gio::prelude::*;
     const SCHEMA: &str = "org.gnome.desktop.wm.preferences";
     if !helix_settings::has_schema(SCHEMA) {
         return Vec::new();
     }
-    gio::Settings::new(SCHEMA).strv("workspace-names").iter().map(|s| s.to_string()).collect()
+    helix_settings::Settings::new(SCHEMA).strv("workspace-names").iter().map(|s| s.to_string()).collect()
 }
 
 pub(super) struct WorkspacePopup {

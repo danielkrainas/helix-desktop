@@ -67,7 +67,7 @@ pub fn wm_key_accelerators() -> Vec<(String, WmKey)> {
     if !helix_settings::has_schema(KEYBINDINGS) {
         return Vec::new();
     }
-    let settings = gio::Settings::new(KEYBINDINGS);
+    let settings = helix_settings::Settings::new(KEYBINDINGS);
     let mut out: Vec<(String, WmKey)> = Vec::new();
     for (key, action) in [
         ("cycle-windows", WmKey::Cycle { group: false, backward: false }),
@@ -90,7 +90,7 @@ pub fn wm_key_accelerators() -> Vec<(String, WmKey)> {
     }
     // Tiling keys live in mutter's own schema.
     if helix_settings::has_schema(MUTTER_KEYBINDINGS) {
-        let mutter = gio::Settings::new(MUTTER_KEYBINDINGS);
+        let mutter = helix_settings::Settings::new(MUTTER_KEYBINDINGS);
         for (key, action) in [("toggle-tiled-left", WindowAction::ToggleTiledLeft), ("toggle-tiled-right", WindowAction::ToggleTiledRight)] {
             for accel in mutter.strv(key) {
                 let accel = accel.to_string();
@@ -138,7 +138,7 @@ pub fn accelerators() -> Vec<(String, bool, SwitchMode)> {
             ("<Shift><Alt>Above_Tab".into(), true, SwitchMode::Group),
         ];
     }
-    let settings = gio::Settings::new(KEYBINDINGS);
+    let settings = helix_settings::Settings::new(KEYBINDINGS);
     let mut out: Vec<(String, bool, SwitchMode)> = Vec::new();
     for (key, backward, mode) in [
         ("switch-applications", false, SwitchMode::Apps),
@@ -182,7 +182,7 @@ pub fn workspace_accelerators() -> Vec<(String, WorkspaceKey)> {
     if !helix_settings::has_schema(KEYBINDINGS) {
         return Vec::new();
     }
-    let settings = gio::Settings::new(KEYBINDINGS);
+    let settings = helix_settings::Settings::new(KEYBINDINGS);
     let mut keys: Vec<(String, WorkspaceKey)> = Vec::new();
     for move_window in [false, true] {
         let prefix = if move_window { "move-to-workspace-" } else { "switch-to-workspace-" };
@@ -209,7 +209,7 @@ pub fn current_workspace_only() -> (bool, bool) {
         gio::SettingsSchemaSource::default()
             .and_then(|s| s.lookup(schema, true))
             .filter(|s| s.has_key("current-workspace-only"))
-            .map_or(default, |_| gio::Settings::new(schema).boolean("current-workspace-only"))
+            .map_or(default, |_| helix_settings::Settings::new(schema).boolean("current-workspace-only"))
     };
     (read("org.gnome.shell.app-switcher", false), read("org.gnome.shell.window-switcher", true))
 }
@@ -227,7 +227,7 @@ pub fn icon_mode() -> IconMode {
     let value = gio::SettingsSchemaSource::default()
         .and_then(|s| s.lookup(SCHEMA, true))
         .filter(|s| s.has_key("app-icon-mode"))
-        .map(|_| gio::Settings::new(SCHEMA).string("app-icon-mode").to_string());
+        .map(|_| helix_settings::Settings::new(SCHEMA).string("app-icon-mode").to_string());
     match value.as_deref() {
         Some("thumbnail-only") => IconMode::ThumbnailOnly,
         Some("app-icon-only") => IconMode::AppIconOnly,

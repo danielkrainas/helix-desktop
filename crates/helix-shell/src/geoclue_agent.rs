@@ -68,7 +68,7 @@ pub fn max_level() -> u32 {
     if !helix_settings::has_schema(LOCATION) {
         return 0;
     }
-    let s = gio::Settings::new(LOCATION);
+    let s = helix_settings::Settings::new(LOCATION);
     if s.boolean("enabled") {
         level_of_setting(&s.string("max-accuracy-level"))
     } else {

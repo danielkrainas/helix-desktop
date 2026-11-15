@@ -3,7 +3,6 @@
 //! `org.gnome.shell app-picker-layout`.
 
 use gio::glib::{Variant, VariantDict};
-use gio::prelude::*;
 
 /// Pages of item ids: an app's desktop file id, or a folder's id.
 pub type Pages = Vec<Vec<String>>;
@@ -51,7 +50,7 @@ pub fn read() -> Pages {
     if !helix_settings::has_schema(SHELL) {
         return Vec::new();
     }
-    let s = gio::Settings::new(SHELL);
+    let s = helix_settings::Settings::new(SHELL);
     if !s.settings_schema().is_some_and(|x| x.has_key(KEY)) {
         return Vec::new();
     }
@@ -62,7 +61,7 @@ pub fn write(pages: &Pages) {
     if !helix_settings::has_schema(SHELL) {
         return;
     }
-    let s = gio::Settings::new(SHELL);
+    let s = helix_settings::Settings::new(SHELL);
     if s.settings_schema().is_some_and(|x| x.has_key(KEY)) {
         let _ = s.set_value(KEY, &to_variant(pages));
         gio::Settings::sync();

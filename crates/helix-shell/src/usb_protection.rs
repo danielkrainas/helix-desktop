@@ -30,11 +30,10 @@ pub enum Level {
 
 /// The settings: `None` while protection is off.
 pub fn read() -> Option<Level> {
-    use gio::prelude::*;
     if !helix_settings::has_schema(SCHEMA) {
         return None;
     }
-    let s = gio::Settings::new(SCHEMA);
+    let s = helix_settings::Settings::new(SCHEMA);
     let has = |k: &str| s.settings_schema().is_some_and(|x| x.has_key(k));
     if !has("usb-protection") || !s.boolean("usb-protection") {
         return None;

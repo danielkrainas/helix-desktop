@@ -119,10 +119,9 @@ pub fn open(item: &DesktopItem) {
 
 /// Whether the setting asks for desktop icons.
 fn wanted() -> bool {
-    use gio::prelude::*;
     let source = gio::SettingsSchemaSource::default();
     let Some(schema) = source.and_then(|s| s.lookup(BACKGROUND, true)) else { return false };
-    schema.has_key("show-desktop-icons") && gio::Settings::new(BACKGROUND).boolean("show-desktop-icons")
+    schema.has_key("show-desktop-icons") && helix_settings::Settings::new(BACKGROUND).boolean("show-desktop-icons")
 }
 
 /// Follow the setting and the desktop folder (looked at every two

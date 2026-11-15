@@ -380,8 +380,8 @@ pub fn place(fit: Fit, image: (f64, f64), monitor: (f64, f64), span: Option<Span
 
 // ----- Settings and following them -------------------------------------
 
-fn settings(schema: &str) -> Option<gio::Settings> {
-    gio::SettingsSchemaSource::default()?.lookup(schema, true).map(|_| gio::Settings::new(schema))
+fn settings(schema: &str) -> Option<helix_settings::Settings> {
+    gio::SettingsSchemaSource::default()?.lookup(schema, true).map(|_| helix_settings::Settings::new(schema))
 }
 
 fn dark() -> bool {

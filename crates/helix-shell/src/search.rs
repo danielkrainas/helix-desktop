@@ -84,7 +84,7 @@ pub fn refines(previous: &[String], new: &[String]) -> bool {
     !previous.is_empty() && new.len() >= previous.len() && previous.iter().zip(new).all(|(p, n)| n.starts_with(p.as_str()))
 }
 
-fn strv(settings: &gio::Settings, key: &str) -> Vec<String> {
+fn strv(settings: &helix_settings::Settings, key: &str) -> Vec<String> {
     settings.strv(key).iter().map(|s| s.to_string()).collect()
 }
 
@@ -111,7 +111,7 @@ pub fn providers() -> Vec<Provider> {
             found.push(provider);
         }
     }
-    let settings = gio::SettingsSchemaSource::default().and_then(|s| s.lookup(SETTINGS, true)).map(|_| gio::Settings::new(SETTINGS));
+    let settings = gio::SettingsSchemaSource::default().and_then(|s| s.lookup(SETTINGS, true)).map(|_| helix_settings::Settings::new(SETTINGS));
     match settings {
         Some(s) => arrange(found, s.boolean("disable-external"), &strv(&s, "disabled"), &strv(&s, "enabled"), &strv(&s, "sort-order")),
         None => arrange(found, false, &[], &[], &[]),

@@ -951,7 +951,7 @@ pub fn set_do_not_disturb(on: bool) {
     if !helix_settings::has_schema(SETTINGS_SCHEMA) {
         return;
     }
-    let settings = gio::Settings::new(SETTINGS_SCHEMA);
+    let settings = helix_settings::Settings::new(SETTINGS_SCHEMA);
     if let Err(err) = settings.set_boolean("show-banners", !on) {
         tracing::warn!(%err, "cannot change show-banners");
     }
@@ -965,8 +965,7 @@ pub async fn follow_settings(center: Center) {
         return;
     }
     let read = || {
-        use gio::prelude::*;
-        gio::Settings::new(SCHEMA).boolean("show-banners")
+        helix_settings::Settings::new(SCHEMA).boolean("show-banners")
     };
     center.show_banners.store(read(), Ordering::Relaxed);
     let _ = center.ui.send(UiEvent::DoNotDisturb(!read()));

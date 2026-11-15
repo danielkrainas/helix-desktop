@@ -8,7 +8,6 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use gio::prelude::*;
 use tokio::sync::{mpsc, Notify};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 use zbus::Connection;
@@ -316,7 +315,7 @@ async fn profiles_service(conn: &Connection) -> Option<(&'static str, &'static s
 
 /// Read everything now.
 fn location_enabled() -> bool {
-    helix_settings::has_schema(crate::location::LOCATION) && gio::Settings::new(crate::location::LOCATION).boolean("enabled")
+    helix_settings::has_schema(crate::location::LOCATION) && helix_settings::Settings::new(crate::location::LOCATION).boolean("enabled")
 }
 
 pub async fn read(system: Option<&Connection>) -> Status {
@@ -398,7 +397,7 @@ pub async fn read(system: Option<&Connection>) -> Status {
 fn show_percentage() -> bool {
     let Some(source) = gio::SettingsSchemaSource::default() else { return false };
     let Some(schema) = source.lookup("org.gnome.desktop.interface", true) else { return false };
-    schema.has_key("show-battery-percentage") && gio::Settings::new("org.gnome.desktop.interface").boolean("show-battery-percentage")
+    schema.has_key("show-battery-percentage") && helix_settings::Settings::new("org.gnome.desktop.interface").boolean("show-battery-percentage")
 }
 
 /// Turn a switch on or off.
@@ -508,11 +507,10 @@ pub async fn follow(ui: mpsc::UnboundedSender<UiEvent>) {
 /// `org.gnome.shell last-selected-power-profile`: the last profile other
 /// than `balanced` the user picked.
 pub fn remember_profile(profile: &str) {
-    use gio::prelude::*;
     if profile == "balanced" || !helix_settings::has_schema("org.gnome.shell") {
         return;
     }
-    let s = gio::Settings::new("org.gnome.shell");
+    let s = helix_settings::Settings::new("org.gnome.shell");
     if s.settings_schema().is_some_and(|x| x.has_key("last-selected-power-profile")) && s.string("last-selected-power-profile") != profile {
         let _ = s.set_string("last-selected-power-profile", profile);
     }

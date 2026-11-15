@@ -80,9 +80,9 @@ fn wanting() -> (bool, bool) {
     (night.enabled && night.automatic, weather)
 }
 
-fn settings(schema: &str, key: &str) -> Option<gio::Settings> {
+fn settings(schema: &str, key: &str) -> Option<helix_settings::Settings> {
     let source = gio::SettingsSchemaSource::default()?;
-    source.lookup(schema, true)?.has_key(key).then(|| gio::Settings::new(schema))
+    source.lookup(schema, true)?.has_key(key).then(|| helix_settings::Settings::new(schema))
 }
 
 /// Whether to follow GeoClue now, and at what accuracy.

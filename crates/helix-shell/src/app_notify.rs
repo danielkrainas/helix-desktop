@@ -46,7 +46,7 @@ pub fn policy(app_id: &str) -> AppPolicy {
     };
     let name = child(app_id);
     let settings = gio::Settings::new_full(&app_schema, None::<&gio::SettingsBackend>, Some(format!("{BASE}{name}/").as_str()));
-    let parent = gio::Settings::new(NOTIFICATIONS);
+    let parent = helix_settings::Settings::new(NOTIFICATIONS);
     let children: Vec<String> = parent.strv("application-children").iter().map(|s| s.to_string()).collect();
     if !children.contains(&name) {
         let mut next: Vec<&str> = children.iter().map(String::as_str).collect();

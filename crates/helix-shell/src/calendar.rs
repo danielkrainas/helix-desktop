@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use gio::prelude::*;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 use zbus::Connection;
 
@@ -188,7 +187,7 @@ pub fn world_clocks() -> Vec<(String, String)> {
     if !helix_settings::has_schema(WORLD_CLOCKS) {
         return Vec::new();
     }
-    let locations = gio::Settings::new(WORLD_CLOCKS).value("locations");
+    let locations = helix_settings::Settings::new(WORLD_CLOCKS).value("locations");
     let tab = std::fs::read_to_string("/usr/share/zoneinfo/zone1970.tab").unwrap_or_default();
     locations
         .iter()
@@ -220,6 +219,7 @@ pub async fn player(conn: &Connection) -> Option<Player> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gio::prelude::*;
 
     #[test]
     fn sources() {

@@ -179,18 +179,16 @@ pub fn password_prompt(message: &str, default_user: &str, default_domain: &str, 
 /// `org.gnome.shell remember-mount-password`: the "Remember Password"
 /// box's first state.
 pub fn remember_default() -> bool {
-    use gio::prelude::*;
     helix_settings::has_schema("org.gnome.shell") && {
-        let s = gio::Settings::new("org.gnome.shell");
+        let s = helix_settings::Settings::new("org.gnome.shell");
         s.settings_schema().is_some_and(|x| x.has_key("remember-mount-password")) && s.boolean("remember-mount-password")
     }
 }
 
 /// Keeps the user's last "Remember Password" choice as the next default.
 pub fn remember_chosen(on: bool) {
-    use gio::prelude::*;
     if helix_settings::has_schema("org.gnome.shell") {
-        let s = gio::Settings::new("org.gnome.shell");
+        let s = helix_settings::Settings::new("org.gnome.shell");
         if s.settings_schema().is_some_and(|x| x.has_key("remember-mount-password")) && s.boolean("remember-mount-password") != on {
             let _ = s.set_boolean("remember-mount-password", on);
         }

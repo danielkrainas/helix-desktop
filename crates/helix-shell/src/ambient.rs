@@ -50,9 +50,8 @@ pub fn step(current: u32, target: u32) -> Option<u32> {
 }
 
 fn enabled() -> bool {
-    use gio::prelude::*;
     helix_settings::has_schema(POWER) && {
-        let s = gio::Settings::new(POWER);
+        let s = helix_settings::Settings::new(POWER);
         s.settings_schema().is_some_and(|schema| schema.has_key("ambient-enabled")) && s.boolean("ambient-enabled")
     }
 }

@@ -5,7 +5,6 @@
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use gio::prelude::*;
 use zbus::Connection;
 
 const SESSION: &str = "org.gnome.desktop.session";
@@ -34,15 +33,15 @@ pub fn lock_timeout(idle_delay: u32, lock_enabled: bool, lock_delay: u32) -> Opt
 /// Whether to lock before the system sleeps (`lock-enabled`; GNOME's
 /// default, true, when the schema is missing).
 pub fn lock_on_suspend() -> bool {
-    !helix_settings::has_schema(SCREENSAVER) || gio::Settings::new(SCREENSAVER).boolean("lock-enabled")
+    !helix_settings::has_schema(SCREENSAVER) || helix_settings::Settings::new(SCREENSAVER).boolean("lock-enabled")
 }
 
 fn read_timeout() -> Option<Duration> {
     if !helix_settings::has_schema(SESSION) || !helix_settings::has_schema(SCREENSAVER) {
         return None;
     }
-    let session = gio::Settings::new(SESSION);
-    let screensaver = gio::Settings::new(SCREENSAVER);
+    let session = helix_settings::Settings::new(SESSION);
+    let screensaver = helix_settings::Settings::new(SCREENSAVER);
     lock_timeout(
         session.uint("idle-delay"),
         screensaver.boolean("lock-enabled"),

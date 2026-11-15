@@ -165,6 +165,148 @@ fn warn_once(schema: &str, key: &str, found: Option<&str>, wanted: &str) {
     }
 }
 
+/// A `gio::Settings` look-alike for schemas Helix does not own (GNOME's,
+/// Ubuntu's): the same reads and writes, but a schema that is not
+/// installed, or an installed schema older than the keys Helix knows
+/// (a key missing, or of another type), never aborts the process as
+/// GLib does. Such a read gives the type's empty value (`false`, `0`,
+/// `""`, an empty list), logged once; such a write is skipped (an error).
+/// Callers that need GNOME's default for a key newer than the installed
+/// schema use [`Schema::get_or`] instead.
+pub struct Settings {
+    schema: Schema,
+}
+
+impl Settings {
+    /// Open `schema_id` (installed or not).
+    pub fn new(schema_id: &str) -> Self {
+        Self { schema: Schema::open(schema_id) }
+    }
+
+    /// The underlying settings, when the schema is installed (for change
+    /// signals and bindings).
+    pub fn inner(&self) -> Option<&gio::Settings> {
+        self.schema.settings()
+    }
+
+    /// The checked schema.
+    pub fn schema(&self) -> &Schema {
+        &self.schema
+    }
+
+    /// Whether the installed schema has `key`.
+    pub fn has_key(&self, key: &str) -> bool {
+        self.schema.has(key)
+    }
+
+    /// The installed schema's description, when installed.
+    pub fn settings_schema(&self) -> Option<gio::SettingsSchema> {
+        self.inner().and_then(|s| s.settings_schema())
+    }
+
+    pub fn boolean(&self, key: &str) -> bool {
+        self.schema.get_or(key, false)
+    }
+
+    pub fn string(&self, key: &str) -> String {
+        self.schema.get_or(key, String::new())
+    }
+
+    pub fn int(&self, key: &str) -> i32 {
+        self.schema.get_or(key, 0)
+    }
+
+    pub fn uint(&self, key: &str) -> u32 {
+        self.schema.get_or(key, 0)
+    }
+
+    pub fn int64(&self, key: &str) -> i64 {
+        self.schema.get_or(key, 0)
+    }
+
+    pub fn uint64(&self, key: &str) -> u64 {
+        self.schema.get_or(key, 0)
+    }
+
+    pub fn double(&self, key: &str) -> f64 {
+        self.schema.get_or(key, 0.0)
+    }
+
+    pub fn strv(&self, key: &str) -> Vec<String> {
+        self.schema.get_or(key, Vec::new())
+    }
+
+    /// An enum key's value (its nick's number), or 0.
+    pub fn enum_(&self, key: &str) -> i32 {
+        match self.inner() {
+            Some(s) if self.schema.has(key) => s.enum_(key),
+            _ => 0,
+        }
+    }
+
+    /// `key`'s value, or the unit value when the schema lacks it (so a
+    /// typed `get` reads `None`).
+    pub fn value(&self, key: &str) -> gio::glib::Variant {
+        match self.inner() {
+            Some(s) if self.schema.has(key) => s.value(key),
+            _ => {
+                warn_once(&self.schema.id, key, None, "*");
+                ().to_variant()
+            }
+        }
+    }
+
+    fn write(&self, key: &str, ok: bool) -> Result<(), gio::glib::BoolError> {
+        if ok {
+            Ok(())
+        } else {
+            Err(gio::glib::bool_error!("cannot write {} {key}", self.schema.id))
+        }
+    }
+
+    pub fn set_boolean(&self, key: &str, value: bool) -> Result<(), gio::glib::BoolError> {
+        self.write(key, self.schema.set(key, value))
+    }
+
+    pub fn set_string(&self, key: &str, value: &str) -> Result<(), gio::glib::BoolError> {
+        self.write(key, self.schema.set(key, value.to_owned()))
+    }
+
+    pub fn set_int(&self, key: &str, value: i32) -> Result<(), gio::glib::BoolError> {
+        self.write(key, self.schema.set(key, value))
+    }
+
+    pub fn set_uint(&self, key: &str, value: u32) -> Result<(), gio::glib::BoolError> {
+        self.write(key, self.schema.set(key, value))
+    }
+
+    pub fn set_double(&self, key: &str, value: f64) -> Result<(), gio::glib::BoolError> {
+        self.write(key, self.schema.set(key, value))
+    }
+
+    pub fn set_strv(&self, key: &str, value: impl IntoIterator<Item = impl AsRef<str>>) -> Result<(), gio::glib::BoolError> {
+        let list: Vec<String> = value.into_iter().map(|s| s.as_ref().to_owned()).collect();
+        self.write(key, self.schema.set(key, list))
+    }
+
+    /// Set `key` to `value` when the installed schema has the key with
+    /// `value`'s type.
+    pub fn set_value(&self, key: &str, value: &gio::glib::Variant) -> Result<(), gio::glib::BoolError> {
+        let ok = match self.inner() {
+            Some(s) if self.schema.has(key) && s.settings_schema().is_some_and(|sc| sc.key(key).value_type() == *value.type_()) => s.set_value(key, value).is_ok(),
+            _ => false,
+        };
+        self.write(key, ok)
+    }
+
+    /// Reset `key` to its default (when the schema has it).
+    pub fn reset(&self, key: &str) {
+        if let Some(s) = self.inner().filter(|_| self.schema.has(key)) {
+            s.reset(key);
+        }
+    }
+}
+
 /// A set of installed schemas.
 #[derive(Debug, Clone)]
 pub struct GSettings {

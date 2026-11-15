@@ -5,7 +5,6 @@
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use gio::prelude::*;
 use zbus::zvariant::OwnedFd;
 use zbus::Connection;
 use helix_i18n::tr;
@@ -68,8 +67,8 @@ impl Default for Settings {
     }
 }
 
-fn settings(schema: &str) -> Option<gio::Settings> {
-    gio::SettingsSchemaSource::default()?.lookup(schema, true).map(|_| gio::Settings::new(schema))
+fn settings(schema: &str) -> Option<helix_settings::Settings> {
+    gio::SettingsSchemaSource::default()?.lookup(schema, true).map(|_| helix_settings::Settings::new(schema))
 }
 
 pub fn read() -> Settings {

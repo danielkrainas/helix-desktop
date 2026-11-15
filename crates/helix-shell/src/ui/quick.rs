@@ -104,9 +104,9 @@ pub(super) struct QuickState {
 const COLOR: &str = "org.gnome.settings-daemon.plugins.color";
 const INTERFACE: &str = "org.gnome.desktop.interface";
 
-fn settings(schema: &str, key: &str) -> Option<gio::Settings> {
+fn settings(schema: &str, key: &str) -> Option<helix_settings::Settings> {
     let source = gio::SettingsSchemaSource::default()?;
-    source.lookup(schema, true)?.has_key(key).then(|| gio::Settings::new(schema))
+    source.lookup(schema, true)?.has_key(key).then(|| helix_settings::Settings::new(schema))
 }
 
 /// Dark Style's icon: `dark-mode-symbolic`, else (an icon theme without
@@ -152,7 +152,6 @@ pub(super) fn slider_value(r: Rect, x: f64, max: u32) -> u32 {
 
 impl Ui {
     fn switch_on(&self, switch: Switch) -> bool {
-        use gio::prelude::*;
         match switch {
             Switch::Wifi => self.status.wifi.as_ref().is_some_and(|w| w.0),
             Switch::Bluetooth => self.status.bluetooth == Some(true),
@@ -167,7 +166,6 @@ impl Ui {
     }
 
     fn flip(&mut self, switch: Switch) {
-        use gio::prelude::*;
         let on = !self.switch_on(switch);
         let toggle = |t: Toggle| UiRequest::QuickSettings(QuickChange::Toggle(t));
         match switch {

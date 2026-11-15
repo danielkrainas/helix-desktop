@@ -34,9 +34,8 @@ pub(super) fn locale_week_start() -> i32 {
 }
 
 fn show_week_numbers() -> bool {
-    use gio::prelude::*;
     const SCHEMA: &str = "org.gnome.desktop.calendar";
-    helix_settings::has_schema(SCHEMA) && gio::Settings::new(SCHEMA).boolean("show-weekdate")
+    helix_settings::has_schema(SCHEMA) && helix_settings::Settings::new(SCHEMA).boolean("show-weekdate")
 }
 
 fn today() -> (i32, i32, i32) {

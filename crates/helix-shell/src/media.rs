@@ -37,7 +37,7 @@ pub fn read() -> Settings {
     if !helix_settings::has_schema(SCHEMA) {
         return Settings::default();
     }
-    let s = gio::Settings::new(SCHEMA);
+    let s = helix_settings::Settings::new(SCHEMA);
     let strv = |key: &str| s.strv(key).iter().map(|v| v.to_string()).collect();
     Settings {
         automount: s.boolean("automount"),

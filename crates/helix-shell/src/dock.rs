@@ -259,22 +259,21 @@ impl Default for DockSettings {
 
 /// Read the dock settings (defaults without the schema).
 pub fn read() -> DockSettings {
-    use gio::prelude::*;
     let d = DockSettings::default();
     let source = gio::SettingsSchemaSource::default();
     let has = |schema: &str| source.as_ref().and_then(|s| s.lookup(schema, true)).is_some();
     let disabled = has(SHELL)
-        && gio::Settings::new(SHELL).settings_schema().is_some_and(|s| s.has_key("disabled-extensions"))
-        && gio::Settings::new(SHELL).strv("disabled-extensions").iter().any(|e| DOCK_EXTENSIONS.contains(&e.as_str()));
+        && helix_settings::Settings::new(SHELL).settings_schema().is_some_and(|s| s.has_key("disabled-extensions"))
+        && helix_settings::Settings::new(SHELL).strv("disabled-extensions").iter().any(|e| DOCK_EXTENSIONS.contains(&e.as_str()));
     let animations = !has(INTERFACE) || {
-        let i = gio::Settings::new(INTERFACE);
+        let i = helix_settings::Settings::new(INTERFACE);
         !i.settings_schema().is_some_and(|s| s.has_key("enable-animations")) || i.boolean("enable-animations")
     };
     let reduced_motion = crate::item_feedback::motion() == helix_draw::motion::Motion::Reduced;
     if !has(SCHEMA) {
         return DockSettings { enabled: !disabled, animation_time: if animations { d.animation_time } else { 0.0 }, reduced_motion, ..d };
     }
-    let s = gio::Settings::new(SCHEMA);
+    let s = helix_settings::Settings::new(SCHEMA);
     let schema = s.settings_schema();
     let key = |k: &str| schema.as_ref().is_some_and(|x| x.has_key(k));
     let b = |k: &str, default: bool| if key(k) { s.boolean(k) } else { default };

@@ -86,16 +86,14 @@ fn main() -> ExitCode {
     runtime.spawn(async move {
         const SCHEMA: &str = "org.gnome.desktop.a11y.interface";
         let read = || {
-            use gio::prelude::*;
-            gio::SettingsSchemaSource::default().and_then(|s| s.lookup(SCHEMA, true)).is_some_and(|_| gio::Settings::new(SCHEMA).boolean("high-contrast"))
+            gio::SettingsSchemaSource::default().and_then(|s| s.lookup(SCHEMA, true)).is_some_and(|_| helix_settings::Settings::new(SCHEMA).boolean("high-contrast"))
         };
         let watched = helix_settings::GSettings::new(&[SCHEMA]);
         let (mut changes, _watch) = watched.watch();
         let interface = || {
-            use gio::prelude::*;
             match gio::SettingsSchemaSource::default().and_then(|s| s.lookup(SCHEMA, true)) {
                 Some(schema) => {
-                    let s = gio::Settings::new(SCHEMA);
+                    let s = helix_settings::Settings::new(SCHEMA);
                     let get_b = |k: &str| schema.has_key(k) && s.boolean(k);
                     let get_i = |k: &str| if schema.has_key(k) { s.int(k) } else { -1 };
                     (get_b("show-status-shapes"), get_i("keyboard-focus-visible-timeout"))
@@ -118,10 +116,9 @@ fn main() -> ExitCode {
     runtime.spawn(async move {
         const SCHEMA: &str = "org.gnome.desktop.interface";
         let read = || {
-            use gio::prelude::*;
             match gio::SettingsSchemaSource::default().and_then(|s| s.lookup(SCHEMA, true)) {
                 Some(schema) => {
-                    let s = gio::Settings::new(SCHEMA);
+                    let s = helix_settings::Settings::new(SCHEMA);
                     let scale = if schema.has_key("text-scaling-factor") { s.double("text-scaling-factor") } else { 1.0 };
                     let accent = if schema.has_key("accent-color") { helix_draw::accent::Accent::from_name(&s.string("accent-color")).unwrap_or_default() } else { Default::default() };
                     let font = if schema.has_key("font-name") { helix_draw::font_family(&s.string("font-name")) } else { None };

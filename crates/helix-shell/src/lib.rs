@@ -1403,12 +1403,11 @@ pub async fn lock_and_wait(conn: &Connection, timeout: std::time::Duration) -> b
 /// `org.gnome.desktop.peripherals.mouse drag-threshold`: how far (pixels)
 /// the pointer moves, button down, before a drag starts (8 without it).
 pub fn drag_threshold() -> f64 {
-    use gio::prelude::*;
     const MOUSE: &str = "org.gnome.desktop.peripherals.mouse";
     if !helix_settings::has_schema(MOUSE) {
         return 8.0;
     }
-    let s = gio::Settings::new(MOUSE);
+    let s = helix_settings::Settings::new(MOUSE);
     if s.settings_schema().is_some_and(|x| x.has_key("drag-threshold")) {
         f64::from(s.int("drag-threshold").clamp(1, 400))
     } else {
@@ -1426,12 +1425,11 @@ pub fn click_feedback() {
 
 /// A boolean key of `org.gnome.desktop.screensaver` (`default` without it).
 pub fn screensaver_flag(key: &str, default: bool) -> bool {
-    use gio::prelude::*;
     const SCREENSAVER: &str = "org.gnome.desktop.screensaver";
     if !helix_settings::has_schema(SCREENSAVER) {
         return default;
     }
-    let s = gio::Settings::new(SCREENSAVER);
+    let s = helix_settings::Settings::new(SCREENSAVER);
     if s.settings_schema().is_some_and(|schema| schema.has_key(key)) {
         s.boolean(key)
     } else {
@@ -1443,8 +1441,7 @@ pub fn screensaver_flag(key: &str, default: bool) -> bool {
 /// on (helix-desktop-spec `contracts/gsettings/org.gnome.desktop.lockdown.md`).
 pub fn locked_down(key: &str) -> bool {
     const LOCKDOWN: &str = "org.gnome.desktop.lockdown";
-    use gio::prelude::SettingsExt;
-    helix_settings::has_schema(LOCKDOWN) && gio::Settings::new(LOCKDOWN).boolean(key)
+    helix_settings::has_schema(LOCKDOWN) && helix_settings::Settings::new(LOCKDOWN).boolean(key)
 }
 
 pub async fn lock_via(conn: &Connection) -> zbus::Result<()> {

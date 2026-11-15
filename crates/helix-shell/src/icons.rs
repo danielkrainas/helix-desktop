@@ -399,10 +399,9 @@ pub fn forget_theme() {
 }
 
 fn read_theme() -> String {
-    use gio::prelude::*;
     const SCHEMA: &str = "org.gnome.desktop.interface";
     if helix_settings::has_schema(SCHEMA) {
-        gio::Settings::new(SCHEMA).string("icon-theme").to_string()
+        helix_settings::Settings::new(SCHEMA).string("icon-theme").to_string()
     } else {
         "hicolor".into()
     }
