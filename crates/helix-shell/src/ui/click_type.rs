@@ -116,4 +116,22 @@ impl Ui {
         let _ = self.requests.send(UiRequest::SetClickType(name));
         true
     }
+
+    /// The window for the accessibility bus: its surface, size and buttons.
+    pub(super) fn click_type_a11y(&self) -> Option<(&LayerSurface, (u32, u32), Vec<crate::a11y::Node>)> {
+        let view = self.click_type.view.as_ref().filter(|v| v.configured && !v.hits.is_empty())?;
+        Some((&view.layer, (view.width, view.height), click_type_nodes(&self.click_type.current, &view.hits)))
+    }
+}
+
+/// The click type window on the accessibility bus (helix-desktop-spec
+/// `contracts/dbus/org.a11y.atspi.md`): a `Click Type` radio group of
+/// the four types, the current one checked.
+pub(super) fn click_type_nodes(current: &str, hits: &[(Rect, usize)]) -> Vec<crate::a11y::Node> {
+    use crate::a11y::{Node, Role};
+    let buttons = hits.iter().filter_map(|(r, i)| {
+        let (name, label) = TYPES.get(*i)?;
+        Some(Node::new(Role::RadioButton, helix_i18n::tr(label)).id(*name).at((*r).into()).click().toggled(current == *name))
+    });
+    vec![Node::new(Role::RadioGroup, helix_i18n::tr("Click Type")).id("types").children(buttons)]
 }

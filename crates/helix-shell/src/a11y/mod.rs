@@ -41,6 +41,24 @@ pub struct Range {
     pub step: f64,
 }
 
+/// Where a text field's characters are painted: the run's left end and
+/// the line's top and height (surface coordinates), and each character's
+/// advance, in order. Characters scrolled out of the field lie left of it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Chars {
+    pub x: f32,
+    pub y: i32,
+    pub h: i32,
+    pub advances: Vec<f32>,
+}
+
+impl Chars {
+    /// `count` boxes `pitch` apart from `x` (a password field's dots).
+    pub fn even(x: f32, y: i32, h: i32, pitch: f32, count: usize) -> Self {
+        Self { x, y, h, advances: vec![pitch; count] }
+    }
+}
+
 /// One accessible object of a surface.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Node {
@@ -52,6 +70,8 @@ pub struct Node {
     pub description: String,
     /// A text field's text (already masked for passwords), or a label's.
     pub text: Option<String>,
+    /// A text field's characters on the surface.
+    pub chars: Option<Chars>,
     pub bounds: Option<Rect>,
     pub toggled: Option<bool>,
     pub selected: Option<bool>,
@@ -93,6 +113,12 @@ impl Node {
     /// character (the secret itself never leaves the field).
     pub fn mask(secret: &str) -> String {
         "•".repeat(secret.chars().count())
+    }
+
+    /// Where the field's characters are painted.
+    pub fn chars(mut self, chars: Chars) -> Self {
+        self.chars = Some(chars);
+        self
     }
 
     pub fn at(mut self, r: Rect) -> Self {

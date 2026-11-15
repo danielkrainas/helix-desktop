@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use accesskit::{Action, Live, NodeId, TextPosition, TextSelection, Toggled, TreeId, TreeInfo, TreeUpdate};
+use accesskit::{Action, Live, NodeId, TextDirection, TextPosition, TextSelection, Toggled, TreeId, TreeInfo, TreeUpdate};
 
 use super::{Node, Range, Rect, Role, Window};
 
@@ -11,13 +11,17 @@ use super::{Node, Range, Rect, Role, Window};
 pub const ROOT: NodeId = NodeId(1);
 
 /// What an action on a node acts on.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Target {
     /// Where it is on its surface.
     pub bounds: Rect,
     pub range: Option<Range>,
-    /// A text field: focusing it is a click too.
+    /// A text field: focusing it is a click too, and its text can be set.
     pub text_input: bool,
+    /// The node's id (`Node::id`), telling text fields apart.
+    pub id: String,
+    /// A text field's text as published (masked for passwords).
+    pub text: String,
 }
 
 /// A window's tree, and what its nodes' actions act on.
@@ -120,7 +124,8 @@ impl Builder {
         let text_input = is_text_input(node.role);
         if node.clickable || node.focusable {
             if let Some(r) = node.bounds {
-                self.targets.insert(id, Target { bounds: r, range: node.range, text_input });
+                let text = if text_input { node.text.clone().unwrap_or_default() } else { String::new() };
+                self.targets.insert(id, Target { bounds: r, range: node.range, text_input, id: node.id.clone(), text });
             }
         }
         let mut children = Vec::new();
@@ -133,10 +138,28 @@ impl Builder {
             let lengths: Vec<u8> = text.chars().map(|c| c.len_utf8() as u8).collect();
             let end = lengths.len();
             node_run.set_value(text);
-            node_run.set_character_lengths(lengths);
-            if let Some(r) = node.bounds {
-                node_run.set_bounds(bounds(r));
+            node_run.set_text_direction(TextDirection::LeftToRight);
+            match node.chars.as_ref().filter(|c| c.advances.len() == lengths.len()) {
+                // Each character's place, for its extents.
+                Some(chars) => {
+                    let mut at = 0.0;
+                    let mut positions = Vec::with_capacity(chars.advances.len());
+                    for w in &chars.advances {
+                        positions.push(at);
+                        at += w;
+                    }
+                    let r = accesskit::Rect::new(f64::from(chars.x), f64::from(chars.y), f64::from(chars.x + at), f64::from(chars.y + chars.h));
+                    node_run.set_bounds(r);
+                    node_run.set_character_positions(positions);
+                    node_run.set_character_widths(chars.advances.clone());
+                }
+                None => {
+                    if let Some(r) = node.bounds {
+                        node_run.set_bounds(bounds(r));
+                    }
+                }
             }
+            node_run.set_character_lengths(lengths);
             let caret = TextPosition { node: run, character_index: end };
             out.set_text_selection(TextSelection { anchor: caret, focus: caret });
             self.nodes.push((run, node_run));
@@ -239,6 +262,16 @@ mod tests {
         assert_eq!(run.role(), Role::TextRun);
         assert_eq!(run.character_lengths().len(), 7);
         assert_eq!(field.text_selection().map(|s| s.focus.character_index), Some(7));
+        assert!(run.character_positions().is_none(), "no places given: none published");
+        // With the characters' places: each one's position and width.
+        let w2 = window(vec![Node::text_field(Role::TextInput, "Run", "ab", Rect::new(10, 10, 200, 30)).chars(crate::a11y::Chars { x: 20.0, y: 12, h: 26, advances: vec![8.0, 9.5] })]);
+        let built2 = build(&w2);
+        let (_, field) = by_label(&built2, "Run");
+        let run = node(&built2, field.children()[0]);
+        assert_eq!(run.character_positions(), Some(&[0.0, 8.0][..]));
+        assert_eq!(run.character_widths(), Some(&[8.0, 9.5][..]));
+        assert_eq!(run.bounds(), Some(accesskit::Rect::new(20.0, 12.0, 37.5, 38.0)));
+        assert_eq!(run.text_direction(), Some(TextDirection::LeftToRight));
         let (_, check) = by_label(&built, "Remember");
         assert_eq!(check.toggled(), Some(Toggled::True));
         assert!(check.supports_action(Action::Click));
@@ -272,13 +305,13 @@ mod tests {
         let (id, slider) = by_label(&built, "Volume");
         assert_eq!(slider.numeric_value(), Some(50.0));
         assert!(slider.supports_action(Action::Increment) && !slider.supports_action(Action::Click));
-        let t = built.targets[&id];
+        let t = built.targets[&id].clone();
         assert_eq!(click_point(&t, Action::Increment, None), Some((210.0, 20.0)));
         assert_eq!(click_point(&t, Action::Decrement, None), Some((190.0, 20.0)));
         assert_eq!(click_point(&t, Action::SetValue, Some(&accesskit::ActionData::NumericValue(100.0))), Some((300.0, 20.0)));
         assert_eq!(click_point(&t, Action::SetValue, Some(&accesskit::ActionData::NumericValue(900.0))), Some((300.0, 20.0)), "clamped");
         assert_eq!(click_point(&t, Action::Click, None), None);
-        let button = Target { bounds: Rect::new(0, 0, 10, 10), range: None, text_input: false };
+        let button = Target { bounds: Rect::new(0, 0, 10, 10), range: None, text_input: false, id: String::new(), text: String::new() };
         assert_eq!(click_point(&button, Action::Click, None), Some((5.0, 5.0)));
         assert_eq!(click_point(&button, Action::Focus, None), None, "focusing a button does not press it");
     }

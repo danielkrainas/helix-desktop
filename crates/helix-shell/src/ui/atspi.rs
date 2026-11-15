@@ -42,6 +42,18 @@ const BANNER: &str = "banner";
 const NOTIFICATIONS: &str = "notifications";
 const DOCK: &str = "dock:";
 const OSD: &str = "osd";
+const MENU: &str = "menu";
+const OVERVIEW: &str = "overview:";
+const WORKSPACE_POPUP: &str = "workspace-popup";
+const OSK: &str = "osk";
+const CLICK_TYPE: &str = "click-type";
+const DESKTOP: &str = "desktop";
+const PICKER: &str = "screenshot";
+const BREAK: &str = "break";
+const PANEL_EDITOR: &str = "panel-editor";
+const EXTENSIONS: &str = "extensions";
+const TOOLTIP: &str = "tooltip";
+const MONITOR_LABEL: &str = "monitor:";
 
 /// What the app grid last showed: the page's cells, the open folder's
 /// cells, the selected item, the page dots, the page.
@@ -49,6 +61,8 @@ pub(super) type GridShown<'a> = (&'a [(Rect, String)], &'a [(Rect, String)], Opt
 /// A dock shown: its surface, monitor area, size, its items' places and
 /// what they show, and the item with the keyboard focus.
 pub(super) type DockShown<'a> = (&'a WlSurface, (i32, i32, i32, i32), (u32, u32), Vec<(Rect, &'a crate::dock::Item, crate::dock::ItemState)>, Option<usize>);
+/// A surface and its place on the screen: x, y, width, height.
+pub(super) type SurfaceAt<'a> = (&'a LayerSurface, (i32, i32, u32, u32));
 /// The notification list shown: its surface, size, and places.
 pub(super) type ListShown<'a> = (&'a WlSurface, (u32, u32), &'a [(Rect, ListHit)], Option<&'a ListHit>);
 
@@ -60,6 +74,9 @@ pub(super) struct AtSpi {
     recorded: Vec<(WlSurface, Vec<Node>)>,
     /// App names for the dock (reading them is slow), and when.
     app_names: Option<(HashMap<String, String>, Instant)>,
+    /// The range a client is about to change in a text field (field id,
+    /// start, end, when), from `EditableText`.
+    edit_range: Option<(String, usize, usize, Instant)>,
 }
 
 impl Ui {
@@ -104,7 +121,8 @@ impl Ui {
     /// round of events).
     pub(super) fn atspi_sync(&mut self) {
         let Some(mut publisher) = self.atspi.publisher.take() else { return };
-        if publisher.any_active() && !self.dock_a11y().is_empty() {
+        let named = !self.dock_a11y().is_empty() || self.overview.is_some() || self.window_menu.is_some();
+        if publisher.any_active() && named {
             let stale = self.atspi.app_names.as_ref().is_none_or(|(_, at)| at.elapsed() > Duration::from_secs(30));
             if stale {
                 self.atspi.app_names = Some((crate::windows::app_names(), Instant::now()));
@@ -119,6 +137,9 @@ impl Ui {
         let Some(publisher) = self.atspi.publisher.as_mut() else { return };
         let activated = matches!(event, Event::Activated(_));
         if let Some((surface, target, request)) = publisher.event(event) {
+            if target.text_input && self.atspi_edit(&surface, &target, &request) {
+                return;
+            }
             match crate::a11y::tree::click_point(&target, request.action, request.data.as_ref()) {
                 Some(point) => self.atspi_click(surface, point),
                 None => tracing::debug!(?request, "accessibility action not supported"),
@@ -126,6 +147,54 @@ impl Ui {
         } else if activated {
             // Paint again, recording the nodes.
             self.redraw_all();
+        }
+    }
+
+    /// `EditableText` on a text field: the client selects the range it
+    /// changes (`SetTextSelection`), then sets the whole new text
+    /// (`SetValue`). True when `request` was such a request.
+    fn atspi_edit(&mut self, surface: &WlSurface, target: &crate::a11y::tree::Target, request: &accesskit::ActionRequest) -> bool {
+        use accesskit::{Action, ActionData};
+        match (request.action, request.data.as_ref()) {
+            (Action::SetTextSelection, Some(ActionData::SetTextSelection(sel))) => {
+                let (a, b) = (sel.anchor.character_index, sel.focus.character_index);
+                self.atspi.edit_range = Some((target.id.clone(), a.min(b), a.max(b), Instant::now()));
+                true
+            }
+            (Action::SetValue, Some(ActionData::Value(value))) => {
+                // The range applies to the value set right after it.
+                let range = self.atspi.edit_range.take().filter(|(id, .., at)| *id == target.id && at.elapsed() < Duration::from_secs(1)).map(|(_, s, e, _)| (s, e));
+                self.atspi_set_text(surface, &target.id, value, range);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Field `id` on `surface` now holds `value` (see [`edited`]).
+    fn atspi_set_text(&mut self, surface: &WlSurface, id: &str, value: &str, range: Option<(usize, usize)>) {
+        if self.lock.session.is_some() {
+            let on_lock = self.lock_primary().is_some_and(|v| v.surface.wl_surface() == surface);
+            if id == "password" && on_lock && !self.lock.checking && self.lock.revealed {
+                let mut new = edited(&self.lock.password, true, value, range);
+                std::mem::swap(&mut self.lock.password, &mut new);
+                wipe(&mut new);
+                self.lock.failed = false;
+                self.lock.focus = None;
+                self.draw_lock();
+            }
+            return;
+        }
+        if let Some(view) = self.launcher.as_mut().filter(|v| v.layer.wl_surface() == surface) {
+            if id == "search" {
+                view.model.set_query(value);
+                self.search_changed();
+                self.draw_launcher();
+            }
+            return;
+        }
+        if self.dialog.as_ref().is_some_and(|d| d.layer.wl_surface() == surface) {
+            self.prompt_set_text(id, value, range);
         }
     }
 
@@ -181,6 +250,42 @@ impl Ui {
         if let Some(o) = self.dialog.as_ref().filter(|o| o.configured) {
             add(DIALOG, o.layer.wl_surface());
         }
+        for (i, (layer, _)) in self.overview_a11y().into_iter().enumerate() {
+            add(&format!("{OVERVIEW}{i}"), layer.wl_surface());
+        }
+        if let Some((layer, ..)) = self.window_menu.as_ref().and_then(|m| m.a11y_surface()) {
+            add(MENU, layer.wl_surface());
+        }
+        if let Some((layer, ..)) = self.workspace_popup_a11y() {
+            add(WORKSPACE_POPUP, layer.wl_surface());
+        }
+        if let Some((layer, ..)) = self.osk_a11y() {
+            add(OSK, layer.wl_surface());
+        }
+        if let Some((layer, ..)) = self.click_type_a11y() {
+            add(CLICK_TYPE, layer.wl_surface());
+        }
+        if let Some((layer, ..)) = self.desktop_icons_a11y() {
+            add(DESKTOP, layer.wl_surface());
+        }
+        if let Some((layer, _)) = self.picker_a11y() {
+            add(PICKER, layer.wl_surface());
+        }
+        if let Some((layer, _)) = self.break_a11y() {
+            add(BREAK, layer.wl_surface());
+        }
+        if let Some((layer, _)) = self.panel_editor_a11y() {
+            add(PANEL_EDITOR, layer.wl_surface());
+        }
+        if let Some((layer, _)) = self.extensions_dialog_a11y() {
+            add(EXTENSIONS, layer.wl_surface());
+        }
+        if let Some((layer, ..)) = self.panel_tooltip_a11y() {
+            add(TOOLTIP, layer.wl_surface());
+        }
+        for (i, label) in self.monitor_labels.iter().enumerate().filter(|(_, l)| l.configured && l.width > 0) {
+            add(&format!("{MONITOR_LABEL}{i}"), label.layer.wl_surface());
+        }
         out
     }
 
@@ -196,12 +301,25 @@ impl Ui {
             // (The views shown are published in order: dock:N.)
             return format!("{DOCK}{i}");
         }
+        // As keys go (see `press_key`).
         let key = if self.lock.session.is_some() {
             LOCK
+        } else if self.window_menu.is_some() {
+            MENU
+        } else if self.picker.is_some() {
+            PICKER
         } else if self.dialog.is_some() {
             DIALOG
         } else if self.switcher.is_some() {
             SWITCHER
+        } else if self.overview.is_some() {
+            return format!("{OVERVIEW}0");
+        } else if self.break_screen.is_some() {
+            BREAK
+        } else if self.panel_editor.is_some() {
+            PANEL_EDITOR
+        } else if self.extensions_dialog.is_some() {
+            EXTENSIONS
         } else if self.launcher.is_some() {
             LAUNCHER
         } else if self.power_menu.is_some() {
@@ -270,6 +388,74 @@ impl Ui {
                 let (_, (w, h), hits, focus) = self.notification_list_a11y()?;
                 (tr("Notifications").to_owned(), self.overlay_bounds(w, h), self.notification_list_nodes(hits, focus))
             }
+            MENU => {
+                let menu = self.window_menu.as_ref()?;
+                let (_, (x, y, w, h)) = menu.a11y_surface()?;
+                let title = self.menu_title(menu);
+                let node = menu.a11y(&title);
+                (title, crate::a11y::Rect::new(x, y, w as i32, h as i32), vec![node])
+            }
+            WORKSPACE_POPUP => {
+                // Centered on the primary monitor.
+                let (_, (w, h), nodes) = self.workspace_popup_a11y()?;
+                let (x, y, aw, ah) = self.primary_area;
+                (tr("Workspace Switcher").to_owned(), crate::a11y::Rect::new(x + (aw - w as i32) / 2, y + (ah - h as i32) / 2, w as i32, h as i32), nodes)
+            }
+            OSK => {
+                // Along the bottom of the primary monitor.
+                let (_, (w, h), nodes) = self.osk_a11y()?;
+                let (x, y, _, ah) = self.primary_area;
+                (tr("On-screen Keyboard").to_owned(), crate::a11y::Rect::new(x, y + ah - h as i32, w as i32, h as i32), nodes)
+            }
+            CLICK_TYPE => {
+                // At the right edge of the primary monitor, 8 in.
+                let (_, (w, h), nodes) = self.click_type_a11y()?;
+                let (x, y, aw, ah) = self.primary_area;
+                (tr("Click Type").to_owned(), crate::a11y::Rect::new(x + aw - w as i32 - 8, y + (ah - h as i32) / 2, w as i32, h as i32), nodes)
+            }
+            DESKTOP => {
+                let (_, (w, h), nodes) = self.desktop_icons_a11y()?;
+                (tr("Desktop").to_owned(), self.overlay_bounds(w, h), nodes)
+            }
+            PICKER => {
+                let (layer, (x, y, w, h)) = self.picker_a11y()?;
+                (tr("Screenshot").to_owned(), crate::a11y::Rect::new(x, y, w as i32, h as i32), self.recorded(layer.wl_surface()))
+            }
+            BREAK => {
+                let (layer, (w, h)) = self.break_a11y()?;
+                let nodes = self.recorded(layer.wl_surface());
+                let title = nodes.first().map_or_else(|| tr("Break").to_owned(), |n| n.name.clone());
+                (title, self.overlay_bounds(w, h), nodes)
+            }
+            PANEL_EDITOR => {
+                // Below the panel, which stays uncovered.
+                let (layer, (w, h)) = self.panel_editor_a11y()?;
+                let (x, y, ..) = self.primary_area;
+                (tr("Customize Panel").to_owned(), crate::a11y::Rect::new(x, y + panel_height() as i32, w as i32, h as i32), self.recorded(layer.wl_surface()))
+            }
+            EXTENSIONS => {
+                let (layer, (w, h)) = self.extensions_dialog_a11y()?;
+                (tr("Extensions").to_owned(), self.overlay_bounds(w, h), self.recorded(layer.wl_surface()))
+            }
+            TOOLTIP => {
+                let (_, bounds, nodes) = self.panel_tooltip_a11y()?;
+                (tr("Tooltip").to_owned(), bounds, nodes)
+            }
+            overview if overview.starts_with(OVERVIEW) => {
+                let index: usize = overview.strip_prefix(OVERVIEW)?.parse().ok()?;
+                let (layer, (x, y, w, h)) = self.overview_a11y().get(index).copied()?;
+                let names = self.atspi.app_names.as_ref().map(|(n, _)| n);
+                (tr("Overview").to_owned(), crate::a11y::Rect::new(x, y, w as i32, h as i32), self.overview_a11y_nodes(layer, names))
+            }
+            label if label.starts_with(MONITOR_LABEL) => {
+                // Top left of its monitor, below the panel.
+                let index: usize = label.strip_prefix(MONITOR_LABEL)?.parse().ok()?;
+                let o = self.monitor_labels.get(index)?;
+                let (number, (x, y), connector) = &o.state;
+                let bounds = crate::a11y::Rect::new(x + 12, y + panel_height() as i32 + 12, o.width as i32, o.height as i32);
+                let node = Node::label(number.to_string()).id("number").describe(connector.as_str()).at(crate::a11y::Rect::new(0, 0, o.width as i32, o.height as i32));
+                (trf!("Monitor {}", number), bounds, vec![node])
+            }
             dock => {
                 let index: usize = dock.strip_prefix(DOCK)?.parse().ok()?;
                 let docks = self.dock_a11y();
@@ -331,7 +517,9 @@ impl Ui {
                 Slot::Ext(i) => {
                     let Some(item) = self.ext.panel.get(i) else { continue };
                     let name = [&item.accessible_name, &item.label, &item.tooltip, &item.name].into_iter().find(|s| !s.is_empty()).cloned().unwrap_or_default();
-                    Node::button(name, r).id(item.full_id.clone())
+                    // Its tooltip, unless that is its name.
+                    let about = if item.tooltip.trim() == name { String::new() } else { item.tooltip.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n") };
+                    Node::button(name, r).id(item.full_id.clone()).describe(about)
                 }
                 Slot::Privacy => {
                     let mut ix = x;
@@ -353,6 +541,59 @@ impl Ui {
             out.push(node.focused(focused(slot, x)));
         }
         out
+    }
+
+    // ----- Menus -------------------------------------------------------------
+
+    /// A shell menu's name: what it is for (the status icon, extension
+    /// item, app, input sources, accessibility, the panel, a window).
+    fn menu_title(&self, menu: &window_menu::WindowMenu) -> String {
+        use window_menu::Choice;
+        let has = |f: &dyn Fn(Choice) -> bool| menu.items().iter().flatten().any(|i| f(i.choice));
+        if let Some((key, _)) = &self.tray_menu {
+            if let Some(item) = self.tray.iter().find(|i| &i.key == key) {
+                let name = [&item.title, &item.tooltip_title].into_iter().find(|s| !s.trim().is_empty()).map_or_else(|| item.key.clone(), |s| s.trim().to_owned());
+                return name;
+            }
+        }
+        if let Some((full_id, ..)) = &self.ext_menu {
+            let panel = self.ext.panel.iter().find(|p| &p.full_id == full_id).map(|i| [&i.accessible_name, &i.label, &i.name].into_iter().find(|s| !s.is_empty()).cloned().unwrap_or_default());
+            let dock = self.ext.dock.iter().find(|d| &d.full_id == full_id).map(|d| if d.label.is_empty() { d.name.clone() } else { d.label.clone() });
+            if let Some(name) = panel.or(dock).filter(|n| !n.is_empty()) {
+                return name;
+            }
+        }
+        if has(&|c| matches!(c, Choice::InputSource(_) | Choice::ImProperty(_))) {
+            return tr("Input Sources").to_owned();
+        }
+        if has(&|c| matches!(c, Choice::A11y(_))) {
+            return tr("Accessibility").to_owned();
+        }
+        if has(&|c| matches!(c, Choice::CustomizePanel | Choice::Extensions)) {
+            return tr("Top Bar").to_owned();
+        }
+        if has(&|c| matches!(c, Choice::Dock(_))) {
+            use super::dock::DockTarget;
+            let names = self.atspi.app_names.as_ref().map(|(n, _)| n);
+            let app_name = |id: &str| {
+                let key = id.strip_suffix(".desktop").unwrap_or(id).to_lowercase();
+                names.and_then(|n| n.get(&key)).cloned().unwrap_or_else(|| id.to_owned())
+            };
+            for target in &self.dock.menu_targets {
+                match target {
+                    DockTarget::Launch(app) | DockTarget::TogglePin(app) | DockTarget::Details(app) | DockTarget::Quit(app) | DockTarget::Previews(app) | DockTarget::Action(app, _) => return app_name(app),
+                    DockTarget::OpenTrash | DockTarget::EmptyTrash => return tr("Trash").to_owned(),
+                    DockTarget::OpenMount(root) | DockTarget::EjectMount(root) => {
+                        if let Some(m) = self.dock.mounts.iter().find(|m| &m.root == root) {
+                            return m.name.clone();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return tr("Windows").to_owned();
+        }
+        tr("Window Menu").to_owned()
     }
 
     // ----- Window switcher ---------------------------------------------------
@@ -382,7 +623,10 @@ impl Ui {
         let results = !model.query.is_empty();
         let (cells, folder_cells, selected, dots, page) = view.grid.a11y();
         let grid_focus = !results && selected.is_some();
-        let search = Node::text_field(Role::SearchInput, tr("Search"), &model.query, field.into()).id("search");
+        // Painted from x + 16 at 17 px (see `draw_launcher`).
+        let advances = self.text.as_ref().map(|t| t.advances(&model.query, 17.0)).unwrap_or_default();
+        let chars = crate::a11y::Chars { x: (field.x + 16) as f32, y: field.y, h: field.h, advances };
+        let search = Node::text_field(Role::SearchInput, tr("Search"), &model.query, field.into()).id("search").chars(chars);
         let mut out = vec![search.focused(!results && !grid_focus)];
         let name = |id: &str| model.apps.iter().find(|a| a.id == id).map(|a| a.name.clone()).or_else(|| model.folders.iter().find(|f| f.id == id).map(|f| f.name.clone())).unwrap_or_default();
         if results {
@@ -491,7 +735,8 @@ impl Ui {
         // The selected day's events.
         let events = self.calendar.selected_events();
         let (y, m, d) = self.calendar.selected;
-        let events = if events.is_empty() { vec![Node::label(tr("No Events"))] } else { events.into_iter().map(Node::label).collect() };
+        // Each event: its summary, described by when it is and how long.
+        let events = if events.is_empty() { vec![Node::label(tr("No Events"))] } else { events.into_iter().map(|(summary, when)| Node::new(Role::ListItem, summary).describe(when)).collect() };
         out.push(Node::new(Role::List, trf!("Events, {}", day_name(y, m, d))).id("events").children(events));
         let list = Node::new(Role::List, tr("Notifications")).id("list").children(list);
         let list = if entries.is_empty() { list.child(Node::label(tr("No Notifications"))) } else { list };
@@ -573,6 +818,28 @@ pub(super) fn share_dialog(message: &str, remember: bool, sources: &[(crate::scr
         }
     }
     out
+}
+
+/// What a field holds after a client set its text to `value`, computed
+/// from what was published; `range` is the characters the client said it
+/// replaces (selected just before). A plain field takes `value`. A
+/// password field was published masked, so the same change is made to
+/// `current`: what stands where the range was is inserted between the
+/// characters before and after it; without a range (or one that does not
+/// fit) `value` replaces it all. Control characters are dropped.
+pub(super) fn edited(current: &str, password: bool, value: &str, range: Option<(usize, usize)>) -> String {
+    let clean = |s: &str| s.chars().filter(|c| !c.is_control()).collect::<String>();
+    let len = current.chars().count();
+    let new: Vec<char> = value.chars().collect();
+    match range {
+        Some((start, end)) if password && start <= end && end <= len && new.len() >= start + (len - end) => {
+            let inserted: String = new[start..new.len() - (len - end)].iter().collect();
+            let before: String = current.chars().take(start).collect();
+            let after: String = current.chars().skip(end).collect();
+            format!("{before}{}{after}", clean(&inserted))
+        }
+        _ => clean(value),
+    }
 }
 
 /// The status area's icons in words.
@@ -680,6 +947,19 @@ mod tests {
         s.microphone = false;
         assert_eq!(status_words(&s), "Wired network, Volume muted, Battery 50%");
         assert_eq!(status_words(&Default::default()), "");
+    }
+
+    #[test]
+    fn editing_fields() {
+        // A plain field takes the new text.
+        assert_eq!(edited("ls", false, "ls -l", Some((2, 2))), "ls -l");
+        // A password field: the change between the masked texts is made
+        // to the secret (insert "x" at 1; delete 1..3; replace all).
+        assert_eq!(edited("abc", true, "•x••", Some((1, 1))), "axbc");
+        assert_eq!(edited("abcd", true, "••", Some((1, 3))), "ad");
+        assert_eq!(edited("abc", true, "new", None), "new");
+        assert_eq!(edited("abc", true, "z", Some((0, 1))), "z", "a range that does not fit: it all");
+        assert_eq!(edited("", false, "a\nb", None), "ab", "no control characters");
     }
 
     #[test]

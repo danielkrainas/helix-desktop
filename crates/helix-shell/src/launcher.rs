@@ -302,6 +302,15 @@ impl Launcher {
         }
     }
 
+    /// Replace the query (an assistive technology set the field's text).
+    pub fn set_query(&mut self, query: &str) {
+        let query: String = query.chars().filter(|c| !c.is_control()).collect();
+        if query != self.query {
+            self.query = query;
+            self.refilter();
+        }
+    }
+
     pub fn backspace(&mut self) {
         if self.query.pop().is_some() {
             self.refilter();

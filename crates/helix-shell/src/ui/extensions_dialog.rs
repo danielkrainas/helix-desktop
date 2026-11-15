@@ -74,6 +74,92 @@ fn state_text(info: &Info) -> String {
     }
 }
 
+/// What an extension can do: sandboxed, with its permissions, or anything.
+fn can_text(info: &Info) -> String {
+    if info.sandboxed {
+        let what: Vec<&str> = info.permissions.iter().map(|p| permission_text(p)).collect();
+        if what.is_empty() { tr("Sandboxed").to_owned() } else { trf!("Sandboxed. Can: {}", what.join(", ")) }
+    } else {
+        tr("Full access: it can do anything you can").to_owned()
+    }
+}
+
+/// The Extensions dialog on the accessibility bus (helix-desktop-spec
+/// `contracts/dbus/org.a11y.atspi.md`): a modal `dialog` with a list of
+/// the extensions shown (`shown`, indexes into `list`), each a `list item`
+/// named by the extension and described by its description, state and
+/// what it can do, holding its switch (a toggle button, checked when on),
+/// its `Settings` button (expanded while open), its commands and keys
+/// (labels), and when open its settings: switches, choices (buttons
+/// described by the value), numbers (`Decrease` / `Increase` described by
+/// the setting and value) and text (labels). Then "Scroll for more" when
+/// some are out of view, and `Done`. The control with the keyboard focus
+/// (Tab) has it.
+pub(super) fn extension_nodes(list: &[Info], shown: &[usize], expanded: Option<&str>, hits: &[(Rect, DialogHit)], focus: Option<usize>, more: bool) -> Vec<crate::a11y::Node> {
+    use crate::a11y::{Node, Role};
+    let control = |i: usize, node: Node| node.at(hits[i].0.into()).click().focusable().focused(focus == Some(i)).id(format!("{:?}", hits[i].1));
+    let hit = |want: DialogHit| hits.iter().position(|(_, h)| *h == want);
+    let mut out = Node::new(Role::Dialog, tr("Extensions")).id("extensions").modal();
+    if list.is_empty() {
+        out = out.child(Node::label(tr("No extensions are installed.")));
+    }
+    let entries = shown.iter().filter_map(|&n| {
+        let info = list.get(n)?;
+        let parts = [info.description.clone(), state_text(info), can_text(info)];
+        let about = parts.iter().map(|s| s.trim().trim_end_matches('.')).filter(|s| !s.is_empty()).collect::<Vec<_>>().join(". ");
+        let title = if info.version.is_empty() { info.name.clone() } else { format!("{} {}", info.name, info.version) };
+        let mut entry = Node::new(Role::ListItem, title).id(info.id.clone()).describe(about);
+        if let Some(i) = hit(DialogHit::Switch(n)) {
+            entry = entry.child(control(i, Node::new(Role::Switch, &info.name).toggled(info.enabled && info.approved)));
+        }
+        if let Some(i) = hit(DialogHit::Settings(n)) {
+            entry = entry.child(control(i, Node::new(Role::Button, tr("Settings")).describe(info.name.as_str()).expanded(expanded == Some(info.id.as_str()))));
+        }
+        for (_, title, keys) in &info.commands {
+            let keys = if keys.is_empty() { tr("None") } else { keys.as_str() };
+            entry = entry.child(Node::label(format!("{title}: {keys}")));
+        }
+        if expanded == Some(info.id.as_str()) {
+            for (s, (decl, value)) in info.settings.iter().enumerate() {
+                let shown = value.display();
+                match &decl.ty {
+                    SettingType::Bool => {
+                        if let Some(i) = hit(DialogHit::Flip(n, s)) {
+                            entry = entry.child(control(i, Node::new(Role::Switch, &decl.label).toggled(*value == SettingValue::Bool(true))));
+                        }
+                    }
+                    SettingType::Enum(_) => {
+                        if let Some(i) = hit(DialogHit::Next(n, s)) {
+                            entry = entry.child(control(i, Node::new(Role::Button, &decl.label).describe(shown)));
+                        }
+                    }
+                    SettingType::Int | SettingType::Double => {
+                        let about = format!("{}: {shown}", decl.label);
+                        for (want, name) in [(DialogHit::Down(n, s), tr("Decrease")), (DialogHit::Up(n, s), tr("Increase"))] {
+                            if let Some(i) = hit(want) {
+                                entry = entry.child(control(i, Node::new(Role::Button, name).describe(about.as_str())));
+                            }
+                        }
+                    }
+                    SettingType::String | SettingType::StringList => {
+                        let shown = if shown.is_empty() { tr("(empty)").to_owned() } else { shown };
+                        entry = entry.child(Node::label(format!("{}: {shown}", decl.label)));
+                    }
+                }
+            }
+        }
+        Some(entry)
+    });
+    out = out.child(Node::new(Role::List, "").id("list").children(entries));
+    if more {
+        out = out.child(Node::label(tr("Scroll for more")).id("more"));
+    }
+    if let Some(i) = hit(DialogHit::Done) {
+        out = out.child(control(i, Node::new(Role::Button, tr("Done"))));
+    }
+    vec![out]
+}
+
 /// A number setting's step.
 fn step(ty: &SettingType, min: Option<f64>, max: Option<f64>) -> f64 {
     match (ty, min, max) {
@@ -131,6 +217,7 @@ impl Ui {
         let scroll = overlay.state.scroll.min(list.len().saturating_sub(1));
         overlay.state.scroll = scroll;
         let mut more_below = false;
+        let mut shown = Vec::new();
         for (n, info) in list.iter().enumerate().skip(scroll) {
             let expanded = overlay.state.expanded.as_deref() == Some(info.id.as_str());
             let entry_h = ENTRY_H + if expanded { info.settings.len() as i32 * SETTING_H + 8 } else { 0 } + info.commands.len() as i32 * SETTING_H;
@@ -138,6 +225,7 @@ impl Ui {
                 more_below = true;
                 break;
             }
+            shown.push(n);
             canvas.rect(bx + PAD, y, bw - 2 * PAD, entry_h - 8, HOVER_BG);
             let tx = bx + PAD + 12;
             let room = (bw - 2 * PAD - 24 - SWITCH_W - 12) as f32;
@@ -147,13 +235,7 @@ impl Ui {
             let state = state_text(info);
             let state_color = if matches!(info.state, State::Invalid(_) | State::Crashed(_) | State::NeedsApproval) { 0xFFE0_8040 } else { DIM_FG };
             label(text, &mut canvas, &state, tx as f32, (y + 62) as f32, 12.0, state_color, room);
-            // What it can do: sandboxed, with its permissions, or anything.
-            let can = if info.sandboxed {
-                let what: Vec<&str> = info.permissions.iter().map(|p| permission_text(p)).collect();
-                if what.is_empty() { tr("Sandboxed").to_owned() } else { trf!("Sandboxed. Can: {}", what.join(", ")) }
-            } else {
-                tr("Full access: it can do anything you can").to_owned()
-            };
+            let can = can_text(info);
             label(text, &mut canvas, &can, tx as f32, (y + 78) as f32, 12.0, if info.sandboxed { DIM_FG } else { 0xFFE0_8040 }, room);
             // The on/off switch (development extensions run regardless).
             if info.kind != crate::ext_host::store::Kind::Development && !matches!(info.state, State::Invalid(_)) {
@@ -244,12 +326,20 @@ impl Ui {
                 canvas.rect(rx, ry, rw, rh, accent());
             }
         }
+        let nodes = extension_nodes(&list, &shown, overlay.state.expanded.as_deref(), &hits, overlay.state.focus, scroll > 0 || more_below);
+        self.atspi_record(overlay.layer.wl_surface(), nodes);
         overlay.hits = hits.into_iter().map(|(r, hit)| (r, OverlayHit::ExtDialog(hit))).collect();
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
+    }
+
+    /// The dialog for the accessibility bus.
+    pub(super) fn extensions_dialog_a11y(&self) -> Option<(&LayerSurface, (u32, u32))> {
+        let o = self.extensions_dialog.as_ref().filter(|o| o.configured && o.width > 0)?;
+        Some((&o.layer, (o.width, o.height)))
     }
 
     fn extensions_dialog_do(&mut self, hit: DialogHit) {

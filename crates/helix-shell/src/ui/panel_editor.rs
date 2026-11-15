@@ -189,12 +189,20 @@ impl Ui {
                 canvas.rect(rx, ry, rw, rh, accent());
             }
         }
+        let nodes = editor_nodes(&columns, &hidden, &hits, overlay.state.focus, (!saved).then(|| tr("Changes cannot be saved: the org.helix.shell settings are not installed.")));
+        self.atspi_record(overlay.layer.wl_surface(), nodes);
         overlay.hits = hits.into_iter().map(|(r, hit)| (r, OverlayHit::PanelEditor(hit))).collect();
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
+    }
+
+    /// The editor for the accessibility bus.
+    pub(super) fn panel_editor_a11y(&self) -> Option<(&LayerSurface, (u32, u32))> {
+        let o = self.panel_editor.as_ref().filter(|o| o.configured && o.width > 0)?;
+        Some((&o.layer, (o.width, o.height)))
     }
 
     fn panel_editor_do(&mut self, hit: EditorHit) {
@@ -285,6 +293,59 @@ impl Ui {
         self.open_menu(0, event.position.0 as i32, panel_height() as i32, items, Vec::new());
         true
     }
+}
+
+/// "Customize Panel…" on the accessibility bus (helix-desktop-spec
+/// `contracts/dbus/org.a11y.atspi.md`): a modal `dialog` with one `list`
+/// per column (named by the column) of its items, each a `list item`
+/// holding its buttons (`Move Up`, `Move Down`, `Move Left`, `Move Right`,
+/// `Remove`, described by the item's name); the hidden items with their
+/// `Add` buttons; `Reset` and `Done`. The button with the keyboard focus
+/// (Tab) has it.
+pub(super) fn editor_nodes(columns: &[Vec<layout::Row>], hidden: &[(usize, String, String)], hits: &[(Rect, EditorHit)], focus: Option<usize>, note: Option<&str>) -> Vec<crate::a11y::Node> {
+    use crate::a11y::{Node, Role};
+    let button = |i: usize, name: &str, about: &str| {
+        let (r, hit) = hits[i];
+        Node::button(name, r.into()).id(format!("{hit:?}")).describe(about).focusable().focused(focus == Some(i))
+    };
+    let mut out = Node::new(Role::Dialog, tr("Customize Panel")).id("editor").modal();
+    if let Some(note) = note {
+        out = out.child(Node::label(note).id("note"));
+    }
+    for (c, rows) in columns.iter().enumerate() {
+        let items = rows.iter().enumerate().map(|(r, row)| {
+            let buttons = hits.iter().enumerate().filter_map(|(i, (_, hit))| {
+                let name = match *hit {
+                    EditorHit::Up(hc, hr) if (hc, hr) == (c, r) => tr("Move Up"),
+                    EditorHit::Down(hc, hr) if (hc, hr) == (c, r) => tr("Move Down"),
+                    EditorHit::Left(hc, hr) if (hc, hr) == (c, r) => tr("Move Left"),
+                    EditorHit::Right(hc, hr) if (hc, hr) == (c, r) => tr("Move Right"),
+                    EditorHit::Remove(hc, hr) if (hc, hr) == (c, r) => tr("Remove"),
+                    _ => return None,
+                };
+                Some(button(i, name, &row.name))
+            });
+            Node::new(Role::ListItem, &row.name).id(row.id.clone()).children(buttons)
+        });
+        out = out.child(Node::new(Role::List, tr(COLUMNS[c.min(COLUMNS.len() - 1)])).id(format!("column:{c}")).children(items));
+    }
+    let added = hits.iter().enumerate().filter_map(|(i, (_, hit))| {
+        let EditorHit::Add(n) = *hit else { return None };
+        let (_, id, name) = hidden.get(n)?;
+        Some(Node::new(Role::ListItem, name).id(id.clone()).child(button(i, tr("Add"), name)))
+    });
+    let added: Vec<Node> = added.collect();
+    if !added.is_empty() {
+        out = out.child(Node::new(Role::List, tr("Hidden")).id("hidden").children(added));
+    }
+    for (i, (_, hit)) in hits.iter().enumerate() {
+        match hit {
+            EditorHit::Reset => out = out.child(button(i, tr("Reset"), "")),
+            EditorHit::Done => out = out.child(button(i, tr("Done"), "")),
+            _ => {}
+        }
+    }
+    vec![out]
 }
 
 /// Dragging a panel item while the editor is open.

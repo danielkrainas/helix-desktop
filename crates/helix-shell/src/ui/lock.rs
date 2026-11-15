@@ -550,7 +550,10 @@ fn nodes(m: &LockModel, hits: &[(Rect, LockHit)], field: Rect, reveal_at: Rect, 
         return out;
     }
     out.push(Node::label(m.user).id("user"));
-    let password = Node::text_field(Role::PasswordInput, tr("Password"), "•".repeat(m.typed), field.into()).id("password");
+    // The dots: one box per character, `DOT_PITCH` apart.
+    use helix_draw::screen::{DOT_PITCH, ENTRY_PAD};
+    let dots = crate::a11y::Chars::even(field.x as f32 + ENTRY_PAD as f32, field.y, field.h, DOT_PITCH as f32, m.typed);
+    let password = Node::text_field(Role::PasswordInput, tr("Password"), "•".repeat(m.typed), field.into()).id("password").chars(dots);
     out.push(password.focused(m.confirming.is_none() && m.focus.is_none()).disabled(m.checking));
     if let Some(&(r, _)) = hits.iter().find(|(_, h)| *h == LockHit::Unlock) {
         out.push(Node::button(tr("Unlock"), r.into()).id("unlock").disabled(m.typed == 0 || m.checking));

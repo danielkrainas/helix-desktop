@@ -19,6 +19,8 @@ pub(super) struct PanelTooltip {
     height: u32,
     configured: bool,
     lines: Vec<String>,
+    /// Its left edge on the panel's monitor.
+    left: i32,
 }
 
 /// What the pointer rests on: an item's key, where it is drawn, and
@@ -106,7 +108,7 @@ impl Ui {
             layer.wl_surface().set_input_region(Some(region.wl_region()));
         }
         layer.commit();
-        self.panel_tooltip = Some(PanelTooltip { layer, width: 0, height: 0, configured: false, lines });
+        self.panel_tooltip = Some(PanelTooltip { layer, width: 0, height: 0, configured: false, lines, left });
     }
 
     pub(super) fn panel_tooltip_configured(&mut self, layer: &LayerSurface, size: (u32, u32)) -> bool {
@@ -124,6 +126,15 @@ impl Ui {
             return true;
         }
         false
+    }
+
+    /// The tooltip for the accessibility bus: its surface, its place on
+    /// the screen, and a `tool tip` named by its first line and described
+    /// by the others.
+    pub(super) fn panel_tooltip_a11y(&self) -> Option<(&LayerSurface, crate::a11y::Rect, Vec<crate::a11y::Node>)> {
+        let tip = self.panel_tooltip.as_ref().filter(|t| t.configured && t.width > 0)?;
+        let bounds = crate::a11y::Rect::new(self.primary_area.0 + tip.left, self.primary_area.1 + panel_height() as i32 + 4, tip.width as i32, tip.height as i32);
+        Some((&tip.layer, bounds, tooltip_nodes(&tip.lines, tip.width as i32, tip.height as i32)))
     }
 
     fn draw_panel_tooltip(&mut self) {
@@ -153,4 +164,14 @@ impl Ui {
         }
         self.panel_tooltip = Some(tip);
     }
+}
+
+/// A panel tooltip on the accessibility bus (helix-desktop-spec
+/// `contracts/dbus/org.a11y.atspi.md`): a `tool tip` named by its first
+/// line (bold) and described by the others, on its `w`×`h` box.
+pub(super) fn tooltip_nodes(lines: &[String], w: i32, h: i32) -> Vec<crate::a11y::Node> {
+    use crate::a11y::{Node, Role};
+    let name = lines.first().cloned().unwrap_or_default();
+    let more = lines.iter().skip(1).cloned().collect::<Vec<_>>().join("\n");
+    vec![Node::new(Role::Tooltip, name).id("tooltip").describe(more).at(crate::a11y::Rect::new(0, 0, w, h))]
 }

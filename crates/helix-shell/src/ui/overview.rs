@@ -786,6 +786,105 @@ impl Ui {
     }
 }
 
+/// What the overview shows on the accessibility bus, as painted.
+pub(super) struct OverviewShown<'a> {
+    /// The search field (primary monitor only).
+    pub search: Option<Rect>,
+    /// Workspace thumbnails: place, name, the active one.
+    pub workspaces: &'a [(Rect, String, bool)],
+    /// Window pictures: place, window, title, app.
+    pub windows: &'a [(Rect, u32, String, String)],
+    /// Dash icons: place, app, name, running.
+    pub dash: &'a [(Rect, String, String, bool)],
+    /// The window chosen, where the keyboard is, and its thumbnail and
+    /// dash icon there.
+    pub selected: Option<u32>,
+    pub region: Region,
+    pub workspace_key: Option<u32>,
+    pub dash_key: Option<usize>,
+}
+
+/// The overview on the accessibility bus (helix-desktop-spec
+/// `contracts/dbus/org.a11y.atspi.md`, "Window overview"): the search
+/// field; a `Workspaces` list box (the active workspace selected); a
+/// `Windows` list box of the window pictures, each named by its title
+/// and described by its app (the chosen one selected); and the `Dash`
+/// tool bar of app buttons. The keyboard's place (Tab between the parts,
+/// arrows inside) has the focus.
+pub(super) fn overview_nodes(s: &OverviewShown) -> Vec<crate::a11y::Node> {
+    use crate::a11y::{Node, Role};
+    use helix_i18n::tr;
+    let mut out = Vec::new();
+    let keyboard_on = |r: Region| s.region == r;
+    if let Some(search) = s.search {
+        let nothing = s.selected.is_none() || !s.windows.iter().any(|w| Some(w.1) == s.selected);
+        out.push(Node::text_field(Role::SearchInput, tr("Search"), "", search.into()).id("search").focused(keyboard_on(Region::Windows) && nothing));
+    }
+    if !s.workspaces.is_empty() {
+        let thumbs = s.workspaces.iter().enumerate().map(|(n, (r, name, active))| {
+            let focused = keyboard_on(Region::Workspaces) && s.workspace_key == Some(n as u32);
+            Node::new(Role::ListBoxOption, name).id(format!("workspace:{n}")).at((*r).into()).click().focusable().selected(*active).focused(focused)
+        });
+        out.push(Node::new(Role::ListBox, tr("Workspaces")).id("workspaces").children(thumbs));
+    }
+    let pictures = s.windows.iter().map(|(r, id, title, app)| {
+        let on = s.selected == Some(*id);
+        Node::new(Role::ListBoxOption, title).id(format!("window:{id}")).describe(app.as_str()).at((*r).into()).click().focusable().selected(on).focused(on && keyboard_on(Region::Windows))
+    });
+    let windows = Node::new(Role::ListBox, tr("Windows")).id("windows").children(pictures);
+    out.push(if s.windows.is_empty() { windows.child(Node::label(tr("No open windows"))) } else { windows });
+    if !s.dash.is_empty() {
+        let icons = s.dash.iter().enumerate().map(|(i, (r, app, name, running))| {
+            let focused = keyboard_on(Region::Dash) && s.dash_key == Some(i);
+            let node = Node::button(name, (*r).into()).id(app.clone()).focusable().focused(focused);
+            if *running { node.describe(tr("Running")) } else { node }
+        });
+        out.push(Node::new(Role::Toolbar, tr("Dash")).id("dash").children(icons));
+    }
+    out
+}
+
+impl Ui {
+    /// The overview surfaces (primary first), for the accessibility bus.
+    pub(super) fn overview_a11y(&self) -> Vec<super::atspi::SurfaceAt<'_>> {
+        let primary = self.overview.iter().map(|o| (o, (self.primary_area.0, self.primary_area.1)));
+        let others = self.overview_others.iter().map(|o| (o, (o.state.area.0, o.state.area.1)));
+        primary.chain(others).filter(|(o, _)| o.configured && o.width > 0).map(|(o, (x, y))| (&o.layer, (x, y, o.width, o.height))).collect()
+    }
+
+    /// What overview surface `layer` shows, for the accessibility bus.
+    pub(super) fn overview_a11y_nodes(&self, layer: &LayerSurface, names: Option<&HashMap<String, String>>) -> Vec<crate::a11y::Node> {
+        let Some(o) = self.overview.iter().chain(self.overview_others.iter()).find(|o| &o.layer == layer) else { return Vec::new() };
+        let state = &o.state;
+        let app_name = |app: &str| {
+            let key = app.strip_suffix(".desktop").unwrap_or(app).to_lowercase();
+            names.and_then(|n| n.get(&key)).cloned().unwrap_or_else(|| app.to_owned())
+        };
+        let ws_names = if state.primary { super::workspace_popup::read_names() } else { Vec::new() };
+        let workspaces: Vec<(Rect, String, bool)> = state.workspaces.iter().map(|(r, n)| (*r, super::workspace_popup::workspace_name(&ws_names, *n), *n == self.windows.active)).collect();
+        let windows: Vec<(Rect, u32, String, String)> = state
+            .tiles
+            .iter()
+            .map(|(r, id)| {
+                let entry = self.windows.mru().iter().find(|e| e.id == *id);
+                let title = entry.map(|e| e.label().to_owned()).unwrap_or_default();
+                (*r, *id, title, entry.map(|e| app_name(&e.app_id)).unwrap_or_default())
+            })
+            .collect();
+        let dash: Vec<(Rect, String, String, bool)> = state.dash.iter().map(|(r, app, newest, _)| (*r, app.clone(), app_name(app), newest.is_some())).collect();
+        overview_nodes(&OverviewShown {
+            search: state.primary.then_some(state.search),
+            workspaces: &workspaces,
+            windows: &windows,
+            dash: &dash,
+            selected: state.selected,
+            region: state.region,
+            workspace_key: state.workspace_key,
+            dash_key: state.dash_key,
+        })
+    }
+}
+
 #[cfg(test)]
 mod nav_tests {
     use super::*;

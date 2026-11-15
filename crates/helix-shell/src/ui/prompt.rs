@@ -369,6 +369,26 @@ impl Ui {
         self.draw_dialog();
     }
 
+    /// An assistive technology set field `id`'s text (`ui/atspi.rs`).
+    pub(super) fn prompt_set_text(&mut self, id: &str, value: &str, range: Option<(usize, usize)>) {
+        let Some(DialogKind::Prompt(view)) = self.dialog.as_mut().map(|d| &mut d.state.kind) else { return };
+        if view.busy {
+            return;
+        }
+        if id == "entry" && view.prompt.entry.is_some() {
+            view.entry = super::atspi::edited(&view.entry, false, value, range);
+            view.focus = 3;
+        } else if let Some(i) = id.strip_prefix("password:").and_then(|i| i.parse::<usize>().ok()).filter(|i| *i < 2) {
+            let mut new = super::atspi::edited(&view.fields[i], !view.shown[i], value, range);
+            std::mem::swap(&mut view.fields[i], &mut new);
+            wipe(&mut new);
+            view.focus = i;
+        } else {
+            return;
+        }
+        self.draw_dialog();
+    }
+
     pub(super) fn paint_prompt(&mut self, overlay: &mut Overlay<DialogState>) {
         let DialogKind::Prompt(view) = &mut overlay.state.kind else { return };
         // The selected file's preview, decoded once (off this thread).
@@ -601,7 +621,7 @@ impl Ui {
         push_button(&mut canvas, text, at(confirm), confirm_label, kind, state(CONFIRM_FOCUS), if view.busy { 0.6 } else { 1.0 });
         hits.push((cancel, OverlayHit::Cancel));
         hits.push((confirm, OverlayHit::Confirm));
-        let node = a11y(view, &hits, status, (cancel_label, confirm_label));
+        let node = a11y(view, &hits, status, (cancel_label, confirm_label), text);
         overlay.hits = hits;
         self.atspi_record(overlay.layer.wl_surface(), vec![node]);
         let surface = overlay.layer.wl_surface();
@@ -614,7 +634,7 @@ impl Ui {
 
 /// The prompt on the accessibility bus (`ui/atspi.rs`): the texts, fields
 /// and buttons painted, focus on the field that takes typing.
-fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, confirm): (&str, &str)) -> crate::a11y::Node {
+fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, confirm): (&str, &str), text: Option<&crate::text::Text>) -> crate::a11y::Node {
     use crate::a11y::{Node, Role};
     let p = &view.prompt;
     let at = |hit: OverlayHit| hits.iter().find(|(_, h)| *h == hit).map(|(r, _)| crate::a11y::Rect::from(*r)).unwrap_or_default();
@@ -638,15 +658,31 @@ fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, c
         out = out.child(Node::new(Role::ListBox, "").children(rows));
     }
     if let Some((name, _)) = &p.entry {
-        out = out.child(Node::text_field(Role::TextInput, name, &view.entry, at(OverlayHit::Field(3))).id("entry").focused(typing(3)));
+        // Painted from r.x + 10, its start scrolled out when it is long.
+        let r = at(OverlayHit::Field(3));
+        let room = (r.w - 24) as f32;
+        let advances = text.map(|t| t.advances(&view.entry, 14.0)).unwrap_or_default();
+        let total: f32 = advances.iter().sum();
+        let mut hidden = 0.0;
+        for a in &advances {
+            if total - hidden <= room {
+                break;
+            }
+            hidden += a;
+        }
+        let chars = crate::a11y::Chars { x: (r.x + 10) as f32 - hidden, y: r.y, h: r.h, advances };
+        out = out.child(Node::text_field(Role::TextInput, name, &view.entry, r).id("entry").chars(chars).focused(typing(3)));
     }
     for (index, field) in [&p.password, &p.confirm].into_iter().enumerate() {
         let Some(name) = field else { continue };
         let r = at(OverlayHit::Field(index));
         let node = if view.shown[index] {
-            Node::text_field(Role::TextInput, name, &view.fields[index], r)
+            let advances = text.map(|t| t.advances(&view.fields[index], 14.0)).unwrap_or_default();
+            Node::text_field(Role::TextInput, name, &view.fields[index], r).chars(crate::a11y::Chars { x: (r.x + 10) as f32, y: r.y, h: r.h, advances })
         } else {
-            Node::text_field(Role::PasswordInput, name, Node::mask(&view.fields[index]), r)
+            // One dot per character, 12 apart from r.x + 12.
+            let count = view.fields[index].chars().count();
+            Node::text_field(Role::PasswordInput, name, Node::mask(&view.fields[index]), r).chars(crate::a11y::Chars::even((r.x + 12) as f32, r.y, r.h, 12.0, count))
         };
         out = out.child(node.id(format!("password:{index}")).focused(typing(index)));
         if view.can_show {

@@ -108,16 +108,13 @@ impl CalendarState {
         local_date(self.month.0, self.month.1, 1).map(|d| fmt(&d, &trc("month and year", "%OB %Y"))).unwrap_or_default()
     }
 
-    /// The selected day's events as read out: "All Day: Holiday",
-    /// "10:00: Standup".
-    pub(super) fn selected_events(&self) -> Vec<String> {
-        self.day_events(self.selected)
-            .iter()
-            .map(|e| {
-                let when = if e.all_day { tr("All Day").to_owned() } else { DateTime::from_unix_local(e.start).map(|d| crate::clock::time_of_day(crate::clock::current(), &d)).unwrap_or_default() };
-                format!("{when}: {}", e.summary)
-            })
-            .collect()
+    /// The selected day's events as read out: each one's summary, and
+    /// when it is and how long it lasts ("10:00 to 11:30, 1 hour 30
+    /// minutes"; "All day"; "All day, 3 days").
+    pub(super) fn selected_events(&self) -> Vec<(String, String)> {
+        let format = crate::clock::current();
+        let time = |t: i64| DateTime::from_unix_local(t).map(|d| crate::clock::time_of_day(format, &d)).unwrap_or_default();
+        self.day_events(self.selected).iter().map(|e| (e.summary.clone(), event_when(e, &time))).collect()
     }
 
     fn day_events(&self, (y, m, d): (i32, i32, i32)) -> Vec<&crate::ical::Occurrence> {
@@ -434,9 +431,49 @@ pub(super) fn paint_calendar(
     }
 }
 
+/// A length of time in words: "1 hour 30 minutes", "45 minutes", "2 hours".
+pub(super) fn duration_words(seconds: i64) -> String {
+    let minutes = (seconds.max(0) + 30) / 60;
+    let (h, m) = (minutes / 60, minutes % 60);
+    let hours = helix_i18n::trn("{n} hour", "{n} hours", h as u64);
+    let mins = helix_i18n::trn("{n} minute", "{n} minutes", m as u64);
+    match (h, m) {
+        (0, _) => mins,
+        (_, 0) => hours,
+        // Translators: a duration, hours then minutes ("1 hour 30 minutes").
+        _ => trf!("{hours} {minutes}", hours = hours, minutes = mins),
+    }
+}
+
+/// When event `e` is, in words, with its times written by `time`: "10:00
+/// to 11:30, 1 hour 30 minutes", "10:00" (no end), "All day", "All day, 3
+/// days".
+pub(super) fn event_when(e: &crate::ical::Occurrence, time: &dyn Fn(i64) -> String) -> String {
+    if e.all_day {
+        let days = ((e.end - e.start).max(0) + 43_200) / 86_400;
+        return if days > 1 { helix_i18n::trnf!("All day, {n} day", "All day, {n} days", days) } else { tr("All Day").to_owned() };
+    }
+    if e.end <= e.start {
+        return time(e.start);
+    }
+    trf!("{start} to {end}, {duration}", start = time(e.start), end = time(e.end), duration = duration_words(e.end - e.start))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn events_in_words() {
+        let time = |t: i64| format!("{:02}:{:02}", t / 3600 % 24, t / 60 % 60);
+        let e = |start, end, all_day| crate::ical::Occurrence { start, end, all_day, summary: "Standup".into() };
+        assert_eq!(event_when(&e(36_000, 41_400, false), &time), "10:00 to 11:30, 1 hour 30 minutes");
+        assert_eq!(event_when(&e(36_000, 38_700, false), &time), "10:00 to 10:45, 45 minutes");
+        assert_eq!(event_when(&e(36_000, 43_200, false), &time), "10:00 to 12:00, 2 hours");
+        assert_eq!(event_when(&e(36_000, 36_000, false), &time), "10:00", "no end");
+        assert_eq!(event_when(&e(0, 86_400, true), &time), "All Day");
+        assert_eq!(event_when(&e(0, 3 * 86_400, true), &time), "All day, 3 days");
+    }
 
     #[test]
     fn keyboard_days() {

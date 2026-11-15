@@ -68,6 +68,8 @@ theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
             label(text, &mut canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, 15.0), 15.0, FG, r.w as f32);
             overlay.hits.push((r, hit));
         }
+        let nodes = break_nodes(view, &overlay.hits);
+        self.atspi_record(overlay.layer.wl_surface(), nodes);
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
@@ -90,10 +92,37 @@ theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
         }
     }
 
+    /// The break screen for the accessibility bus.
+    pub(super) fn break_a11y(&self) -> Option<(&LayerSurface, (u32, u32))> {
+        let o = self.break_screen.as_ref().filter(|o| o.configured && o.width > 0)?;
+        Some((&o.layer, (o.width, o.height)))
+    }
+
     /// Escape delays.
     pub(super) fn break_key(&mut self, event: &KeyEvent) {
         if event.keysym == Keysym::Escape {
             self.answer_break(Answer::Delay);
         }
     }
+}
+
+/// The break screen on the accessibility bus (helix-desktop-spec
+/// `contracts/dbus/org.a11y.atspi.md`): a modal `dialog` named by the
+/// break's title, its message (announced), the time left as a `timer`
+/// ("4:59") and the `Delay` and `Skip` buttons.
+pub(super) fn break_nodes(view: &BreakView, hits: &[(Rect, OverlayHit)]) -> Vec<crate::a11y::Node> {
+    use crate::a11y::{Node, Role};
+    let mut out = Node::new(Role::Dialog, &view.title).id("break").modal().child(Node::label(&view.message).id("message").live());
+    if let Some(left) = view.left {
+        out = out.child(Node::new(Role::Timer, format!("{}:{:02}", left / 60, left % 60)).id("left"));
+    }
+    for (r, hit) in hits {
+        let (name, id) = match hit {
+            OverlayHit::Cancel => (tr("Delay"), "delay"),
+            OverlayHit::Confirm => (tr("Skip"), "skip"),
+            _ => continue,
+        };
+        out = out.child(Node::button(name, (*r).into()).id(id));
+    }
+    vec![out]
 }

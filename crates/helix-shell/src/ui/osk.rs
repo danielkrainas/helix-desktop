@@ -768,6 +768,74 @@ fn tab_glyph(canvas: &mut Canvas, cx: f64, cy: f64, color: u32) {
     canvas.line((cx + 8.0, cy - 6.0), (cx + 8.0, cy + 6.0), 1.8, color);
 }
 
+impl Ui {
+    /// The keyboard for the accessibility bus: its surface, size and keys.
+    pub(super) fn osk_a11y(&self) -> Option<(&LayerSurface, (u32, u32), Vec<crate::a11y::Node>)> {
+        let view = self.osk.view.as_ref().filter(|v| v.configured && v.width > 0)?;
+        let m = OskPaint { rows: &view.rows, page: view.page, shift: view.shift, bar: &view.bar, accents: view.accents, down: view.down };
+        Some((&view.layer, (view.width, view.height), keyboard_nodes(&m, &view.hits, &view.bar_hits)))
+    }
+}
+
+/// A key's name for screen readers, and whether it is a toggle (a
+/// modifier or a page switch) with its state, on `page` with `shift`.
+pub(super) fn key_name(kind: &KeyKind, page: Page, shift: bool) -> (String, Option<bool>) {
+    use helix_i18n::tr;
+    match kind {
+        KeyKind::Char(normal, shifted) => (if shift { shifted.clone() } else { normal.clone() }, None),
+        KeyKind::Special(s) => match s {
+            Special::Backspace => (tr("Backspace").into(), None),
+            Special::Enter => (tr("Enter").into(), None),
+            Special::Tab => (tr("Tab").into(), None),
+            Special::Shift => (tr("Shift").into(), Some(shift)),
+            Special::Space => (tr("Space").into(), None),
+            Special::Left => (tr("Left").into(), None),
+            Special::Right => (tr("Right").into(), None),
+            Special::Hide => (tr("Hide Keyboard").into(), None),
+            // A page key goes to its page, or back to the letters from it:
+            // it is the page's toggle, pressed while on it.
+            Special::Page(p) => {
+                let which = if *p == Page::Letters { page } else { *p };
+                let name = match which {
+                    Page::Symbols => tr("Symbols"),
+                    Page::Emoji => tr("Emoji"),
+                    Page::AltGr => "AltGr",
+                    Page::Letters => tr("Letters"),
+                };
+                (name.into(), Some(page == which && which != Page::Letters))
+            }
+        },
+    }
+}
+
+/// The on-screen keyboard on the accessibility bus (helix-desktop-spec
+/// `contracts/dbus/org.a11y.atspi.md`): the suggestion bar (or a
+/// letter's accents) as buttons, then a `Keyboard` group of the keys where
+/// they were painted (`hits`): character keys are buttons named by the
+/// character they type, Shift and the page keys toggle buttons (pressed
+/// while latched or on their page), the others buttons by their function.
+pub(super) fn keyboard_nodes(m: &OskPaint, hits: &[(Rect, (usize, usize))], bar_hits: &[(Rect, usize)]) -> Vec<crate::a11y::Node> {
+    use crate::a11y::{Node, Role};
+    use helix_i18n::tr;
+    let mut out = Vec::new();
+    if !bar_hits.is_empty() {
+        let words = bar_hits.iter().filter_map(|(r, i)| Some(Node::button(m.bar.get(*i)?, (*r).into()).id(format!("bar:{i}"))));
+        let name = if m.accents { tr("Accents") } else { tr("Suggestions") };
+        out.push(Node::new(Role::Toolbar, name).id("bar").children(words));
+    }
+    let keys = hits.iter().filter_map(|(r, (row, col))| {
+        let key = m.rows.get(*row)?.get(*col)?;
+        let (name, toggle) = key_name(&key.kind, m.page, m.shift);
+        let node = Node::button(name, (*r).into()).id(format!("key:{row}:{col}"));
+        Some(match toggle {
+            Some(on) => node.toggled(on),
+            None => node,
+        })
+    });
+    out.push(Node::new(Role::Group, tr("Keyboard")).id("keys").children(keys));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

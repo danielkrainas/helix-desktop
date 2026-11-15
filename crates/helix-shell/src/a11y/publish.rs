@@ -146,7 +146,7 @@ impl<H: Clone> Publisher<H> {
             }
             Event::Action(serial, request) => {
                 let p = self.by_serial(serial)?;
-                let target = *p.targets.get(&request.target_node)?;
+                let target = p.targets.get(&request.target_node)?.clone();
                 Some((p.handle.clone(), target, request))
             }
         }

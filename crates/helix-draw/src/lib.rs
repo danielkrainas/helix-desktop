@@ -418,6 +418,12 @@ impl Text {
         self.layout(text, px * theme::text_scale()).iter().map(|(_, _, kern, advance)| kern + advance).sum()
     }
 
+    /// How far each character of `text` moves the pen at `px` (with its
+    /// kerning; times the text scale): their sum is [`Text::width`].
+    pub fn advances(&self, text: &str, px: f32) -> Vec<f32> {
+        self.layout(text, px * theme::text_scale()).iter().map(|(_, _, kern, advance)| kern + advance).collect()
+    }
+
     /// Height of the font's ascent at `px`, for vertical centering.
     pub fn ascent(&self, px: f32) -> f32 {
         self.font.as_scaled(PxScale::from(px * theme::text_scale())).ascent()

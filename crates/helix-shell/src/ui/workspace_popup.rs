@@ -22,7 +22,7 @@ pub(super) fn workspace_name(names: &[String], n: u32) -> String {
         .unwrap_or_else(|| trf!("Workspace {}", n + 1))
 }
 
-fn read_names() -> Vec<String> {
+pub(super) fn read_names() -> Vec<String> {
     use gio::prelude::*;
     const SCHEMA: &str = "org.gnome.desktop.wm.preferences";
     if !helix_settings::has_schema(SCHEMA) {
@@ -147,6 +147,30 @@ impl Ui {
         }
         self.workspace_popup = Some(popup);
     }
+
+    /// The popup for the accessibility bus: its size and what it shows.
+    pub(super) fn workspace_popup_a11y(&self) -> Option<(&LayerSurface, (u32, u32), Vec<crate::a11y::Node>)> {
+        let popup = self.workspace_popup.as_ref().filter(|p| p.configured && p.width > 0)?;
+        let (w, _) = (popup.width as i32, popup.height);
+        let nodes = popup_nodes(&read_names(), self.windows.count.min(36), popup.active, w);
+        Some((&popup.layer, (popup.width, popup.height), nodes))
+    }
+}
+
+/// The workspace popup on the accessibility bus (helix-desktop-spec
+/// `contracts/dbus/org.a11y.atspi.md`): the workspace switched to as a
+/// live status (announced), and the boxes as a list of the workspaces,
+/// the active one selected; `w` is the surface's width.
+pub(super) fn popup_nodes(names: &[String], count: u32, active: u32, w: i32) -> Vec<crate::a11y::Node> {
+    use crate::a11y::{Node, Role};
+    let n = count as i32;
+    let x0 = (w - (n * BOX_W + (n - 1) * GAP)) / 2;
+    let boxes = (0..count).map(|i| {
+        let r = crate::a11y::Rect::new(x0 + i as i32 * (BOX_W + GAP), PAD, BOX_W, BOX_H);
+        Node::new(Role::ListItem, workspace_name(names, i)).id(format!("workspace:{i}")).at(r).selected(i == active)
+    });
+    let current = workspace_name(names, active);
+    vec![Node::new(Role::Status, current).id("current").at(crate::a11y::Rect::new(PAD, PAD + BOX_H + 4, w - 2 * PAD, NAME_H)).live(), Node::new(Role::List, helix_i18n::tr("Workspaces")).id("workspaces").children(boxes)]
 }
 
 #[cfg(test)]

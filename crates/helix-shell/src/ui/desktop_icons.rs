@@ -129,6 +129,15 @@ impl Ui {
         }
     }
 
+    /// The icons for the accessibility bus: the surface, its monitor's
+    /// place and size, and what it shows.
+    pub(super) fn desktop_icons_a11y(&self) -> Option<(&LayerSurface, (u32, u32), Vec<crate::a11y::Node>)> {
+        let view = self.desktop_icons.view.as_ref().filter(|v| v.configured && v.width > 0 && v.height > 0)?;
+        let items = self.desktop_icons.items.as_deref().unwrap_or_default();
+        let cells = logic::cells(items.len(), view.width as i32, view.height as i32);
+        Some((&view.layer, (view.width, view.height), icon_nodes(items, &cells, self.desktop_icons.selected.as_deref())))
+    }
+
     /// Pointer input on the surface; true if it was for it. A press
     /// selects the item under it (or nothing); a second press on it within
     /// the double-click time opens it.
@@ -152,4 +161,19 @@ impl Ui {
         }
         true
     }
+}
+
+/// The desktop icons on the accessibility bus (helix-desktop-spec
+/// `contracts/dbus/org.a11y.atspi.md`): a `Desktop` list box of the
+/// items in their cells, named by their names, described "Folder" or
+/// "Application" when they are one; the selected one selected.
+pub(super) fn icon_nodes(items: &[DesktopItem], cells: &[(i32, i32)], selected: Option<&std::path::Path>) -> Vec<crate::a11y::Node> {
+    use crate::a11y::{Node, Role};
+    use helix_i18n::tr;
+    let icons = items.iter().zip(cells).map(|(item, &(x, y))| {
+        let what = if item.folder { tr("Folder") } else if item.launcher { tr("Application") } else { "" };
+        let r = crate::a11y::Rect::new(x, y, logic::CELL_W, logic::CELL_H);
+        Node::new(Role::ListBoxOption, &item.name).id(item.path.to_string_lossy().into_owned()).describe(what).at(r).click().selected(selected == Some(item.path.as_path()))
+    });
+    vec![Node::new(Role::ListBox, tr("Desktop")).id("icons").children(icons)]
 }

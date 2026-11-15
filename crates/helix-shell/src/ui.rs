@@ -58,6 +58,8 @@ use helix_i18n::trf;
 
 mod app_grid;
 mod atspi;
+#[cfg(test)]
+mod atspi_bus;
 mod background;
 mod break_screen;
 mod calendar;
@@ -314,7 +316,8 @@ struct Ui {
     /// The primary monitor's area (x, y, w, h).
     primary_area: (i32, i32, i32, i32),
     /// Numbers identifying monitors (`ShowMonitorLabels`), one per output.
-    monitor_labels: Vec<Overlay<i32>>,
+    /// (number, the output's place, its connector)
+    monitor_labels: Vec<Overlay<MonitorLabel>>,
     /// Which power actions logind allows (entries shown in the menu).
     power: crate::logind::Availability,
     /// A display manager can switch users.
@@ -374,6 +377,9 @@ struct Ui {
     atspi: atspi::AtSpi,
     exit: bool,
 }
+
+/// A monitor label: its number, its output's place, its connector.
+type MonitorLabel = (i32, (i32, i32), String);
 
 /// A full-output overlay surface with clickable regions.
 struct Overlay<T> {
@@ -2965,13 +2971,14 @@ impl Ui {
             layer.set_keyboard_interactivity(KeyboardInteractivity::None);
             layer.commit();
             tracing::debug!(name, number, "monitor label");
+            let origin = self.output_state.info(&output).and_then(|i| i.logical_position).unwrap_or((0, 0));
             self.monitor_labels.push(Overlay {
                 layer,
                 width: 0,
                 height: 0,
                 configured: false,
                 hits: Vec::new(),
-                state: number,
+                state: (number, origin, name),
             });
         }
     }
@@ -2990,7 +2997,7 @@ impl Ui {
         canvas.fill(BANNER_BORDER);
         canvas.rect(2, 2, w as i32 - 4, h as i32 - 4, BANNER_BG);
         let text = self.text.as_ref();
-        let number = overlay.state.to_string();
+        let number = overlay.state.0.to_string();
         let px = 40.0;
         let width = text.map(|t| t.width(&number, px)).unwrap_or(0.0);
         let base = baseline(text, 0, h as i32, px);

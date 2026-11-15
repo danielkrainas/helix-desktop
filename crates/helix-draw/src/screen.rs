@@ -173,9 +173,9 @@ pub const PLACEHOLDER: u32 = 0xFFA9A9B2;
 pub const ENTRY_H: f64 = 48.0;
 pub const ENTRY_RADIUS: f64 = 12.0;
 /// Hidden characters: dots this wide, this far apart.
-const DOT: f64 = 8.0;
-const DOT_PITCH: f64 = 16.0;
-const ENTRY_PAD: f64 = 16.0;
+pub const DOT: f64 = 8.0;
+pub const DOT_PITCH: f64 = 16.0;
+pub const ENTRY_PAD: f64 = 16.0;
 /// The round button at an entry's right end.
 const BUTTON_D: f64 = 36.0;
 

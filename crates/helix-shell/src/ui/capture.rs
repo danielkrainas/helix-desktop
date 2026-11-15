@@ -114,6 +114,36 @@ fn hint(mode: PickMode) -> &'static str {
     }
 }
 
+/// A tool bar button of the screenshot UI on the accessibility bus: the
+/// modes (and Screenshot / Record) are radio buttons, checked when chosen;
+/// "Show Pointer" a toggle button; Capture a button.
+fn tool_node(name: &str, tool: Tool, on: bool, enabled: bool, r: Rect) -> crate::a11y::Node {
+    use crate::a11y::{Node, Role};
+    let node = match tool {
+        Tool::Mode(_) | Tool::Record(_) => Node::new(Role::RadioButton, name).toggled(on),
+        Tool::Pointer => Node::new(Role::Button, name).toggled(on),
+        Tool::Capture => Node::new(Role::Button, name),
+    };
+    node.id(format!("{tool:?}")).at(r.into()).click().disabled(!enabled)
+}
+
+/// A recording tool bar (Area chosen, Window off while recording, the
+/// pointer shown), for the accessibility tests.
+#[cfg(test)]
+pub(super) fn a11y_sample_tools() -> Vec<crate::a11y::Node> {
+    let r = Rect { x: 0, y: 0, w: 80, h: TOOL_H };
+    let tools = vec![
+        tool_node("Area", Tool::Mode(ShotMode::Area), true, true, r),
+        tool_node("Screen", Tool::Mode(ShotMode::Screen), false, true, r),
+        tool_node("Window", Tool::Mode(ShotMode::Window), false, false, r),
+        tool_node("Screenshot", Tool::Record(false), false, true, r),
+        tool_node("Record", Tool::Record(true), true, true, r),
+        tool_node("Show Pointer", Tool::Pointer, true, true, r),
+        tool_node("Start Recording", Tool::Capture, true, true, r),
+    ];
+    vec![crate::a11y::Node::new(crate::a11y::Role::Toolbar, "Screenshot").id("tools").children(tools)]
+}
+
 /// The rectangle between two points.
 fn span(a: (f64, f64), b: (f64, f64)) -> (f64, f64, f64, f64) {
     (a.0.min(b.0), a.1.min(b.1), (a.0 - b.0).abs(), (a.1 - b.1).abs())
@@ -284,6 +314,7 @@ impl Ui {
             None => canvas.rect(0, 0, w as i32, h as i32, PICK_SCRIM),
         }
         let mut tools = Vec::new();
+        let mut nodes = Vec::new();
         if index == 0 {
             let text = self.text.as_ref();
             let message = hint(picker.mode);
@@ -292,6 +323,12 @@ impl Ui {
             let bx = (w as i32 - bw) / 2;
             canvas.rect(bx, 24, bw, bh, HINT_BG);
             label(text, &mut canvas, message, (bx + 16) as f32, baseline(text, 24, bh, 14.0), 14.0, FG, tw as f32 + 1.0);
+            nodes.push(crate::a11y::Node::label(message).id("hint").at(crate::a11y::Rect::new(bx, 24, bw, bh)));
+            if let (true, Some((x, y, sw, sh))) = (is_ui && picker.shot.mode != ShotMode::Screen, clear) {
+                // The area or window that will be captured.
+                let what = helix_i18n::trf!("Selected: {w} × {h}", w = sw, h = sh);
+                nodes.push(crate::a11y::Node::label(what).id("selection").at(crate::a11y::Rect::new(x, y, sw, sh)));
+            }
             if is_ui {
                 let st = &picker.shot;
                 let mut buttons: Vec<(String, Tool, bool, bool)> = vec![
@@ -311,6 +348,7 @@ impl Ui {
                 let (tx, ty) = ((w as i32 - total) / 2, h as i32 - TOOL_H - 2 * TOOL_GAP - 32);
                 canvas.rect(tx, ty, total, TOOL_H + 2 * TOOL_GAP, TOOL_BG);
                 let mut x = tx + TOOL_GAP;
+                let mut a11y_tools = Vec::new();
                 for (i, ((name, tool, on, enabled), bw)) in buttons.iter().zip(&widths).enumerate() {
                     // A gap before each group: toggles, pointer, Capture.
                     let groups: &[usize] = if st.allow_record { &[3, 5, 6] } else { &[3, 4] };
@@ -333,8 +371,10 @@ impl Ui {
                     if *enabled {
                         tools.push((r, *tool));
                     }
+                    a11y_tools.push(tool_node(name, *tool, *on, *enabled, r));
                     x += bw + TOOL_GAP;
                 }
+                nodes.push(crate::a11y::Node::new(crate::a11y::Role::Toolbar, tr("Screenshot")).id("tools").children(a11y_tools));
             }
         }
         let surface = view.overlay.layer.wl_surface();
@@ -343,10 +383,19 @@ impl Ui {
             view.overlay.layer.commit();
         }
         if index == 0 {
+            let surface = surface.clone();
             if let Some(picker) = self.picker.as_mut() {
                 picker.shot.tools = tools;
             }
+            self.atspi_record(&surface, nodes);
         }
+    }
+
+    /// The picker for the accessibility bus: the monitor with the hint
+    /// and the tool bar (its surface, place and size).
+    pub(super) fn picker_a11y(&self) -> Option<super::atspi::SurfaceAt<'_>> {
+        let view = self.picker.as_ref()?.views.first().filter(|v| v.overlay.configured && v.overlay.width > 0)?;
+        Some((&view.overlay.layer, (view.origin.0, view.origin.1, view.overlay.width, view.overlay.height)))
     }
 
     /// The topmost window of the active workspace at a layout point:

@@ -158,6 +158,8 @@ pub(super) struct WindowMenu {
     id: u32,
     /// Where it opens, relative to its output.
     at: (i32, i32),
+    /// The output's place in the layout.
+    origin: (i32, i32),
     items: Vec<Option<Item>>,
     /// Keyboard selection (index into `items`).
     selected: Option<usize>,
@@ -292,6 +294,7 @@ impl Ui {
             configured: false,
             id,
             at: (x - origin.0, y - origin.1),
+            origin,
             items,
             selected,
             hits: Vec::new(),
@@ -653,6 +656,68 @@ pub(super) fn menu_key(items: &[Option<Item>], selected: Option<usize>, keysym: 
             (0..n).map(|k| choosable[(from + k) % n]).find(starts).map_or(MenuKey::None, MenuKey::Select)
         }
     }
+}
+
+impl WindowMenu {
+    /// The surface, its output-relative size, and whether it is a box of
+    /// window previews (`ui/atspi.rs`).
+    pub(super) fn a11y_surface(&self) -> Option<super::atspi::SurfaceAt<'_>> {
+        (self.configured && self.width > 0).then_some((&self.layer, (self.origin.0, self.origin.1, self.width, self.height)))
+    }
+
+    /// The menu on the accessibility bus.
+    pub(super) fn a11y(&self, title: &str) -> crate::a11y::Node {
+        menu_node(title, &self.items, &self.hits, self.selected, !self.previews.is_empty(), self.parents.len())
+    }
+
+    /// The entries, for naming the menu.
+    pub(super) fn items(&self) -> &[Option<Item>] {
+        &self.items
+    }
+}
+
+/// A shell menu on the accessibility bus (helix-desktop-spec
+/// `contracts/dbus/org.a11y.atspi.md`, "Menus"): a `menu` named `title`
+/// of its entries where they were painted (`hits`), separators between.
+/// Check box entries are check menu items, radio entries (input sources,
+/// engine modes) radio menu items, checked as set; an entry with a
+/// submenu is expandable; disabled entries are insensitive. The selected
+/// entry (keyboard or pointer) is selected and has the focus; with none
+/// the menu has it. Window previews are a `menu` of each window's entry
+/// (named by its title) and its `Close` (described by the title).
+pub(super) fn menu_node(title: &str, items: &[Option<Item>], hits: &[(Rect, usize)], selected: Option<usize>, previews: bool, depth: usize) -> crate::a11y::Node {
+    use crate::a11y::{Node, Role};
+    let radio = items.iter().flatten().any(|i| i.active);
+    let mut entries = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        let Some(item) = item else {
+            if !previews {
+                entries.push(Node::new(Role::Splitter, "").id(format!("separator:{i}")));
+            }
+            continue;
+        };
+        let Some(r) = hits.iter().find(|(_, n)| *n == i).map(|(r, _)| crate::a11y::Rect::from(*r)) else { continue };
+        let on = selected == Some(i);
+        let node = match (item.checked, item.choice) {
+            (Some(checked), _) => Node::new(Role::MenuItemCheckBox, &item.label).toggled(checked),
+            (None, Choice::Submenu) => Node::new(Role::MenuItem, &item.label).expanded(false),
+            _ if radio => Node::new(Role::MenuItemRadio, &item.label).toggled(item.active),
+            _ => Node::new(Role::MenuItem, &item.label),
+        };
+        let node = if previews && i % 2 == 1 {
+            // A window's close button: which window.
+            let window = items.get(i - 1).and_then(|w| w.as_ref()).map_or("", |w| w.label.as_str());
+            node.describe(window)
+        } else {
+            node
+        };
+        entries.push(node.id(format!("{depth}:{i}")).at(r).click().disabled(!enabled(item)).focusable().selected(on).focused(on));
+    }
+    // Separators only between entries shown.
+    while entries.last().is_some_and(|n| n.role == Role::Splitter) {
+        entries.pop();
+    }
+    Node::new(Role::Menu, title).id("menu").focused(selected.is_none()).children(entries)
 }
 
 /// Window previews: tiles with each window's picture (its outline
