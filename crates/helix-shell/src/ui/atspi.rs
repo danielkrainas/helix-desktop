@@ -131,6 +131,8 @@ impl Ui {
 
     /// A click at `point` on `surface`, as from the pointer.
     fn atspi_click(&mut self, surface: WlSurface, position: (f64, f64)) {
+        // Layout coordinates; the pointer path mirrors them back.
+        let position = super::mirror::shown(&surface, position);
         let at = |kind| PointerEvent { surface: surface.clone(), position, kind };
         self.pointer_events(&[
             at(PointerEventKind::Enter { serial: 0 }),

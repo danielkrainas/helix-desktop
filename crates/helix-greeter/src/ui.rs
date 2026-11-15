@@ -317,7 +317,8 @@ impl Ui {
                 tracing::warn!("cannot allocate a buffer");
                 continue;
             };
-            let mut canvas = Canvas::scaled(data, w, h, scale);
+            // Mirrored in a right-to-left language (hit tests stay unmirrored).
+            let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(helix_draw::rtl());
             if index == 0 {
                 self.hits = paint::paint(&mut canvas, self.text.as_ref(), &view, w as i32, h as i32);
             } else {
@@ -462,7 +463,11 @@ impl PointerHandler for Ui {
         let mut redraw = false;
         for event in events {
             let on_primary = self.on_primary(&event.surface);
-            let hit = if on_primary { paint::hit_at(&self.hits, event.position.0, event.position.1) } else { None };
+            let x = match self.screens.first() {
+                Some(primary) if helix_draw::rtl() => f64::from(primary.width) - event.position.0,
+                _ => event.position.0,
+            };
+            let hit = if on_primary { paint::hit_at(&self.hits, x, event.position.1) } else { None };
             match event.kind {
                 PointerEventKind::Enter { serial } => {
                     if let Some(cursor) = &self.cursor {

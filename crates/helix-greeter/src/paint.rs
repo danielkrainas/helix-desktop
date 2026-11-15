@@ -418,7 +418,7 @@ mod tests {
         let text = Text::load();
         let (pw, ph) = (helix_draw::physical(W as usize, scale), helix_draw::physical(H as usize, scale));
         let mut data = vec![0u8; pw * ph * 4];
-        let mut canvas = Canvas::scaled(&mut data, W as usize, H as usize, scale);
+        let mut canvas = Canvas::scaled(&mut data, W as usize, H as usize, scale).mirrored(helix_draw::rtl());
         let hits = paint(&mut canvas, text.as_ref(), view, W, H);
         if let Some(dir) = std::env::var_os("HELIX_GREETER_PNG_DIR") {
             write_png(&std::path::Path::new(&dir).join(format!("{name}.png")), &data, pw, ph);
@@ -585,5 +585,39 @@ mod tests {
             render(&v, 1.0, &format!("accent-{name}-sessions"));
         }
         helix_draw::accent::set(Accent::Blue);
+    }
+
+    /// The greeter in the environment's locale (helix-desktop-spec
+    /// `components/i18n.md`): `HELIX_LOCALEDIR`, `LANGUAGE`, `LANG` (and
+    /// `LOCPATH`) pick the catalogue, the clock's names and the sessions'
+    /// `Name[xx]`; a right-to-left translation mirrors the screen.
+    /// `HELIX_GREETER_PNG_DIR=dir HELIX_GALLERY_TAG=he cargo test -p
+    /// helix-greeter locale -- --ignored` writes `locale-he-…`.
+    #[test]
+    #[ignore]
+    fn locale() {
+        helix_i18n::init_for_tests();
+        helix_draw::set_rtl(helix_i18n::is_rtl());
+        let tag = std::env::var("HELIX_GALLERY_TAG").unwrap_or_else(|_| "locale".into());
+        crate::clock::decide(None, None);
+        // Saturday 14 November 2026, 14:05 in New York (any time will do).
+        let now = 1_794_683_100;
+        let entry = "[Desktop Entry]\nName=Helix\nName[de]=Helix (Deutsch)\nName[he]=\u{5d4}\u{5dc}\u{5d9}\u{5e7}\u{5e1}\nExec=helix-session\n";
+        let helix = crate::sessions::parse("helix", entry, |_| true).unwrap().name;
+        let base = |main| View { time: crate::clock::time(now), date: crate::clock::date(now), sessions: vec![helix.clone(), "Ubuntu".into()], ..view(main) };
+        render(&base(users()), 1.0, &format!("locale-{tag}-users"));
+        let mut v = base(password("secret", false));
+        v.notes = vec![Note { text: helix_i18n::tr(crate::login::RETRY_MESSAGE).into(), error: true }];
+        render(&v, 1.0, &format!("locale-{tag}-password-retry"));
+        let mut v = base(users());
+        v.power = PowerView::Confirm(PowerAction::Restart);
+        v.focus = Focus::Power(0);
+        render(&v, 1.0, &format!("locale-{tag}-restart"));
+        let mut v = base(users());
+        v.session_menu = Some(0);
+        v.focus = Focus::Session;
+        render(&v, 1.0, &format!("locale-{tag}-sessions"));
+        render(&base(Main::Username { text: String::new() }), 1.0, &format!("locale-{tag}-username"));
+        helix_draw::set_rtl(false);
     }
 }

@@ -191,7 +191,22 @@ impl Ui {
         self.menu_by_key = state.contains(MenuState::Keyboard);
         let workspace = self.windows.workspace_of(id);
         let items = items(state, workspace, self.windows.count);
+        // The menu is laid out left to right and drawn mirrored in a
+        // right-to-left interface: mirror the screen point it opens at.
+        let x = if helix_draw::rtl() { self.mirrored_screen_x(x, y) } else { x };
         self.open_menu(id, x, y, items, Vec::new());
+    }
+
+    /// `x` mirrored on the monitor that (x, y) is on.
+    fn mirrored_screen_x(&self, x: i32, y: i32) -> i32 {
+        self.output_state
+            .outputs()
+            .filter_map(|o| self.output_state.info(&o))
+            .find_map(|info| {
+                let (Some((ox, oy)), Some((w, h))) = (info.logical_position, info.logical_size) else { return None };
+                (x >= ox && y >= oy && x < ox + w && y < oy + h).then_some(ox + w - (x - ox))
+            })
+            .unwrap_or(x)
     }
 
     /// The panel's input source menu, below its indicator at `x`
@@ -322,7 +337,7 @@ impl Ui {
         else {
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(menu.layer.wl_surface()));
         canvas.fill(0x00000000);
         if !menu.previews.is_empty() {
             paint_previews(menu, &mut canvas, w as i32, h as i32, self.text.as_ref(), &self.overview_shots);

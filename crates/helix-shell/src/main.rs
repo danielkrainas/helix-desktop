@@ -20,6 +20,8 @@ fn main() -> ExitCode {
     // The locale and translations (helix-desktop-spec components/i18n.md),
     // before any other thread starts.
     helix_i18n::init();
+    // Mirrored layouts for a right-to-left language.
+    helix_draw::set_rtl(helix_i18n::is_rtl());
     // Before any other thread touches GIO.
     helix_settings::prepare_gio();
 

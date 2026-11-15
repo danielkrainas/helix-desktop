@@ -180,7 +180,7 @@ impl Ui {
             let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
                 continue;
             };
-            let mut canvas = Canvas::scaled(data, w, h, scale);
+            let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(layer.wl_surface()));
             paint_osd(&mut canvas, self.text.as_ref(), icon.as_ref(), &osd, (w as i32, h as i32));
             self.scales.prepare(&self.qh, layer.wl_surface(), w as i32, h as i32);
             if buffer.attach_to(layer.wl_surface()).is_ok() {

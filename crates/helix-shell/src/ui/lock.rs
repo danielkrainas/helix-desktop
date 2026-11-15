@@ -905,4 +905,68 @@ pub(super) mod tests {
         helix_draw::accent::set(Accent::Blue);
         helix_draw::set_high_contrast(false);
     }
+
+    /// The lock screen in the environment's locale (helix-desktop-spec
+    /// `components/i18n.md`): `HELIX_LOCALEDIR`, `LANGUAGE`, `LANG` (and
+    /// `LOCPATH`) pick the catalogue, names and formats; a right-to-left
+    /// translation mirrors it. `HELIX_LOCK_RENDER_DIR=dir
+    /// HELIX_GALLERY_TAG=he cargo test -p helix-shell
+    /// lock::tests::locale_gallery -- --ignored` writes `locale-he-…`.
+    #[test]
+    #[ignore]
+    fn locale_gallery() {
+        use gio::glib::{DateTime, TimeZone};
+        let Some(dir) = std::env::var_os("HELIX_LOCK_RENDER_DIR").map(std::path::PathBuf::from) else { return };
+        std::fs::create_dir_all(&dir).unwrap();
+        helix_i18n::init_for_tests();
+        helix_draw::set_rtl(helix_i18n::is_rtl());
+        let tag = std::env::var("HELIX_GALLERY_TAG").unwrap_or_else(|_| "locale".into());
+        let picture = |name: &str| -> crate::wallpaper::Background {
+            let image = crate::wallpaper::decode(std::path::Path::new(&format!("/usr/share/backgrounds/{name}"))).ok().map(std::sync::Arc::new);
+            crate::wallpaper::Background { image, ..Default::default() }
+        };
+        let faces = (Text::load(), Text::load_matching("sans-serif:bold"), helix_draw::screen::display_face());
+        let fonts = LockFonts { text: faces.0.as_ref(), bold: faces.1.as_ref(), display: faces.2.as_ref() };
+        let icon = |name: &str| crate::icons::symbolic(name, 40, [0xED, 0xED, 0xEF]);
+        let small = |name: &str| crate::icons::symbolic(name, 20, [0xED, 0xED, 0xEF]);
+        let media = [icon("media-skip-backward-symbolic"), icon("media-playback-start-symbolic"), icon("media-skip-forward-symbolic")];
+        let icons = LockIcons {
+            media,
+            art: icon("audio-x-generic-symbolic"),
+            art_is_cover: false,
+            apps: Vec::new(),
+            restart: small("system-reboot-symbolic"),
+            power_off: small("system-shutdown-symbolic"),
+            switch_user: small("system-switch-user-symbolic"),
+        };
+        let player = Player { identity: "Music".into(), title: "Clair de Lune".into(), artist: "Claude Debussy".into(), ..Default::default() };
+        let app = |name: &str, count: usize| LockApp { name: name.into(), app_id: String::new(), count, details: Vec::new() };
+        let counts = vec![app("Chat", 3), app("Mail", 1)];
+        let blockers = vec![("Text Editor".to_owned(), "Unsaved document".to_owned())];
+        // Saturday 14 November 2026, 14:05 local time.
+        let d = DateTime::new(&TimeZone::local(), 2026, 11, 14, 14, 5, 0.0).unwrap();
+        let f24 = crate::clock::ClockFormat::default();
+        let f12 = crate::clock::ClockFormat { twelve_hour: true, ..f24 };
+        let (clock24, _) = crate::clock::lock_screen_parts(f24, &d);
+        let (clock12, suffix12) = crate::clock::lock_screen_parts(f12, &d);
+        let date = crate::clock::lock_date(&d);
+        let wrong = tr("Incorrect password. Try again.");
+        let base = LockModel { restart: true, power_off: true, switch_user: true, clock: &clock24, date: &date, ..model(&icons) };
+        let scenes: Vec<(&str, LockModel)> = vec![
+            ("prompt", LockModel { ..base }),
+            ("caps-wrong", LockModel { caps_lock: true, layout: Some("he"), message: Some(wrong), failed: true, ..base }),
+            ("12h-media-notes", LockModel { clock: &clock12, suffix: suffix12.as_deref(), typed: 5, media: Some(&player), counts: &counts, ..base }),
+            ("confirm", LockModel { confirming: Some(PowerAction::PowerOff), blockers: &blockers, ..base }),
+            ("resting", LockModel { revealed: false, reveal_pos: 0.0, reveal_alpha: 0.0, media: Some(&player), counts: &counts, ..base }),
+        ];
+        for (name, m) in &scenes {
+            let (w, h, scale) = (1280, 720, 1.0);
+            let (pw, ph) = (physical(w, scale), physical(h, scale));
+            let mut data = backdrop(&picture("ubuntu-wallpaper-d.png"), (w, h), scale);
+            let mut canvas = Canvas::scaled(&mut data, w, h, scale).mirrored(helix_draw::rtl());
+            paint(&mut canvas, &fonts, m, w, h);
+            save_png(&dir.join(format!("locale-{tag}-{name}.png")), &data, pw, ph);
+        }
+        helix_draw::set_rtl(false);
+    }
 }

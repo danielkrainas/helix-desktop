@@ -83,19 +83,31 @@ fn digit_width(text: &Text, px: f32) -> f32 {
 /// Draw `s` from `x` (baseline `y`) with tabular digits: each digit
 /// centered in a cell as wide as the widest, so a clock does not jiggle
 /// when it changes.
+///
+/// The characters keep their order on a mirrored canvas (times read left
+/// to right in right-to-left languages too): the cells are laid out from
+/// the end so that the mirror puts them back in order.
 pub fn draw_tabular(canvas: &mut Canvas, text: &Text, s: &str, x: f32, y: f32, px: f32, color: u32) {
     let digit = digit_width(text, px);
-    let mut pen = x;
-    for c in s.chars() {
-        let glyph = c.to_string();
-        let w = text.width(&glyph, px);
-        if c.is_ascii_digit() {
-            text.draw(canvas, &glyph, pen + (digit - w) / 2.0, y, Style { px, color, max_width: f32::MAX });
-            pen += digit;
-        } else {
-            text.draw(canvas, &glyph, pen, y, Style { px, color, max_width: f32::MAX });
-            pen += w;
-        }
+    // (glyph, its cell's width, the glyph's offset in the cell)
+    let cells: Vec<(String, f32, f32)> = s
+        .chars()
+        .map(|c| {
+            let glyph = c.to_string();
+            let w = text.width(&glyph, px);
+            if c.is_ascii_digit() { (glyph, digit, (digit - w) / 2.0) } else { (glyph, w, 0.0) }
+        })
+        .collect();
+    let total: f32 = cells.iter().map(|(_, w, _)| w).sum();
+    let mirrored = canvas.is_mirrored();
+    let mut pen = 0.0;
+    for (glyph, cell, offset) in &cells {
+        let w = text.width(glyph, px);
+        // Unmirrored: the glyph at pen + offset. Mirrored: the glyph's box
+        // placed so that after the mirror it lands there.
+        let at = if mirrored { total - pen - offset - w } else { pen + offset };
+        text.draw(canvas, glyph, x + at, y, Style { px, color, max_width: f32::MAX });
+        pen += cell;
     }
 }
 

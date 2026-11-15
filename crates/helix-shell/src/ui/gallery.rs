@@ -49,7 +49,7 @@ pub(super) const PHOTO: &str = "mendhak-Bluebells_Suspended_In_Time.jpg";
 pub(super) fn render(dir: &std::path::Path, name: &str, wall: &str, (w, h, scale): (usize, usize, f64), paint: impl FnOnce(&mut Canvas)) {
     let mut data = wallpaper(wall, (w, h), scale);
     let mut surface = vec![0u8; data.len()];
-    let mut canvas = Canvas::scaled(&mut surface, w, h, scale);
+    let mut canvas = Canvas::scaled(&mut surface, w, h, scale).mirrored(helix_draw::rtl());
     paint(&mut canvas);
     // Premultiplied "over".
     for (d, s) in data.as_chunks_mut::<4>().0.iter_mut().zip(surface.as_chunks::<4>().0) {
@@ -191,7 +191,7 @@ fn panel_with(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), 
     let layout = crate::panel_layout::Layout::default();
     let model = PanelModel {
         layout: &layout,
-        clock: "Sat Nov 14  14:05",
+        clock: &crate::clock::top_bar(crate::clock::ClockFormat { weekday: true, ..Default::default() }, &gio::glib::DateTime::new(&gio::glib::TimeZone::local(), 2026, 11, 14, 14, 5, 0.0).unwrap()),
         status_items: &status_items,
         tray_images: &[],
         tray_w: 0,
@@ -221,7 +221,7 @@ fn panel_with(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), 
 /// A menu like the window menu, with an entry selected.
 fn menu_items() -> Vec<Option<window_menu::Item>> {
     use window_menu::{Choice, Item};
-    let item = |label: &str, choice, checked| Some(Item { label: label.into(), choice, checked, active: false, sub: Vec::new() });
+    let item = |label: &'static str, choice, checked| Some(Item { label: helix_i18n::tr(label).into(), choice, checked, active: false, sub: Vec::new() });
     vec![
         item("Minimize", Choice::Action(crate::windows::WindowAction::Minimize), None),
         item("Maximize", Choice::Action(crate::windows::WindowAction::Maximize), None),
@@ -598,4 +598,70 @@ fn on_screen_keyboard() {
     }
     helix_draw::set_high_contrast(false);
     helix_draw::accent::set(Accent::Blue);
+}
+
+/// The shell in the environment's locale (helix-desktop-spec
+/// `components/i18n.md`): `HELIX_LOCALEDIR`, `LANGUAGE` and `LANG` (and
+/// `LOCPATH`) pick the catalogue, names and formats, and a right-to-left
+/// translation mirrors the layouts. `HELIX_GALLERY_TAG=he` names the
+/// files `locale-he-…`. See TRANSLATING.md, "Testing layouts".
+#[test]
+#[ignore]
+fn locale() {
+    use notify::tests::{paint_sample, sample, sample_calendar};
+    let Some(dir) = dir() else { return };
+    helix_i18n::init_for_tests();
+    helix_draw::set_rtl(helix_i18n::is_rtl());
+    let tag = std::env::var("HELIX_GALLERY_TAG").unwrap_or_else(|_| "locale".into());
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    let (w, h) = (1280, 720);
+    let ph = panel_height() as usize;
+    let rtl = helix_draw::rtl();
+    let name = |what: &str| format!("locale-{tag}-{what}");
+    // The panel is its own surface: drawn (mirrored or not) on its own
+    // buffer, then copied over the screen as it is.
+    let bar = || {
+        let mut data = vec![0u8; w * ph * 4];
+        let mut bar = Canvas::scaled(&mut data, w, ph, 1.0).mirrored(rtl);
+        panel(&mut bar, text.as_ref(), (w, ph), 1.0, None, true);
+        data
+    };
+    let copy = |canvas: &mut Canvas, data: &[u8]| {
+        for (i, p) in data.as_chunks::<4>().0.iter().enumerate() {
+            let a = u32::from(p[3]);
+            let d = &mut canvas.data[i * 4..i * 4 + 4];
+            for k in 0..4 {
+                d[k] = (u32::from(p[k]) + u32::from(d[k]) * (255 - a) / 255).min(255) as u8;
+            }
+        }
+    };
+    let panel_data = bar();
+    render(&dir, &name("panel-quick-menu"), DARK, (w, h, 1.0), |canvas| {
+        quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(Some(3)), None, &mut Default::default());
+        window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph as i32 + 4), &menu_items(), Some(1), true, false);
+        copy(canvas, &panel_data);
+    });
+    let entries = sample();
+    let cal = sample_calendar(true);
+    render(&dir, &name("list"), DARK, (w, h, 1.0), |canvas| {
+        paint_sample(canvas, (text.as_ref(), bold.as_ref()), (w, h), &entries, &Default::default(), &cal, None);
+        copy(canvas, &panel_data);
+    });
+    let blockers = vec![("Text Editor".to_owned(), "Unsaved document".to_owned())];
+    let dialogs: Vec<(&str, DialogState)> = vec![
+        ("dialog-power-off", DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 45, blockers: Vec::new(), install: Some(true), upgrade: None }), 45)),
+        ("dialog-power-off-blocked", DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 45, blockers, install: None, upgrade: None }), 45)),
+        ("dialog-not-responding", DialogState::new(DialogKind::NotResponding { id: 1, title: "Text Editor".into() }, 0)),
+    ];
+    for (what, state) in &dialogs {
+        render(&dir, &name(what), DARK, (w, h, 1.0), |canvas| {
+            paint_question(canvas, text.as_ref(), (w, h), state);
+        });
+    }
+    let osd = Osd { icon: Some("audio-volume-medium-symbolic".into()), label: Some(helix_i18n::tr("Volume").into()), level: Some(0.45), max_level: 1.0, connector: None };
+    let icon = symbolic("audio-volume-medium-symbolic", 24.0, 1.0);
+    render(&dir, &name("osd"), DARK, (340, 112, 1.0), |canvas| {
+        osd::paint_osd(canvas, text.as_ref(), icon.as_ref(), &osd, (340, 112));
+    });
+    helix_draw::set_rtl(false);
 }

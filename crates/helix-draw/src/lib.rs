@@ -2,13 +2,20 @@
 //! and text. Used by the shell (its surfaces) and the compositor (window
 //! frames).
 //!
-//! Text uses the system's fonts (found through fontconfig's `fc-match`),
-//! rasterized with `ab_glyph`.
+//! Text uses the system's fonts (found through fontconfig's `fc-match`,
+//! with a fallback font for characters the main one lacks), rasterized
+//! with `ab_glyph`, in visual order for right-to-left scripts (see
+//! [`bidi`]).
 
-use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+
+use ab_glyph::{point, Font, FontVec, GlyphId, PxScale, ScaleFont};
 
 pub mod accent;
 pub mod backdrop;
+pub mod bidi;
+pub use bidi::{rtl, set_rtl};
 pub mod motion;
 pub mod screen;
 pub mod theme;
@@ -24,6 +31,10 @@ pub struct Canvas<'a> {
     pub scale: f64,
     /// Drawing outside this (physical x0, y0, x1, y1) is dropped.
     clip: Option<[i32; 4]>,
+    /// Draw the layout mirrored left to right (a right-to-left
+    /// interface): shapes flip; text and pictures move to their mirrored
+    /// places but stay readable.
+    mirror: bool,
 }
 
 /// Pixels for `logical` units at `scale` (rounded, as the fractional-scale
@@ -106,14 +117,37 @@ impl<'a> Canvas<'a> {
     /// A canvas for a `width`×`height` (logical) surface at `scale`; `data`
     /// holds the physical pixels.
     pub fn scaled(data: &'a mut [u8], width: usize, height: usize, scale: f64) -> Self {
-        Self { data, width: physical(width, scale), height: physical(height, scale), scale, clip: None }
+        Self { data, width: physical(width, scale), height: physical(height, scale), scale, clip: None, mirror: false }
+    }
+
+    /// This canvas, mirrored when `on` (see [`bidi`]): logical coordinates
+    /// stay those of a left-to-right layout and land mirrored.
+    pub fn mirrored(mut self, on: bool) -> Self {
+        self.mirror = on;
+        self
+    }
+
+    /// Whether drawing is mirrored.
+    pub fn is_mirrored(&self) -> bool {
+        self.mirror
+    }
+
+    /// The width in logical units.
+    pub fn logical_width(&self) -> f64 {
+        self.width as f64 / self.scale
+    }
+
+    /// Where a box at logical `x`, `w` wide, lands: mirrored or not.
+    pub fn place_x(&self, x: f64, w: f64) -> f64 {
+        if self.mirror { self.logical_width() - x - w } else { x }
     }
 
     /// Draw only inside the logical rectangle (x, y, w, h) until
     /// [`Self::unclip`] (a scrolled part of a surface).
     pub fn clip(&mut self, x: i32, y: i32, w: i32, h: i32) {
         let edge = |v: i32| (f64::from(v) * self.scale).round() as i32;
-        self.clip = Some([edge(x), edge(y), edge(x + w), edge(y + h)]);
+        let (x0, x1) = if self.mirror { (self.width as i32 - edge(x + w), self.width as i32 - edge(x)) } else { (edge(x), edge(x + w)) };
+        self.clip = Some([x0, edge(y), x1, edge(y + h)]);
     }
 
     pub fn unclip(&mut self) {
@@ -125,8 +159,15 @@ impl<'a> Canvas<'a> {
         self.clip.is_some_and(|[x0, y0, x1, y1]| x < x0 || y < y0 || x >= x1 || y >= y1)
     }
 
-    /// Blend `color` over the buffer pixel at (x, y) with extra coverage `cov`.
+    /// Blend `color` over the buffer pixel at (x, y) with extra coverage
+    /// `cov` (x mirrored on a mirrored canvas).
     pub fn blend_px(&mut self, x: i32, y: i32, color: u32, cov: f32) {
+        let x = if self.mirror { self.width as i32 - 1 - x } else { x };
+        self.blend_raw(x, y, color, cov);
+    }
+
+    /// [`Self::blend_px`] at the buffer's own pixel (x, y), never mirrored.
+    fn blend_raw(&mut self, x: i32, y: i32, color: u32, cov: f32) {
         if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height || self.clipped(x, y) {
             return;
         }
@@ -237,6 +278,40 @@ pub struct Text {
     font: FontVec,
 }
 
+/// Fonts for characters the main font lacks, by character (fontconfig's
+/// best font with that character), loaded once per process.
+fn fallback_font(c: char) -> Option<Arc<FontVec>> {
+    type Cache = Mutex<(HashMap<char, Option<Arc<FontVec>>>, HashMap<String, Arc<FontVec>>)>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(found) = cache.lock().unwrap_or_else(|e| e.into_inner()).0.get(&c) {
+        return found.clone();
+    }
+    let path = std::process::Command::new("fc-match")
+        .args(["-f", "%{file}", &format!("sans-serif:charset={:x}", c as u32)])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned());
+    let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+    let font = path.and_then(|path| {
+        if let Some(font) = cache.1.get(&path) {
+            return Some(font.clone());
+        }
+        let font = Arc::new(FontVec::try_from_vec(std::fs::read(&path).ok()?).ok()?);
+        tracing::debug!(path, "loaded fallback font");
+        cache.1.insert(path, font.clone());
+        Some(font)
+    });
+    let font = font.filter(|f| f.glyph_id(c).0 != 0);
+    cache.0.insert(c, font.clone());
+    font
+}
+
+/// A glyph laid out: the font that draws it (`None`: the main font), its
+/// id, the kerning before it and its advance.
+type Laid = (Option<Arc<FontVec>>, GlyphId, f32, f32);
+
 /// Size, color and clipping width for a run of text.
 #[derive(Debug, Clone, Copy)]
 pub struct Style {
@@ -302,21 +377,45 @@ impl Text {
         text.chars().all(|c| self.font.glyph_id(c).0 != 0)
     }
 
+    /// The font for `c`: `None` for the main font, else a fallback that
+    /// has it.
+    fn face_for(&self, c: char) -> Option<Arc<FontVec>> {
+        if self.font.glyph_id(c).0 != 0 || c.is_whitespace() || c.is_control() {
+            return None;
+        }
+        fallback_font(c)
+    }
+
+    /// Each character's glyph at `px` (pixels), kerned.
+    fn layout(&self, text: &str, px: f32) -> Vec<Laid> {
+        let scale = PxScale::from(px);
+        let main = self.font.as_scaled(scale);
+        let mut out = Vec::with_capacity(text.len());
+        let mut prev: Option<GlyphId> = None;
+        for c in text.chars() {
+            match self.face_for(c) {
+                None => {
+                    let id = main.glyph_id(c);
+                    let kern = prev.map_or(0.0, |p| main.kern(p, id));
+                    out.push((None, id, kern, main.h_advance(id)));
+                    prev = Some(id);
+                }
+                Some(font) => {
+                    let scaled = font.as_scaled(scale);
+                    let id = scaled.glyph_id(c);
+                    let advance = scaled.h_advance(id);
+                    out.push((Some(font.clone()), id, 0.0, advance));
+                    prev = None;
+                }
+            }
+        }
+        out
+    }
+
     /// The width of `text` at `px` (times the text scale, see
     /// [`theme::set_text_scale`]).
     pub fn width(&self, text: &str, px: f32) -> f32 {
-        let font = self.font.as_scaled(PxScale::from(px * theme::text_scale()));
-        let mut width = 0.0;
-        let mut prev = None;
-        for c in text.chars() {
-            let id = font.glyph_id(c);
-            if let Some(p) = prev {
-                width += font.kern(p, id);
-            }
-            width += font.h_advance(id);
-            prev = Some(id);
-        }
-        width
+        self.layout(text, px * theme::text_scale()).iter().map(|(_, _, kern, advance)| kern + advance).sum()
     }
 
     /// Height of the font's ascent at `px`, for vertical centering.
@@ -326,27 +425,31 @@ impl Text {
 
     /// Draw `text` with its baseline at `y` (logical units; the glyphs are
     /// rasterized at the canvas's scale).
+    ///
+    /// Right-to-left text is drawn in visual order ([`bidi::visual`]). On a
+    /// mirrored canvas the text lands at the mirrored place of its box
+    /// (its end where its start would be) and reads normally.
     pub fn draw(&self, canvas: &mut Canvas, text: &str, x: f32, y: f32, style: Style) {
         let Style { px, color, max_width } = style;
         let color = text_color(color);
         let text = self.fit(text, px, max_width);
+        let text = bidi::visual(&text);
+        let x = if canvas.mirror { canvas.logical_width() as f32 - x - self.width(&text, px) } else { x };
         let scale = canvas.scale as f32;
         let (px, x, y) = (px * theme::text_scale() * scale, x * scale, y * scale);
-        let font = self.font.as_scaled(PxScale::from(px));
         let mut caret = x;
-        let mut prev = None;
-        for c in text.chars() {
-            let id = font.glyph_id(c);
-            if let Some(p) = prev {
-                caret += font.kern(p, id);
-            }
+        for (font, id, kern, advance) in self.layout(&text, px) {
+            caret += kern;
             let glyph = id.with_scale_and_position(PxScale::from(px), point(caret, y));
-            caret += font.h_advance(id);
-            prev = Some(id);
-            if let Some(outlined) = self.font.outline_glyph(glyph) {
+            caret += advance;
+            let outlined = match &font {
+                None => self.font.outline_glyph(glyph),
+                Some(font) => font.outline_glyph(glyph),
+            };
+            if let Some(outlined) = outlined {
                 let bounds = outlined.px_bounds();
                 outlined.draw(|gx, gy, cov| {
-                    canvas.blend_px(bounds.min.x as i32 + gx as i32, bounds.min.y as i32 + gy as i32, color, cov);
+                    canvas.blend_raw(bounds.min.x as i32 + gx as i32, bounds.min.y as i32 + gy as i32, color, cov);
                 });
             }
         }
@@ -475,6 +578,43 @@ mod shape_tests {
     }
 
     #[test]
+    fn mirrored_canvas() {
+        // A 10×2 canvas: a rect at the left lands at the right.
+        let mut data = vec![0u8; 10 * 2 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 10, 2, 1.0).mirrored(true);
+        canvas.rect(0, 0, 3, 2, 0xFFFFFFFF);
+        let lit: Vec<bool> = (0..10).map(|x| data[x * 4 + 3] == 255).collect();
+        assert_eq!(lit, [false, false, false, false, false, false, false, true, true, true]);
+        // Clipping follows the mirror.
+        let mut data = vec![0u8; 10 * 2 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 10, 2, 1.0).mirrored(true);
+        canvas.clip(0, 0, 2, 2);
+        canvas.rect(0, 0, 10, 2, 0xFFFFFFFF);
+        let lit: Vec<bool> = (0..10).map(|x| data[x * 4 + 3] == 255).collect();
+        assert_eq!(lit, [false, false, false, false, false, false, false, false, true, true]);
+        assert_eq!(Canvas::scaled(&mut [0u8; 40], 10, 1, 1.0).mirrored(true).place_x(2.0, 3.0), 5.0);
+    }
+
+    #[test]
+    fn text_lands_mirrored_and_falls_back() {
+        let Some(text) = Text::load() else { return };
+        let ink = |data: &[u8], w: usize, x0: usize, x1: usize| (0..data.len() / 4).filter(|i| (x0..x1).contains(&(i % w)) && data[i * 4 + 3] > 0).count();
+        let (w, h) = (200, 30);
+        let style = Style { px: 16.0, color: 0xFFFFFFFF, max_width: f32::MAX };
+        let mut data = vec![0u8; w * h * 4];
+        let mut canvas = Canvas::scaled(&mut data, w, h, 1.0).mirrored(true);
+        text.draw(&mut canvas, "Files", 4.0, 20.0, style);
+        assert!(ink(&data, w, 0, 100) == 0 && ink(&data, w, 100, 200) > 0, "at the right end");
+        // Hebrew letters, which the main font may lack, still draw.
+        let mut data = vec![0u8; w * h * 4];
+        let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
+        text.draw(&mut canvas, "שלום", 4.0, 20.0, style);
+        if text.width("שלום", 16.0) > 0.0 && fallback_font('ש').is_some() || text.covers("שלום") {
+            assert!(ink(&data, w, 0, w) > 0);
+        }
+    }
+
+    #[test]
     fn circles_and_lines() {
         let mut data = vec![0u8; 20 * 20 * 4];
         let mut canvas = Canvas::scaled(&mut data, 10, 10, 2.0);
@@ -510,6 +650,7 @@ impl Canvas<'_> {
     /// anti-aliased edge; `r` of half the size makes a circle.
     #[allow(clippy::too_many_arguments)]
     pub fn image_rounded(&mut self, x: f64, y: f64, w: f64, h: f64, r: f64, image: &Image, opacity: f32) {
+        let x = self.place_x(x, w);
         if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 {
             return;
         }
@@ -596,6 +737,7 @@ impl Canvas<'_> {
 
     /// [`Canvas::image`] at `opacity` (0 to 1).
     pub fn image_alpha(&mut self, x: f64, y: f64, w: f64, h: f64, image: &Image, opacity: f32) {
+        let x = self.place_x(x, w);
         let opacity = opacity.clamp(0.0, 1.0);
         if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 || opacity <= 0.0 {
             return;
@@ -773,19 +915,28 @@ pub fn draw_lines(
     let mut links = Vec::new();
     for (row, line) in lines.iter().enumerate() {
         let base = baseline + row as f32 * line_height;
+        // Words go right to left in a right-to-left line; a mirrored
+        // canvas already reverses them, so a left-to-right line on it is
+        // laid out reversed to read in order.
+        let text: String = line.iter().map(|p| p.text.as_str()).collect();
+        let flip = bidi::line_is_rtl(&text) != canvas.is_mirrored();
+        let line_w = line.last().map_or(0.0, |p| p.x + p.width);
         for (i, piece) in line.iter().enumerate() {
             let span = &spans[piece.span];
             let face = fonts.face(span.bold);
             let c = if span.link.is_some() { link_color } else { color };
-            face.draw(canvas, &piece.text, x + piece.x, base, Style { px, color: c, max_width: f32::MAX });
             // Underlines run across spaces between words of the same span.
             let continues = line.get(i + 1).is_some_and(|next| next.span == piece.span);
             let drawn = if continues { piece.width } else { face.width(piece.text.trim_end(), px) };
+            let word = piece.text.trim_end();
+            let tx = if flip { line_w - piece.x - face.width(word, px) } else { piece.x };
+            face.draw(canvas, word, x + tx, base, Style { px, color: c, max_width: f32::MAX });
+            let px_x = if flip { line_w - piece.x - drawn } else { piece.x };
             if span.underline || span.link.is_some() {
-                canvas.rect((x + piece.x) as i32, (base + 2.0) as i32, drawn.ceil() as i32, 1, c);
+                canvas.rect((x + px_x) as i32, (base + 2.0) as i32, drawn.ceil() as i32, 1, c);
             }
             if let Some(uri) = &span.link {
-                links.push(((x + piece.x, base - px, drawn, line_height), uri.clone()));
+                links.push(((x + px_x, base - px, drawn, line_height), uri.clone()));
             }
         }
     }

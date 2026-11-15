@@ -84,6 +84,7 @@ mod prompt;
 mod quick;
 mod lock;
 mod lock_extras;
+mod mirror;
 mod scale;
 mod status;
 mod tray;
@@ -1171,7 +1172,7 @@ impl Ui {
             tracing::warn!("cannot allocate panel buffer");
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(self.panel.wl_surface()));
         let clock = clock_text();
         let model = PanelModel {
             layout: &self.panel_layout,
@@ -1816,7 +1817,7 @@ impl Ui {
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
         canvas.fill(0x00000000);
         let switcher = &overlay.state.switcher;
         let shown = switcher.entries.len().clamp(1, SWITCHER_ROWS);
@@ -1888,7 +1889,7 @@ impl Ui {
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
         canvas.fill(0x00000000);
         let text = self.text.as_ref();
         let switcher = &overlay.state.switcher;
@@ -1973,7 +1974,7 @@ impl Ui {
             tracing::warn!("cannot allocate launcher buffer");
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(view.layer.wl_surface()));
         canvas.fill(SCRIM);
 
         // Lengths that hold text grow with the text scale.
@@ -2479,7 +2480,7 @@ impl Ui {
             Some((k, pixels)) if k.size == key.size => data.copy_from_slice(pixels),
             _ => helix_draw::backdrop::high_contrast(data),
         }
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(view.surface.wl_surface()));
         let (clock, suffix, date) = lock_clock();
         self.shown_lock_clock = Some(lock_clock_text());
         let restart = crate::screensaver_flag("restart-enabled", false);
@@ -2843,7 +2844,7 @@ impl Ui {
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
         let Some((hits, node)) = paint_question(&mut canvas, self.text.as_ref(), (w, h), &overlay.state) else { return };
         overlay.hits = hits;
         overlay.state.shown.get_or_insert_with(Instant::now);
@@ -2863,7 +2864,7 @@ impl Ui {
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
         canvas.fill(SCRIM);
         let text = self.text.as_ref();
         let rows = sources.len().min(8) as i32;
@@ -4153,6 +4154,8 @@ impl TouchHandler for Ui {
 impl Ui {
     fn pointer_events(&mut self, events: &[PointerEvent]) {
         for event in events {
+            // Mirrored surfaces (right-to-left) hit-test unmirrored.
+            let event = &mirror::adjust(event);
             if self.lock.session.is_some() {
                 self.lock_pointer(event);
                 continue;

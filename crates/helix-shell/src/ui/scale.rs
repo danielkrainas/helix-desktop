@@ -57,6 +57,7 @@ impl Scales {
     /// logical units and damage all of it. Starts following the surface's
     /// scale the first time.
     pub fn prepare(&mut self, qh: &QueueHandle<Ui>, surface: &WlSurface, w: i32, h: i32) {
+        super::mirror::note_width(surface, w);
         self.surfaces.retain(|t| t.surface.is_alive());
         if !self.surfaces.iter().any(|t| &t.surface == surface) {
             if let Some(viewporter) = &self.viewporter {

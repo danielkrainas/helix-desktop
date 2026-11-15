@@ -43,7 +43,7 @@ impl Ui {
         else {
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(overlay.layer.wl_surface()));
         // Premultiplied black at 80 %.
         canvas.fill(0xCC00_0000);
         let (text, bold) = (self.text.as_ref(), self.bold.as_ref());

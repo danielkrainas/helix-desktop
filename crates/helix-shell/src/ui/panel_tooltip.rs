@@ -97,6 +97,8 @@ impl Ui {
         layer.set_anchor(Anchor::TOP | Anchor::LEFT);
         // Under the item, kept on the panel's monitor.
         let left = (self.panel_hover.x - w as i32 / 2 + status::ICON / 2).clamp(4, (self.panel_width as i32 - w as i32 - 4).max(4));
+        // The panel is mirrored in a right-to-left interface.
+        let left = if helix_draw::rtl() { self.panel_width as i32 - w as i32 - left } else { left };
         layer.set_margin(4, 0, 0, left);
         layer.set_size(w, h);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
@@ -132,7 +134,7 @@ impl Ui {
             if let Ok((buffer, data)) =
                 self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
             {
-                let mut canvas = Canvas::scaled(data, w, h, scale);
+                let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(tip.layer.wl_surface()));
                 canvas.fill(BANNER_BORDER);
                 canvas.rect(1, 1, w as i32 - 2, h as i32 - 2, BANNER_BG);
                 let (text, bold) = (self.text.as_ref(), self.bold.as_ref());

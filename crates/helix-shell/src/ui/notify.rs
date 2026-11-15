@@ -246,7 +246,7 @@ impl Ui {
             tracing::warn!("cannot allocate banner buffer");
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(view.layer.wl_surface()));
         // Lighter than the desktop, with a thin border, so it stands out.
         canvas.fill(BANNER_BORDER);
         canvas.rect(1, 1, w as i32 - 2, h as i32 - 2, BANNER_BG);
@@ -457,7 +457,7 @@ impl Ui {
         else {
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(view.layer.wl_surface()));
         // A focus that is not there (yet, or any more) moves to the first
         // notification, else Do Not Disturb.
         let targets = row_targets(&entries, &rows);

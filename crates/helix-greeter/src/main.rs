@@ -36,6 +36,7 @@ fn main() -> ExitCode {
     // names. Before any other thread starts.
     let adopted = helix_i18n::adopt_system_locale();
     helix_i18n::init();
+    helix_draw::set_rtl(helix_i18n::is_rtl());
     if !adopted.is_empty() {
         tracing::info!(?adopted, "using the system locale");
     }

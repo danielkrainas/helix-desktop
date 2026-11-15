@@ -747,7 +747,7 @@ impl Ui {
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w as usize, scale) as i32, physical(h as usize, scale) as i32, (physical(w as usize, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
-        let mut canvas = Canvas::scaled(data, w as usize, h as usize, scale);
+        let mut canvas = Canvas::scaled(data, w as usize, h as usize, scale).mirrored(super::mirror::on(layer.wl_surface()));
         canvas.fill(0);
         let painted = paint_dock(&mut canvas, self.text.as_ref(), &paint);
         self.dock.views[self.dock.cur].states = (0..paint.items.len())

@@ -294,7 +294,7 @@ impl Ui {
             self.power_menu = Some(overlay);
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(overlay.layer.wl_surface()));
         // A focus that is not there (yet, or any more: a list closed)
         // moves to the first control.
         let stops = model.stops();
@@ -1075,20 +1075,20 @@ pub(super) mod tests {
         let names = ["Home", "Office 5G", "Café", "Library", "Neighbour", "Printer-Direct", "Guest", "Lab", "Hotspot", "Upstairs", "Garage", "Attic"];
         let rows = (0..networks.unwrap_or(0)).map(|i| ListRow { icon: None, name: names[i % names.len()].into(), secured: i % 3 != 2, connected: i == 0, hit: Some(OverlayHit::Network(i)), dim: false }).collect();
         QuickModel {
-            sliders: vec![slider("Volume", "volume", 45, OverlayHit::VolumeSlider, Some(false)), slider("Brightness", "brightness", 80, OverlayHit::BrightnessSlider, None)],
+            sliders: vec![slider(tr("Volume"), "volume", 45, OverlayHit::VolumeSlider, Some(false)), slider(tr("Brightness"), "brightness", 80, OverlayHit::BrightnessSlider, None)],
             toggles: vec![
                 tile(Switch::Wifi, "Home", true),
-                tile(Switch::Bluetooth, "Bluetooth", false),
-                tile(Switch::Airplane, "Airplane Mode", false),
-                tile(Switch::NightLight, "Night Light", true),
-                tile(Switch::DarkStyle, "Dark Style", true),
-                tile(Switch::DoNotDisturb, "Do Not Disturb", false),
+                tile(Switch::Bluetooth, tr("Bluetooth"), false),
+                tile(Switch::Airplane, tr("Airplane Mode"), false),
+                tile(Switch::NightLight, tr("Night Light"), true),
+                tile(Switch::DarkStyle, tr("Dark Style"), true),
+                tile(Switch::DoNotDisturb, tr("Do Not Disturb"), false),
             ],
             list_open: networks.map(|_| Switch::Wifi),
             rows,
             lock: None,
-            profiles: vec![("Power Saver".into(), false), ("Balanced".into(), true), ("Performance".into(), false)],
-            items: vec![("Lock Screen", PowerAction::Lock), ("Suspend", PowerAction::Suspend), ("Log Out…", PowerAction::LogOut), ("Restart…", PowerAction::Restart), ("Power Off…", PowerAction::PowerOff)],
+            profiles: vec![(tr("Power Saver").into(), false), (tr("Balanced").into(), true), (tr("Performance").into(), false)],
+            items: vec![(tr("Lock Screen"), PowerAction::Lock), (tr("Suspend"), PowerAction::Suspend), (tr("Log Out…"), PowerAction::LogOut), (tr("Restart…"), PowerAction::Restart), (tr("Power Off…"), PowerAction::PowerOff)],
             status_shapes: false,
         }
     }

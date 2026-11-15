@@ -91,7 +91,7 @@ impl Ui {
         else {
             return;
         };
-        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(overlay.layer.wl_surface()));
         canvas.fill(0x9900_0000);
         let (text, bold) = (self.text.as_ref(), self.bold.as_ref());
         let keys = self.panel_keys.normalized();

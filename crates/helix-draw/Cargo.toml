@@ -9,4 +9,5 @@ repository.workspace = true
 
 [dependencies]
 ab_glyph.workspace = true
+unicode-bidi.workspace = true
 tracing.workspace = true
