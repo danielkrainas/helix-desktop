@@ -405,7 +405,8 @@ impl Ui {
         let focused_app = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).map(|e| e.app_id.clone());
         let overlapped = logic::windows_hide(s.hide_mode, rect, area, s.edge, &windows, focused_app.as_deref());
         let fullscreen = self.window_geometry.get(&self.windows.focused()).is_some_and(|&(x, y, w, h, min)| !min && logic::covers((x, y, w, h), area));
-        let hovered = self.dock.views[self.dock.cur].revealed || self.dock.views[self.dock.cur].pointer_on || self.dock.views[self.dock.cur].drag.is_some();
+        let view = &self.dock.views[self.dock.cur];
+        let hovered = view.revealed || view.pointer_on || view.drag.is_some() || view.keyboard.is_some();
         let shown = logic::shown(&s, overlapped, fullscreen, hovered);
         tracing::debug!(?rect, overlapped, fullscreen, hovered, shown, windows = windows.len(), mode = ?s.hide_mode, "dock");
         let changed = self.dock.views[self.dock.cur].items != items || self.dock.views[self.dock.cur].icon != icon || self.dock.views[self.dock.cur].output.as_ref() != Some(&output);
@@ -1157,6 +1158,86 @@ impl Ui {
         }
     }
 
+    // ----- Keyboard (switch-panels) ---------------------------------------
+
+    /// The dock view that has the keyboard, if one does.
+    pub(super) fn dock_keyboard_view(&self) -> Option<usize> {
+        self.dock.views.iter().position(|v| v.keyboard.is_some())
+    }
+
+    /// Whether there is a dock to move the keyboard to.
+    pub(super) fn dock_reachable(&self) -> bool {
+        self.dock.settings.enabled && self.dock.views.iter().any(|v| v.layer.is_some() && !v.items.is_empty())
+    }
+
+    /// `switch-panels` reached the dock: its first item (last going
+    /// backward) takes the keyboard, and a hidden dock shows while it has it.
+    pub(super) fn focus_dock(&mut self, backward: bool) {
+        let Some(i) = self.dock.views.iter().position(|v| v.layer.is_some() && !v.items.is_empty()) else { return };
+        self.dock.cur = i;
+        let n = self.dock.views[i].items.len();
+        self.dock.views[i].keyboard = Some(if backward { n - 1 } else { 0 });
+        self.dock_cancel_timer();
+        if let Some(layer) = self.dock.views[i].layer.as_ref() {
+            layer.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+            layer.commit();
+        }
+        self.dock_update();
+        self.dock_draw();
+    }
+
+    /// The dock gives the keyboard back (to the window that had it) and
+    /// may hide again.
+    pub(super) fn leave_dock(&mut self) {
+        let Some(i) = self.dock_keyboard_view() else { return };
+        self.dock.cur = i;
+        self.dock.views[i].keyboard = None;
+        if let Some(layer) = self.dock.views[i].layer.as_ref() {
+            layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+            layer.commit();
+        }
+        self.dock_update();
+        self.dock_draw();
+        if !self.dock.views[i].pointer_on {
+            self.dock_set_timer(self.dock.settings.hide_delay, false);
+        }
+    }
+
+    /// A key while the dock has the keyboard: the arrow keys along the
+    /// bar (Left/Right, Up/Down on a side edge), Home/End, Enter or Space
+    /// activates as a click does, Shift+F10 or Menu opens the item's menu,
+    /// Escape leaves.
+    pub(super) fn dock_key(&mut self, event: &KeyEvent) {
+        let Some(i) = self.dock_keyboard_view() else { return };
+        self.dock.cur = i;
+        let n = self.dock.views[i].items.len();
+        let Some(at) = self.dock.views[i].keyboard.filter(|_| n > 0) else { return };
+        match dock_nav(event.keysym, self.mods.shift, at, n, self.dock.settings.edge.vertical()) {
+            DockNav::Move(to) => {
+                self.dock.views[i].keyboard = Some(to);
+                self.dock_draw();
+            }
+            DockNav::Activate => {
+                // The app (or what the item opens) takes the keyboard.
+                self.leave_dock();
+                self.dock.cur = i;
+                self.dock_activate(at, self.dock.settings.click);
+            }
+            DockNav::Menu => self.dock_key_menu(at),
+            DockNav::Leave => self.leave_dock(),
+            DockNav::None => {}
+        }
+    }
+
+    /// The keyboard's item's menu, at the item, its first entry selected.
+    fn dock_key_menu(&mut self, index: usize) {
+        let Some(&(cell, _)) = self.dock.views[self.dock.cur].hits.iter().find(|(_, i)| *i == index) else { return };
+        let (cx, cy) = (f64::from(cell.x + cell.w / 2), f64::from(cell.y + cell.h / 2));
+        self.menu_by_key = true;
+        self.dock_menu(index, cx, cy);
+        self.menu_by_key = false;
+    }
+
     /// Click item `index` with `action`.
     fn dock_activate(&mut self, index: usize, action: logic::ClickAction) {
         crate::click_feedback();
@@ -1750,6 +1831,57 @@ fn draw_indicator(canvas: &mut Canvas, style: logic::Indicator, edge: Edge, cell
             }
             _ => canvas.rect(x, y, w, h, FG),
         }
+    }
+}
+
+/// What a key does in the dock (see `Ui::dock_key`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DockNav {
+    Move(usize),
+    Activate,
+    Menu,
+    Leave,
+    None,
+}
+
+/// What `key` (with Shift if `shift`) does with item `at` of `n` focused,
+/// on a bar that is `vertical` or not.
+fn dock_nav(key: Keysym, shift: bool, at: usize, n: usize, vertical: bool) -> DockNav {
+    let (back, forward) = if vertical { (Keysym::Up, Keysym::Down) } else { (Keysym::Left, Keysym::Right) };
+    let to = match key {
+        k if k == back => at.saturating_sub(1),
+        k if k == forward => (at + 1).min(n.saturating_sub(1)),
+        Keysym::Home => 0,
+        Keysym::End => n.saturating_sub(1),
+        Keysym::Escape => return DockNav::Leave,
+        Keysym::Return | Keysym::KP_Enter | Keysym::space => return DockNav::Activate,
+        Keysym::Menu => return DockNav::Menu,
+        Keysym::F10 if shift => return DockNav::Menu,
+        _ => return DockNav::None,
+    };
+    if to == at { DockNav::None } else { DockNav::Move(to) }
+}
+
+#[cfg(test)]
+mod nav_tests {
+    use super::*;
+
+    #[test]
+    fn keys_along_the_bar() {
+        let nav = |k, shift, at| dock_nav(k, shift, at, 5, false);
+        assert_eq!(nav(Keysym::Right, false, 0), DockNav::Move(1));
+        assert_eq!(nav(Keysym::Left, false, 0), DockNav::None, "stops at the start");
+        assert_eq!(nav(Keysym::Right, false, 4), DockNav::None, "and at the end");
+        assert_eq!(nav(Keysym::End, false, 1), DockNav::Move(4));
+        assert_eq!(nav(Keysym::Home, false, 3), DockNav::Move(0));
+        assert_eq!(nav(Keysym::Down, false, 1), DockNav::None, "not along a bottom bar");
+        assert_eq!(dock_nav(Keysym::Down, false, 1, 5, true), DockNav::Move(2), "along a side bar");
+        assert_eq!(nav(Keysym::Return, false, 2), DockNav::Activate);
+        assert_eq!(nav(Keysym::space, false, 2), DockNav::Activate);
+        assert_eq!(nav(Keysym::F10, true, 2), DockNav::Menu);
+        assert_eq!(nav(Keysym::F10, false, 2), DockNav::None);
+        assert_eq!(nav(Keysym::Menu, false, 2), DockNav::Menu);
+        assert_eq!(nav(Keysym::Escape, false, 2), DockNav::Leave);
     }
 }
 

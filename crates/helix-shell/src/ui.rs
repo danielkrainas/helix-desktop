@@ -1419,6 +1419,22 @@ impl Ui {
 
     // ----- Panel keyboard focus (switch-panels) -------------------------------
 
+    /// `switch-panels` (Ctrl+Alt+Tab): the panel, then the dock (when
+    /// there is one), then the panel again; Shift goes the other way.
+    fn switch_panels(&mut self, backward: bool) {
+        if self.panel_focus.is_some() && self.dock_reachable() {
+            self.leave_panel();
+            self.focus_dock(backward);
+        } else if self.dock_keyboard_view().is_some() {
+            self.leave_dock();
+            self.focus_panel(backward);
+        } else if self.panel_focus.is_none() && backward && self.dock_reachable() {
+            self.focus_dock(true);
+        } else {
+            self.focus_panel(backward);
+        }
+    }
+
     fn focus_panel(&mut self, backward: bool) {
         let count = panel_controls(&self.panel_placed, self.tray_shown().len()).len().max(1);
         let next = match self.panel_focus {
@@ -3346,7 +3362,7 @@ impl Ui {
                 }
             }
             Some(Internal::Wm(crate::windows::WmKey::Cycle { group, backward })) => self.cycle_windows(group, backward),
-            Some(Internal::Wm(crate::windows::WmKey::Panels { backward })) => self.focus_panel(backward),
+            Some(Internal::Wm(crate::windows::WmKey::Panels { backward })) => self.switch_panels(backward),
             Some(Internal::Wm(crate::windows::WmKey::ToggleOnAllWorkspaces)) => self.toggle_on_all_workspaces(),
             Some(Internal::Wm(crate::windows::WmKey::Window(action))) => {
                 if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 4) {
@@ -3965,6 +3981,8 @@ impl KeyboardHandler for Ui {
             self.notification_list_key(&event);
         } else if self.panel_focus.is_some() {
             self.panel_key(&event);
+        } else if self.dock_keyboard_view().is_some() {
+            self.dock_key(&event);
         } else if self.break_screen.is_some() {
             self.break_key(&event);
         } else if self.panel_editor.is_some() {
