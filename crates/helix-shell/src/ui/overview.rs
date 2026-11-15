@@ -39,6 +39,11 @@ pub(super) struct OverviewState {
     area: (i32, i32, i32, i32),
     pub(super) selected: Option<u32>,
     hover: Option<u32>,
+    /// Where the keyboard is: the windows, the workspace thumbnails or
+    /// the dash; the thumbnail and dash icon chosen there.
+    region: Region,
+    workspace_key: Option<u32>,
+    dash_key: Option<usize>,
     /// A press on a window picture, where.
     press: Option<(u32, (f64, f64))>,
     /// A window being dragged, and the pointer.
@@ -53,6 +58,45 @@ pub(super) struct OverviewState {
     /// icon being dragged (app, pointer).
     dash_press: Option<(String, (f64, f64), Option<u32>)>,
     dash_drag: Option<(String, (f64, f64))>,
+}
+
+/// The overview's parts the keyboard moves between (Tab, Shift+Tab).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum Region {
+    #[default]
+    Windows,
+    Workspaces,
+    Dash,
+}
+
+/// Which way an arrow key points.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Dir {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// The rectangle nearest `from` in direction `dir` among `rects` (its
+/// center must lie that way; closest along that way first, then across).
+pub(super) fn nearest<T: Copy>(rects: &[(Rect, T)], from: Rect, dir: Dir) -> Option<T> {
+    let c = |r: &Rect| (f64::from(r.x) + f64::from(r.w) / 2.0, f64::from(r.y) + f64::from(r.h) / 2.0);
+    let (fx, fy) = c(&from);
+    rects
+        .iter()
+        .filter_map(|(r, v)| {
+            let (x, y) = c(r);
+            let (along, across) = match dir {
+                Dir::Left => (fx - x, (y - fy).abs()),
+                Dir::Right => (x - fx, (y - fy).abs()),
+                Dir::Up => (fy - y, (x - fx).abs()),
+                Dir::Down => (y - fy, (x - fx).abs()),
+            };
+            (along > 1.0).then_some((along + 2.0 * across, *v))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, v)| v)
 }
 
 /// How far above the dash a dropped favorite is unpinned.
@@ -373,6 +417,9 @@ impl Ui {
                     _ => canvas.rect(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32, 0xFF55555F),
                 }
             }
+            if state.region == Region::Workspaces && state.workspace_key == Some(n) {
+                helix_draw::theme::focus_ring_round(&mut canvas, f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), 4.0);
+            }
             state.workspaces.push((r, n));
             tx += thumb_w + 16;
         }
@@ -404,6 +451,9 @@ impl Ui {
                 }
                 if !entry.windows.is_empty() {
                     canvas.circle(f64::from(r.x + r.w / 2), f64::from(dy + DASH_H - 7), 2.5, FG);
+                }
+                if state.region == Region::Dash && state.dash_key == Some(state.dash.len()) {
+                    helix_draw::theme::focus_ring_round(&mut canvas, f64::from(r.x - 4), f64::from(r.y - 4), f64::from(r.w + 8), f64::from(r.h + 8), 8.0);
                 }
                 state.dash.push((r, entry.app.clone(), entry.windows.first().copied(), !entry.running_only));
                 x += DASH_ICON + DASH_GAP;
@@ -449,7 +499,7 @@ impl Ui {
             if state.hover == Some(*id) && !dragged {
                 canvas.round_rect(f64::from(r.x - 6), f64::from(r.y - 6), f64::from(r.w + 12), f64::from(r.h + 12), 8.0, 0x40FFFFFF);
             }
-            if state.selected == Some(*id) && !dragged {
+            if state.selected == Some(*id) && !dragged && state.region == Region::Windows {
                 helix_draw::theme::focus_ring_round(&mut canvas, f64::from(r.x - 2), f64::from(r.y - 2), f64::from(r.w + 4), f64::from(r.h + 4), 6.0);
             }
             match self.overview_shots.pictures.get(id) {
@@ -595,28 +645,113 @@ impl Ui {
 
     pub(super) fn overview_key(&mut self, event: &KeyEvent) {
         let ids = self.overview_windows();
+        let (ctrl, alt, shift) = (self.mods.ctrl, self.mods.alt, self.mods.shift);
+        let active = self.windows.active;
+        let count = self.windows.count.max(1);
         let Some(overview) = self.overview.as_mut() else { return };
         let state = &mut overview.state;
-        let pos = state.selected.and_then(|s| ids.iter().position(|id| *id == s));
-        match event.keysym {
-            Keysym::Escape => self.close_overview(true),
-            Keysym::Return | Keysym::KP_Enter => {
-                if let Some(id) = state.selected.filter(|s| ids.contains(s)) {
-                    self.close_overview(true);
-                    self.activate_window(id);
+        let selected = state.selected.filter(|s| ids.contains(s));
+        let dir = match event.keysym {
+            Keysym::Left => Some(Dir::Left),
+            Keysym::Right => Some(Dir::Right),
+            Keysym::Up => Some(Dir::Up),
+            Keysym::Down => Some(Dir::Down),
+            _ => None,
+        };
+        // Moving the chosen window to the neighbouring workspace:
+        // Ctrl+Alt+←/→ or Shift+Page Up/Down.
+        let move_by = match event.keysym {
+            Keysym::Left if ctrl && alt => Some(-1),
+            Keysym::Right if ctrl && alt => Some(1),
+            Keysym::Page_Up if shift => Some(-1),
+            Keysym::Page_Down if shift => Some(1),
+            _ => None,
+        };
+        if let (Some(by), Some(id), Region::Windows) = (move_by, selected, state.region) {
+            let target = i64::from(active) + by;
+            if target >= 0 && target < i64::from(count) {
+                if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 2) {
+                    list.move_window(id, target as u32);
                 }
             }
-            Keysym::Left | Keysym::Up | Keysym::Right | Keysym::Down | Keysym::Tab => {
-                if ids.is_empty() {
-                    return;
-                }
-                let back = matches!(event.keysym, Keysym::Left | Keysym::Up);
-                let next = match pos {
-                    None => 0,
-                    Some(p) if back => (p + ids.len() - 1) % ids.len(),
-                    Some(p) => (p + 1) % ids.len(),
+            return;
+        }
+        match event.keysym {
+            Keysym::Escape => self.close_overview(true),
+            Keysym::Tab | Keysym::ISO_Left_Tab => {
+                // The parts in order; ones with nothing in them are passed.
+                let order = [Region::Windows, Region::Workspaces, Region::Dash];
+                let has = |r: Region| match r {
+                    Region::Windows => !ids.is_empty(),
+                    Region::Workspaces => !state.workspaces.is_empty(),
+                    Region::Dash => !state.dash.is_empty(),
                 };
-                state.selected = Some(ids[next]);
+                let back = event.keysym == Keysym::ISO_Left_Tab || shift;
+                let at = order.iter().position(|r| *r == state.region).unwrap_or(0);
+                for k in 1..=order.len() {
+                    let i = if back { (at + order.len() * 2 - k) % order.len() } else { (at + k) % order.len() };
+                    if has(order[i]) {
+                        state.region = order[i];
+                        break;
+                    }
+                }
+                match state.region {
+                    Region::Windows if selected.is_none() => state.selected = ids.first().copied(),
+                    Region::Workspaces if state.workspace_key.is_none() => state.workspace_key = Some(active),
+                    Region::Dash if state.dash_key.is_none() => state.dash_key = Some(0),
+                    _ => {}
+                }
+                self.draw_overview();
+            }
+            Keysym::Return | Keysym::KP_Enter | Keysym::space => match state.region {
+                Region::Windows => {
+                    if let Some(id) = selected {
+                        self.close_overview(true);
+                        self.activate_window(id);
+                    }
+                }
+                Region::Workspaces => {
+                    if let (Some(n), Some(list)) = (state.workspace_key, self.window_list.as_ref().filter(|l| l.version() >= 2)) {
+                        list.switch_workspace(n);
+                    }
+                }
+                Region::Dash => {
+                    let chosen = state.dash_key.and_then(|i| state.dash.get(i)).map(|d| (d.1.clone(), d.2));
+                    if let Some((app, window)) = chosen {
+                        self.dash_activate(&app, window);
+                    }
+                }
+            },
+            Keysym::Delete | Keysym::KP_Delete if state.region == Region::Windows => self.overview_close_selected(selected),
+            Keysym::w if ctrl && state.region == Region::Windows => self.overview_close_selected(selected),
+            _ if dir.is_some() => {
+                let dir = dir.unwrap_or(Dir::Right);
+                match state.region {
+                    Region::Windows => {
+                        let from = selected.and_then(|id| state.tiles.iter().find(|(_, t)| *t == id).map(|(r, _)| *r));
+                        let next = match from {
+                            Some(from) => nearest(&state.tiles, from, dir),
+                            None => ids.first().copied(),
+                        };
+                        if let Some(next) = next {
+                            state.selected = Some(next);
+                        }
+                    }
+                    Region::Workspaces => {
+                        let n = state.workspace_key.unwrap_or(active);
+                        state.workspace_key = Some(match dir {
+                            Dir::Left | Dir::Up => n.saturating_sub(1),
+                            Dir::Right | Dir::Down => (n + 1).min(count - 1),
+                        });
+                    }
+                    Region::Dash => {
+                        let i = state.dash_key.unwrap_or(0);
+                        state.dash_key = Some(match dir {
+                            Dir::Left | Dir::Up => i.saturating_sub(1),
+                            Dir::Right | Dir::Down => (i + 1).min(state.dash.len().saturating_sub(1)),
+                        });
+                    }
+                }
                 self.draw_overview();
             }
             _ => {
@@ -633,6 +768,38 @@ impl Ui {
                 }
             }
         }
+    }
+
+    /// Close the window chosen with the keyboard; the choice moves to a
+    /// neighbour.
+    fn overview_close_selected(&mut self, selected: Option<u32>) {
+        let Some(id) = selected else { return };
+        if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 4) {
+            list.window_action(id, WindowAction::Close);
+        }
+        let ids = self.overview_windows();
+        if let Some(overview) = self.overview.as_mut() {
+            overview.state.selected = ids.iter().copied().find(|w| *w != id);
+        }
+        self.draw_overview();
+    }
+}
+
+#[cfg(test)]
+mod nav_tests {
+    use super::*;
+
+    #[test]
+    fn arrows_go_to_the_nearest_window_that_way() {
+        let r = |x, y| Rect { x, y, w: 100, h: 80 };
+        // A 2×2 grid and one off to the right, higher.
+        let tiles = [(r(0, 0), 1), (r(200, 0), 2), (r(0, 200), 3), (r(200, 200), 4), (r(400, 120), 5)];
+        assert_eq!(nearest(&tiles, r(0, 0), Dir::Right), Some(2));
+        assert_eq!(nearest(&tiles, r(0, 0), Dir::Down), Some(3));
+        assert_eq!(nearest(&tiles, r(0, 0), Dir::Left), None, "nothing that way");
+        assert_eq!(nearest(&tiles, r(200, 200), Dir::Up), Some(2));
+        assert_eq!(nearest(&tiles, r(200, 200), Dir::Right), Some(5));
+        assert_eq!(nearest(&tiles, r(400, 120), Dir::Left), Some(4), "the row nearer across wins");
     }
 }
 
