@@ -1868,10 +1868,7 @@ impl Ui {
         }
         let app_id = self.windows.mru().iter().find(|e| e.id == id).map(|e| e.app_id.clone())?;
         let key = format!("app:{app_id}@{px}");
-        self.icon_cache.get(key, move || {
-            let source = crate::icons::IconSource::for_app(&app_id).or_else(|| crate::icons::IconSource::for_app(&app_id.to_lowercase()))?;
-            crate::icons::load(&source, px)
-        })
+        self.icon_cache.get(key, move || crate::icons::app_icon(&app_id, px))
     }
 
     fn draw_launcher(&mut self) {

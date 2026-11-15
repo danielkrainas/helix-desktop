@@ -400,7 +400,7 @@ impl Ui {
                 match &entry.icon {
                     _ if dragged => {}
                     Some(icon) => canvas.image(f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), icon),
-                    None => canvas.rect(r.x + 4, r.y + 4, r.w - 8, r.h - 8, FIELD_BG),
+                    None => {}
                 }
                 if !entry.windows.is_empty() {
                     canvas.circle(f64::from(r.x + r.w / 2), f64::from(dy + DASH_H - 7), 2.5, FG);

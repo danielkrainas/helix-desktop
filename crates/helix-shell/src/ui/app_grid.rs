@@ -556,7 +556,7 @@ pub(super) type Icons = crate::icon_cache::IconCache;
 fn grid_icon(cache: &mut Icons, id: &str, px: u32) -> Option<helix_draw::Image> {
     let app = id.strip_suffix(".desktop").unwrap_or(id).to_owned();
     let key = format!("app:{app}@{px}");
-    cache.get(key, move || crate::icons::IconSource::for_app(&app).and_then(|s| crate::icons::load(&s, px)))
+    cache.get(key, move || crate::icons::app_icon(&app, px))
 }
 
 /// Draw one grid cell (an app or a folder) at `cell`.
@@ -600,9 +600,10 @@ fn paint_cell(p: &mut Paint, model: &Launcher, canvas: &mut Canvas, cell: Rect, 
         }
         None => {
             let px = (f64::from(ICON) * scale).round() as u32;
-            match grid_icon(p.cache, id, px) {
-                Some(icon) => canvas.image(sx, sy, size, size, &icon),
-                None => canvas.round_rect(sx + 6.0 * k, sy + 6.0 * k, size - 12.0 * k, size - 12.0 * k, 10.0, 0xFF5E5C64),
+            // (Nothing while it is being decoded; apps without an icon get
+            // the generic one.)
+            if let Some(icon) = grid_icon(p.cache, id, px) {
+                canvas.image(sx, sy, size, size, &icon);
             }
         }
     }

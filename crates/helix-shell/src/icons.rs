@@ -441,6 +441,58 @@ pub fn load(source: &IconSource, px: u32) -> Option<Image> {
     }
 }
 
+/// The theme's generic application icon, for apps whose own icon cannot
+/// be found.
+pub const GENERIC_APP: &str = "application-x-executable";
+
+/// App `id`'s icon (desktop file id without `.desktop`; also tried in
+/// lower case) at `px` pixels, else the generic application icon.
+pub fn app_icon(id: &str, px: u32) -> Option<Image> {
+    let source = IconSource::for_app(id).or_else(|| IconSource::for_app(&id.to_lowercase()));
+    or_generic(id, source.as_ref(), px, load, generic_app)
+}
+
+/// The icon from `source`, else (none, or not decodable) `generic`'s.
+/// A missing icon is logged once per app.
+fn or_generic(
+    id: &str,
+    source: Option<&IconSource>,
+    px: u32,
+    load: impl Fn(&IconSource, u32) -> Option<Image>,
+    generic: impl Fn(u32) -> Option<Image>,
+) -> Option<Image> {
+    if let Some(image) = source.and_then(|s| load(s, px)) {
+        return Some(image);
+    }
+    static LOGGED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let mut logged = LOGGED.lock().unwrap_or_else(|e| e.into_inner());
+    if !logged.iter().any(|l| l == id) {
+        logged.push(id.to_owned());
+        let named = match source {
+            Some(IconSource::Names(names)) => names.join(","),
+            Some(IconSource::File(path)) => path.display().to_string(),
+            Some(_) => "image data".into(),
+            None => String::new(),
+        };
+        tracing::debug!(app = id, icon = named, "no icon for the app; showing the generic one");
+    }
+    drop(logged);
+    generic(px)
+}
+
+/// `application-x-executable` at `px`, else its symbolic form in light
+/// grey; decoded once per size.
+fn generic_app(px: u32) -> Option<Image> {
+    static DONE: Mutex<Vec<(u32, Option<Image>)>> = Mutex::new(Vec::new());
+    if let Some((_, image)) = DONE.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(p, _)| *p == px) {
+        return image.clone();
+    }
+    let image = load(&IconSource::Names(vec![GENERIC_APP.into()]), px)
+        .or_else(|| symbolic(&format!("{GENERIC_APP}-symbolic"), px, [0xDE, 0xDD, 0xDA]));
+    DONE.lock().unwrap_or_else(|e| e.into_inner()).push((px, image.clone()));
+    image
+}
+
 /// The icon file at `path` decoded at about `px` pixels; rendered SVGs
 /// come from the disk cache when it has them.
 pub fn decode_file(path: &Path, px: u32) -> Option<Image> {
@@ -584,6 +636,22 @@ impl DiskCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn apps_without_an_icon_get_the_generic_one() {
+        let image = |v: u8| Image { width: 1, height: 1, rgba: vec![v; 4] };
+        let load = |s: &IconSource, _| match s {
+            IconSource::Data(i) => Some(i.clone()),
+            _ => None,
+        };
+        let generic = |_| Some(image(9));
+        let own = IconSource::Data(image(1));
+        assert_eq!(or_generic("a", Some(&own), 48, load, generic).unwrap().rgba[0], 1, "its own icon");
+        assert_eq!(or_generic("b", None, 48, load, generic).unwrap().rgba[0], 9, "no icon named");
+        let broken = IconSource::File("/nonexistent/icon.png".into());
+        assert_eq!(or_generic("c", Some(&broken), 48, load, generic).unwrap().rgba[0], 9, "the named icon is missing");
+        assert!(or_generic("d", None, 48, load, |_| None).is_none(), "no generic icon in the theme either");
+    }
 
     #[test]
     fn small_theme_images_give_way_to_sharper_ones() {

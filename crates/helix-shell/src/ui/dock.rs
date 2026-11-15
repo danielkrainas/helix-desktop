@@ -673,9 +673,9 @@ impl Ui {
             Item::App { id, .. } => Some(id.clone()),
             _ => None,
         };
-        self.icon_cache.get(key, move || {
-            let source = source.or_else(|| id.and_then(|id| crate::icons::IconSource::for_app(&desktop_id(&id).map_or(id, |d| d.trim_end_matches(".desktop").to_owned()))));
-            source.and_then(|s| crate::icons::load(&s, px))
+        self.icon_cache.get(key, move || match id {
+            Some(id) => crate::icons::app_icon(&desktop_id(&id).map_or(id, |d| d.trim_end_matches(".desktop").to_owned()), px),
+            None => source.and_then(|s| crate::icons::load(&s, px)),
         })
     }
 
@@ -875,7 +875,8 @@ impl Ui {
                 match (item, &icons[i]) {
                     (Item::ShowApps, _) => draw_grid(&mut canvas, sx.round() as i32, sy.round() as i32, size.round() as i32),
                     (_, Some(image)) => canvas.image(sx, sy, size, size, image),
-                    (_, None) => canvas.round_rect(sx + 4.0, sy + 4.0, size - 8.0, size - 8.0, 8.0, 0xFF5E5C64),
+                    // Being decoded (apps without one get the generic icon).
+                    (_, None) => {}
                 }
             }
             if let Some(progress) = entries[i].as_ref().and_then(|e| e.shown_progress()) {

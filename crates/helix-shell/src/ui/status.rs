@@ -43,7 +43,7 @@ impl Ui {
         let px = (logical * scale).round() as u32;
         let key = format!("app:{id}@{px}");
         let id = id.to_owned();
-        self.icon_cache.get(key, move || crate::icons::IconSource::for_app(&id).and_then(|s| crate::icons::load(&s, px)))
+        self.icon_cache.get(key, move || crate::icons::app_icon(&id, px))
     }
 
     /// The status area's items, right to left.

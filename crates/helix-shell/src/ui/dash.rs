@@ -51,7 +51,7 @@ impl Ui {
                 let windows = self.windows.mru().iter().filter(|e| e.app_id.eq_ignore_ascii_case(&app)).map(|e| e.id).collect();
                 let key = format!("app:{app}@{px}");
                 let id = app.clone();
-                let icon = self.icon_cache.get(key, move || crate::icons::IconSource::for_app(&id).and_then(|s| crate::icons::load(&s, px)));
+                let icon = self.icon_cache.get(key, move || crate::icons::app_icon(&id, px));
                 DashEntry { app, icon, windows, running_only }
             })
             .collect()
