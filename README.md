@@ -6,7 +6,54 @@ This repository is the implementation. The living specification and contracts li
 
 ## Status
 
-Early implementation. `helix-session` serves `org.gnome.SessionManager` and launches the session, `helix-comp` is a Smithay compositor (nested, or on bare hardware via DRM/KMS) with `IdleMonitor` and `DisplayConfig`, `helix-shell` serves `org.gnome.Shell` and draws a top panel, `helix-portals` serves the Settings, Inhibit, Screenshot, ScreenCast, RemoteDesktop and Clipboard portal backends, and `helix-settings` reads the system GSettings.
+**Daily-driver ready.** Helix runs as a full Wayland desktop session on
+real hardware and is in everyday use as a primary desktop (Ubuntu 26.04,
+NVIDIA and other KMS drivers). It installs from packages, appears as a
+**Helix** session at the login screen, and runs existing GTK, libadwaita,
+Chromium/Electron and X11 (Xwayland) applications alongside the GNOME
+services they expect.
+
+What you get:
+
+- **Compositor** (`helix-comp`): a Smithay compositor on DRM/KMS with
+  multi-monitor display configuration, workspaces, Xwayland, idle
+  monitoring, screen capture and the Wayland protocols that GTK, Qt and
+  Chromium-based apps rely on.
+- **Shell** (`helix-shell`): top panel, quick settings (volume,
+  brightness, network, Bluetooth, power modes, night light, dark style),
+  notifications with a calendar and media controls, overview and
+  workspaces, application grid and dock (pinning, drag and drop,
+  feedback and animations), app and window switchers, screenshots and
+  screen recording, on-screen keyboard, lock screen, and polkit,
+  keyring and other system dialogs.
+- **Session** (`helix-session`): `org.gnome.SessionManager`, ordered
+  startup through a systemd user target, autostart, inhibitors, logout,
+  restart and power off through logind.
+- **Portals** (`helix-portals`): Settings, Inhibit, Screenshot,
+  ScreenCast, RemoteDesktop and Clipboard backends for
+  xdg-desktop-portal (the system accent colour, colour scheme and
+  contrast reach apps through the Settings portal).
+- **Login screen** (`helix-greeter`): an optional greetd greeter, so a
+  Helix system needs neither GDM nor GNOME Shell (see
+  "Installing and using Helix").
+- **Accessibility**: keyboard navigation through the panel, quick
+  settings, notifications, menus and dialogs, an AT-SPI bridge for
+  screen readers, high contrast, reduced motion and Large Text.
+- **Extensions**: a Helix-native extension API (see "Extensions").
+
+The companion [helix-apps](https://github.com/danielkrainas/helix-apps)
+repository provides Helix's own core applications (Files, Terminal,
+Text Editor, Settings, Web and more); stock GNOME applications work too.
+
+Known gaps are tracked as
+[issues](https://github.com/danielkrainas/helix-desktop/issues) and in the
+spec's `gaps.md`. The most visible ones today:
+
+- the shell's own UI always uses the default blue accent rather than the
+  system accent colour (#47);
+- Large Text does not yet cover every shell surface (#16);
+- menus are not yet exposed to screen readers;
+- the greeter offers Wayland sessions only (greetd starts no X server).
 
 ## Target
 
@@ -31,15 +78,54 @@ This is a Cargo workspace:
 crates/
   helix-comp/       # compositor / window management surface
   helix-shell/      # shell UI
+  helix-draw/       # shared drawing: canvas, text, theme tokens
   helix-session/    # session manager and D-Bus services
   helix-settings/   # GSettings / settings integration
   helix-portals/    # portal backends
+  helix-protocols/  # Helix's private Wayland protocols
+  helix-extension/  # extension API crate and examples
+  helix-greeter/    # greetd login screen
   helix-test-support/ # test helpers: private D-Bus, contract checks
-session/            # startup units and scripts
+data/               # Helix GSettings schemas
+session/            # session file, startup units and scripts
+greeter/            # greetd configuration for the login screen
+packaging/          # nfpm package definitions and staging
 tests/contract/     # conformance tests against helix-desktop-spec
 ```
 
 Contracts are defined in the companion [helix-desktop-spec](https://github.com/danielkrainas/helix-desktop-spec) repository.
+
+## Installing and using Helix
+
+1. Install the packages from a
+   [release](https://github.com/danielkrainas/helix-desktop/releases)
+   (or build them, see "Releases and packages"): `helix-desktop`, plus
+   `helix-desktop-full` to pull in Xwayland, xdg-desktop-portal, the GNOME
+   schemas, dconf and PipeWire, and `helix-apps` for Helix's
+   applications. On Debian/Ubuntu:
+
+   ```sh
+   sudo apt install ./helix-desktop_*.deb ./helix-desktop-full_*.deb ./helix-apps_*.deb
+   ```
+
+2. Log out, pick **Helix** from the session menu of your login screen
+   (GDM's gear button, for example) and log in. On NVIDIA, KMS must be on
+   (`nvidia-drm.modeset=1`).
+3. Optionally, replace GDM with Helix's own login screen: install
+   `helix-greeter` (it needs `greetd`), then
+
+   ```sh
+   sudo systemctl disable gdm3      # or lightdm, sddm, ...
+   sudo systemctl enable greetd
+   sudo reboot
+   ```
+
+   Switch back the same way. If the greeter doesn't come up, Ctrl+Alt+F3
+   gives a text login; its log is in `journalctl -u greetd`.
+
+Helix reads your existing GNOME settings (wallpaper, dark style, fonts,
+keyboard layouts, shortcuts, accessibility), so moving between Helix and
+GNOME keeps them.
 
 ## Building
 
@@ -80,8 +166,10 @@ and aarch64, as:
 and `helix-desktop-full`, a meta package (no files; one each for Debian,
 RPM and Arch, architecture-independent) that depends on the same version
 of `helix-desktop` and on what that only recommends (Xwayland,
-xdg-desktop-portal, the GNOME schemas, dconf, PipeWire); it will also pull
-in `helix-apps` once that exists (`packaging/nfpm-full.yaml`). All of them
+xdg-desktop-portal, the GNOME schemas, dconf, PipeWire;
+`packaging/nfpm-full.yaml`), and `helix-greeter`, the login screen
+(`packaging/nfpm-greeter.yaml`, `.deb` only; depends on `greetd`).
+`helix-apps` is packaged from its own repository. All of them
 are published with a `SHA256SUMS` file as a GitHub release (a
 prerelease when the version has a `-` suffix). Running the workflow by hand
 builds the same packages as workflow artifacts without publishing.
