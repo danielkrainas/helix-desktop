@@ -55,6 +55,17 @@ const EXTENSIONS: &str = "extensions";
 const TOOLTIP: &str = "tooltip";
 const MONITOR_LABEL: &str = "monitor:";
 
+/// The launcher's (search and app grid) window name on AT-SPI.
+pub(super) fn launcher_title() -> &'static str {
+    tr("Launcher")
+}
+
+/// The window overview's window name on AT-SPI (one per monitor), told
+/// apart from the launcher's.
+pub(super) fn overview_title() -> &'static str {
+    tr("Window Overview")
+}
+
 /// What the app grid last showed: the page's cells, the open folder's
 /// cells, the selected item, the page dots, the page.
 pub(super) type GridShown<'a> = (&'a [(Rect, String)], &'a [(Rect, String)], Option<usize>, &'a [(Rect, usize)], usize);
@@ -368,7 +379,7 @@ impl Ui {
             }
             LAUNCHER => {
                 let view = self.launcher.as_ref()?;
-                (tr("Overview").to_owned(), self.overlay_bounds(view.width, view.height), self.launcher_nodes(view))
+                (launcher_title().to_owned(), self.overlay_bounds(view.width, view.height), self.launcher_nodes(view))
             }
             OSD => {
                 // A live status: each new level or label is announced.
@@ -445,7 +456,7 @@ impl Ui {
                 let index: usize = overview.strip_prefix(OVERVIEW)?.parse().ok()?;
                 let (layer, (x, y, w, h)) = self.overview_a11y().get(index).copied()?;
                 let names = self.atspi.app_names.as_ref().map(|(n, _)| n);
-                (tr("Overview").to_owned(), crate::a11y::Rect::new(x, y, w as i32, h as i32), self.overview_a11y_nodes(layer, names))
+                (overview_title().to_owned(), crate::a11y::Rect::new(x, y, w as i32, h as i32), self.overview_a11y_nodes(layer, names))
             }
             label if label.starts_with(MONITOR_LABEL) => {
                 // Top left of its monitor, below the panel.

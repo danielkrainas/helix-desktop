@@ -359,10 +359,10 @@ async fn child() {
     let dash = [(r(500, 700), "org.gnome.Nautilus.desktop".to_owned(), "Files".to_owned(), true)];
     let overview = |region, dash_key| {
         let shown = super::overview::OverviewShown { search: Some(Rect { x: 440, y: 24, w: 400, h: 40 }), workspaces: &workspaces, windows: &windows, dash: &dash, selected: Some(9), region, workspace_key: Some(1), dash_key };
-        window("Overview", true, super::overview::overview_nodes(&shown))
+        window(super::atspi::overview_title(), true, super::overview::overview_nodes(&shown))
     };
     shell.show("overview", overview(super::overview::Region::Windows, None));
-    let w = client.window("Overview", |w| !w.focused().is_empty()).await;
+    let w = client.window("Window Overview", |w| !w.focused().is_empty()).await;
     let roles: Vec<(&str, &str)> = w.children.iter().map(|c| (c.role.as_str(), c.name.as_str())).collect();
     assert_eq!(roles, [("entry", "Search"), ("list box", "Workspaces"), ("list box", "Windows"), ("tool bar", "Dash")], "{:#?}", w.outline());
     let terminal = w.named("~/src");
@@ -374,10 +374,19 @@ async fn child() {
     let mail_path = w.named("Mail").at.1.to_string();
     shell.show("overview", overview(super::overview::Region::Workspaces, None));
     assert!(focus_event(&mut stream, &mail_path).await, "Tab to the workspaces: focus event");
-    let w = client.window("Overview", |w| w.focused() == ["Mail"]).await;
+    let w = client.window("Window Overview", |w| w.focused() == ["Mail"]).await;
     assert!(w.named("~/src").has(SELECTED) && !w.named("~/src").has(FOCUSED), "the window stays chosen");
     shell.show("overview", overview(super::overview::Region::Dash, Some(0)));
-    client.window("Overview", |w| w.focused() == ["Files"]).await;
+    client.window("Window Overview", |w| w.focused() == ["Files"]).await;
+
+    // ----- The launcher has a name of its own (helix-desktop#98).
+    let search = Node::text_field(Role::SearchInput, "Search", "", crate::a11y::Rect::new(440, 24, 400, 48)).id("search");
+    shell.show("launcher", window(super::atspi::launcher_title(), true, vec![search.focused(true)]));
+    let w = client.window("Launcher", |w| !w.focused().is_empty()).await;
+    assert_eq!(w.focused(), ["Search"]);
+    let names: Vec<String> = client.windows().await.into_iter().map(|w| w.name).collect();
+    assert!(!names.iter().any(|n| n == "Overview" || n == "Window Overview"), "the launcher is not named as the overview: {names:?}");
+    assert_eq!((super::atspi::overview_title(), super::atspi::launcher_title()), ("Window Overview", "Launcher"));
 
     // ----- The workspace popup: the workspace announced, the active one selected.
     shell.show("workspace-popup", window("Workspace Switcher", false, super::workspace_popup::popup_nodes(&["Mail".into()], 3, 1, 260)));
