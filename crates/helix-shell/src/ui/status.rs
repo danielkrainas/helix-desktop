@@ -34,6 +34,15 @@ impl Ui {
         self.icon_cache.get(key, move || crate::icons::symbolic(&name, px, rgb))
     }
 
+    /// A symbolic icon `logical` px large in `color`, cached.
+    pub(super) fn symbolic_icon_color(&mut self, name: &str, logical: f64, scale: f64, color: u32) -> Option<Image> {
+        let px = (logical * scale).round() as u32;
+        let key = format!("sym:{name}@{px}#{color:06x}");
+        let rgb = [(color >> 16) as u8, (color >> 8) as u8, color as u8];
+        let name = name.to_owned();
+        self.icon_cache.get(key, move || crate::icons::symbolic(&name, px, rgb))
+    }
+
     /// The icon of the app with desktop file id `id`, `logical` px large,
     /// cached.
     pub(super) fn app_icon_px(&mut self, id: &str, logical: f64, scale: f64) -> Option<Image> {

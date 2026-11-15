@@ -287,6 +287,8 @@ struct Ui {
     quick: quick::QuickState,
     /// The quick settings list that is open (Wi-Fi or Bluetooth).
     quick_list: Option<quick::Switch>,
+    /// Quick settings' power actions are open (under its Power button).
+    quick_power_open: bool,
     /// "Pair New Device…" started Bluetooth discovery.
     bt_discovery: bool,
     /// The lock screen's media player and notification counts.
@@ -445,6 +447,11 @@ enum OverlayHit {
     BtNearby(usize),
     /// "Send Files…" below the paired devices.
     BtSendFiles,
+    /// Quick settings' top row: the screenshot UI, the Settings app, and
+    /// the power actions' list.
+    QuickScreenshot,
+    QuickSettingsApp,
+    PowerMenu,
     Outside,
 }
 
@@ -3707,6 +3714,7 @@ pub fn run(
         panel_editor: None,
         quick: Default::default(),
         quick_list: None,
+        quick_power_open: false,
         bt_discovery: false,
         running_apps: HashMap::new(),
         lock_extras: Default::default(),

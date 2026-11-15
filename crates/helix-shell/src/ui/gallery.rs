@@ -127,7 +127,7 @@ fn shared_look() {
     let open: std::collections::HashSet<String> = ["app:org.example.Chat".to_owned()].into();
     let cal = sample_calendar(true);
     in_looks(&dir, "look-quick-menu", (1280, 720), &mut |canvas, (w, h)| {
-        quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(Some(3)), None, &mut Default::default());
+        quick::paint_quick(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &quick::tests::sample(Some(3)), None, &mut Default::default());
         let ph = panel_height() as i32;
         window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph + 4), &menu_items(), Some(1), false, false);
         panel_over(canvas, text.as_ref(), w, Some(crate::panel_layout::Slot::Item(crate::panel_layout::Item::Clock)), true);
@@ -177,6 +177,32 @@ fn interface_font() {
     }
 }
 
+/// Quick settings (`qs-…`): at rest with the Wi-Fi list, the power
+/// actions open, the Power Mode list open with a toggle hovered, in every
+/// look; and at 1920×1080 at scales 1 and 1.5 on both wallpapers.
+#[test]
+#[ignore]
+fn quick_settings_look() {
+    let Some(dir) = dir() else { return };
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    let fonts = (text.as_ref(), bold.as_ref());
+    let paint = |canvas: &mut Canvas, (w, h): (usize, usize), m: &quick::QuickModel, focus| {
+        quick::paint_quick(canvas, fonts, (w, h), m, focus, &mut Default::default());
+        panel_over(canvas, text.as_ref(), w, None, true);
+    };
+    in_looks(&dir, "qs-wifi", (1280, 720), &mut |canvas, size| paint(canvas, size, &quick::tests::sample(Some(3)), None));
+    in_looks(&dir, "qs-power", (1280, 720), &mut |canvas, size| paint(canvas, size, &quick::tests::sample_power(), Some(OverlayHit::Power(PowerAction::Restart))));
+    in_looks(&dir, "qs-modes", (1280, 720), &mut |canvas, size| {
+        let m = quick::QuickModel { hover: Some(OverlayHit::Switch(quick::Switch::Bluetooth)), pressed: Some(OverlayHit::Mute), ..quick::tests::sample_modes() };
+        paint(canvas, size, &m, Some(OverlayHit::Switch(quick::Switch::NightLight)));
+    });
+    for (wall, tag) in [(DARK, "dark"), (LIGHT, "light")] {
+        for (w, h, scale) in [(1920, 1080, 1.0), (1280, 720, 1.5)] {
+            render(&dir, &format!("qs-1920x1080-{tag}@{scale}"), wall, (w, h, scale), |canvas| paint(canvas, (w, h), &quick::tests::sample(None), None));
+        }
+    }
+}
+
 #[test]
 #[ignore]
 fn dialogs() {
@@ -215,11 +241,11 @@ fn short_screens() {
     let cal = sample_calendar(true);
     for (name, (w, h, scale)) in [("1280x720", (1280, 720, 1.0)), ("1280x720@1.5", (853, 480, 1.5)), ("1366x768@1.25", (1093, 614, 1.25)), ("1280x800@1.5", (853, 533, 1.5))] {
         render(&dir, &format!("short-quick-wifi-{name}"), DARK, (w, h, scale), |canvas| {
-            quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(Some(10)), None, &mut Default::default());
+            quick::paint_quick(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &quick::tests::sample(Some(10)), None, &mut Default::default());
         });
         render(&dir, &format!("short-quick-power-off-{name}"), DARK, (w, h, scale), |canvas| {
             let focus = Some(OverlayHit::Network(9));
-            quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(Some(10)), focus, &mut Default::default());
+            quick::paint_quick(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &quick::tests::sample(Some(10)), focus, &mut Default::default());
         });
         render(&dir, &format!("short-list-{name}"), DARK, (w, h, scale), |canvas| {
             paint_sample(canvas, (text.as_ref(), bold.as_ref()), (w, h), &entries, &Default::default(), &cal, None);
@@ -248,7 +274,7 @@ fn quick_settings() {
         for (name, (w, h, scale), m, focus) in &scenes {
             let name = if hc { format!("{name}-hc") } else { (*name).to_owned() };
             render(&dir, &name, DARK, (*w, *h, *scale), |canvas| {
-                quick::paint_quick(canvas, text.as_ref(), (*w, *h), m, *focus, &mut Default::default());
+                quick::paint_quick(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (*w, *h), m, *focus, &mut Default::default());
             });
         }
     }
@@ -373,7 +399,7 @@ fn text_scale() {
             });
         };
         shot("scaled-quick-menu", &mut |canvas| {
-            quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(None), None, &mut Default::default());
+            quick::paint_quick(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &quick::tests::sample(None), None, &mut Default::default());
             window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph as i32 + 4), &menu_items(), Some(1), true, false);
             let mut data = vec![0u8; w * ph * 4];
             let mut bar = Canvas::scaled(&mut data, w, ph, 1.0);
@@ -494,7 +520,7 @@ fn accents() {
         let ph = panel_height() as usize;
         render(&dir, &format!("accent-{name}-quick-menu"), DARK, (w, h, 1.0), |canvas| {
             let focus = Some(OverlayHit::Switch(quick::Switch::Bluetooth));
-            quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(None), focus, &mut Default::default());
+            quick::paint_quick(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &quick::tests::sample(None), focus, &mut Default::default());
             window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph as i32 + 4), &menu_items(), Some(1), true, false);
             let mut data = vec![0u8; w * ph * 4];
             let mut bar = Canvas::scaled(&mut data, w, ph, 1.0);
@@ -502,7 +528,7 @@ fn accents() {
             blit(canvas, &data, w, ph);
         });
         render(&dir, &format!("accent-{name}-wifi"), DARK, (w, h, 1.0), |canvas| {
-            quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(Some(3)), Some(OverlayHit::Network(1)), &mut Default::default());
+            quick::paint_quick(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &quick::tests::sample(Some(3)), Some(OverlayHit::Network(1)), &mut Default::default());
         });
         render(&dir, &format!("accent-{name}-list"), DARK, (w, h, 1.0), |canvas| {
             paint_sample(canvas, (text.as_ref(), bold.as_ref()), (w, h), &entries, &open, &cal, Some(&notify::ListHit::Entry(4)));
@@ -761,7 +787,7 @@ fn locale() {
     };
     let panel_data = bar();
     render(&dir, &name("panel-quick-menu"), DARK, (w, h, 1.0), |canvas| {
-        quick::paint_quick(canvas, text.as_ref(), (w, h), &quick::tests::sample(Some(3)), None, &mut Default::default());
+        quick::paint_quick(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &quick::tests::sample(Some(3)), None, &mut Default::default());
         window_menu::paint_menu(canvas, text.as_ref(), (w as i32, h as i32), (40, ph as i32 + 4), &menu_items(), Some(1), true, false);
         copy(canvas, &panel_data);
     });

@@ -25,10 +25,12 @@ fn profile_label(name: &str) -> String {
     }
 }
 
-const MENU_W: i32 = 320;
-const ROW_H: i32 = 40;
-const PAD: i32 = 12;
-const LIST_ROW_H: i32 = 32;
+const MENU_W: i32 = 400;
+const ROW_H: i32 = 44;
+const PAD: i32 = 14;
+const LIST_ROW_H: i32 = 34;
+/// A power action's row.
+const ACTION_H: i32 = 38;
 
 /// A row of the open Wi-Fi or Bluetooth list.
 pub(super) struct ListRow {
@@ -36,6 +38,8 @@ pub(super) struct ListRow {
     name: String,
     secured: bool,
     connected: bool,
+    /// The chosen one of a choice (the power mode).
+    checked: bool,
     /// What clicking it does (none: a heading or a note, drawn dim).
     hit: Option<OverlayHit>,
     dim: bool,
@@ -51,6 +55,9 @@ pub(super) enum Switch {
     NightLight,
     DarkStyle,
     DoNotDisturb,
+    /// Power Mode (power-profiles-daemon): on away from Balanced; its "›"
+    /// lists the modes.
+    PowerMode,
     /// An extension's toggle (index into the extensions' toggles).
     Ext(usize),
 }
@@ -67,6 +74,7 @@ impl Switch {
             Switch::NightLight => "helix:night-light",
             Switch::DarkStyle => "helix:dark-style",
             Switch::DoNotDisturb => "helix:do-not-disturb",
+            Switch::PowerMode => "helix:power-mode",
         }
     }
 }
@@ -101,6 +109,41 @@ fn settings(schema: &str, key: &str) -> Option<gio::Settings> {
     source.lookup(schema, true)?.has_key(key).then(|| gio::Settings::new(schema))
 }
 
+/// Dark Style's icon: `dark-mode-symbolic`, else (an icon theme without
+/// it) a night sky.
+fn dark_style_icon() -> &'static str {
+    static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *FOUND.get_or_init(|| crate::icons::symbolic("dark-mode-symbolic", 16, [0, 0, 0]).is_some()) { "dark-mode-symbolic" } else { "weather-clear-night-symbolic" }
+}
+
+/// The volume's icon at `percent` (muted: the muted one).
+fn volume_icon(percent: u32, muted: bool) -> &'static str {
+    match percent {
+        _ if muted => "audio-volume-muted-symbolic",
+        0 => "audio-volume-muted-symbolic",
+        1..=33 => "audio-volume-low-symbolic",
+        34..=66 => "audio-volume-medium-symbolic",
+        67..=100 => "audio-volume-high-symbolic",
+        _ => "audio-volume-overamplified-symbolic",
+    }
+}
+
+/// The settings app to open from quick settings: Helix's (helix-apps),
+/// else GNOME's; `None` when neither is installed.
+fn settings_app() -> Option<&'static str> {
+    let on_path = |name: &str| std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(name).is_file()));
+    ["helix-settings-app", "gnome-control-center"].into_iter().find(|name| on_path(name))
+}
+
+/// Open the settings app ([`settings_app`]).
+fn open_settings_app() {
+    let Some(name) = settings_app() else { return };
+    let app = gio::AppInfo::create_from_commandline(name, Some(tr("Settings")), gio::AppInfoCreateFlags::NONE);
+    if let Err(err) = app.and_then(|a| gio::prelude::AppInfoExt::launch(&a, &[], None::<&gio::AppLaunchContext>)) {
+        tracing::warn!(%err, "cannot open Settings");
+    }
+}
+
 /// The slider value (0..=max) for a click at `x` on `r`.
 pub(super) fn slider_value(r: Rect, x: f64, max: u32) -> u32 {
     let f = ((x - f64::from(r.x)) / f64::from(r.w.max(1))).clamp(0.0, 1.0);
@@ -118,6 +161,7 @@ impl Ui {
             Switch::NightLight => settings(COLOR, "night-light-enabled").is_some_and(|s| s.boolean("night-light-enabled")),
             Switch::DarkStyle => settings(INTERFACE, "color-scheme").is_some_and(|s| s.string("color-scheme") == "prefer-dark"),
             Switch::DoNotDisturb => self.notify.do_not_disturb,
+            Switch::PowerMode => self.status.profile.as_deref().is_some_and(|p| p != "balanced"),
             Switch::Ext(i) => self.ext.toggles.get(i).is_some_and(|t| t.active),
         }
     }
@@ -151,6 +195,15 @@ impl Ui {
                 self.notify.do_not_disturb = on;
                 let _ = self.requests.send(UiRequest::SetDoNotDisturb(on));
             }
+            // On: Power Saver (else the first mode that is not Balanced);
+            // off: Balanced.
+            Switch::PowerMode => {
+                let profiles = &self.status.profiles;
+                let target = if on { profiles.iter().find(|p| *p == "power-saver").or_else(|| profiles.iter().find(|p| *p != "balanced")) } else { profiles.iter().find(|p| *p == "balanced") };
+                if let Some(name) = target.cloned() {
+                    let _ = self.requests.send(toggle(Toggle::Profile(name)));
+                }
+            }
             // Shown once the extension says so.
             Switch::Ext(i) => {
                 if let Some(t) = self.ext.toggles.get(i).filter(|t| t.sensitive) {
@@ -175,6 +228,7 @@ impl Ui {
         overlay.state.focus = opened.keyboard().then_some(OverlayHit::Inside);
         self.power_menu = Some(overlay);
         self.quick_list = None;
+        self.quick_power_open = false;
         let _ = self.requests.send(UiRequest::QuickSettings(QuickChange::Refresh));
         let _ = self.requests.send(UiRequest::QuickSettingsOpened);
     }
@@ -276,6 +330,20 @@ impl Ui {
                 }
                 true
             }
+            OverlayHit::PowerMenu => {
+                self.quick_power_open = !self.quick_power_open;
+                self.draw_power_menu();
+                true
+            }
+            OverlayHit::QuickScreenshot => {
+                // Quick settings closes first: it is not in the picture.
+                let _ = self.requests.send(UiRequest::ShellKey(crate::shell_keys::KeyAction::Screenshot(crate::screenshot::ScreenshotKey::Ui)));
+                false
+            }
+            OverlayHit::QuickSettingsApp => {
+                open_settings_app();
+                false
+            }
             OverlayHit::Inside => true,
             _ => false,
         }
@@ -289,7 +357,8 @@ impl Ui {
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
-        let model = self.quick_model(scale);
+        let mut model = self.quick_model(scale);
+        (model.hover, model.pressed) = (overlay.state.hover, overlay.state.pressed);
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             self.power_menu = Some(overlay);
             return;
@@ -302,7 +371,7 @@ impl Ui {
             overlay.state.focus = stops.first().copied();
         }
         let mut scroll = overlay.state.scroll;
-        let painted = paint_quick(&mut canvas, self.text.as_ref(), (w, h), &model, overlay.state.focus, &mut scroll);
+        let painted = paint_quick(&mut canvas, (self.text.as_ref(), self.bold.as_ref()), (w, h), &model, overlay.state.focus, &mut scroll);
         overlay.state.scroll = scroll;
         overlay.hits = painted.hits;
         overlay.state.stops = painted.stops;
@@ -321,9 +390,8 @@ impl Ui {
     fn quick_model(&mut self, scale: f64) -> QuickModel {
         // The switches there are, with their labels and states.
         let mut switches: Vec<(Switch, String)> = Vec::new();
-        if let Some((on, ssid)) = &self.status.wifi {
-            let name = ssid.as_ref().filter(|_| *on).cloned().unwrap_or_else(|| tr("Wi-Fi").into());
-            switches.push((Switch::Wifi, name));
+        if self.status.wifi.is_some() {
+            switches.push((Switch::Wifi, tr("Wi-Fi").into()));
         }
         if self.status.bluetooth.is_some() {
             switches.push((Switch::Bluetooth, tr("Bluetooth").into()));
@@ -341,8 +409,12 @@ impl Ui {
         if !locked {
             available.extend(self.ext.toggles.iter().enumerate().map(|(i, t)| (Switch::Ext(i), t.title.clone(), t.full_id.clone())));
         }
-        // In the order of `org.helix.shell` `quick-settings`.
-        let switches = ordered_switches(available, &self.panel_keys.quick);
+        // In the order of `org.helix.shell` `quick-settings`; Power Mode
+        // after them.
+        let mut switches = ordered_switches(available, &self.panel_keys.quick);
+        if !self.status.profiles.is_empty() {
+            switches.push((Switch::PowerMode, tr("Power Mode").into()));
+        }
         // Extensions' sliders, in that order too.
         let ext_sliders: Vec<usize> = if locked {
             Vec::new()
@@ -361,41 +433,76 @@ impl Ui {
         };
         let mut sliders = Vec::new();
         if let Some((percent, muted, max)) = self.quick.volume {
-            sliders.push(Slider { label: if muted { tr("Muted") } else { tr("Volume") }.into(), name: tr("Volume").into(), id: "volume".into(), value: percent, max, dim: muted, hit: Some(OverlayHit::VolumeSlider), mute: Some(muted) });
+            let icon = self.symbolic_icon(volume_icon(percent, muted), scale);
+            sliders.push(Slider { name: tr("Volume").into(), id: "volume".into(), icon, value: percent, max, dim: muted, hit: Some(OverlayHit::VolumeSlider), mute: Some(muted) });
         }
         if let Some(percent) = self.quick.brightness {
-            sliders.push(Slider { label: tr("Brightness").into(), name: tr("Brightness").into(), id: "brightness".into(), value: percent, max: 100, dim: false, hit: Some(OverlayHit::BrightnessSlider), mute: None });
+            let icon = self.symbolic_icon("display-brightness-symbolic", scale);
+            sliders.push(Slider { name: tr("Brightness").into(), id: "brightness".into(), icon, value: percent, max: 100, dim: false, hit: Some(OverlayHit::BrightnessSlider), mute: None });
         }
         for &i in &ext_sliders {
-            let Some(s) = self.ext.sliders.get(i) else { continue };
+            let Some(s) = self.ext.sliders.get(i).cloned() else { continue };
             let value = (s.value * 100.0).round() as u32;
-            sliders.push(Slider { label: s.title.clone(), name: s.title.clone(), id: format!("slider:{}", s.full_id), value, max: 100, dim: !s.sensitive, hit: s.sensitive.then_some(OverlayHit::ExtSlider(i)), mute: None });
+            let icon = if s.icon.is_empty() { None } else { self.symbolic_icon(&s.icon, scale) };
+            sliders.push(Slider { name: s.title.clone(), id: format!("slider:{}", s.full_id), icon, value, max: 100, dim: !s.sensitive, hit: s.sensitive.then_some(OverlayHit::ExtSlider(i)), mute: None });
         }
-        let toggles: Vec<SwitchTile> = switches
-            .iter()
-            .map(|(switch, name)| {
-                let ext = if let Switch::Ext(i) = switch { self.ext.toggles.get(*i) } else { None };
-                let key = if switch.id().is_empty() { ext.map_or_else(String::new, |t| t.full_id.clone()) } else { switch.id().to_owned() };
-                let more = match switch {
-                    Switch::Wifi => Some((OverlayHit::Expand(*switch), tr("Wi-Fi Networks").to_owned())),
-                    Switch::Bluetooth => Some((OverlayHit::Expand(*switch), trf!("{name} Devices", name = name))),
-                    Switch::Ext(i) if ext.is_some_and(|t| t.has_details && t.sensitive) => Some((OverlayHit::ExtDetails(*i), trf!("{name} Settings", name = name))),
-                    _ => None,
-                };
-                SwitchTile { switch: *switch, name: name.clone(), on: self.switch_on(*switch), dim: ext.is_some_and(|t| !t.sensitive), subtitle: ext.map_or_else(String::new, |t| t.subtitle.clone()), more, key }
-            })
-            .collect();
+        let profile_label_now = self.status.profile.as_deref().map(profile_label);
+        let mut toggles: Vec<SwitchTile> = Vec::new();
+        for (switch, name) in &switches {
+            let ext = if let Switch::Ext(i) = switch { self.ext.toggles.get(*i).cloned() } else { None };
+            let key = if switch.id().is_empty() { ext.as_ref().map_or_else(String::new, |t| t.full_id.clone()) } else { switch.id().to_owned() };
+            let more = match switch {
+                Switch::Wifi => Some((OverlayHit::Expand(*switch), tr("Wi-Fi Networks").to_owned())),
+                Switch::Bluetooth => Some((OverlayHit::Expand(*switch), trf!("{name} Devices", name = name))),
+                Switch::PowerMode => Some((OverlayHit::Expand(*switch), tr("Power Modes").to_owned())),
+                Switch::Ext(i) if ext.as_ref().is_some_and(|t| t.has_details && t.sensitive) => Some((OverlayHit::ExtDetails(*i), trf!("{name} Settings", name = name))),
+                _ => None,
+            };
+            let on = self.switch_on(*switch);
+            // What it is on, under its title.
+            let subtitle = match switch {
+                Switch::Wifi => self.status.wifi.as_ref().and_then(|(on, ssid)| ssid.clone().filter(|_| *on)).unwrap_or_default(),
+                Switch::Bluetooth => {
+                    let connected: Vec<&str> = self.status.devices.iter().filter(|d| d.connected).map(|d| d.name.as_str()).collect();
+                    match connected.as_slice() {
+                        [] => String::new(),
+                        [one] => (*one).to_owned(),
+                        more => helix_i18n::trnf!("{n} device", "{n} devices", more.len()),
+                    }
+                }
+                Switch::PowerMode => profile_label_now.clone().unwrap_or_default(),
+                _ => ext.as_ref().map_or_else(String::new, |t| t.subtitle.clone()),
+            };
+            let icon_name = match switch {
+                Switch::Wifi if on => crate::status::wifi_icon(self.status.networks.iter().find(|n| n.active).map_or(100, |n| n.strength)).to_owned(),
+                Switch::Wifi => "network-wireless-disabled-symbolic".into(),
+                Switch::Bluetooth if on => "bluetooth-active-symbolic".into(),
+                Switch::Bluetooth => "bluetooth-disabled-symbolic".into(),
+                Switch::Airplane => "airplane-mode-symbolic".into(),
+                Switch::AutoRotate if on => "rotation-allowed-symbolic".into(),
+                Switch::AutoRotate => "rotation-locked-symbolic".into(),
+                Switch::NightLight => "night-light-symbolic".into(),
+                Switch::DarkStyle => dark_style_icon().into(),
+                Switch::DoNotDisturb => "notifications-disabled-symbolic".into(),
+                Switch::PowerMode => format!("power-profile-{}-symbolic", self.status.profile.as_deref().unwrap_or("balanced")),
+                Switch::Ext(_) => ext.as_ref().map_or_else(String::new, |t| t.icon.clone()),
+            };
+            // The icon in its words' color: dark on a light accent.
+            let color = theme::control_text(theme::Look { on, ..Default::default() });
+            let icon = if icon_name.is_empty() { None } else { self.symbolic_icon_color(&icon_name, 16.0, scale, color) };
+            toggles.push(SwitchTile { switch: *switch, name: name.clone(), on, dim: ext.as_ref().is_some_and(|t| !t.sensitive), subtitle, icon, more, key });
+        }
         let profiles: Vec<(String, bool)> = self.status.profiles.iter().map(|p| (profile_label(p), self.status.profile.as_deref() == Some(p.as_str()))).collect();
         // The open list.
         let list_open = self.quick_list.filter(|s| toggles.iter().any(|t| t.switch == *s));
-        let row = |name: String, hit: Option<OverlayHit>| ListRow { icon: None, name, secured: false, connected: false, hit, dim: hit.is_none() };
+        let row = |name: String, hit: Option<OverlayHit>| ListRow { icon: None, name, secured: false, connected: false, checked: false, hit, dim: hit.is_none() };
         let rows: Vec<ListRow> = match list_open {
             Some(Switch::Wifi) => {
                 let networks = self.status.networks.clone();
                 networks
                     .iter()
                     .enumerate()
-                    .map(|(i, n)| ListRow { icon: self.symbolic_icon(crate::status::wifi_icon(n.strength), scale), name: n.ssid.clone(), secured: n.secured, connected: n.active, hit: Some(OverlayHit::Network(i)), dim: false })
+                    .map(|(i, n)| ListRow { icon: self.symbolic_icon(crate::status::wifi_icon(n.strength), scale), name: n.ssid.clone(), secured: n.secured, connected: n.active, checked: false, hit: Some(OverlayHit::Network(i)), dim: false })
                     .collect()
             }
             Some(Switch::Bluetooth) => {
@@ -414,11 +521,38 @@ impl Ui {
                 }
                 rows
             }
+            Some(Switch::PowerMode) => {
+                let names = self.status.profiles.clone();
+                names
+                    .iter()
+                    .zip(&profiles)
+                    .enumerate()
+                    .map(|(i, (p, (label, active)))| ListRow { icon: self.symbolic_icon(&format!("power-profile-{p}-symbolic"), scale), checked: *active, ..row(label.clone(), Some(OverlayHit::Profile(i))) })
+                    .collect()
+            }
             _ => Vec::new(),
         };
         let lock = if rows.iter().any(|r| r.secured) { self.symbolic_icon("channel-secure-symbolic", scale) } else { None };
+        // The top row: the battery, then Screenshot, Settings, Lock and
+        // Power (its list holds the other power actions).
+        let battery = self.status.battery.clone().map(|(icon, percent)| (self.symbolic_icon(&icon, scale), helix_i18n::format_percent(percent.round())));
         let items = power_menu_items(self.power, !crate::locked_down("disable-lock-screen"), !crate::locked_down("disable-log-out"), self.user_switch && crate::user_switch::allowed());
-        QuickModel { sliders, toggles, list_open, rows, lock, profiles, items, status_shapes: helix_draw::status_shapes() }
+        let mut buttons = Vec::new();
+        if !locked {
+            buttons.push(TopButton { hit: OverlayHit::QuickScreenshot, icon: self.symbolic_icon("camera-photo-symbolic", scale), name: tr("Take Screenshot").into() });
+            if settings_app().is_some() {
+                buttons.push(TopButton { hit: OverlayHit::QuickSettingsApp, icon: self.symbolic_icon("emblem-system-symbolic", scale), name: tr("Settings").into() });
+            }
+        }
+        if items.iter().any(|(_, a)| *a == PowerAction::Lock) {
+            buttons.push(TopButton { hit: OverlayHit::Power(PowerAction::Lock), icon: self.symbolic_icon("system-lock-screen-symbolic", scale), name: tr("Lock Screen").into() });
+        }
+        let actions: Vec<(&'static str, PowerAction)> = items.into_iter().filter(|(_, a)| *a != PowerAction::Lock).collect();
+        if !actions.is_empty() {
+            buttons.push(TopButton { hit: OverlayHit::PowerMenu, icon: self.symbolic_icon("system-shutdown-symbolic", scale), name: tr("Power Off / Log Out").into() });
+        }
+        let power_open = self.quick_power_open && !actions.is_empty();
+        QuickModel { battery, buttons, power_open, actions, sliders, toggles, list_open, rows, lock, profiles, status_shapes: helix_draw::status_shapes(), hover: None, pressed: None }
     }
 
     /// Pointer input on quick settings other than clicks (the wheel);
@@ -592,6 +726,9 @@ pub(super) struct QuickNav {
     /// Where the last paint put the list and the scrolled body.
     pub list_area: Option<Rect>,
     pub body_area: Rect,
+    /// The control under the pointer, and the one pressed.
+    pub hover: Option<OverlayHit>,
+    pub pressed: Option<OverlayHit>,
 }
 
 /// The list shows at most this many rows; more scroll inside it.
@@ -712,58 +849,83 @@ pub(super) fn quick_key_action(keysym: Keysym, stops: &[(Rect, OverlayHit)], at:
 
 /// A slider row of quick settings.
 pub(super) struct Slider {
-    /// What the row says ("Volume", "Muted") and its accessible name.
-    pub label: String,
+    /// Its accessible name ("Volume").
     pub name: String,
     pub id: String,
+    /// The icon at its start (the volume's level or muted, brightness).
+    pub icon: Option<Image>,
     pub value: u32,
     pub max: u32,
     pub dim: bool,
     /// Its bar's hit (none: it cannot be changed).
     pub hit: Option<OverlayHit>,
-    /// The volume's mute state (its label mutes).
+    /// The volume's mute state (its icon is the mute button).
     pub mute: Option<bool>,
 }
 
-/// A switch of quick settings.
+/// A switch of quick settings: a pill with an icon, a title and a
+/// subtitle.
 pub(super) struct SwitchTile {
     pub switch: Switch,
     pub name: String,
     pub on: bool,
     /// An extension's toggle that cannot be changed now.
     pub dim: bool,
+    /// What it is on ("Home" for Wi-Fi, the power mode); empty: none.
     pub subtitle: String,
+    /// Its icon, in the color of its words.
+    pub icon: Option<Image>,
     /// Its "›" (a list or an extension's menu) and that part's name.
     pub more: Option<(OverlayHit, String)>,
     /// Its id on the accessibility bus.
     pub key: String,
 }
 
+/// A round button of quick settings' top row.
+pub(super) struct TopButton {
+    pub hit: OverlayHit,
+    pub icon: Option<Image>,
+    /// Its name (on the accessibility bus).
+    pub name: String,
+}
+
 /// Everything quick settings shows.
 pub(super) struct QuickModel {
+    /// The battery: its icon and its charge in words ("80 %").
+    pub battery: Option<(Option<Image>, String)>,
+    /// The top row's buttons: Screenshot, Settings, Lock, Power.
+    pub buttons: Vec<TopButton>,
+    /// The power actions, shown under the top row when Power is open.
+    pub power_open: bool,
+    pub actions: Vec<(&'static str, PowerAction)>,
     pub sliders: Vec<Slider>,
     pub toggles: Vec<SwitchTile>,
     pub list_open: Option<Switch>,
     pub rows: Vec<ListRow>,
-    /// The secured-network sign.
+    /// The secured-network sign, and a chosen row's check mark.
     pub lock: Option<Image>,
     /// Power profiles (label, active).
     pub profiles: Vec<(String, bool)>,
-    pub items: Vec<(&'static str, PowerAction)>,
     pub status_shapes: bool,
+    /// The control under the pointer, and the one pressed.
+    pub hover: Option<OverlayHit>,
+    pub pressed: Option<OverlayHit>,
 }
 
 impl QuickModel {
-    /// The controls the keyboard reaches, in order: sliders (and the
-    /// mute), switches (each then its "›"), the open list's rows, power
-    /// modes, power actions.
+    /// The controls the keyboard reaches, in order: the top row's
+    /// buttons, the power actions (when open), sliders (the mute first),
+    /// switches (each then its "›"), the open list's rows.
     pub(super) fn stops(&self) -> Vec<OverlayHit> {
-        let mut out = Vec::new();
+        let mut out: Vec<OverlayHit> = self.buttons.iter().map(|b| b.hit).collect();
+        if self.power_open {
+            out.extend(self.actions.iter().map(|(_, a)| OverlayHit::Power(*a)));
+        }
         for s in &self.sliders {
-            out.extend(s.hit);
             if s.mute.is_some() {
                 out.push(OverlayHit::Mute);
             }
+            out.extend(s.hit);
         }
         for t in &self.toggles {
             out.push(OverlayHit::Switch(t.switch));
@@ -772,9 +934,12 @@ impl QuickModel {
         if self.list_open.is_some() {
             out.extend(self.rows.iter().filter_map(|r| r.hit));
         }
-        out.extend((0..self.profiles.len()).map(OverlayHit::Profile));
-        out.extend(self.items.iter().map(|(_, a)| OverlayHit::Power(*a)));
         out
+    }
+
+    /// How the control `hit` looks under the pointer.
+    fn look(&self, hit: OverlayHit, on: bool) -> theme::Look {
+        theme::Look { on, hovered: self.hover == Some(hit), pressed: self.pressed == Some(hit) }
     }
 }
 
@@ -793,7 +958,7 @@ pub(super) struct QuickPainted {
 /// Paint quick settings (`m`) on a `w`×`h` overlay with the keyboard
 /// focus on `focus`, scrolled by `scroll` (kept in range, and moved so the
 /// focused control shows).
-pub(super) fn paint_quick(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), m: &QuickModel, focus: Option<OverlayHit>, scroll: &mut QuickScroll) -> QuickPainted {
+pub(super) fn paint_quick(canvas: &mut Canvas, fonts: (Option<&Text>, Option<&Text>), (w, h): (usize, usize), m: &QuickModel, focus: Option<OverlayHit>, scroll: &mut QuickScroll) -> QuickPainted {
     // A focused list row inside the list's window.
     if let Some(row) = focus.and_then(|f| m.rows.iter().position(|r| r.hit == Some(f))) {
         if row < scroll.list {
@@ -802,110 +967,179 @@ pub(super) fn paint_quick(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usi
             scroll.list = row + 1 - LIST_MAX;
         }
     }
-    let painted = paint_quick_at(canvas, text, (w, h), m, focus, scroll);
+    let painted = paint_quick_at(canvas, fonts, (w, h), m, focus, scroll);
     // A focused control in the scrolled body outside its window: scroll
     // to it.
     let body = painted.body_area;
     let shown = |r: &Rect| r.y >= body.y && r.y + r.h <= body.y + body.h;
-    let Some(r) = focus.and_then(|f| painted.drawn.iter().find(|(_, h)| *h == f)).map(|(r, _)| *r).filter(|r| !shown(r) && !matches!(focus, Some(OverlayHit::Power(_)))) else { return painted };
+    let fixed = |f: Option<OverlayHit>| f.is_some_and(|f| m.buttons.iter().any(|b| b.hit == f));
+    let Some(r) = focus.and_then(|f| painted.drawn.iter().find(|(_, h)| *h == f)).map(|(r, _)| *r).filter(|r| !shown(r) && !fixed(focus)) else { return painted };
     scroll.body += if r.y < body.y { r.y - body.y - 4 } else { r.y + r.h - (body.y + body.h) + 4 };
-    paint_quick_at(canvas, text, (w, h), m, focus, scroll)
+    paint_quick_at(canvas, fonts, (w, h), m, focus, scroll)
 }
 
-fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), m: &QuickModel, focus: Option<OverlayHit>, scroll: &mut QuickScroll) -> QuickPainted {
+/// The size of quick settings' round buttons and of a toggle's height
+/// (logical px, before the text scale).
+const ROUND: i32 = 36;
+const TOGGLE_H: i32 = 56;
+/// A toggle's "›" part.
+const MORE_W: i32 = 32;
+
+fn paint_quick_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text>), (w, h): (usize, usize), m: &QuickModel, focus: Option<OverlayHit>, scroll: &mut QuickScroll) -> QuickPainted {
     canvas.fill(0x00000000);
     // Lengths that hold text grow with the text scale.
     let grow = helix_draw::theme::grow;
-    let (menu_w, row_h, list_row_h, tile_h, item_h, name_w, value_w) = (grow(MENU_W), grow(ROW_H), grow(LIST_ROW_H), grow(40), grow(36), grow(92), grow(48));
+    let (menu_w, row_h, list_row_h, tile_h, item_h) = (grow(MENU_W), grow(ROW_H), grow(LIST_ROW_H), grow(TOGGLE_H), grow(ACTION_H));
+    let top_h = grow(ROUND) + 8;
     let tile_step = tile_h + 8;
-    let switch_rows = m.toggles.len().div_ceil(3) as i32;
+    let switch_rows = m.toggles.len().div_ceil(2) as i32;
     // At most LIST_MAX rows of the list show; it scrolls.
     let list_shown = m.rows.len().clamp(1, LIST_MAX);
     scroll.list = scroll.list.min(m.rows.len().saturating_sub(LIST_MAX));
     let list_h = if m.list_open.is_some() { 8 + list_shown as i32 * list_row_h + 8 } else { 0 };
-    let profile_h = if m.profiles.is_empty() { 0 } else { grow(26) + item_h + 8 };
-    // The body (sliders to Power Mode) scrolls when the whole does not
-    // fit under the panel; the power actions stay below it.
-    let body_h = PAD + m.sliders.len() as i32 * row_h + switch_rows * tile_step + list_h + profile_h + PAD;
-    let actions_h = 1 + m.items.len() as i32 * item_h + 8;
+    let actions_h = if m.power_open { 8 + m.actions.len() as i32 * item_h + 8 + 8 } else { 0 };
+    // The top row stays; the body under it (the power actions to the open
+    // list) scrolls when the whole does not fit under the panel.
+    let body_h = actions_h + m.sliders.len() as i32 * row_h + 4 + switch_rows * tile_step + list_h + PAD;
     let mx = w as i32 - menu_w - 6;
     let my = panel_height() as i32 + 4;
-    let room = (h as i32 - my - 8).max(actions_h + row_h);
-    let body_view = body_h.min(room - actions_h);
+    let room = (h as i32 - my - 8).max(PAD + top_h + row_h);
+    let body_view = body_h.min(room - PAD - top_h);
     scroll.body = scroll.body.clamp(0, body_h - body_view);
-    let mh = body_view + actions_h;
+    let mh = PAD + top_h + body_view;
     theme::popover(canvas, mx, my, menu_w, mh);
-    let body_area = Rect { x: mx, y: my, w: menu_w, h: body_view };
-    canvas.clip(mx, my, menu_w, body_view);
     let mut hits: Vec<(Rect, OverlayHit)> = Vec::new();
-    let mut list_view = None;
-    // Where each focusable control is drawn (its ring goes around that).
+    // Where each focusable control is drawn (its ring goes around that),
+    // and the ring's radius.
     let mut drawn: Vec<(Rect, OverlayHit)> = Vec::new();
-    let mut y = my + PAD - scroll.body;
-    // Sliders: a label, a bar, the value.
-    for s in &m.sliders {
-        let name_r = Rect { x: mx + PAD, y, w: name_w, h: row_h };
-        label(text, canvas, &s.label, name_r.x as f32, baseline(text, y, row_h, size::LABEL), size::LABEL, if s.dim { DIM_FG } else { FG }, name_w as f32);
-        if s.mute.is_some() {
-            hits.push((name_r, OverlayHit::Mute));
-            drawn.push((Rect { x: name_r.x - 4, y: y + 6, w: name_w - 4, h: row_h - 12 }, OverlayHit::Mute));
+    let mut radii: Vec<(OverlayHit, f64)> = Vec::new();
+    let fg_for = |look: theme::Look, dim: bool| if dim && !look.on { DIM_FG } else { theme::control_text(look) };
+
+    // The top row: the battery, then round buttons at the end.
+    let d = grow(ROUND);
+    let ty = my + PAD;
+    if let Some((icon, charge)) = &m.battery {
+        let mut x = mx + PAD + 4;
+        if let Some(icon) = icon {
+            canvas.image(f64::from(x), f64::from(ty + (d - 16) / 2), 16.0, 16.0, icon);
+            x += 22;
         }
-        let bar = Rect { x: mx + PAD + name_w + 4, y: y + row_h / 2 - 9, w: menu_w - 2 * PAD - name_w - 4 - value_w, h: 18 };
+        label(text, canvas, charge, x as f32, baseline(text, ty, d, size::LABEL), size::LABEL, FG, (menu_w / 2 - x + mx) as f32);
+    }
+    let mut bx = mx + menu_w - PAD - d;
+    for b in m.buttons.iter().rev() {
+        let r = Rect { x: bx, y: ty, w: d, h: d };
+        let (cx, cy) = (f64::from(r.x) + f64::from(d) / 2.0, f64::from(r.y) + f64::from(d) / 2.0);
+        let look = m.look(b.hit, b.hit == OverlayHit::PowerMenu && m.power_open);
+        theme::round_control(canvas, cx, cy, f64::from(d), look, false);
+        if let Some(icon) = &b.icon {
+            canvas.image(cx - 8.0, cy - 8.0, 16.0, 16.0, icon);
+        }
+        hits.push((r, b.hit));
+        drawn.push((r, b.hit));
+        radii.push((b.hit, f64::from(d) / 2.0));
+        bx -= d + 8;
+    }
+
+    let body_top = my + PAD + top_h;
+    let body_area = Rect { x: mx, y: body_top, w: menu_w, h: body_view };
+    canvas.clip(mx, body_top, menu_w, body_view);
+    let mut list_view = None;
+    let mut y = body_top - scroll.body;
+
+    // The power actions, in a well, while Power is open.
+    if m.power_open {
+        let (lx, lw) = (mx + PAD, menu_w - 2 * PAD);
+        theme::well(canvas, lx, y + 4, lw, actions_h - 16);
+        for (i, (name, action)) in m.actions.iter().enumerate() {
+            let hit = OverlayHit::Power(*action);
+            let r = Rect { x: lx + 4, y: y + 8 + i as i32 * item_h, w: lw - 8, h: item_h };
+            theme::row(canvas, r.x, r.y, r.w, r.h, m.look(hit, false));
+            label(text, canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, size::BODY), size::BODY, FG, (r.w - 24) as f32);
+            hits.push((r, hit));
+            drawn.push((r, hit));
+            radii.push((hit, theme::RADIUS_ROW));
+        }
+        y += actions_h;
+    }
+
+    // Sliders: an icon (the volume's mutes), the bar, the value.
+    let value_w = grow(44);
+    for s in &m.sliders {
+        let icon_r = Rect { x: mx + PAD, y: y + (row_h - d) / 2, w: d, h: d };
+        let (cx, cy) = (f64::from(icon_r.x) + f64::from(d) / 2.0, f64::from(icon_r.y) + f64::from(d) / 2.0);
+        if s.mute.is_some() {
+            theme::round_flat(canvas, cx, cy, f64::from(d), m.look(OverlayHit::Mute, false), false);
+            hits.push((icon_r, OverlayHit::Mute));
+            drawn.push((icon_r, OverlayHit::Mute));
+            radii.push((OverlayHit::Mute, f64::from(d) / 2.0));
+        }
+        if let Some(icon) = &s.icon {
+            canvas.image_alpha(cx - 8.0, cy - 8.0, 16.0, 16.0, icon, if s.dim { 0.6 } else { 1.0 });
+        }
+        let bar = Rect { x: icon_r.x + d + 6, y: y + row_h / 2 - 9, w: menu_w - 2 * PAD - d - 6 - value_w, h: 18 };
         theme::slider(canvas, bar.x, bar.y, bar.w, bar.h, f64::from(s.value.min(s.max)) / f64::from(s.max.max(1)), s.dim);
         let pct = helix_i18n::format_percent(f64::from(s.value));
-        label(text, canvas, &pct, (bar.x + bar.w + 10) as f32, baseline(text, y, row_h, size::CAPTION), size::CAPTION, DIM_FG, (value_w - 8) as f32);
+        let pw = text.map_or(0.0, |t| t.width(&pct, size::CAPTION)).min((value_w - 4) as f32);
+        label(text, canvas, &pct, (mx + menu_w - PAD) as f32 - pw, baseline(text, y, row_h, size::CAPTION), size::CAPTION, DIM_FG, (value_w - 4) as f32);
         if let Some(hit) = s.hit {
             // The whole row height is clickable on the bar.
             hits.push((Rect { x: bar.x, y, w: bar.w, h: row_h }, hit));
             drawn.push((Rect { x: bar.x - 2, y: bar.y - 4, w: bar.w + 4, h: bar.h + 8 }, hit));
+            radii.push((hit, 13.0));
         }
         y += row_h;
     }
-    // Switches, three to a row.
-    let sw = (menu_w - 2 * PAD - 2 * 8) / 3;
+    y += 4;
+
+    // Switches: pills, two to a row: an icon, a bold title and a
+    // subtitle, and a "›" part for a list or an extension's menu.
+    let tw = (menu_w - 2 * PAD - 8) / 2;
     for (i, t) in m.toggles.iter().enumerate() {
-        let (row, col) = (i as i32 / 3, i as i32 % 3);
-        let r = Rect { x: mx + PAD + col * (sw + 8), y: y + 2 + row * tile_step, w: sw, h: tile_h };
-        let look = theme::Look { on: t.on, ..Default::default() };
-        theme::control(canvas, r.x, r.y, r.w, r.h, look);
-        // Text on it: dark on a light accent while on.
-        let on_fg = theme::control_text(look);
-        // Wi-Fi and Bluetooth: a "›" for their list; an extension's
-        // toggle for its details menu.
-        let arrow_w = if t.more.is_some() { grow(20) } else { 0 };
+        let (row, col) = (i as i32 / 2, i as i32 % 2);
+        let r = Rect { x: mx + PAD + col * (tw + 8), y: y + row * tile_step, w: tw, h: tile_h };
+        let hit = OverlayHit::Switch(t.switch);
+        let more_w = if t.more.is_some() { grow(MORE_W) } else { 0 };
+        let main = Rect { w: r.w - more_w, ..r };
+        let look = m.look(hit, t.on);
+        let more_look = t.more.as_ref().map(|(more, _)| m.look(*more, t.on));
+        theme::toggle_pill(canvas, (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h)), f64::from(more_w), look, more_look);
+        let fg = fg_for(look, t.dim);
+        let mut x = main.x + 14;
         // `show-status-shapes`: a bar for on, a ring for off.
-        let shape_w = if m.status_shapes {
-            canvas.status_shape(f64::from(r.x) + 11.0, f64::from(r.y) + f64::from(r.h) / 2.0, 10.0, t.on, on_fg);
-            16
-        } else {
-            0
-        };
-        let room = r.w - 8 - arrow_w - shape_w;
-        let tw = text.map_or(0.0, |x| x.width(&t.name, size::CAPTION)).min(room as f32);
-        let fg = if t.dim && !t.on { DIM_FG } else { on_fg };
-        let mid = (r.x + shape_w) as f32 + (r.w - arrow_w - shape_w) as f32 / 2.0;
+        if m.status_shapes {
+            canvas.status_shape(f64::from(x) + 4.0, f64::from(r.y) + f64::from(r.h) / 2.0, 10.0, t.on, fg);
+            x += 14;
+        }
+        if let Some(icon) = &t.icon {
+            canvas.image_alpha(f64::from(x), f64::from(r.y + (r.h - 16) / 2), 16.0, 16.0, icon, if t.dim && !t.on { 0.6 } else { 1.0 });
+        }
+        x += 24;
+        let room = (main.x + main.w - x - 6) as f32;
+        let title_face = bold.or(text);
         if t.subtitle.is_empty() {
-            label(text, canvas, &t.name, mid - tw / 2.0, baseline(text, r.y, r.h, size::CAPTION), size::CAPTION, fg, room as f32);
+            label(title_face, canvas, &t.name, x as f32, baseline(title_face, r.y, r.h, size::HEADING), size::HEADING, fg, room);
         } else {
             // The subtitle under the title.
-            label(text, canvas, &t.name, mid - tw / 2.0, (r.y + r.h * 17 / 40) as f32, size::CAPTION, fg, room as f32);
-            let sw2 = text.map_or(0.0, |x| x.width(&t.subtitle, size::CAPTION)).min(room as f32);
-            label(text, canvas, &t.subtitle, mid - sw2 / 2.0, (r.y + r.h * 31 / 40) as f32, size::CAPTION, on_fg, room as f32);
+            let mid = r.y + r.h / 2;
+            label(title_face, canvas, &t.name, x as f32, (mid - 2) as f32, size::HEADING, fg, room);
+            let subtitle_fg = if t.on { theme::control_text(look) } else { DIM_FG };
+            label(text, canvas, &t.subtitle, x as f32, (mid + grow(15)) as f32, size::CAPTION, subtitle_fg, room);
         }
-        if let Some((hit, _)) = &t.more {
-            let a = Rect { x: r.x + r.w - arrow_w, y: r.y, w: arrow_w, h: r.h };
-            canvas.rect(a.x, a.y + 8, 1, a.h - 16, if t.on { on_fg } else { DIM_FG });
-            let glyph = if m.list_open == Some(t.switch) { "‹" } else { "›" };
-            label(text, canvas, glyph, (a.x + 6) as f32, baseline(text, a.y, a.h, size::HEADING), size::HEADING, on_fg, (arrow_w - 6) as f32);
-            hits.push((a, *hit));
-            drawn.push((a, *hit));
-            drawn.push((Rect { w: r.w - arrow_w, ..r }, OverlayHit::Switch(t.switch)));
-        } else {
-            drawn.push((r, OverlayHit::Switch(t.switch)));
+        if let Some((more, _)) = &t.more {
+            let a = Rect { x: r.x + r.w - more_w, y: r.y, w: more_w, h: r.h };
+            let towards = if m.list_open == Some(t.switch) { theme::Towards::Down } else { theme::Towards::Right };
+            theme::chevron(canvas, f64::from(a.x) + f64::from(a.w) / 2.0 - 1.0, f64::from(a.y) + f64::from(a.h) / 2.0, 10.0, towards, fg_for(look, false));
+            hits.push((a, *more));
+            drawn.push((a, *more));
+            radii.push((*more, f64::from(r.h) / 2.0));
         }
-        hits.push((r, OverlayHit::Switch(t.switch)));
+        hits.push((main, hit));
+        drawn.push((main, hit));
+        radii.push((hit, f64::from(r.h) / 2.0));
     }
     y += switch_rows * tile_step;
+
     // The open list.
     if let Some(open) = m.list_open {
         let lx = mx + PAD;
@@ -920,17 +1154,21 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
         }
         let list_area = Rect { x: lx, y: y + 4, w: lw, h: list_h - 8 };
         list_view = Some(list_area);
-        canvas.clip(lx, (y + 4).max(my), lw, (list_h - 8).min(my + body_view - (y + 4).max(my)).max(0));
-        for ListRow { icon, name, secured, connected, hit, dim } in &m.rows {
-            let r = Rect { x: lx, y: ry, w: lw, h: list_row_h };
-            let mut tx = r.x + 12;
+        canvas.clip(lx, (y + 4).max(body_top), lw, (list_h - 8).min(body_top + body_view - (y + 4).max(body_top)).max(0));
+        for ListRow { icon, name, secured, connected, checked, hit, dim } in &m.rows {
+            let r = Rect { x: lx + 4, y: ry, w: lw - 8, h: list_row_h };
+            if let Some(hit) = hit {
+                theme::row(canvas, r.x, r.y, r.w, r.h, m.look(*hit, false));
+            }
+            let mut tx = r.x + 8;
             if let Some(icon) = icon {
                 canvas.image(f64::from(tx), f64::from(r.y + (r.h - 16) / 2), 16.0, 16.0, icon);
                 tx += 24;
             }
             let state_w = if *connected { grow(76) } else { 0 };
             let lock_w = if *secured { 22 } else { 0 };
-            label(text, canvas, name, tx as f32, baseline(text, r.y, r.h, size::CAPTION), size::CAPTION, if *dim { DIM_FG } else { FG }, (r.x + r.w - tx - state_w - lock_w - 8) as f32);
+            let check_w = if *checked { 22 } else { 0 };
+            label(text, canvas, name, tx as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, if *dim { DIM_FG } else { FG }, (r.x + r.w - tx - state_w - lock_w - check_w - 8) as f32);
             if *secured {
                 if let Some(lock) = &m.lock {
                     canvas.image(f64::from(r.x + r.w - state_w - lock_w - 4), f64::from(r.y + (r.h - 14) / 2), 14.0, 14.0, lock);
@@ -939,9 +1177,16 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
             if *connected {
                 label(text, canvas, tr("Connected"), (r.x + r.w - state_w) as f32, baseline(text, r.y, r.h, size::CAPTION), size::CAPTION, theme::text_accent(), (state_w - 8) as f32);
             }
+            if *checked {
+                // The chosen one: a check mark at the end.
+                let (cx, cy) = (f64::from(r.x + r.w - 14), f64::from(r.y + r.h / 2));
+                canvas.line((cx - 5.0, cy), (cx - 2.0, cy + 3.5), 1.8, theme::text_accent());
+                canvas.line((cx - 2.0, cy + 3.5), (cx + 5.0, cy - 4.0), 1.8, theme::text_accent());
+            }
             if let Some(hit) = hit {
                 hits.push((r, *hit));
-                drawn.push((Rect { x: r.x + 2, y: r.y + 2, w: r.w - 4, h: r.h - 4 }, *hit));
+                drawn.push((r, *hit));
+                radii.push((*hit, theme::RADIUS_ROW));
             }
             ry += list_row_h;
         }
@@ -950,53 +1195,42 @@ fn paint_quick_at(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usiz
             let track = list_area.h - 8;
             let thumb = (track * LIST_MAX as i32 / m.rows.len() as i32).max(12);
             let at = (track - thumb) * scroll.list as i32 / (m.rows.len() - LIST_MAX) as i32;
-            canvas.rect(lx + lw - 5, list_area.y + 4 + at, 3, thumb, theme::TEXT_DIM);
+            canvas.round_rect(f64::from(lx + lw - 5), f64::from(list_area.y + 4 + at), 3.0, f64::from(thumb), 1.5, theme::TEXT_DIM);
         }
-        canvas.clip(mx, my, menu_w, body_view);
-        y += list_h;
-    }
-    // Power mode: one button per profile.
-    if !m.profiles.is_empty() {
-        label(text, canvas, tr("Power Mode"), (mx + PAD) as f32, (y + grow(18)) as f32, size::CAPTION, DIM_FG, (menu_w - 2 * PAD) as f32);
-        let n = m.profiles.len() as i32;
-        let bw = (menu_w - 2 * PAD - (n - 1) * 8) / n;
-        for (i, (name, active)) in m.profiles.iter().enumerate() {
-            let r = Rect { x: mx + PAD + i as i32 * (bw + 8), y: y + grow(26), w: bw, h: item_h };
-            let look = theme::Look { on: *active, ..Default::default() };
-            theme::control(canvas, r.x, r.y, r.w, r.h, look);
-            let tw = text.map_or(0.0, |t| t.width(name, size::CAPTION)).min((r.w - 8) as f32);
-            label(text, canvas, name, r.x as f32 + (r.w as f32 - tw) / 2.0, baseline(text, r.y, r.h, size::CAPTION), size::CAPTION, theme::control_text(look), (r.w - 8) as f32);
-            hits.push((r, OverlayHit::Profile(i)));
-            drawn.push((r, OverlayHit::Profile(i)));
-        }
+        canvas.clip(mx, body_top, menu_w, body_view);
     }
     canvas.unclip();
     // Where the body is, when it scrolls.
     if body_h > body_view {
         let thumb = (body_view * body_view / body_h).max(16);
         let at = (body_view - thumb) * scroll.body / (body_h - body_view).max(1);
-        canvas.rect(mx + menu_w - 4, my + at, 3, thumb, theme::TEXT_DIM);
+        canvas.round_rect(f64::from(mx + menu_w - 5), f64::from(body_top + at), 3.0, f64::from(thumb), 1.5, theme::TEXT_DIM);
     }
     // Clicks only where the body shows (the list's rows only in its
-    // window).
-    let list_window = list_view.map(|r: Rect| Rect { y: r.y.max(my), h: (r.y + r.h).min(my + body_view) - r.y.max(my), ..r });
-    hits.retain(|(r, hit)| {
-        let inside = |area: &Rect| r.y + r.h > area.y && r.y < area.y + area.h;
-        inside(&body_area) && (!is_list_row(*hit) || list_window.is_some_and(|l| inside(&l)))
-    });
-    let mut y = my + body_view;
-    theme::separator(canvas, mx + PAD, y, menu_w - 2 * PAD);
-    y += 1;
-    // Power actions.
-    for (i, (name, action)) in m.items.iter().enumerate() {
-        let r = Rect { x: mx + 4, y: y + 4 + i as i32 * item_h, w: menu_w - 8, h: item_h };
-        label(text, canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, size::BODY), size::BODY, FG, (r.w - 24) as f32);
-        hits.push((r, OverlayHit::Power(*action)));
-        drawn.push((Rect { x: r.x + 2, y: r.y + 2, w: r.w - 4, h: r.h - 4 }, OverlayHit::Power(*action)));
-    }
-    // The focus ring.
-    if let Some((r, _)) = focus.and_then(|f| drawn.iter().find(|(_, h)| *h == f)) {
-        helix_draw::theme::focus_ring(canvas, r.x, r.y, r.w, r.h);
+    // window); the top row always shows.
+    let list_window = list_view.map(|r: Rect| Rect { y: r.y.max(body_top), h: (r.y + r.h).min(body_top + body_view) - r.y.max(body_top), ..r });
+    let top: Vec<OverlayHit> = m.buttons.iter().map(|b| b.hit).collect();
+    // (Cut to what shows: a row half out of sight is clicked on its
+    // visible half only.)
+    let cut = |r: Rect, area: Rect| {
+        let (y0, y1) = (r.y.max(area.y), (r.y + r.h).min(area.y + area.h));
+        (y1 > y0).then_some(Rect { y: y0, h: y1 - y0, ..r })
+    };
+    let mut hits: Vec<(Rect, OverlayHit)> = hits
+        .into_iter()
+        .filter_map(|(r, hit)| {
+            if top.contains(&hit) {
+                return Some((r, hit));
+            }
+            let r = cut(r, body_area)?;
+            let r = if is_list_row(hit) { cut(r, list_window?)? } else { r };
+            Some((r, hit))
+        })
+        .collect();
+    // The focus ring, following the control's corners.
+    if let Some((r, hit)) = focus.and_then(|f| drawn.iter().find(|(_, h)| *h == f)) {
+        let radius = radii.iter().find(|(h, _)| h == hit).map_or(theme::RADIUS_BUTTON, |(_, r)| *r);
+        theme::focus_ring_round(canvas, f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), radius);
     }
     // The keyboard's stops, in order, where their hits are.
     // (Controls scrolled out of sight stay stops: focusing one scrolls
@@ -1015,15 +1249,29 @@ fn quick_node(m: &QuickModel, hits: &[(Rect, OverlayHit)], bounds: Rect, focus: 
     let at = |hit: OverlayHit| hits.iter().find(|(_, h)| *h == hit).map(|(r, _)| crate::a11y::Rect::from(*r)).unwrap_or_default();
     let focused = |hit: OverlayHit| focus == Some(hit);
     let mut menu = Node::new(Role::Menu, tr("System")).id("menu").at(bounds.into());
+    if let Some((_, charge)) = &m.battery {
+        menu = menu.child(Node::label(trf!("Battery {charge}", charge = charge)).id("battery"));
+    }
+    for b in &m.buttons {
+        let button = Node::button(b.name.as_str(), at(b.hit)).id(format!("{:?}", b.hit)).focusable().focused(focused(b.hit));
+        menu = menu.child(if b.hit == OverlayHit::PowerMenu { button.expanded(m.power_open) } else { button });
+    }
+    if m.power_open {
+        let actions = m.actions.iter().map(|(name, action)| {
+            let hit = OverlayHit::Power(*action);
+            Node::new(Role::MenuItem, *name).at(at(hit)).click().focusable().focused(focused(hit))
+        });
+        menu = menu.child(Node::new(Role::Group, tr("Power Off / Log Out")).id("power").children(actions));
+    }
     for s in &m.sliders {
+        if let Some(muted) = s.mute {
+            menu = menu.child(Node::button(tr("Mute"), at(OverlayHit::Mute)).id("mute").toggled(muted).focusable().focused(focused(OverlayHit::Mute)));
+        }
         let slider = Node::new(Role::Slider, &s.name).id(s.id.clone()).range(f64::from(s.value), 0.0, f64::from(s.max), f64::from(slider_step(s.max)));
         menu = menu.child(match s.hit {
             Some(hit) => slider.at(at(hit)).click().focusable().focused(focused(hit)),
             None => slider.disabled(true),
         });
-        if let Some(muted) = s.mute {
-            menu = menu.child(Node::button(tr("Mute"), at(OverlayHit::Mute)).id("mute").toggled(muted).focusable().focused(focused(OverlayHit::Mute)));
-        }
     }
     for t in &m.toggles {
         let hit = OverlayHit::Switch(t.switch);
@@ -1034,7 +1282,10 @@ fn quick_node(m: &QuickModel, hits: &[(Rect, OverlayHit)], bounds: Rect, focus: 
             menu = menu.child(if matches!(t.switch, Switch::Ext(_)) { button } else { button.expanded(m.list_open == Some(t.switch)) });
         }
     }
-    if m.list_open.is_some() {
+    if m.list_open == Some(Switch::PowerMode) {
+        let modes = m.profiles.iter().enumerate().map(|(i, (name, active))| Node::new(Role::RadioButton, name).at(at(OverlayHit::Profile(i))).click().toggled(*active).focusable().focused(focused(OverlayHit::Profile(i))));
+        menu = menu.child(Node::new(Role::Group, tr("Power Mode")).id("profiles").children(modes));
+    } else if m.list_open.is_some() {
         let entries = m.rows.iter().enumerate().map(|(i, row)| {
             let state = [(row.connected, tr("Connected")), (row.secured, tr("Secured"))].iter().filter(|(on, _)| *on).map(|(_, s)| *s).collect::<Vec<_>>().join(", ");
             match row.hit.and_then(|hit| hits.iter().find(|(_, h)| *h == hit)) {
@@ -1044,14 +1295,6 @@ fn quick_node(m: &QuickModel, hits: &[(Rect, OverlayHit)], bounds: Rect, focus: 
         });
         menu = menu.child(Node::new(Role::Group, "").id("list").children(entries));
     }
-    if !m.profiles.is_empty() {
-        let modes = m.profiles.iter().enumerate().map(|(i, (name, active))| Node::new(Role::RadioButton, name).at(at(OverlayHit::Profile(i))).click().toggled(*active).focusable().focused(focused(OverlayHit::Profile(i))));
-        menu = menu.child(Node::new(Role::Group, tr("Power Mode")).id("profiles").children(modes));
-    }
-    for (name, action) in &m.items {
-        let hit = OverlayHit::Power(*action);
-        menu = menu.child(Node::new(Role::MenuItem, *name).at(at(hit)).click().focusable().focused(focused(hit)));
-    }
     menu
 }
 
@@ -1059,44 +1302,87 @@ fn quick_node(m: &QuickModel, hits: &[(Rect, OverlayHit)], bounds: Rect, focus: 
 pub(super) mod tests {
     use super::*;
 
-    /// Quick settings as on a laptop: volume and brightness, seven
-    /// switches, three power modes; the Wi-Fi list open with `networks`.
+    /// A symbolic icon for the samples, `color`ed (none without the
+    /// icon theme).
+    fn icon(name: &str, color: u32) -> Option<Image> {
+        crate::icons::symbolic(name, 16, [(color >> 16) as u8, (color >> 8) as u8, color as u8])
+    }
+
+    /// Quick settings as on a laptop: the battery and the top row,
+    /// volume and brightness, seven switches with Power Mode; the Wi-Fi
+    /// list open with `networks`.
     pub(in crate::ui) fn sample(networks: Option<usize>) -> QuickModel {
-        let slider = |label: &str, id: &str, value, hit, mute| Slider { label: label.into(), name: label.into(), id: id.into(), value, max: 100, dim: false, hit: Some(hit), mute };
-        let tile = |switch: Switch, name: &str, on: bool| SwitchTile {
+        let slider = |name: &str, id: &str, icon_name: &str, value, hit, mute| Slider { name: name.into(), id: id.into(), icon: icon(icon_name, FG), value, max: 100, dim: false, hit: Some(hit), mute };
+        let tile = |switch: Switch, name: &str, subtitle: &str, icon_name: &str, on: bool| SwitchTile {
             switch,
             name: name.into(),
             on,
             dim: false,
-            subtitle: String::new(),
-            more: matches!(switch, Switch::Wifi | Switch::Bluetooth).then(|| (OverlayHit::Expand(switch), format!("{name} more"))),
+            subtitle: subtitle.into(),
+            icon: icon(icon_name, theme::control_text(theme::Look { on, ..Default::default() })),
+            more: matches!(switch, Switch::Wifi | Switch::Bluetooth | Switch::PowerMode).then(|| (OverlayHit::Expand(switch), format!("{name} more"))),
             key: switch.id().into(),
         };
-        let names = ["Home", "Office 5G", "Café", "Library", "Neighbour", "Printer-Direct", "Guest", "Lab", "Hotspot", "Upstairs", "Garage", "Attic"];
-        let rows = (0..networks.unwrap_or(0)).map(|i| ListRow { icon: None, name: names[i % names.len()].into(), secured: i % 3 != 2, connected: i == 0, hit: Some(OverlayHit::Network(i)), dim: false }).collect();
+        let names = ["Home Network 5G", "Office 5G", "Café", "Library", "Neighbour", "Printer-Direct", "Guest", "Lab", "Hotspot", "Upstairs", "Garage", "Attic"];
+        let rows = (0..networks.unwrap_or(0))
+            .map(|i| ListRow { icon: icon("network-wireless-signal-good-symbolic", FG), name: names[i % names.len()].into(), secured: i % 3 != 2, connected: i == 0, checked: false, hit: Some(OverlayHit::Network(i)), dim: false })
+            .collect();
+        let button = |hit, icon_name: &str, name: &str| TopButton { hit, icon: icon(icon_name, FG), name: name.into() };
         QuickModel {
-            sliders: vec![slider(tr("Volume"), "volume", 45, OverlayHit::VolumeSlider, Some(false)), slider(tr("Brightness"), "brightness", 80, OverlayHit::BrightnessSlider, None)],
+            battery: Some((icon("battery-level-80-symbolic", FG), "80%".into())),
+            buttons: vec![
+                button(OverlayHit::QuickScreenshot, "camera-photo-symbolic", tr("Take Screenshot")),
+                button(OverlayHit::QuickSettingsApp, "emblem-system-symbolic", tr("Settings")),
+                button(OverlayHit::Power(PowerAction::Lock), "system-lock-screen-symbolic", tr("Lock Screen")),
+                button(OverlayHit::PowerMenu, "system-shutdown-symbolic", tr("Power Off / Log Out")),
+            ],
+            power_open: false,
+            actions: vec![(tr("Suspend"), PowerAction::Suspend), (tr("Log Out…"), PowerAction::LogOut), (tr("Restart…"), PowerAction::Restart), (tr("Power Off…"), PowerAction::PowerOff)],
+            sliders: vec![
+                slider(tr("Volume"), "volume", "audio-volume-medium-symbolic", 45, OverlayHit::VolumeSlider, Some(false)),
+                slider(tr("Brightness"), "brightness", "display-brightness-symbolic", 80, OverlayHit::BrightnessSlider, None),
+            ],
             toggles: vec![
-                tile(Switch::Wifi, "Home", true),
-                tile(Switch::Bluetooth, tr("Bluetooth"), false),
-                tile(Switch::Airplane, tr("Airplane Mode"), false),
-                tile(Switch::NightLight, tr("Night Light"), true),
-                tile(Switch::DarkStyle, tr("Dark Style"), true),
-                tile(Switch::DoNotDisturb, tr("Do Not Disturb"), false),
+                tile(Switch::Wifi, tr("Wi-Fi"), "Home Network 5G", "network-wireless-signal-good-symbolic", true),
+                tile(Switch::Bluetooth, tr("Bluetooth"), "", "bluetooth-disabled-symbolic", false),
+                tile(Switch::Airplane, tr("Airplane Mode"), "", "airplane-mode-symbolic", false),
+                tile(Switch::NightLight, tr("Night Light"), "", "night-light-symbolic", true),
+                tile(Switch::DarkStyle, tr("Dark Style"), "", dark_style_icon(), true),
+                tile(Switch::DoNotDisturb, tr("Do Not Disturb"), "", "notifications-disabled-symbolic", false),
+                tile(Switch::PowerMode, tr("Power Mode"), tr("Balanced"), "power-profile-balanced-symbolic", false),
             ],
             list_open: networks.map(|_| Switch::Wifi),
             rows,
             lock: None,
             profiles: vec![(tr("Power Saver").into(), false), (tr("Balanced").into(), true), (tr("Performance").into(), false)],
-            items: vec![(tr("Lock Screen"), PowerAction::Lock), (tr("Suspend"), PowerAction::Suspend), (tr("Log Out…"), PowerAction::LogOut), (tr("Restart…"), PowerAction::Restart), (tr("Power Off…"), PowerAction::PowerOff)],
             status_shapes: false,
+            hover: None,
+            pressed: None,
         }
+    }
+
+    /// [`sample`] with the power actions open.
+    pub(in crate::ui) fn sample_power() -> QuickModel {
+        QuickModel { power_open: true, ..sample(None) }
+    }
+
+    /// [`sample`] with the Power Mode list open.
+    pub(in crate::ui) fn sample_modes() -> QuickModel {
+        let mut m = sample(None);
+        m.list_open = Some(Switch::PowerMode);
+        m.rows = ["power-saver", "balanced", "performance"]
+            .iter()
+            .zip(m.profiles.iter())
+            .enumerate()
+            .map(|(i, (p, (name, active)))| ListRow { icon: icon(&format!("power-profile-{p}-symbolic"), FG), name: name.clone(), secured: false, connected: false, checked: *active, hit: Some(OverlayHit::Profile(i)), dim: false })
+            .collect();
+        m
     }
 
     fn paint(m: &QuickModel, focus: Option<OverlayHit>) -> QuickPainted {
         let mut data = vec![0u8; 1280 * 800 * 4];
         let mut canvas = Canvas::scaled(&mut data, 1280, 800, 1.0);
-        paint_quick(&mut canvas, None, (1280, 800), m, focus, &mut QuickScroll::default())
+        paint_quick(&mut canvas, (None, None), (1280, 800), m, focus, &mut QuickScroll::default())
     }
 
     #[test]
@@ -1104,17 +1390,27 @@ pub(super) mod tests {
         let m = sample(Some(2));
         use OverlayHit as H;
         let stops = m.stops();
+        assert_eq!(stops[..4], [H::QuickScreenshot, H::QuickSettingsApp, H::Power(PowerAction::Lock), H::PowerMenu], "the top row first");
         assert_eq!(
-            stops[..8],
-            [H::VolumeSlider, H::Mute, H::BrightnessSlider, H::Switch(Switch::Wifi), H::Expand(Switch::Wifi), H::Switch(Switch::Bluetooth), H::Expand(Switch::Bluetooth), H::Switch(Switch::Airplane)]
+            stops[4..12],
+            [H::Mute, H::VolumeSlider, H::BrightnessSlider, H::Switch(Switch::Wifi), H::Expand(Switch::Wifi), H::Switch(Switch::Bluetooth), H::Expand(Switch::Bluetooth), H::Switch(Switch::Airplane)]
         );
-        let rest: Vec<_> = stops[11..].to_vec();
-        assert_eq!(rest[..2], [H::Network(0), H::Network(1)], "the open list after the switches");
-        assert_eq!(rest[2..5], [H::Profile(0), H::Profile(1), H::Profile(2)]);
-        assert_eq!(*rest.last().unwrap(), H::Power(PowerAction::PowerOff));
+        assert_eq!(stops[stops.len() - 4..], [H::Switch(Switch::PowerMode), H::Expand(Switch::PowerMode), H::Network(0), H::Network(1)], "the open list after the switches");
+        assert!(!stops.contains(&H::Power(PowerAction::PowerOff)), "power actions only with Power open");
         // Every stop is painted where it can be clicked.
         let painted = paint(&m, None);
         assert_eq!(painted.stops.iter().map(|(_, h)| *h).collect::<Vec<_>>(), stops);
+        // Power open: its actions right after the top row.
+        let m = sample_power();
+        let stops = m.stops();
+        assert_eq!(stops[4..8], [H::Power(PowerAction::Suspend), H::Power(PowerAction::LogOut), H::Power(PowerAction::Restart), H::Power(PowerAction::PowerOff)]);
+        assert_eq!(paint(&m, None).stops.iter().map(|(_, h)| *h).collect::<Vec<_>>(), stops);
+        // The modes list: radio buttons, the active one checked.
+        let m = sample_modes();
+        let painted = paint(&m, Some(H::Profile(1)));
+        let modes = painted.node.find(&|n| n.name == "Power Mode" && n.role == crate::a11y::Role::Group).expect("the modes");
+        assert_eq!(modes.children.len(), 3);
+        assert!(modes.children[1].focused);
     }
 
     #[test]
@@ -1138,12 +1434,17 @@ pub(super) mod tests {
         assert_eq!(key(Keysym::Down, H::VolumeSlider), QuickKey::Focus(index(H::BrightnessSlider)));
         // Tab goes in order, wrapping.
         assert_eq!(key(Keysym::Tab, H::Switch(Switch::Wifi)), QuickKey::Focus(index(H::Expand(Switch::Wifi))));
-        assert_eq!(key(Keysym::ISO_Left_Tab, H::VolumeSlider), QuickKey::Focus(stops.len() - 1));
-        // Arrows move in the grid of switches.
-        assert_eq!(key(Keysym::Right, H::Switch(Switch::Airplane)), QuickKey::Focus(index(H::Switch(Switch::Airplane))), "the row's end");
-        assert_eq!(key(Keysym::Left, H::Switch(Switch::Airplane)), QuickKey::Focus(index(H::Expand(Switch::Bluetooth))));
-        assert_eq!(key(Keysym::Down, H::Switch(Switch::Bluetooth)), QuickKey::Focus(index(H::Switch(Switch::DarkStyle))));
-        assert_eq!(key(Keysym::Up, H::Switch(Switch::DarkStyle)), QuickKey::Focus(index(H::Switch(Switch::Bluetooth))));
+        assert_eq!(key(Keysym::ISO_Left_Tab, H::QuickScreenshot), QuickKey::Focus(stops.len() - 1));
+        // Arrows move in the grid of switches (two to a row).
+        assert_eq!(key(Keysym::Right, H::Switch(Switch::Wifi)), QuickKey::Focus(index(H::Expand(Switch::Wifi))));
+        assert_eq!(key(Keysym::Right, H::Expand(Switch::Wifi)), QuickKey::Focus(index(H::Switch(Switch::Bluetooth))));
+        assert_eq!(key(Keysym::Right, H::Expand(Switch::Bluetooth)), QuickKey::Focus(index(H::Expand(Switch::Bluetooth))), "the row's end");
+        assert_eq!(key(Keysym::Left, H::Switch(Switch::Bluetooth)), QuickKey::Focus(index(H::Expand(Switch::Wifi))));
+        assert_eq!(key(Keysym::Down, H::Switch(Switch::Airplane)), QuickKey::Focus(index(H::Switch(Switch::DarkStyle))));
+        assert_eq!(key(Keysym::Up, H::Switch(Switch::DarkStyle)), QuickKey::Focus(index(H::Switch(Switch::Airplane))));
+        // The top row: left and right along it.
+        assert_eq!(key(Keysym::Right, H::QuickScreenshot), QuickKey::Focus(index(H::QuickSettingsApp)));
+        assert_eq!(key(Keysym::Left, H::PowerMenu), QuickKey::Focus(index(H::Power(PowerAction::Lock))));
         // Enter and Space work switches and buttons.
         assert_eq!(key(Keysym::Return, H::Switch(Switch::NightLight)), QuickKey::Activate);
         assert_eq!(key(Keysym::space, H::Power(PowerAction::Lock)), QuickKey::Activate);
@@ -1160,21 +1461,21 @@ pub(super) mod tests {
         let mut data = vec![0u8; w * h * 4];
         let mut scroll = QuickScroll::default();
         let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
-        let painted = paint_quick(&mut canvas, None, (w, h), &m, None, &mut scroll);
+        let painted = paint_quick(&mut canvas, (None, None), (w, h), &m, None, &mut scroll);
         let menu = painted.hits.iter().find(|(_, hit)| *hit == H::Inside).unwrap().0;
         assert!(menu.y + menu.h <= h as i32 - 8, "{menu:?} fits");
         for (r, hit) in &painted.hits {
             assert!(*hit == H::Outside || r.y + r.h <= menu.y + menu.h, "{hit:?} at {r:?} is drawn on screen");
         }
-        // The power actions stay; the list shows LIST_MAX rows.
-        assert!(painted.hits.iter().any(|(_, hit)| *hit == H::Power(PowerAction::PowerOff)));
+        // The top row stays; the list shows LIST_MAX rows.
+        assert!(painted.hits.iter().any(|(_, hit)| *hit == H::PowerMenu));
         let list = painted.list_area.expect("a list");
         let rows = painted.hits.iter().filter(|(r, hit)| is_list_row(*hit) && r.y >= list.y && r.y + r.h <= list.y + list.h).count();
         assert!(rows <= LIST_MAX);
         // Every stop, focused, ends up where it can be clicked.
         for (_, stop) in painted.stops.clone() {
             let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
-            let p = paint_quick(&mut canvas, None, (w, h), &m, Some(stop), &mut scroll);
+            let p = paint_quick(&mut canvas, (None, None), (w, h), &m, Some(stop), &mut scroll);
             assert!(p.hits.iter().any(|(_, hit)| *hit == stop), "{stop:?} reachable (scroll {scroll:?})");
         }
         assert!(scroll.list > 0, "the list scrolled to its last rows");
@@ -1197,14 +1498,14 @@ pub(super) mod tests {
             out
         };
         assert_eq!(focused, ["Office 5G"], "only the focused row");
-        let switch = painted.node.find(&|n| n.name == "Home" && n.role == crate::a11y::Role::Switch).unwrap();
+        let switch = painted.node.find(&|n| n.name == "Wi-Fi" && n.role == crate::a11y::Role::Switch).unwrap();
         assert!(switch.focusable && !switch.focused);
         // The ring is drawn around the focused row (accent pixels just
         // outside its left edge).
         let (r, _) = painted.stops.iter().find(|(_, h)| *h == H::Network(1)).copied().unwrap();
         let mut data = vec![0u8; 1280 * 800 * 4];
         let mut canvas = Canvas::scaled(&mut data, 1280, 800, 1.0);
-        paint_quick(&mut canvas, None, (1280, 800), &m, Some(H::Network(1)), &mut QuickScroll::default());
+        paint_quick(&mut canvas, (None, None), (1280, 800), &m, Some(H::Network(1)), &mut QuickScroll::default());
         let px = |x: i32, y: i32| &data[((y * 1280 + x) * 4) as usize..][..3];
         assert!((r.x - 6..r.x + 2).any(|x| px(x, r.y + r.h / 2) == [0xE4, 0x84, 0x35]), "ring left of the row");
     }

@@ -414,6 +414,28 @@ pub fn switch(canvas: &mut Canvas, x: f64, y: f64, on: bool, look: Look) {
     canvas.circle(kx, y + h / 2.0, r, if hc && !on { WHITE } else { TEXT });
 }
 
+/// A quick settings toggle at `rect`: a pill in `main`'s look (the accent
+/// fill when on); with `more`, its last `more_w` px are a separate part
+/// (a "›" for a list or menu) in their own look, split from the rest by a
+/// 2 px gap. High contrast: each part outlined in white.
+pub fn toggle_pill(canvas: &mut Canvas, (x, y, w, h): (f64, f64, f64, f64), more_w: f64, main: Look, more: Option<Look>) {
+    let r = h / 2.0;
+    let Some(more) = more else {
+        control_round(canvas, (x, y, w, h), r, main);
+        return;
+    };
+    let split = x + w - more_w;
+    // Each part is a pill clipped at the split: square inside, round at
+    // the ends.
+    let (sx, sy, sh) = (split.floor() as i32, y.floor() as i32 - 1, h.ceil() as i32 + 2);
+    let saved = canvas.push_clip((x.floor() as i32) - 1, sy, sx - 1 - (x.floor() as i32 - 1), sh);
+    control_round(canvas, (x, y, split - x + r, h), r, main);
+    canvas.restore_clip(saved);
+    let saved = canvas.push_clip(sx + 1, sy, (x + w).ceil() as i32 + 1 - (sx + 1), sh);
+    control_round(canvas, (split - r, y, more_w + r, h), r, more);
+    canvas.restore_clip(saved);
+}
+
 /// A switch's size (logical px).
 pub const SWITCH_W: f64 = 40.0;
 pub const SWITCH_H: f64 = 22.0;

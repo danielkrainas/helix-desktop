@@ -154,6 +154,22 @@ impl<'a> Canvas<'a> {
         self.clip = None;
     }
 
+    /// Draw only where both the current clip and the logical rectangle
+    /// (x, y, w, h) allow; returns the clip before, for [`Self::restore_clip`].
+    pub fn push_clip(&mut self, x: i32, y: i32, w: i32, h: i32) -> Option<[i32; 4]> {
+        let before = self.clip;
+        self.clip(x, y, w, h);
+        if let (Some([a0, b0, a1, b1]), Some([c0, d0, c1, d1])) = (before, self.clip) {
+            self.clip = Some([a0.max(c0), b0.max(d0), a1.min(c1), b1.min(d1)]);
+        }
+        before
+    }
+
+    /// Put back a clip [`Self::push_clip`] returned.
+    pub fn restore_clip(&mut self, clip: Option<[i32; 4]>) {
+        self.clip = clip;
+    }
+
     /// Whether physical pixel (x, y) is outside the clip.
     fn clipped(&self, x: i32, y: i32) -> bool {
         self.clip.is_some_and(|[x0, y0, x1, y1]| x < x0 || y < y0 || x >= x1 || y >= y1)
