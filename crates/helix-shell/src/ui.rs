@@ -189,6 +189,8 @@ struct LauncherView {
     pressed: Option<usize>,
     /// The search field's clear button, while there is a query.
     clear: Option<Rect>,
+    /// The app grid as last painted (to repaint only cells that change).
+    grid_cache: Option<app_grid::GridCache>,
 }
 
 struct Ui {
@@ -301,6 +303,9 @@ struct Ui {
     quick_list: Option<quick::Switch>,
     /// Quick settings' power actions are open (under its Power button).
     quick_power_open: bool,
+    /// The app grid's hover changed in this pointer frame (drawn at its
+    /// end).
+    grid_pending: bool,
     /// "Pair New Device…" started Bluetooth discovery.
     bt_discovery: bool,
     /// The lock screen's media player and notification counts.
@@ -1347,6 +1352,7 @@ impl Ui {
             hover: None,
             pressed: None,
             clear: None,
+            grid_cache: None,
         });
         if notify {
             let _ = self.requests.send(UiRequest::Overview(true));
@@ -2148,7 +2154,12 @@ impl Ui {
         if view.configured && view.width > 0 && view.height > 0 {
             self.paint_launcher(&mut view);
         }
+        let moving = view.model.query.is_empty() && view.grid.feedback.moving(Instant::now());
         self.launcher = Some(view);
+        // The grid's feedback still moving: the next frame.
+        if moving {
+            self.grid_next_frame();
+        }
     }
 
     fn paint_launcher(&mut self, view: &mut LauncherView) {
@@ -2182,15 +2193,15 @@ impl Ui {
         if view.model.query.is_empty() {
             view.rows.clear();
             view.content = field;
+            // The frame without the cells, kept for repainting single cells
+            // (`grid_repaint_cells`).
+            let base = canvas.data.to_vec();
             app_grid::paint_grid(&mut app_grid::Paint { cache: &mut self.icon_cache, text: self.text.as_ref(), scale }, view, &mut canvas, w as i32, h as i32, by + field.h + 24);
-            let moving = view.grid.feedback.moving(Instant::now());
+            view.grid_cache = app_grid::GridCache::new(view, base, canvas.data.to_vec(), (canvas.width, canvas.height, scale));
             let surface = view.layer.wl_surface();
             self.scales.prepare(&self.qh, surface, w as i32, h as i32);
             if buffer.attach_to(surface).is_ok() {
                 view.layer.commit();
-            }
-            if moving {
-                self.grid_next_frame();
             }
             return;
         }
@@ -3777,6 +3788,7 @@ pub fn run(
         quick: Default::default(),
         quick_list: None,
         quick_power_open: false,
+        grid_pending: false,
         bt_discovery: false,
         running_apps: HashMap::new(),
         lock_extras: Default::default(),
@@ -4299,6 +4311,11 @@ impl TouchHandler for Ui {
 
 impl Ui {
     fn pointer_events(&mut self, events: &[PointerEvent]) {
+        self.pointer_batch(events);
+        self.grid_flush();
+    }
+
+    fn pointer_batch(&mut self, events: &[PointerEvent]) {
         for event in events {
             // Mirrored surfaces (right-to-left) hit-test unmirrored.
             let event = &mirror::adjust(event);

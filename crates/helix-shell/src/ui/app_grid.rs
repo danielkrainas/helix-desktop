@@ -266,7 +266,7 @@ impl Ui {
         let token = handle.insert_source(Timer::from_duration(std::time::Duration::from_millis(16)), |_, _, ui: &mut Ui| {
             if let Some(view) = ui.launcher.as_mut() {
                 view.grid.frame_timer = None;
-                ui.draw_launcher();
+                ui.grid_redraw();
             }
             TimeoutAction::Drop
         });
@@ -331,7 +331,7 @@ impl Ui {
                     let id = id.clone();
                     view.grid.press = Some((id.clone(), (x, y), if in_folder { from_folder } else { None }));
                     view.grid.feedback.press(id, std::time::Instant::now());
-                    self.draw_launcher();
+                    self.grid_redraw();
                 } else if let Some(&(_, page)) = g.dots.iter().find(|(r, _)| r.contains(x, y)) {
                     view.grid.page = page;
                     view.grid.selected = None;
@@ -350,7 +350,8 @@ impl Ui {
             PointerEventKind::Leave { .. } => {
                 if let Some(view) = self.launcher.as_mut() {
                     view.grid.feedback.set_hover(None, std::time::Instant::now());
-                    self.draw_launcher();
+                    // Drawn once the pointer frame is done (`grid_flush`).
+                    self.grid_pending = true;
                 }
             }
             PointerEventKind::Motion { .. } => {
@@ -360,7 +361,9 @@ impl Ui {
                     let under = view.grid.item_at(x, y);
                     if view.grid.feedback.hovered() != under.as_ref() {
                         view.grid.feedback.set_hover(under, std::time::Instant::now());
-                        self.draw_launcher();
+                        // Drawn once the pointer frame is done, only the
+                        // cells that changed (`grid_flush`).
+                        self.grid_pending = true;
                     }
                 }
                 let Some(view) = self.launcher.as_mut() else { return true };
@@ -767,5 +770,210 @@ impl GridView {
     /// selected item, the page dots and the page.
     pub(super) fn a11y(&self) -> super::atspi::GridShown<'_> {
         (&self.cells, &self.folder_cells, self.selected, &self.dots, self.page)
+    }
+}
+
+/// The launcher's app grid as last painted, so that a hover or feedback
+/// change repaints only the cells whose look changed instead of the whole
+/// full-screen launcher (helix-desktop-spec `contracts/wayland/README.md`,
+/// "Item feedback").
+pub(super) struct GridCache {
+    /// The buffer's size in pixels and the scale it was painted at.
+    key: (usize, usize, u64),
+    /// The frame without the cells (scrim, search field, page dots), and
+    /// the whole frame as shown.
+    base: Vec<u8>,
+    full: Vec<u8>,
+    /// Each cell: its place, its item, the look it was painted with and
+    /// whether it had the focus ring.
+    cells: Vec<(Rect, String, Look, bool)>,
+}
+
+impl GridCache {
+    /// The cache of a grid just painted (`base` before its cells, `full`
+    /// after) on a `pw`×`ph` buffer at `scale`; none while something the
+    /// cells alone do not show is on (an open folder, a drag, launch
+    /// copies).
+    pub(super) fn new(view: &LauncherView, base: Vec<u8>, full: Vec<u8>, (pw, ph, scale): (usize, usize, f64)) -> Option<Self> {
+        let g = &view.grid;
+        let now = std::time::Instant::now();
+        if view.model.open_folder.is_some() || g.drag.is_some() || !g.feedback.ghosts(now).is_empty() {
+            return None;
+        }
+        let focus = g.selected.and_then(|i| g.cells.get(i)).map(|(_, id)| id.clone());
+        let cells = g.cells.iter().map(|(r, id)| (*r, id.clone(), g.feedback.look(id, now), focus.as_deref() == Some(id.as_str()))).collect();
+        Some(Self { key: (pw, ph, scale.to_bits()), base, full, cells })
+    }
+}
+
+/// The pixels (x0, y0, x1, y1) a cell `r` covers on a `pw`×`ph` buffer at
+/// `scale` (mirrored: flipped left to right), a pixel wider each way.
+fn cell_pixels(r: Rect, scale: f64, (pw, ph): (usize, usize), mirrored: bool) -> (usize, usize, usize, usize) {
+    let lo = |v: i32| ((f64::from(v) * scale).floor() as i64 - 1).max(0) as usize;
+    let hi = |v: i32, max: usize| (((f64::from(v) * scale).ceil() as i64 + 1).max(0) as usize).min(max);
+    let (x0, x1) = (lo(r.x).min(pw), hi(r.x + r.w, pw));
+    let (x0, x1) = if mirrored { (pw - x1, pw - x0) } else { (x0, x1) };
+    (x0, lo(r.y).min(ph), x1, hi(r.y + r.h, ph))
+}
+
+/// Copy the pixels (x0, y0, x1, y1) of `from` into `to` (ARGB, `pw` wide).
+fn copy_pixels(from: &[u8], to: &mut [u8], pw: usize, (x0, y0, x1, y1): (usize, usize, usize, usize)) {
+    for y in y0..y1 {
+        let (a, b) = ((y * pw + x0) * 4, (y * pw + x1) * 4);
+        to[a..b].copy_from_slice(&from[a..b]);
+    }
+}
+
+impl Ui {
+    /// Draw the launcher's grid again after a hover or feedback change:
+    /// only the cells whose look changed are painted (on the frame kept
+    /// from the last full paint) and damaged. False when that cannot be
+    /// done (the whole launcher is to be drawn).
+    pub(super) fn grid_repaint_cells(&mut self) -> bool {
+        let _busy = crate::watchdog::scope("draw app grid cells");
+        let Some(mut view) = self.launcher.take() else { return true };
+        let done = self.grid_repaint_in(&mut view);
+        let moving = done && view.grid.feedback.moving(std::time::Instant::now());
+        self.launcher = Some(view);
+        if moving {
+            self.grid_next_frame();
+        }
+        done
+    }
+
+    fn grid_repaint_in(&mut self, view: &mut LauncherView) -> bool {
+        if !view.configured || !view.model.query.is_empty() || view.model.open_folder.is_some() || view.grid.drag.is_some() {
+            return false;
+        }
+        let now = std::time::Instant::now();
+        if !view.grid.feedback.ghosts(now).is_empty() {
+            return false;
+        }
+        let (w, h) = (view.width as usize, view.height as usize);
+        let scale = self.scales.of(view.layer.wl_surface());
+        let (pw, ph) = (physical(w, scale), physical(h, scale));
+        let Some(cache) = view.grid_cache.as_mut().filter(|c| c.key == (pw, ph, scale.to_bits())) else { return false };
+        // The keyboard's item, as `paint_grid` lights it.
+        let focus = view.grid.selected.and_then(|i| cache.cells.get(i)).map(|(_, id, _, _)| id.clone());
+        view.grid.feedback.set_focus(focus.clone(), now);
+        let dirty: Vec<usize> = cache
+            .cells
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, id, look, focused))| view.grid.feedback.look(id, now) != *look || (focus.as_deref() == Some(id.as_str())) != *focused)
+            .map(|(i, _)| i)
+            .collect();
+        if dirty.is_empty() {
+            return true;
+        }
+        let Ok((buffer, data)) = self.pool.create_buffer(pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Argb8888) else { return false };
+        data.copy_from_slice(&cache.full);
+        let mirrored = super::mirror::on(view.layer.wl_surface());
+        let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirrored);
+        let mut damage = Vec::new();
+        let mut paint = Paint { cache: &mut self.icon_cache, text: self.text.as_ref(), scale };
+        for i in dirty {
+            let (r, id, _, _) = cache.cells[i].clone();
+            let px = cell_pixels(r, scale, (pw, ph), mirrored);
+            copy_pixels(&cache.base, canvas.data, pw, px);
+            canvas.clip(r.x, r.y, r.w, r.h);
+            let look = view.grid.feedback.look(&id, now);
+            let focused = focus.as_deref() == Some(id.as_str());
+            paint_cell(&mut paint, &view.model, &mut canvas, r, &id, look, focused);
+            canvas.unclip();
+            copy_pixels(canvas.data, &mut cache.full, pw, px);
+            cache.cells[i].2 = look;
+            cache.cells[i].3 = focused;
+            damage.push(px);
+        }
+        let surface = view.layer.wl_surface();
+        self.scales.prepare_damage(&self.qh, surface, (w as i32, h as i32), &damage);
+        if buffer.attach_to(surface).is_ok() {
+            view.layer.commit();
+        }
+        true
+    }
+
+    /// A pointer frame is done: the grid drawn once if its hover changed.
+    pub(super) fn grid_flush(&mut self) {
+        if std::mem::take(&mut self.grid_pending) {
+            self.grid_redraw();
+        }
+    }
+
+    /// The grid's look changed (hover, feedback): its changed cells
+    /// repainted, else the whole launcher.
+    pub(super) fn grid_redraw(&mut self) {
+        if !self.grid_repaint_cells() {
+            self.draw_launcher();
+        }
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn cell_pixels_and_copies() {
+        let r = Rect { x: 10, y: 4, w: 20, h: 10 };
+        assert_eq!(cell_pixels(r, 1.0, (100, 50), false), (9, 3, 31, 15));
+        assert_eq!(cell_pixels(r, 1.5, (150, 75), false), (14, 5, 46, 22));
+        assert_eq!(cell_pixels(r, 1.0, (100, 50), true), (69, 3, 91, 15), "mirrored");
+        assert_eq!(cell_pixels(Rect { x: 95, y: 45, w: 20, h: 20 }, 1.0, (100, 50), false), (94, 44, 100, 50), "kept on the buffer");
+        let from = vec![7u8; 10 * 4 * 4];
+        let mut to = vec![0u8; 10 * 4 * 4];
+        copy_pixels(&from, &mut to, 10, (2, 1, 5, 3));
+        let px = |x: usize, y: usize| to[(y * 10 + x) * 4];
+        assert_eq!((px(2, 1), px(4, 2), px(5, 2), px(1, 1), px(2, 3)), (7, 7, 0, 0, 0));
+    }
+
+    /// A hover change at 1920×1080 costs a copy of the frame and two
+    /// cells, far under a frame; the whole grid takes much longer.
+    /// `cargo test … grid_paint_time -- --ignored --nocapture` prints both.
+    #[test]
+    #[ignore]
+    fn grid_paint_time() {
+        let text = crate::text::Text::load();
+        let (w, h) = (1920usize, 1080usize);
+        let apps: Vec<crate::launcher::App> = crate::launcher::installed();
+        let model = Launcher::new(apps.clone());
+        let mut cache = crate::icon_cache::IconCache::default();
+        let mut data = vec![0u8; w * h * 4];
+        // Icons decoded first (as they are by the time a user hovers).
+        for app in apps.iter().take(40) {
+            let _ = grid_icon(&mut cache, &app.id, 64);
+        }
+        let cells: Vec<(Rect, String)> = apps.iter().take(40).enumerate().map(|(i, a)| (Rect { x: 96 + (i as i32 % 8) * cell_w(), y: 160 + (i as i32 / 8) * cell_h(), w: cell_w(), h: cell_h() }, a.id.clone())).collect();
+        let rest = crate::item_feedback::Look { highlight: 0.0, pressed: false, scale: 1.0 };
+        let lit = crate::item_feedback::Look { highlight: 1.0, pressed: false, scale: 1.08 };
+        let t = std::time::Instant::now();
+        {
+            let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
+            canvas.fill(SCRIM);
+            let mut p = Paint { cache: &mut cache, text: text.as_ref(), scale: 1.0 };
+            for (r, id) in &cells {
+                paint_cell(&mut p, &model, &mut canvas, *r, id, rest, false);
+            }
+        }
+        let full = t.elapsed();
+        let base = data.clone();
+        let frame = data.clone();
+        let t = std::time::Instant::now();
+        let mut out = vec![0u8; w * h * 4];
+        out.copy_from_slice(&frame);
+        {
+            let mut canvas = Canvas::scaled(&mut out, w, h, 1.0);
+            let mut p = Paint { cache: &mut cache, text: text.as_ref(), scale: 1.0 };
+            for (i, look) in [(3, rest), (4, lit)] {
+                let (r, id) = &cells[i];
+                let px = cell_pixels(*r, 1.0, (w, h), false);
+                copy_pixels(&base, canvas.data, w, px);
+                paint_cell(&mut p, &model, &mut canvas, *r, id, look, false);
+            }
+        }
+        let hover = t.elapsed();
+        println!("whole grid: {full:?}; a hover change: {hover:?}");
+        assert!(hover < full, "{hover:?} vs {full:?}");
     }
 }

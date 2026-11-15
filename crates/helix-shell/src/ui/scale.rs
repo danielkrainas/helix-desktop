@@ -72,6 +72,21 @@ impl Scales {
         surface.damage_buffer(0, 0, i32::MAX, i32::MAX);
     }
 
+    /// [`Self::prepare`] for a buffer of which only `damage` (buffer
+    /// pixels: x0, y0, x1, y1) changed.
+    pub fn prepare_damage(&mut self, qh: &QueueHandle<Ui>, surface: &WlSurface, (w, h): (i32, i32), damage: &[(usize, usize, usize, usize)]) {
+        super::mirror::note_width(surface, w);
+        if let Some(tracked) = self.surfaces.iter().find(|t| &t.surface == surface) {
+            tracked.viewport.set_destination(w, h);
+        } else {
+            self.prepare(qh, surface, w, h);
+            return;
+        }
+        for &(x0, y0, x1, y1) in damage {
+            surface.damage_buffer(x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32);
+        }
+    }
+
     /// The compositor's preferred scale for a surface; true if it changed.
     fn set(&mut self, surface: &WlSurface, scale: f64) -> bool {
         match self.surfaces.iter_mut().find(|t| &t.surface == surface) {
