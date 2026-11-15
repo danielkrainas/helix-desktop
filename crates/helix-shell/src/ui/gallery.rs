@@ -179,11 +179,12 @@ fn symbolic(name: &str, logical: f64, scale: f64) -> Option<helix_draw::Image> {
 /// The panel with everything on: workspaces, the a11y indicator, an
 /// input source, sharing and recording, the list open.
 fn panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), scale: f64, focus: Option<usize>, power_open: bool) {
-    panel_with(canvas, text, (w, h), scale, focus, power_open, None);
+    panel_with(canvas, text, (w, h), scale, focus, power_open, None, None);
 }
 
-/// [`panel`], with `hover` under the pointer.
-fn panel_with(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), scale: f64, focus: Option<usize>, power_open: bool, hover: Option<crate::panel_layout::Slot>) {
+/// [`panel`], with `hover` under the pointer and `menu_open`'s menu open.
+#[allow(clippy::too_many_arguments)]
+fn panel_with(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), scale: f64, focus: Option<usize>, power_open: bool, hover: Option<crate::panel_layout::Slot>, menu_open: Option<crate::panel_layout::Item>) {
     let bold = Text::load_matching("sans-serif:bold");
     let power_icon = symbolic("system-shutdown-symbolic", 16.0, scale);
     let status_items: Vec<status::StatusItem> =
@@ -202,6 +203,7 @@ fn panel_with(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), 
         launcher_open: false,
         power_open,
         list_open: false,
+        menu_open,
         unseen_dot: true,
         workspaces: (4, 1),
         a11y_shown: true,
@@ -318,10 +320,18 @@ fn panels() {
     for hc in [false, true] {
         helix_draw::set_high_contrast(hc);
         use crate::panel_layout::{Item, Slot};
-        for (name, focus, power, hover) in [("panel", None, false, None), ("panel-focus-open", Some(6), true, None), ("panel-hover-clock", Some(0), false, Some(Slot::Item(Item::Clock)))] {
+        let scenes = [
+            ("panel", None, false, None, None),
+            ("panel-focus-open", Some(6), true, None, None),
+            ("panel-hover-clock", Some(0), false, Some(Slot::Item(Item::Clock)), None),
+            // The input source and accessibility menus open: their pills lit.
+            ("panel-sources-open", None, false, None, Some(Item::Keyboard)),
+            ("panel-a11y-open", None, false, None, Some(Item::Accessibility)),
+        ];
+        for (name, focus, power, hover, menu) in scenes {
             let name = if hc { format!("{name}-hc") } else { name.to_owned() };
             let ph = panel_height() as usize;
-            render(&dir, &name, DARK, (1280, ph, 1.0), |canvas| panel_with(canvas, text.as_ref(), (1280, ph), 1.0, focus, power, hover));
+            render(&dir, &name, DARK, (1280, ph, 1.0), |canvas| panel_with(canvas, text.as_ref(), (1280, ph), 1.0, focus, power, hover, menu));
         }
     }
     helix_draw::set_high_contrast(false);

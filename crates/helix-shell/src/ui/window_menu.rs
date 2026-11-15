@@ -168,6 +168,8 @@ pub(super) struct WindowMenu {
     bounds: Rect,
     /// The input sources an input source menu is for.
     sources: Vec<crate::input_sources::Source>,
+    /// The panel item that opened it (its pill is lit while it is open).
+    pub(super) panel_item: Option<crate::panel_layout::Item>,
     /// Window previews instead of rows: the windows; the items are, for
     /// each, "activate" then "close".
     pub(super) previews: Vec<u32>,
@@ -242,6 +244,7 @@ impl Ui {
             items.extend(props);
         }
         self.open_menu(0, x, panel_height() as i32, items, sources);
+        self.lit_by_panel(crate::panel_layout::Item::Keyboard);
     }
 
     /// The panel's accessibility menu, below its indicator at `x`.
@@ -253,12 +256,30 @@ impl Ui {
             .filter_map(|(i, (s, state))| Some(Some(Item { label: tr(s.label).to_owned(), choice: Choice::A11y(i), checked: Some((*state)?), active: false, sub: Vec::new() })))
             .collect();
         self.open_menu(0, x, panel_height() as i32, items, Vec::new());
+        self.lit_by_panel(crate::panel_layout::Item::Accessibility);
+    }
+
+    /// The menu just opened belongs to the panel's `item`: its pill
+    /// shows the open state until the menu closes.
+    fn lit_by_panel(&mut self, item: crate::panel_layout::Item) {
+        if let Some(menu) = self.window_menu.as_mut() {
+            menu.panel_item = Some(item);
+        }
+        self.draw_panel();
+    }
+
+    /// Close the menu (lighting down the panel pill that opened it).
+    pub(super) fn close_window_menu(&mut self) {
+        if self.window_menu.take().is_some_and(|m| m.panel_item.is_some()) {
+            self.draw_panel();
+        }
     }
 
     /// Open a menu at (x, y); when it was asked for with a key
     /// (`menu_by_key`, set just before) its first enabled entry is
     /// selected, else none until the pointer or a key moves.
     pub(super) fn open_menu(&mut self, id: u32, x: i32, y: i32, items: Vec<Option<Item>>, sources: Vec<crate::input_sources::Source>) {
+        let was_lit = self.window_menu.as_ref().is_some_and(|m| m.panel_item.is_some());
         let selected = if std::mem::take(&mut self.menu_by_key) { first_enabled(&items) } else { None };
         // A menu of the app grid's opens over the launcher.
         if !std::mem::take(&mut self.dock.menu_over_launcher) {
@@ -300,11 +321,15 @@ impl Ui {
             hits: Vec::new(),
             bounds: Rect { x: 0, y: 0, w: 0, h: 0 },
             sources,
+            panel_item: None,
             previews: Vec::new(),
             focus_hidden: false,
             by_keyboard: selected.is_some(),
             parents: Vec::new(),
         });
+        if was_lit {
+            self.draw_panel();
+        }
     }
 
     pub(super) fn window_menu_configured(&mut self, layer: &LayerSurface, size: (u32, u32)) -> bool {
@@ -318,7 +343,7 @@ impl Ui {
 
     pub(super) fn window_menu_closed(&mut self, layer: &LayerSurface) -> bool {
         if self.window_menu.as_ref().is_some_and(|m| &m.layer == layer) {
-            self.window_menu = None;
+            self.close_window_menu();
             return true;
         }
         false
@@ -394,6 +419,9 @@ impl Ui {
             _ => {}
         }
         let Some(menu) = self.window_menu.take() else { return };
+        if menu.panel_item.is_some() {
+            self.draw_panel();
+        }
         let Some(Some(item)) = menu.items.get(index) else { return };
         if let Choice::ImProperty(i) = item.choice {
             if let Some((key, kind, state)) = self.ime_menu.get(i).cloned() {
@@ -469,7 +497,7 @@ impl Ui {
             PointerEventKind::Press { .. } => match under {
                 Some(index) => self.choose_window_menu(index),
                 None if menu.bounds.contains(x, y) => {}
-                None => self.window_menu = None,
+                None => self.close_window_menu(),
             },
             _ => {}
         }
@@ -504,7 +532,7 @@ impl Ui {
         let typed = event.utf8.as_deref().and_then(|s| s.chars().next()).filter(|c| c.is_alphanumeric());
         match menu_key(&menu.items, menu.selected, event.keysym, typed, !menu.parents.is_empty()) {
             MenuKey::None => {}
-            MenuKey::Close => self.window_menu = None,
+            MenuKey::Close => self.close_window_menu(),
             MenuKey::Back => self.window_submenu(None),
             MenuKey::Open(index) => self.window_submenu(Some(index)),
             MenuKey::Choose(index) => self.choose_window_menu(index),

@@ -778,6 +778,8 @@ struct PanelModel<'a> {
     pub launcher_open: bool,
     pub power_open: bool,
     pub list_open: bool,
+    /// The panel item whose menu is open (input sources, accessibility).
+    pub menu_open: Option<crate::panel_layout::Item>,
     pub unseen_dot: bool,
     /// (count, active)
     pub workspaces: (u32, u32),
@@ -905,6 +907,7 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
                 Slot::Item(Item::Apps) | Slot::Item(Item::Workspaces) => m.launcher_open,
                 Slot::Item(Item::Clock) => m.list_open,
                 Slot::Item(Item::Status) | Slot::Item(Item::Power) => m.power_open,
+                Slot::Item(item @ (Item::Keyboard | Item::Accessibility)) => m.menu_open == Some(item),
                 _ => false,
             };
             panel_pill(canvas, x, iw, h as i32, m.hover == Some(slot), open || m.pressed == Some(slot));
@@ -1193,6 +1196,7 @@ impl Ui {
             launcher_open: self.launcher.is_some(),
             power_open: self.power_menu.is_some(),
             list_open: self.notify.view.is_some(),
+            menu_open: self.window_menu.as_ref().and_then(|m| m.panel_item),
             unseen_dot,
             workspaces: (self.windows.count, self.windows.active),
             a11y_shown: self.a11y.shown,
@@ -1550,11 +1554,13 @@ impl Ui {
                 if self.window_menu.take().is_none() {
                     self.show_sources_menu(x);
                 }
+                self.draw_panel();
             }
             Slot::Item(Item::Accessibility) => {
                 if self.window_menu.take().is_none() {
                     self.show_a11y_menu(x);
                 }
+                self.draw_panel();
             }
             Slot::Item(Item::Status) | Slot::Item(Item::Power) => {
                 self.toggle_power_menu(key.map_or(quick::Opened::Pointer, quick::Opened::Panel));
