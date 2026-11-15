@@ -637,13 +637,13 @@ impl Ui {
 
     fn launcher_nodes(&self, view: &LauncherView) -> Vec<Node> {
         let model = &view.model;
-        let field = Rect { h: 48, ..view.content };
+        let field = Rect { h: helix_draw::theme::grow(super::SEARCH_H), ..view.content };
         let results = !model.query.is_empty();
         let (cells, folder_cells, selected, dots, page) = view.grid.a11y();
         let grid_focus = !results && selected.is_some();
-        // Painted from x + 16 at 17 px (see `draw_launcher`).
+        // Painted from SEARCH_TEXT_X at the Entry size (see `search_field`).
         let advances = self.text.as_ref().map(|t| t.advances(&model.query, size::ENTRY)).unwrap_or_default();
-        let chars = crate::a11y::Chars { x: (field.x + 16) as f32, y: field.y, h: field.h, advances };
+        let chars = crate::a11y::Chars { x: (field.x + super::SEARCH_TEXT_X) as f32, y: field.y, h: field.h, advances };
         let search = Node::text_field(Role::SearchInput, tr("Search"), &model.query, field.into()).id("search").chars(chars);
         let mut out = vec![search.focused(!results && !grid_focus)];
         let name = |id: &str| model.apps.iter().find(|a| a.id == id).map(|a| a.name.clone()).or_else(|| model.folders.iter().find(|f| f.id == id).map(|f| f.name.clone())).unwrap_or_default();

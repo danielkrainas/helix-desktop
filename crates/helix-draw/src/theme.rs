@@ -493,6 +493,16 @@ pub fn close_symbol(canvas: &mut Canvas, cx: f64, cy: f64, size: f64, color: u32
     canvas.line((cx + h, cy - h), (cx - h, cy + h), 1.8, color);
 }
 
+/// The search symbol (a lens with a handle; Helix's own drawing for
+/// `system-search-symbolic`) `size` px across, centered at (cx, cy).
+pub fn search_symbol(canvas: &mut Canvas, cx: f64, cy: f64, size: f64, color: u32) {
+    let r = size * 0.3;
+    let (lx, ly) = (cx - size * 0.1, cy - size * 0.1);
+    canvas.ring(lx, ly, r, 1.8, color);
+    let d = std::f64::consts::FRAC_1_SQRT_2;
+    canvas.line((lx + r * d, ly + r * d), (cx + size * 0.42, cy + size * 0.42), 2.0, color);
+}
+
 /// Which way a chevron points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Towards {

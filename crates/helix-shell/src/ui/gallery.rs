@@ -258,6 +258,36 @@ fn app_switcher() {
     }
 }
 
+/// The overview's look (`overview-…`): the panel above it, the search
+/// field, three windows (rounded pictures with their app icons, one under
+/// the pointer, one chosen from the keyboard with its close button).
+#[test]
+#[ignore]
+fn overview_look() {
+    let Some(dir) = dir() else { return };
+    let text = Text::load();
+    let picture = |name: &str| crate::wallpaper::decode(std::path::Path::new(&format!("/usr/share/backgrounds/{name}"))).ok().map(|i| crate::wallpaper::thumbnail(&i, 640, 400));
+    let pictures = [picture(PHOTO), picture("mendhak-Red_Acer.jpg"), picture(LIGHT)];
+    let apps = [("org.gnome.Nautilus", "Files — Home"), ("firefox", "Mozilla Firefox"), ("org.gnome.TextEditor", "notes.txt — Text Editor")];
+    in_looks(&dir, "overview", (1280, 720), &mut |canvas, (w, h)| {
+        let ph = panel_height() as i32;
+        canvas.rect(0, ph, w as i32, h as i32 - ph, SCRIM);
+        let fw = helix_draw::theme::grow(SEARCH_W).min(w as i32 - 32);
+        let field = Rect { x: (w as i32 - fw) / 2, y: ph + 24, w: fw, h: helix_draw::theme::grow(SEARCH_H) };
+        search_field(canvas, text.as_ref(), field, "", helix_i18n::tr("Type to search…"), false);
+        let area = Rect { x: 32, y: field.y + field.h + 40, w: w as i32 - 64, h: h as i32 - field.y - field.h - 80 };
+        let sizes: Vec<(i32, i32)> = pictures.iter().map(|p| p.as_ref().map_or((640, 400), |p| (p.width as i32, p.height as i32))).collect();
+        let px = (48.0 * canvas.scale).ceil() as u32;
+        for (i, rect) in overview::arrange(&sizes, area.w, area.h).into_iter().enumerate() {
+            let r = Rect { x: area.x + rect.x, y: area.y + rect.y, ..rect };
+            let icon = crate::icons::app_icon(apps[i].0, px);
+            let tile = overview::WindowTile { picture: pictures[i].as_ref(), icon: icon.as_ref(), title: apps[i].1, hovered: i == 0, focused: i == 2, close: i != 1 };
+            overview::paint_window_tile(canvas, text.as_ref(), r, &tile);
+        }
+        panel_over(canvas, text.as_ref(), w, None, false);
+    });
+}
+
 #[test]
 #[ignore]
 fn dialogs() {

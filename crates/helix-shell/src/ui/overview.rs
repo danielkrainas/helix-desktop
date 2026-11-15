@@ -17,14 +17,14 @@ use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, BTN_
 use smithay_client_toolkit::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerSurface};
 use smithay_client_toolkit::shell::WaylandSurface;
 
-use super::{accent, baseline, hint_text, label, physical, size, theme, Canvas, Overlay, Rect, Ui, DIM_FG, FG, SCRIM};
+use super::{accent, baseline, label, panel_height, physical, size, theme, Canvas, Overlay, Rect, Ui, DIM_FG, FG, SCRIM};
 use crate::UiRequest;
 use helix_i18n::tr;
 
 /// Workspace thumbnail height (logical pixels).
 const THUMB_H: i32 = 90;
 /// Room under each window picture for its title.
-const TITLE_H: i32 = 28;
+const TITLE_H: i32 = 50;
 const GAP: i32 = 24;
 /// The window list's "on every workspace".
 const ALL_WORKSPACES: u32 = u32::MAX;
@@ -59,6 +59,73 @@ pub(super) struct OverviewState {
     /// icon being dragged (app, pointer).
     dash_press: Option<(String, (f64, f64), Option<u32>)>,
     dash_drag: Option<(String, (f64, f64))>,
+}
+
+/// A window's app icon on its picture (logical px).
+pub(super) const TILE_ICON: i32 = 48;
+
+/// What a window in the overview shows.
+pub(super) struct WindowTile<'a> {
+    /// Its picture (none yet, or while dragged).
+    pub picture: Option<&'a helix_draw::Image>,
+    pub icon: Option<&'a helix_draw::Image>,
+    pub title: &'a str,
+    /// Under the pointer; chosen with the keyboard (the focus ring).
+    pub hovered: bool,
+    pub focused: bool,
+    /// The close button shows (hovered or chosen).
+    pub close: bool,
+}
+
+/// Paint window `t` at `r`: its picture rounded with a soft shadow (a
+/// rounded light outline under the pointer, the focus ring when chosen
+/// from the keyboard), its app's icon over the picture's bottom center,
+/// its title under that (in a pill while lit), and the round close button
+/// at the top right corner when `t.close`. Returns the close button's
+/// place.
+pub(super) fn paint_window_tile(canvas: &mut Canvas, text: Option<&crate::text::Text>, r: Rect, t: &WindowTile) -> Option<Rect> {
+    let (x, y, w, h) = (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
+    let radius = theme::RADIUS_CARD;
+    theme::shadow(canvas, x, y, w, h, radius);
+    match t.picture {
+        Some(shot) => canvas.image_rounded(x, y, w, h, radius, shot, 1.0),
+        None => canvas.round_rect(x, y, w, h, radius, theme::CONTROL),
+    }
+    if helix_draw::high_contrast() {
+        canvas.round_outline(x, y, w, h, radius, 1.0, 0xFFFF_FFFF);
+    }
+    if t.hovered {
+        canvas.round_outline(x + 1.0, y + 1.0, w - 2.0, h - 2.0, radius, 3.0, if helix_draw::high_contrast() { 0xFFFF_FFFF } else { 0x80FF_FFFF });
+    }
+    if t.focused {
+        // Outside the hover outline.
+        theme::focus_ring_round(canvas, x - 3.0, y - 3.0, w + 6.0, h + 6.0, radius + 3.0);
+    }
+    // The app's icon, half over the picture's bottom edge.
+    let icon = f64::from(TILE_ICON);
+    let (ix, iy) = (x + w / 2.0 - icon / 2.0, y + h - icon * 0.6);
+    if let Some(image) = t.icon {
+        canvas.image(ix, iy, icon, icon, image);
+    }
+    // The title under it, in a pill while lit.
+    let px = size::CAPTION;
+    let room = (r.w.max(120) - 16) as f32;
+    let tw = text.map_or(0.0, |f| f.width(t.title, px)).min(room);
+    let ty = iy + icon + 6.0;
+    let th = f64::from(helix_draw::theme::grow(24));
+    if t.hovered || t.focused {
+        let pw = f64::from(tw) + 20.0;
+        theme::popover_round(canvas, x + w / 2.0 - pw / 2.0, ty, pw, th, th / 2.0);
+    }
+    label(text, canvas, t.title, (x + w / 2.0) as f32 - tw / 2.0, baseline(text, ty as i32, th as i32, px), px, FG, room);
+    if !t.close {
+        return None;
+    }
+    let d = 28.0;
+    let (cx, cy) = (x + w - 4.0, y + 4.0);
+    theme::round_control(canvas, cx, cy, d, theme::Look::default(), false);
+    theme::close_symbol(canvas, cx, cy, 10.0, FG);
+    Some(Rect { x: (cx - d / 2.0) as i32, y: (cy - d / 2.0) as i32, w: d as i32, h: d as i32 })
 }
 
 /// The overview's parts the keyboard moves between (Tab, Shift+Tab).
@@ -232,6 +299,9 @@ impl Ui {
         self.close_launcher(false);
         let state = OverviewState { primary: true, selected: Some(self.windows.focused()).filter(|id| *id != 0), ..OverviewState::default() };
         let overlay = self.new_overlay("helix-overview", KeyboardInteractivity::Exclusive, state);
+        // The panel stays in sight above it.
+        overlay.layer.set_margin(panel_height() as i32, 0, 0, 0);
+        overlay.layer.commit();
         self.overview = Some(overlay);
         // The other monitors show their windows.
         for (output, area) in self.other_monitors() {
@@ -361,6 +431,12 @@ impl Ui {
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
         let dash = if overlay.state.primary { self.dash_entries(scale) } else { Vec::new() };
+        let icons = self.overview_icons(&ids, (f64::from(TILE_ICON) * scale).ceil() as u32);
+        let wallpaper = self.overview_wallpaper(scale);
+        let wall_color = {
+            let [r, g, b] = self.desktop_background.primary;
+            0xFF00_0000 | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
+        };
         if !overlay.state.primary && self.overview_pool.is_none() {
             self.overview_pool = smithay_client_toolkit::shm::slot::SlotPool::new(w * h * 4, &self.shm).ok();
         }
@@ -376,12 +452,12 @@ impl Ui {
 
         let primary = state.primary;
         // Search field.
-        let field = Rect { x: (w - 400.min(w - 32)) / 2, y: 24, w: 400.min(w - 32), h: 40 };
+        let fw = helix_draw::theme::grow(super::SEARCH_W).min(w - 32);
+        let field = Rect { x: (w - fw) / 2, y: 24, w: fw, h: helix_draw::theme::grow(super::SEARCH_H) };
         state.workspaces.clear();
         let ty = if primary { field.y + field.h + 24 } else { -THUMB_H - 8 };
         if primary {
-        theme::field(&mut canvas, (field.x, field.y, field.w, field.h), false, true);
-        label(text, &mut canvas, tr("Type to search…"), (field.x + 16) as f32, baseline(text, field.y, field.h, size::BODY), size::BODY, hint_text(), (field.w - 32) as f32);
+        super::search_field(&mut canvas, text, field, "", tr("Type to search…"), false);
         state.search = field;
 
         // Workspace thumbnails: the primary monitor, its windows in place.
@@ -395,7 +471,10 @@ impl Ui {
             let r = Rect { x: tx, y: ty, w: thumb_w, h: THUMB_H };
             let dropping = state.drag.is_some_and(|(_, (x, y))| r.contains(x, y));
             let (rx, ry, rw, rh) = (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
-            canvas.round_rect(rx, ry, rw, rh, theme::RADIUS_ROW, theme::WELL);
+            match &wallpaper {
+                Some(image) if !helix_draw::high_contrast() => canvas.image_rounded(rx, ry, rw, rh, theme::RADIUS_ROW, image, 1.0),
+                _ => canvas.round_rect(rx, ry, rw, rh, theme::RADIUS_ROW, if helix_draw::high_contrast() { 0xFF00_0000 } else { wall_color }),
+            }
             if n == self.windows.active || dropping {
                 canvas.round_outline(rx, ry, rw, rh, theme::RADIUS_ROW, 2.0, accent());
             } else {
@@ -418,7 +497,7 @@ impl Ui {
                     continue;
                 }
                 match self.overview_shots.pictures.get(&entry.id) {
-                    Some(shot) if (x0, y0, x1, y1) == (x, y, x + ww, y + wh) => canvas.image(x, y, ww, wh, shot),
+                    Some(shot) if (x0, y0, x1, y1) == (x, y, x + ww, y + wh) => canvas.image_rounded(x, y, ww, wh, 2.0, shot, 1.0),
                     _ => canvas.round_rect(x0, y0, x1 - x0, y1 - y0, 2.0, theme::CONTROL),
                 }
             }
@@ -495,30 +574,19 @@ impl Ui {
             let tw = text.map_or(0.0, |t| t.width(msg, size::BODY));
             label(text, &mut canvas, msg, (w as f32 - tw) / 2.0, (area.y + 40) as f32, size::BODY, DIM_FG, area.w as f32);
         }
-        for (id, rect) in ids.iter().zip(rects) {
+        for ((id, rect), icon) in ids.iter().zip(rects).zip(&icons) {
             let r = Rect { x: area.x + rect.x, y: area.y + rect.y, w: rect.w, h: rect.h };
             let dragged = state.drag.is_some_and(|(d, _)| d == *id);
-            let highlighted = state.selected == Some(*id) || state.hover == Some(*id);
-            // Under the pointer: a light frame; the keyboard's choice: the
-            // focus ring.
-            if state.hover == Some(*id) && !dragged {
-                canvas.round_rect(f64::from(r.x - 6), f64::from(r.y - 6), f64::from(r.w + 12), f64::from(r.h + 12), 8.0, 0x40FFFFFF);
-            }
-            if state.selected == Some(*id) && !dragged && state.region == Region::Windows {
-                helix_draw::theme::focus_ring_round(&mut canvas, f64::from(r.x - 2), f64::from(r.y - 2), f64::from(r.w + 4), f64::from(r.h + 4), 6.0);
-            }
-            match self.overview_shots.pictures.get(id) {
-                Some(shot) if !dragged => canvas.image(f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), shot),
-                _ => canvas.rect(r.x, r.y, r.w, r.h, if dragged { 0xFF2A2A30 } else { 0xFF44444C }),
-            }
             let title = self.windows.mru().iter().find(|e| e.id == *id).map(|e| e.label().to_owned()).unwrap_or_default();
-            let tw = text.map_or(0.0, |t| t.width(&title, size::CAPTION)).min(r.w.max(120) as f32);
-            label(text, &mut canvas, &title, r.x as f32 + (r.w as f32 - tw) / 2.0, (r.y + r.h + 20) as f32, size::CAPTION, FG, r.w.max(120) as f32);
-            if highlighted && !dragged {
-                let c = Rect { x: r.x + r.w - 14, y: r.y - 14, w: 28, h: 28 };
-                let (cx, cy) = (f64::from(c.x) + 14.0, f64::from(c.y) + 14.0);
-                theme::round_control(&mut canvas, cx, cy, 28.0, theme::Look::default(), false);
-                theme::close_symbol(&mut canvas, cx, cy, 10.0, FG);
+            let tile = WindowTile {
+                picture: self.overview_shots.pictures.get(id).filter(|_| !dragged),
+                icon: icon.as_ref(),
+                title: &title,
+                hovered: state.hover == Some(*id) && !dragged,
+                focused: state.selected == Some(*id) && !dragged && state.region == Region::Windows,
+                close: (state.selected == Some(*id) || state.hover == Some(*id)) && !dragged,
+            };
+            if let Some(c) = paint_window_tile(&mut canvas, text, r, &tile) {
                 state.closes.push((c, *id));
             }
             state.tiles.push((r, *id));
@@ -536,6 +604,26 @@ impl Ui {
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
+    }
+
+    /// The desktop's wallpaper small enough for the workspace thumbnails
+    /// (made once per wallpaper and scale).
+    fn overview_wallpaper(&mut self, scale: f64) -> Option<std::sync::Arc<helix_draw::Image>> {
+        let image = self.desktop_background.image.clone()?;
+        let key = (std::sync::Arc::as_ptr(&image) as usize, (f64::from(THUMB_H) * scale).ceil() as u32);
+        if let Some((k, thumb)) = &self.overview_wall {
+            if *k == key {
+                return Some(thumb.clone());
+            }
+        }
+        let thumb = std::sync::Arc::new(crate::wallpaper::thumbnail(&image, key.1 * 2, key.1));
+        self.overview_wall = Some((key, thumb.clone()));
+        Some(thumb)
+    }
+
+    /// The overview's window icons, `px` large.
+    fn overview_icons(&mut self, ids: &[u32], px: u32) -> Vec<Option<helix_draw::Image>> {
+        ids.iter().map(|id| self.window_icon(*id, px)).collect()
     }
 
     /// Pointer input on the overview; true if it was for it.

@@ -178,9 +178,12 @@ struct LauncherView {
     grid: app_grid::GridView,
     /// The monitor it is shown on (from the compositor).
     output: Option<wl_output::WlOutput>,
-    /// The result row under the pointer, and the one pressed.
+    /// The result row under the pointer, and the one pressed
+    /// ([`CLEAR_HIT`]: the clear button).
     hover: Option<usize>,
     pressed: Option<usize>,
+    /// The search field's clear button, while there is a query.
+    clear: Option<Rect>,
 }
 
 struct Ui {
@@ -317,6 +320,9 @@ struct Ui {
     backgrounds: Vec<background::BackgroundView>,
     background_pool: Option<SlotPool>,
     desktop_background: crate::wallpaper::Background,
+    /// The wallpaper shrunk for the overview's workspace thumbnails: (the
+    /// image's address and the height, the picture).
+    overview_wall: Option<((usize, u32), Arc<helix_draw::Image>)>,
     lock_background: crate::wallpaper::Background,
     /// Bumped when the lock background changes (its blurred copies are
     /// made again).
@@ -768,6 +774,54 @@ fn baseline(text: Option<&Text>, top: i32, height: i32, px: f32) -> f32 {
 /// outline otherwise.
 fn text_field(canvas: &mut Canvas, r: Rect, focused: bool) {
     theme::field(canvas, (r.x, r.y, r.w, r.h), focused, false);
+}
+
+/// The launcher's and the overview's search field: its width and height
+/// (logical px, before the text scale), and where its text starts.
+const SEARCH_W: i32 = 600;
+const SEARCH_H: i32 = 48;
+const SEARCH_TEXT_X: i32 = 46;
+
+/// The part of the launcher's search field that clears it (among the
+/// result rows' indexes).
+const CLEAR_HIT: usize = usize::MAX;
+
+/// Paint a search field at `r` (helix-desktop-spec `components/README.md`,
+/// "Text fields"): a pill with the search symbol at its start, `query`
+/// (else `placeholder`, dimmed) after it at the Entry size, the caret
+/// while `focused`, and a round clear button at its end while there is a
+/// query (in `clear`'s look). Returns where the clear button is.
+fn search_field(canvas: &mut Canvas, text: Option<&Text>, r: Rect, query: &str, placeholder: &str, focused: bool) -> Option<Rect> {
+    search_field_look(canvas, text, r, (query, placeholder), focused, theme::Look::default())
+}
+
+/// [`search_field`] with its clear button in `clear`'s look.
+fn search_field_look(canvas: &mut Canvas, text: Option<&Text>, r: Rect, (query, placeholder): (&str, &str), focused: bool, clear: theme::Look) -> Option<Rect> {
+    theme::field(canvas, (r.x, r.y, r.w, r.h), focused, true);
+    let cy = f64::from(r.y) + f64::from(r.h) / 2.0;
+    theme::search_symbol(canvas, f64::from(r.x) + 24.0, cy, 16.0, if query.is_empty() { DIM_FG } else { FG });
+    let tx = r.x + SEARCH_TEXT_X;
+    let d = r.h - 16;
+    let room = (r.w - SEARCH_TEXT_X - d - 16) as f32;
+    let base = baseline(text, r.y, r.h, size::ENTRY);
+    if query.is_empty() {
+        // Room for the caret before the placeholder.
+        label(text, canvas, placeholder, (tx + if focused { 6 } else { 0 }) as f32, base, size::ENTRY, hint_text(), room);
+    } else {
+        label(text, canvas, query, tx as f32, base, size::ENTRY, FG, room);
+    }
+    if focused {
+        let x = tx + text.map_or(0.0, |t| t.width(query, size::ENTRY).min(room)) as i32 + 1;
+        caret(canvas, r, x, size::ENTRY);
+    }
+    if query.is_empty() {
+        return None;
+    }
+    let (bx, by) = (r.x + r.w - 8 - d, r.y + 8);
+    let (ccx, ccy) = (f64::from(bx) + f64::from(d) / 2.0, f64::from(by) + f64::from(d) / 2.0);
+    theme::round_flat(canvas, ccx, ccy, f64::from(d), clear, false);
+    theme::close_symbol(canvas, ccx, ccy, 10.0, if clear.hovered || clear.pressed { FG } else { DIM_FG });
+    Some(Rect { x: bx, y: by, w: d, h: d })
 }
 
 /// The caret at `x`, the height of a line of `px` text in field `r`.
@@ -1287,6 +1341,7 @@ impl Ui {
             output: None,
             hover: None,
             pressed: None,
+            clear: None,
         });
         if notify {
             let _ = self.requests.send(UiRequest::Overview(true));
@@ -1818,6 +1873,10 @@ impl Ui {
         self.panel.set_size(0, panel_height());
         self.panel.set_exclusive_zone(panel_height() as i32);
         self.panel.commit();
+        if let Some(o) = self.overview.as_ref() {
+            o.layer.set_margin(panel_height() as i32, 0, 0, 0);
+            o.layer.commit();
+        }
         if let Some(data) = self.banner.as_ref().map(|b| b.data.clone()) {
             self.show_banner(Some(data));
         }
@@ -2067,26 +2126,15 @@ impl Ui {
         // Lengths that hold text grow with the text scale.
         let grow = helix_draw::theme::grow;
         let row_h = grow(ROW_H);
-        let bw = grow(600).min(w as i32 - 48);
+        let bw = grow(SEARCH_W).min(w as i32 - 48);
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 / 6).max(panel_height() as i32 + 24);
 
         // Search field.
-        let field = Rect { x: bx, y: by, w: bw, h: grow(48) };
-        text_field(&mut canvas, field, true);
-        let (q_text, q_color) = if view.model.query.is_empty() {
-            (view.model.folder_name().unwrap_or(tr("Type to search…")), hint_text())
-        } else {
-            (view.model.query.as_str(), FG)
-        };
-        let base = baseline(self.text.as_ref(), field.y, field.h, size::ENTRY);
-        // Leave room for the caret before the placeholder.
-        let text_x = if view.model.query.is_empty() { bx + 22 } else { bx + 16 };
-        label(self.text.as_ref(), &mut canvas, q_text, text_x as f32, base, size::ENTRY, q_color, (bw - 40) as f32);
-        if let Some(text) = &self.text {
-            let caret_x = bx + 16 + text.width(&view.model.query, size::ENTRY) as i32 + 1;
-            canvas.rect(caret_x, field.y + field.h * 13 / 48, 2, field.h - field.h * 26 / 48, accent());
-        }
+        let field = Rect { x: bx, y: by, w: bw, h: grow(SEARCH_H) };
+        let placeholder = view.model.folder_name().unwrap_or(tr("Type to search…"));
+        let clear_look = theme::Look { hovered: view.hover == Some(CLEAR_HIT), pressed: view.pressed == Some(CLEAR_HIT), ..Default::default() };
+        view.clear = search_field_look(&mut canvas, self.text.as_ref(), field, (&view.model.query, placeholder), true, clear_look);
 
         // An empty search: the app grid.
         if view.model.query.is_empty() {
@@ -3757,6 +3805,7 @@ pub fn run(
         backgrounds: Vec::new(),
         background_pool: None,
         desktop_background: Default::default(),
+        overview_wall: None,
         lock_background: Default::default(),
         lock_background_serial: 0,
         window_geometry: HashMap::new(),
@@ -4366,12 +4415,18 @@ impl Ui {
                 return false;
             }
             let row = view.rows.iter().find(|(r, _)| r.contains(x, y)).map(|(_, i)| *i);
+            let row = row.or_else(|| view.clear.filter(|c| c.contains(x, y)).map(|_| CLEAR_HIT));
             if pressed_left && row.is_none() && !view.content.contains(x, y) {
                 self.close_launcher(true);
                 return true;
             }
             let out = press::track(&mut view.hover, &mut view.pressed, kind, row);
-            if let Some(result) = out.click {
+            if out.click == Some(CLEAR_HIT) {
+                view.model.set_query("");
+                view.hover = None;
+                self.search_changed();
+                self.draw_launcher();
+            } else if let Some(result) = out.click {
                 view.model.selected = result;
                 self.launch_selected();
             } else if out.redraw {
