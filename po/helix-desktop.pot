@@ -1874,6 +1874,12 @@ msgstr ""
 msgid "Shuffle"
 msgstr ""
 
+#. Translators: a calendar day read out by screen readers (GLib DateTime format): "14 November 2026".
+#: crates/helix-shell/src/ui/atspi.rs:626
+msgctxt "calendar day for screen readers"
+msgid "%e %B %Y"
+msgstr ""
+
 #: crates/helix-shell/src/ui/break_screen.rs:64
 msgid "Delay"
 msgstr ""
@@ -1984,6 +1990,22 @@ msgstr ""
 
 #: crates/helix-shell/src/ui/capture.rs:307
 msgid "Start Recording"
+msgstr ""
+
+#: crates/helix-shell/src/ui/click_type.rs:13
+msgid "Double"
+msgstr ""
+
+#: crates/helix-shell/src/ui/click_type.rs:13
+msgid "Drag"
+msgstr ""
+
+#: crates/helix-shell/src/ui/click_type.rs:13
+msgid "Secondary"
+msgstr ""
+
+#: crates/helix-shell/src/ui/click_type.rs:13
+msgid "Single"
 msgstr ""
 
 #: crates/helix-shell/src/ui/dock.rs:1444

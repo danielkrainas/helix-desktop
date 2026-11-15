@@ -620,9 +620,10 @@ pub(super) fn playback_name(command: crate::shell_keys::Playback, playing: bool)
 
 /// A calendar day in words, e.g. "14 November 2026".
 fn day_name(y: i32, m: i32, d: i32) -> String {
-    const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    let month = usize::try_from(m - 1).ok().and_then(|i| MONTHS.get(i)).copied().unwrap_or("");
-    format!("{d} {month} {y}")
+    let Ok(day) = gio::glib::DateTime::from_utc(y, m, d, 12, 0, 0.0) else { return String::new() };
+    // Translators: a calendar day read out by screen readers (GLib
+    // DateTime format): "14 November 2026".
+    helix_i18n::format_date(&day, &helix_i18n::trc("calendar day for screen readers", "%e %B %Y"))
 }
 
 #[cfg(test)]

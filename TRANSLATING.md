@@ -75,16 +75,20 @@ checking mirrored layouts, never a translation, and is never installed.
 
 ## Testing layouts
 
-The shell's, lock screen's and greeter's render galleries draw in the
-locale of the environment they run in:
+The shell's, lock screen's and greeter's locale galleries draw in the
+locale of the environment they run in (`HELIX_GALLERY_TAG` names the
+files `locale-<tag>-…`):
 
     tools/i18n/make-test-rtl.sh /tmp/helix-locale
     localedef -i he_IL -f UTF-8 /tmp/helix-locpath/he_IL.UTF-8   # if he_IL is not installed
-    HELIX_LOCALEDIR=/tmp/helix-locale LOCPATH=/tmp/helix-locpath LANGUAGE=he LANG=he_IL.UTF-8 \
-    HELIX_SHELL_RENDER_DIR=/tmp/renders cargo test -p helix-shell --lib ui::gallery -- --ignored --test-threads=1
+    export HELIX_LOCALEDIR=/tmp/helix-locale LOCPATH=/tmp/helix-locpath LANGUAGE=he LANG=he_IL.UTF-8 HELIX_GALLERY_TAG=he
+    HELIX_SHELL_RENDER_DIR=/tmp/renders HELIX_LOCK_RENDER_DIR=/tmp/renders \
+        cargo test -p helix-shell --lib locale -- --ignored --test-threads=1
+    HELIX_GREETER_PNG_DIR=/tmp/renders cargo test -p helix-greeter locale -- --ignored
 
-(`HELIX_LOCK_RENDER_DIR` for `ui::lock::tests::gallery`,
-`HELIX_GREETER_RENDER_DIR` for the greeter's `paint::tests`.)
+(`ui::gallery::locale`, `ui::lock::tests::locale_gallery` and the
+greeter's `paint::tests::locale`.) For a language with a translation,
+build its catalogue with `msgfmt` into the same directory layout instead.
 
 ## For developers
 

@@ -10,7 +10,7 @@ const GAP: i32 = 6;
 pub(super) const NAMESPACE: &str = "helix-click-type";
 
 /// The types, as the compositor names them, and their labels.
-pub(super) const TYPES: [(&str, &str); 4] = [("single", "Single"), ("double", "Double"), ("drag", "Drag"), ("secondary", "Secondary")];
+pub(super) const TYPES: [(&str, &str); 4] = [("single", helix_i18n::n_("Single")), ("double", helix_i18n::n_("Double")), ("drag", helix_i18n::n_("Drag")), ("secondary", helix_i18n::n_("Secondary"))];
 
 pub(super) struct ClickTypeWindow {
     layer: LayerSurface,
@@ -85,6 +85,7 @@ impl Ui {
                 let text = self.text.as_ref();
                 view.hits.clear();
                 for (i, (name, label_text)) in TYPES.iter().enumerate() {
+                    let label_text = helix_i18n::tr(label_text);
                     let r = Rect { x: GAP, y: GAP + i as i32 * (BUTTON_H + GAP), w: BUTTON_W, h: BUTTON_H };
                     let current = self.click_type.current == *name;
                     canvas.rect(r.x, r.y, r.w, r.h, if current { accent_fill() } else { FIELD_BG });

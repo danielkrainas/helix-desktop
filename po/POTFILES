@@ -45,6 +45,7 @@ crates/helix-shell/src/ui/atspi.rs
 crates/helix-shell/src/ui/break_screen.rs
 crates/helix-shell/src/ui/calendar.rs
 crates/helix-shell/src/ui/capture.rs
+crates/helix-shell/src/ui/click_type.rs
 crates/helix-shell/src/ui/dock.rs
 crates/helix-shell/src/ui/extensions_dialog.rs
 crates/helix-shell/src/ui/gallery.rs
