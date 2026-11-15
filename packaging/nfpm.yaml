@@ -55,6 +55,19 @@ contents:
     dst: /usr/share/xdg-desktop-portal/helix-portals.conf
   - src: ./stage/usr/lib/systemd/user/helix-session.target
     dst: /usr/lib/systemd/user/helix-session.target
+  # systemd-oomd spares these (session/systemd/oomd-avoid.units).
+  - src: ./stage/usr/lib/systemd/user/dbus.service.d/50-helix-oomd-avoid.conf
+    dst: /usr/lib/systemd/user/dbus.service.d/50-helix-oomd-avoid.conf
+  - src: ./stage/usr/lib/systemd/user/dbus-broker.service.d/50-helix-oomd-avoid.conf
+    dst: /usr/lib/systemd/user/dbus-broker.service.d/50-helix-oomd-avoid.conf
+  - src: ./stage/usr/lib/systemd/user/at-spi-dbus-bus.service.d/50-helix-oomd-avoid.conf
+    dst: /usr/lib/systemd/user/at-spi-dbus-bus.service.d/50-helix-oomd-avoid.conf
+  - src: ./stage/usr/lib/systemd/user/xdg-desktop-portal.service.d/50-helix-oomd-avoid.conf
+    dst: /usr/lib/systemd/user/xdg-desktop-portal.service.d/50-helix-oomd-avoid.conf
+  - src: ./stage/usr/lib/systemd/user/xdg-document-portal.service.d/50-helix-oomd-avoid.conf
+    dst: /usr/lib/systemd/user/xdg-document-portal.service.d/50-helix-oomd-avoid.conf
+  - src: ./stage/usr/lib/systemd/user/xdg-permission-store.service.d/50-helix-oomd-avoid.conf
+    dst: /usr/lib/systemd/user/xdg-permission-store.service.d/50-helix-oomd-avoid.conf
   - src: ./stage/usr/share/glib-2.0/schemas/org.helix.shell.gschema.xml
     dst: /usr/share/glib-2.0/schemas/org.helix.shell.gschema.xml
   - src: ./stage/usr/share/glib-2.0/schemas/org.helix.extensions.gschema.xml

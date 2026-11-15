@@ -1,0 +1,8 @@
+# User units that get helix-oomd-avoid.conf (packaging/stage.sh installs it
+# as <unit>.d/50-helix-oomd-avoid.conf; packaging/nfpm.yaml lists each).
+dbus.service
+dbus-broker.service
+at-spi-dbus-bus.service
+xdg-desktop-portal.service
+xdg-document-portal.service
+xdg-permission-store.service
