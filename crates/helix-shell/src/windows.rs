@@ -355,6 +355,8 @@ pub struct SwitchEntry {
     pub label: String,
     /// Shown dimmed on the right.
     pub detail: String,
+    /// How many windows it stands for (an application's; 1 otherwise).
+    pub count: usize,
 }
 
 /// An open switcher.
@@ -394,7 +396,7 @@ impl Switcher {
             .iter()
             .filter(|e| only.is_none_or(|w| e.workspace == w || e.workspace == ALL_WORKSPACES))
             .collect();
-        let window = |e: &WindowEntry| SwitchEntry { id: e.id, label: e.label().to_owned(), detail: e.app_id.clone() };
+        let window = |e: &WindowEntry| SwitchEntry { id: e.id, label: e.label().to_owned(), detail: e.app_id.clone(), count: 1 };
         match mode {
             SwitchMode::Windows => {
                 let entries: Vec<SwitchEntry> = pool.iter().copied().map(window).collect();
@@ -427,6 +429,7 @@ impl Switcher {
                         id: e.id,
                         label: names(&e.app_id).unwrap_or_else(|| if e.app_id.is_empty() { e.label().to_owned() } else { e.app_id.clone() }),
                         detail: trnf!("{n} window", "{n} windows", count),
+                        count,
                     })
                     .collect();
                 Self::new(entries, current_first, backward)
@@ -443,7 +446,7 @@ impl Switcher {
             .iter()
             .filter(|e| if app.is_empty() { e.id == window } else { e.app_id == app })
             .filter(|e| only.is_none_or(|w| e.workspace == w || e.workspace == ALL_WORKSPACES))
-            .map(|e| SwitchEntry { id: e.id, label: e.label().to_owned(), detail: e.app_id.clone() })
+            .map(|e| SwitchEntry { id: e.id, label: e.label().to_owned(), detail: e.app_id.clone(), count: 1 })
             .collect();
         (!entries.is_empty()).then_some(Self { entries, selected: 0 })
     }

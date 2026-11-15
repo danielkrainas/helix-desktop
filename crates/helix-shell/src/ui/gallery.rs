@@ -233,6 +233,31 @@ fn hover_and_press() {
     });
 }
 
+/// The application switcher (`switcher-…`): five apps (two with several
+/// windows) with one under the pointer, and fourteen on a 1280×720
+/// screen; in every look.
+#[test]
+#[ignore]
+fn app_switcher() {
+    let Some(dir) = dir() else { return };
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    let ids = [
+        "org.gnome.Nautilus", "firefox", "org.gnome.Terminal", "org.gnome.TextEditor", "org.gnome.Calculator", "org.gnome.Calendar", "org.gnome.Settings", "org.gnome.Software", "org.gnome.clocks", "org.gnome.Weather", "org.gnome.Maps",
+        "org.gnome.Characters", "org.gnome.Logs", "org.gnome.Contacts",
+    ];
+    let names = ["Files", "Firefox", "Terminal", "Text Editor", "Calculator", "Calendar", "Settings", "Software", "Clocks", "Weather", "Maps", "Characters", "Logs", "Contacts"];
+    for (tag, n) in [("5", 5usize), ("14", 14)] {
+        let entries: Vec<SwitchEntry> = (0..n).map(|i| SwitchEntry { id: i as u32 + 1, label: names[i].into(), detail: String::new(), count: if i % 3 == 0 { 2 + i % 2 } else { 1 } }).collect();
+        let switcher = Switcher { entries, selected: 1 };
+        in_looks(&dir, &format!("switcher-{tag}"), (1280, 720), &mut |canvas, (w, h)| {
+            let Some(icon) = app_row_icon(w as i32, n) else { return };
+            let px = (f64::from(icon) * canvas.scale).ceil() as u32;
+            let icons: Vec<Option<helix_draw::Image>> = ids.iter().take(n).map(|id| crate::icons::app_icon(id, px)).collect();
+            paint_app_row(canvas, (text.as_ref(), bold.as_ref()), (w as i32, h as i32), &switcher, &icons, icon, (Some(OverlayHit::Window(3)), None));
+        });
+    }
+}
+
 #[test]
 #[ignore]
 fn dialogs() {

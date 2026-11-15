@@ -1663,6 +1663,7 @@ impl Ui {
                 id: i as u32,
                 label: crate::input_sources::description(&s.1).unwrap_or_else(|| s.1.clone()),
                 detail: s.1.clone(),
+                count: 1,
             })
             .collect();
         let Some(switcher) = Switcher::new(entries, true, backward) else { return };
@@ -1865,6 +1866,25 @@ impl Ui {
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
+        // Applications: a row of large icons, as long as they fit.
+        let apps = self.switcher_mode == Some(SwitchMode::Apps) && matches!(overlay.state.kind, SwitchKind::Windows { apps: None });
+        if let Some(icon) = apps.then(|| app_row_icon(w as i32, overlay.state.switcher.entries.len())).flatten() {
+            let px = (f64::from(icon) * scale).ceil() as u32;
+            let ids: Vec<u32> = overlay.state.switcher.entries.iter().map(|e| e.id).collect();
+            let icons: Vec<Option<helix_draw::Image>> = ids.iter().map(|id| self.window_icon(*id, px)).collect();
+            let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+                return;
+            };
+            let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
+            let state = &overlay.state;
+            overlay.hits = paint_app_row(&mut canvas, (self.text.as_ref(), self.bold.as_ref()), (w as i32, h as i32), &state.switcher, &icons, icon, (state.hover, state.pressed));
+            let surface = overlay.layer.wl_surface();
+            self.scales.prepare(&self.qh, surface, w as i32, h as i32);
+            if buffer.attach_to(surface).is_ok() {
+                overlay.layer.commit();
+            }
+            return;
+        }
         let (shown, first) = {
             let switcher = &overlay.state.switcher;
             let shown = switcher.entries.len().clamp(1, SWITCHER_ROWS);
@@ -4605,6 +4625,81 @@ struct SwitcherState {
     pressed: Option<OverlayHit>,
 }
 
+/// The application switcher's icons: as large as fit `n` of them on a
+/// surface `w` wide, from [`APP_ICON_MAX`] down to [`APP_ICON_MIN`]
+/// (`None`: not even those fit; the list is shown instead).
+fn app_row_icon(w: i32, n: usize) -> Option<i32> {
+    let n = n.max(1) as i32;
+    let room = w - 2 * APP_ROW_MARGIN - 2 * APP_ROW_PAD;
+    let icon = (room / n - APP_ITEM_PAD * 2).min(APP_ICON_MAX);
+    (icon >= APP_ICON_MIN).then_some(icon)
+}
+
+/// The application switcher's icon sizes (logical px), the room around
+/// each icon, inside the box and outside it.
+const APP_ICON_MAX: i32 = 96;
+const APP_ICON_MIN: i32 = 32;
+const APP_ITEM_PAD: i32 = 12;
+const APP_ROW_PAD: i32 = 12;
+const APP_ROW_MARGIN: i32 = 24;
+
+/// Paint the application switcher on a `w`×`h` surface: a rounded box
+/// with a row of `icon`-sized app icons, the selected one in a rounded
+/// highlight, small dots under apps with several windows, the selected
+/// app's name under the row. Returns each entry's place.
+fn paint_app_row(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text>), (w, h): (i32, i32), switcher: &Switcher, icons: &[Option<helix_draw::Image>], icon: i32, (hover, pressed): (Option<OverlayHit>, Option<OverlayHit>)) -> Vec<(Rect, OverlayHit)> {
+    canvas.fill(0x00000000);
+    let n = switcher.entries.len() as i32;
+    let item = icon + 2 * APP_ITEM_PAD;
+    let name_h = helix_draw::theme::grow(40);
+    let bw = n * item + 2 * APP_ROW_PAD;
+    let bh = item + 2 * APP_ROW_PAD + name_h;
+    let (bx, by) = ((w - bw) / 2, (h - bh) / 2);
+    theme::popover(canvas, bx, by, bw, bh);
+    let mut hits = Vec::new();
+    for (i, entry) in switcher.entries.iter().enumerate() {
+        let r = Rect { x: bx + APP_ROW_PAD + i as i32 * item, y: by + APP_ROW_PAD, w: item, h: item };
+        let hit = OverlayHit::Window(entry.id);
+        let selected = i == switcher.selected;
+        // The selection: a light rounded square (Hovered); under the
+        // pointer a fainter one (Control), pressed Pressed.
+        let rect = (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
+        let (hovered, held) = (hover == Some(hit), pressed == Some(hit));
+        if selected || held {
+            theme::control_round(canvas, rect, theme::RADIUS_CARD, theme::Look { hovered: selected, pressed: held, on: false });
+            if helix_draw::high_contrast() && selected {
+                theme::inner_outline(canvas, rect, theme::RADIUS_CARD, 2.0, 0xFFFF_FFFF);
+            }
+        } else if hovered {
+            theme::control_round(canvas, rect, theme::RADIUS_CARD, theme::Look::default());
+        }
+        let (ix, iy) = (f64::from(r.x + APP_ITEM_PAD), f64::from(r.y + APP_ITEM_PAD));
+        match icons.get(i).and_then(Option::as_ref) {
+            Some(image) => canvas.image(ix, iy, f64::from(icon), f64::from(icon), image),
+            None => theme::control_round(canvas, (ix + 4.0, iy + 4.0, f64::from(icon - 8), f64::from(icon - 8)), theme::RADIUS_CARD, theme::Look::default()),
+        }
+        // Several windows: a dot for each (at most four) under the icon.
+        if entry.count > 1 {
+            let dots = entry.count.min(4) as i32;
+            let (gap, d) = (7, 4.0);
+            let x0 = f64::from(r.x + r.w / 2) - f64::from((dots - 1) * gap) / 2.0;
+            for k in 0..dots {
+                canvas.circle(x0 + f64::from(k * gap), f64::from(r.y + r.h - APP_ITEM_PAD / 2), d / 2.0, FG);
+            }
+        }
+        hits.push((r, hit));
+    }
+    // The selected app's name under the row.
+    if let Some(entry) = switcher.entries.get(switcher.selected) {
+        let face = bold.or(text);
+        let room = (bw - 24) as f32;
+        let tw = face.map_or(0.0, |t| t.width(&entry.label, size::BODY)).min(room);
+        let top = by + APP_ROW_PAD + item;
+        label(face, canvas, &entry.label, bx as f32 + (bw as f32 - tw) / 2.0, baseline(face, top, name_h, size::BODY), size::BODY, FG, room);
+    }
+    hits
+}
+
 /// Window switcher tiles: the picture area and the title below.
 const THUMB_W: i32 = 168;
 const THUMB_H: i32 = 108;
@@ -4816,6 +4911,28 @@ mod tests {
     fn end(blockers: usize) -> DialogKind {
         let blockers = (0..blockers).map(|i| (format!("App {i}"), String::new())).collect();
         DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers, install: None, upgrade: None })
+    }
+
+    /// The application switcher shows as icons as long as they fit (12
+    /// and more on a 1280 px screen), shrinking; each entry is placed on
+    /// the surface, in order.
+    #[test]
+    fn app_switcher_row() {
+        assert_eq!(app_row_icon(1920, 5), Some(APP_ICON_MAX));
+        let twelve = app_row_icon(1280, 12).expect("12 apps fit at 1280");
+        assert!(twelve >= 64, "{twelve}");
+        assert!(app_row_icon(1280, 20).is_some_and(|i| i >= APP_ICON_MIN));
+        assert_eq!(app_row_icon(1280, 40), None, "the list instead");
+        let entries: Vec<SwitchEntry> = (0..14).map(|i| SwitchEntry { id: 100 + i, label: format!("App {i}"), detail: String::new(), count: 1 + i as usize % 3 }).collect();
+        let switcher = Switcher { entries, selected: 3 };
+        let icon = app_row_icon(1280, 14).unwrap();
+        let mut data = vec![0u8; 1280 * 720 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 1280, 720, 1.0);
+        let hits = paint_app_row(&mut canvas, (None, None), (1280, 720), &switcher, &[], icon, (None, None));
+        assert_eq!(hits.len(), 14);
+        assert!(hits.windows(2).all(|p| p[0].0.x + p[0].0.w <= p[1].0.x), "left to right");
+        assert!(hits.iter().all(|(r, _)| r.x >= 0 && r.x + r.w <= 1280), "on the screen");
+        assert_eq!(hits[3].1, OverlayHit::Window(103));
     }
 
     #[test]
