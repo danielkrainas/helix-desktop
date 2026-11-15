@@ -8,6 +8,7 @@ use std::sync::RwLock;
 
 use gio::glib::DateTime;
 use gio::prelude::*;
+use helix_i18n::{trc, trf};
 
 pub const SCHEMA: &str = "org.gnome.desktop.interface";
 
@@ -71,33 +72,45 @@ fn format(d: &DateTime, pattern: &str) -> String {
     d.format(pattern).map(|s| s.split_whitespace().collect::<Vec<_>>().join(" ")).unwrap_or_default()
 }
 
-/// The time of day: "14:05" or "2:05 PM", with seconds when asked.
-pub fn time_pattern(f: ClockFormat, seconds: bool) -> &'static str {
+/// The time of day: "14:05" or "2:05 PM", with seconds when asked. The
+/// patterns are translatable (GLib `DateTime::format`), so a language
+/// can write its own AM/PM order or separators.
+pub fn time_pattern(f: ClockFormat, seconds: bool) -> String {
     match (f.twelve_hour, seconds) {
-        (false, false) => "%H:%M",
-        (false, true) => "%H:%M:%S",
-        (true, false) => "%l:%M %p",
-        (true, true) => "%l:%M:%S %p",
+        // Translators: a time in 24-hour format (GLib DateTime format).
+        (false, false) => trc("24-hour time", "%H:%M"),
+        // Translators: a time in 24-hour format with seconds.
+        (false, true) => trc("24-hour time with seconds", "%H:%M:%S"),
+        // Translators: a time in 12-hour format; %l is the hour without
+        // padding, %p AM or PM in the locale's words.
+        (true, false) => trc("12-hour time", "%l:%M %p"),
+        // Translators: a time in 12-hour format with seconds.
+        (true, true) => trc("12-hour time with seconds", "%l:%M:%S %p"),
     }
 }
 
 /// A time of day as the user wants times written (no seconds).
 pub fn time_of_day(f: ClockFormat, d: &DateTime) -> String {
-    format(d, time_pattern(f, false))
+    format(d, &time_pattern(f, false))
 }
 
 /// The top bar's clock: [weekday] [month day] time, e.g.
-/// "Thu Nov 12 2:05 PM".
+/// "Thu Nov 12 2:05 PM" (the date part is translatable, so each language
+/// orders day and month its own way).
 pub fn top_bar(f: ClockFormat, d: &DateTime) -> String {
-    let mut pattern = String::new();
-    if f.weekday {
-        pattern.push_str("%a ");
-    }
-    if f.date {
-        pattern.push_str("%b %e ");
-    }
-    pattern.push_str(time_pattern(f, f.seconds));
-    format(d, &pattern)
+    let time = format(d, &time_pattern(f, f.seconds));
+    let date = match (f.weekday, f.date) {
+        // Translators: the top bar clock's date with the weekday (GLib
+        // DateTime format): "Thu Nov 12".
+        (true, true) => trc("top bar date with weekday", "%a %b %e"),
+        // Translators: the top bar clock's date: "Nov 12".
+        (false, true) => trc("top bar date", "%b %e"),
+        // Translators: the top bar clock's weekday: "Thu".
+        (true, false) => trc("top bar weekday", "%a"),
+        (false, false) => return time,
+    };
+    // Translators: the top bar clock: a date part and the time.
+    trf!("{date} {time}", date = format(d, &date), time = time)
 }
 
 /// The lock screen's big clock: the time only, without seconds.
@@ -109,16 +122,20 @@ pub fn lock_screen(f: ClockFormat, d: &DateTime) -> String {
 /// format the AM/PM suffix (drawn smaller).
 pub fn lock_screen_parts(f: ClockFormat, d: &DateTime) -> (String, Option<String>) {
     if f.twelve_hour {
-        (format(d, "%l:%M"), Some(format(d, "%p")).filter(|s| !s.is_empty()))
+        // Translators: the lock screen's clock digits in 12-hour format
+        // (the AM/PM suffix is drawn apart, with %p).
+        (format(d, &trc("lock screen 12-hour time", "%l:%M")), Some(format(d, "%p")).filter(|s| !s.is_empty()))
     } else {
-        (format(d, "%H:%M"), None)
+        (format(d, &trc("24-hour time", "%H:%M")), None)
     }
 }
 
 /// The lock screen's date line, e.g. "Thursday, November 12" (names in
-/// the locale's language).
+/// the locale's language, order from the translation).
 pub fn lock_date(d: &DateTime) -> String {
-    format(d, "%A, %B %e")
+    // Translators: the lock screen's date (GLib DateTime format):
+    // "Thursday, November 12".
+    format(d, &trc("lock screen date", "%A, %B %e"))
 }
 
 /// Now, in local time.

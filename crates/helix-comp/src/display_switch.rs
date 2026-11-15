@@ -27,10 +27,11 @@ pub const ORDER: [SwitchMode; 4] = [SwitchMode::Mirror, SwitchMode::Join, Switch
 impl SwitchMode {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Mirror => "Mirror",
-            Self::Join => "Join Displays",
-            Self::External => "External Only",
-            Self::Builtin => "Built-in Only",
+            // Translators: display modes shown when switching (Super+P).
+            Self::Mirror => helix_i18n::n_("Mirror"),
+            Self::Join => helix_i18n::n_("Join Displays"),
+            Self::External => helix_i18n::n_("External Only"),
+            Self::Builtin => helix_i18n::n_("Built-in Only"),
         }
     }
 

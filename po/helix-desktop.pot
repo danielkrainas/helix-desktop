@@ -15,6 +15,23 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
+#. Translators: display modes shown when switching (Super+P).
+#: crates/helix-comp/src/display_switch.rs:31
+msgid "Mirror"
+msgstr ""
+
+#: crates/helix-comp/src/display_switch.rs:32
+msgid "Join Displays"
+msgstr ""
+
+#: crates/helix-comp/src/display_switch.rs:33
+msgid "External Only"
+msgstr ""
+
+#: crates/helix-comp/src/display_switch.rs:34
+msgid "Built-in Only"
+msgstr ""
+
 #: crates/helix-greeter/src/app.rs:398
 msgid "No sessions are installed."
 msgstr ""
@@ -87,7 +104,7 @@ msgstr ""
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 #: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1263 crates/helix-shell/src/lib.rs:1351
+#: crates/helix-shell/src/lib.rs:1266 crates/helix-shell/src/lib.rs:1354
 #: crates/helix-shell/src/mount_handler.rs:125
 #: crates/helix-shell/src/mount_handler.rs:139
 #: crates/helix-shell/src/mount_handler.rs:174
@@ -483,7 +500,7 @@ msgid "This code is not valid."
 msgstr ""
 
 #: crates/helix-shell/src/bluetooth_agent.rs:124
-#: crates/helix-shell/src/lib.rs:1077 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/lib.rs:1080 crates/helix-shell/src/obex.rs:478
 #: crates/helix-shell/src/panel_layout.rs:219
 #: crates/helix-shell/src/ui/quick.rs:329
 msgid "Bluetooth"
@@ -513,6 +530,65 @@ msgstr ""
 msgid "{name} wants to connect to this computer."
 msgstr ""
 
+#. Translators: a time in 24-hour format (GLib DateTime format).
+#: crates/helix-shell/src/clock.rs:81 crates/helix-shell/src/clock.rs:129
+msgctxt "24-hour time"
+msgid "%H:%M"
+msgstr ""
+
+#. Translators: a time in 24-hour format with seconds.
+#: crates/helix-shell/src/clock.rs:83
+msgctxt "24-hour time with seconds"
+msgid "%H:%M:%S"
+msgstr ""
+
+#. Translators: a time in 12-hour format; %l is the hour without padding, %p AM or PM in the locale's words.
+#: crates/helix-shell/src/clock.rs:86
+msgctxt "12-hour time"
+msgid "%l:%M %p"
+msgstr ""
+
+#. Translators: a time in 12-hour format with seconds.
+#: crates/helix-shell/src/clock.rs:88
+msgctxt "12-hour time with seconds"
+msgid "%l:%M:%S %p"
+msgstr ""
+
+#. Translators: the top bar clock's date with the weekday (GLib DateTime format): "Thu Nov 12".
+#: crates/helix-shell/src/clock.rs:105
+msgctxt "top bar date with weekday"
+msgid "%a %b %e"
+msgstr ""
+
+#. Translators: the top bar clock's date: "Nov 12".
+#: crates/helix-shell/src/clock.rs:107
+msgctxt "top bar date"
+msgid "%b %e"
+msgstr ""
+
+#. Translators: the top bar clock's weekday: "Thu".
+#: crates/helix-shell/src/clock.rs:109
+msgctxt "top bar weekday"
+msgid "%a"
+msgstr ""
+
+#. Translators: the top bar clock: a date part and the time.
+#: crates/helix-shell/src/clock.rs:113
+msgid "{date} {time}"
+msgstr ""
+
+#. Translators: the lock screen's clock digits in 12-hour format (the AM/PM suffix is drawn apart, with %p).
+#: crates/helix-shell/src/clock.rs:127
+msgctxt "lock screen 12-hour time"
+msgid "%l:%M"
+msgstr ""
+
+#. Translators: the lock screen's date (GLib DateTime format): "Thursday, November 12".
+#: crates/helix-shell/src/clock.rs:138
+msgctxt "lock screen date"
+msgid "%A, %B %e"
+msgstr ""
+
 #: crates/helix-shell/src/dock.rs:513 crates/helix-shell/src/windows.rs:429
 msgid "{n} window"
 msgid_plural "{n} windows"
@@ -534,9 +610,11 @@ msgstr ""
 msgid "Untitled"
 msgstr ""
 
-#: crates/helix-shell/src/dock.rs:537 crates/helix-shell/src/ui/calendar.rs:356
-msgid "{} more"
-msgstr ""
+#: crates/helix-shell/src/dock.rs:537 crates/helix-shell/src/ui/calendar.rs:359
+msgid "{n} more"
+msgid_plural "{n} more"
+msgstr[0] ""
+msgstr[1] ""
 
 #: crates/helix-shell/src/ext_host/manifest.rs:12
 msgid "show notifications"
@@ -706,53 +784,53 @@ msgstr ""
 msgid "More"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:933
+#: crates/helix-shell/src/lib.rs:936
 msgid "Nothing was turned off or restarted. {err}"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:933
+#: crates/helix-shell/src/lib.rs:936
 msgid "Software"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:933
+#: crates/helix-shell/src/lib.rs:936
 msgid "Updates could not be scheduled"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1077
+#: crates/helix-shell/src/lib.rs:1080
 msgid "Cannot pair with {name}"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1164
+#: crates/helix-shell/src/lib.rs:1167
 #: crates/helix-shell/src/panel_layout.rs:221
 #: crates/helix-shell/src/ui/quick.rs:335
 msgid "Auto Rotate"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1164
+#: crates/helix-shell/src/lib.rs:1167
 msgid "Rotation Locked"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1260
+#: crates/helix-shell/src/lib.rs:1263
 msgid "Rename Folder"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1261
+#: crates/helix-shell/src/lib.rs:1264
 msgid "Folder name"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1262
+#: crates/helix-shell/src/lib.rs:1265
 msgid "Rename"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1348
+#: crates/helix-shell/src/lib.rs:1351
 msgid "Empty Trash?"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1349
+#: crates/helix-shell/src/lib.rs:1352
 msgid "All items in the Trash will be permanently deleted."
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1350 crates/helix-shell/src/ui/dock.rs:1461
+#: crates/helix-shell/src/lib.rs:1353 crates/helix-shell/src/ui/dock.rs:1461
 msgid "Empty Trash"
 msgstr ""
 
@@ -1700,7 +1778,7 @@ msgid "Previous Month"
 msgstr ""
 
 #: crates/helix-shell/src/ui/atspi.rs:492
-#: crates/helix-shell/src/ui/calendar.rs:342
+#: crates/helix-shell/src/ui/calendar.rs:345
 msgid "No Events"
 msgstr ""
 
@@ -1803,32 +1881,61 @@ msgstr ""
 msgid "Skip"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:116
-#: crates/helix-shell/src/ui/calendar.rs:347
+#. Translators: a month and year heading (GLib DateTime format).
+#: crates/helix-shell/src/ui/calendar.rs:108
+#: crates/helix-shell/src/ui/calendar.rs:277
+msgctxt "month and year"
+msgid "%OB %Y"
+msgstr ""
+
+#: crates/helix-shell/src/ui/calendar.rs:117
+#: crates/helix-shell/src/ui/calendar.rs:350
 msgid "All Day"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:332
+#: crates/helix-shell/src/ui/calendar.rs:271
+msgctxt "calendar today weekday"
+msgid "%A"
+msgstr ""
+
+#. Translators: today's date over the calendar (GLib DateTime format).
+#: crates/helix-shell/src/ui/calendar.rs:273
+msgctxt "calendar today"
+msgid "%B %e %Y"
+msgstr ""
+
+#: crates/helix-shell/src/ui/calendar.rs:334
 msgid "Today"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:333
+#: crates/helix-shell/src/ui/calendar.rs:335
 msgid "Tomorrow"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:364
+#. Translators: the day whose events are listed (GLib DateTime format).
+#: crates/helix-shell/src/ui/calendar.rs:337
+msgctxt "calendar day"
+msgid "%A, %B %e"
+msgstr ""
+
+#: crates/helix-shell/src/ui/calendar.rs:367
 msgid "World Clocks"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:383
+#. Translators: a forecast hour on another day: weekday and time.
+#: crates/helix-shell/src/ui/calendar.rs:373
+msgid "{weekday} {time}"
+msgstr ""
+
+#: crates/helix-shell/src/ui/calendar.rs:387
 msgid "Weather"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:404
+#: crates/helix-shell/src/ui/calendar.rs:408
 msgid "Weather unavailable"
 msgstr ""
 
-#: crates/helix-shell/src/ui/calendar.rs:414
+#: crates/helix-shell/src/ui/calendar.rs:418
 msgid "Unknown Title"
 msgstr ""
 
@@ -2270,7 +2377,22 @@ msgstr ""
 msgid "Unknown"
 msgstr ""
 
-#: crates/helix-shell/src/weather.rs:124
+#. Translators: a temperature in degrees Celsius.
+#: crates/helix-shell/src/weather.rs:88
+msgid "{}°C"
+msgstr ""
+
+#. Translators: a temperature in degrees Fahrenheit.
+#: crates/helix-shell/src/weather.rs:90
+msgid "{}°F"
+msgstr ""
+
+#. Translators: a temperature in kelvins.
+#: crates/helix-shell/src/weather.rs:92
+msgid "{} K"
+msgstr ""
+
+#: crates/helix-shell/src/weather.rs:127
 msgid "Current Location"
 msgstr ""
 

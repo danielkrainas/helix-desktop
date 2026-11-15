@@ -9,7 +9,7 @@ use super::notify::ListHit;
 use super::*;
 use crate::calendar::CalendarData;
 use crate::shell_keys::Playback;
-use helix_i18n::tr;
+use helix_i18n::{tr, trc};
 use helix_i18n::trf;
 
 /// The column's width: it grows with the text scale.
@@ -104,7 +104,8 @@ impl CalendarState {
 
     /// The month shown in words ("November 2026").
     pub(super) fn month_title(&self) -> String {
-        local_date(self.month.0, self.month.1, 1).map(|d| fmt(&d, "%B %Y")).unwrap_or_default()
+        // Translators: a month and year heading (GLib DateTime format).
+        local_date(self.month.0, self.month.1, 1).map(|d| fmt(&d, &trc("month and year", "%OB %Y"))).unwrap_or_default()
     }
 
     /// The selected day's events as read out: "All Day: Holiday",
@@ -267,12 +268,13 @@ pub(super) fn paint_calendar(
     let inner = cal_w() - 2 * PAD;
     let mut y = y;
     // Today.
-    label(text, canvas, &fmt(&now, "%A"), (x + PAD) as f32, (y + grow(20)) as f32, 13.0, DIM_FG, inner as f32);
-    label(bold.or(text), canvas, &fmt(&now, "%B %e %Y"), (x + PAD) as f32, (y + grow(44)) as f32, 18.0, FG, inner as f32);
+    label(text, canvas, &fmt(&now, &trc("calendar today weekday", "%A")), (x + PAD) as f32, (y + grow(20)) as f32, 13.0, DIM_FG, inner as f32);
+    // Translators: today's date over the calendar (GLib DateTime format).
+    label(bold.or(text), canvas, &fmt(&now, &trc("calendar today", "%B %e %Y")), (x + PAD) as f32, (y + grow(44)) as f32, 18.0, FG, inner as f32);
     y += grow(HEADER_H);
     // The month and its buttons.
     if let Some(first) = local_date(cal.month.0, cal.month.1, 1) {
-        label(bold.or(text), canvas, &fmt(&first, "%B %Y"), (x + PAD) as f32, baseline(text, y, grow(MONTH_H), 14.0), 14.0, FG, (inner - 70) as f32);
+        label(bold.or(text), canvas, &fmt(&first, &trc("month and year", "%OB %Y")), (x + PAD) as f32, baseline(text, y, grow(MONTH_H), 14.0), 14.0, FG, (inner - 70) as f32);
     }
     for (i, (glyph, delta)) in [("‹", -1), ("›", 1)].into_iter().enumerate() {
         let r = Rect { x: x + cal_w() - PAD - 64 + i as i32 * 34, y: y + 2, w: 30, h: grow(MONTH_H) - 4 };
@@ -331,7 +333,8 @@ pub(super) fn paint_calendar(
     let heading = match local_date(sy, sm, sd) {
         Some(day) if day.ymd() == today => tr("Today").to_owned(),
         Some(day) if now.add_days(1).is_ok_and(|t| t.ymd() == day.ymd()) => tr("Tomorrow").to_owned(),
-        Some(day) => fmt(&day, "%A, %B %e"),
+        // Translators: the day whose events are listed (GLib DateTime format).
+        Some(day) => fmt(&day, &trc("calendar day", "%A, %B %e")),
         None => String::new(),
     };
     canvas.rect(x + PAD, y, inner, 1, BANNER_BORDER);
@@ -353,7 +356,7 @@ pub(super) fn paint_calendar(
         y += grow(LINE_H);
     }
     if events.len() > MAX_EVENTS {
-        label(text, canvas, &trf!("{} more", events.len() - MAX_EVENTS), (x + PAD + grow(62)) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
+        label(text, canvas, &helix_i18n::trnf!("{n} more", "{n} more", events.len() - MAX_EVENTS), (x + PAD + grow(62)) as f32, (y + grow(16)) as f32, 13.0, DIM_FG, inner as f32);
         y += grow(LINE_H);
     }
     let Some(data) = &cal.data else { return };
@@ -366,7 +369,8 @@ pub(super) fn paint_calendar(
         for (name, zone) in &data.clocks {
             let there = crate::ical::zone(zone).and_then(|tz| DateTime::now(&tz).ok());
             let time = match &there {
-                Some(t) if t.ymd() != today => format!("{} {}", fmt(t, "%a"), crate::clock::time_of_day(crate::clock::current(), t)),
+                // Translators: a forecast hour on another day: weekday and time.
+                Some(t) if t.ymd() != today => trf!("{weekday} {time}", weekday = fmt(t, "%a"), time = crate::clock::time_of_day(crate::clock::current(), t)),
                 Some(t) => crate::clock::time_of_day(crate::clock::current(), t),
                 None => String::new(),
             };

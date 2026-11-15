@@ -1351,6 +1351,7 @@ dependencies = [
  "futures-util",
  "gio",
  "helix-draw",
+ "helix-i18n",
  "helix-protocols",
  "helix-session",
  "helix-settings",

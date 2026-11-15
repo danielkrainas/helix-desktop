@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use gio::prelude::*;
-use helix_i18n::tr;
+use helix_i18n::{tr, trf};
 
 const SCHEMA: &str = "org.gnome.shell.weather";
 const GWEATHER: &str = "org.gnome.GWeather4";
@@ -84,9 +84,12 @@ pub enum Unit {
 /// Whole degrees in `unit`.
 pub fn temperature_text(celsius: f64, unit: Unit) -> String {
     match unit {
-        Unit::Celsius => format!("{}°C", celsius.round() as i64),
-        Unit::Fahrenheit => format!("{}°F", (celsius * 9.0 / 5.0 + 32.0).round() as i64),
-        Unit::Kelvin => format!("{} K", (celsius + 273.15).round() as i64),
+        // Translators: a temperature in degrees Celsius.
+        Unit::Celsius => trf!("{}°C", celsius.round() as i64),
+        // Translators: a temperature in degrees Fahrenheit.
+        Unit::Fahrenheit => trf!("{}°F", (celsius * 9.0 / 5.0 + 32.0).round() as i64),
+        // Translators: a temperature in kelvins.
+        Unit::Kelvin => trf!("{} K", (celsius + 273.15).round() as i64),
     }
 }
 

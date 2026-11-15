@@ -135,7 +135,10 @@ impl Osd {
         };
         Self {
             icon: string("icon"),
-            label: string("label"),
+            // Helix's compositor sends its labels in English, marked for
+            // translation; other senders' labels are not in the catalogue
+            // and stay as they are.
+            label: string("label").map(|l| helix_i18n::tr_dyn(&l)),
             level: double("level"),
             max_level: double("max_level").unwrap_or(1.0),
             connector: string("connector"),

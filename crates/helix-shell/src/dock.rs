@@ -534,7 +534,7 @@ pub fn tooltip_lines(name: &str, titles: &[String]) -> Vec<String> {
         out.push(if t.trim().is_empty() { tr("Untitled").into() } else { t.trim().to_owned() });
     }
     if titles.len() > MAX_TITLES {
-        out.push(trf!("{} more", titles.len() - MAX_TITLES));
+        out.push(helix_i18n::trnf!("{n} more", "{n} more", titles.len() - MAX_TITLES));
     }
     out
 }
