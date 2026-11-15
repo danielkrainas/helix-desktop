@@ -110,7 +110,7 @@ pub fn open(item: &DesktopItem) {
         std::process::Command::new("gio").arg("launch").arg(&item.path).spawn().map(drop).map_err(|e| e.to_string())
     } else {
         let uri = gio::File::for_path(&item.path).uri();
-        gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>).map_err(|e| e.to_string())
+        gio::AppInfo::launch_default_for_uri(&uri, Some(&crate::app_scope::context(None))).map_err(|e| e.to_string())
     };
     if let Err(err) = result {
         tracing::warn!(%err, path = %item.path.display(), "cannot open");

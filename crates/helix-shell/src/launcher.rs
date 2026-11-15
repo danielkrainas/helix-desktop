@@ -55,7 +55,7 @@ pub fn launch(id: &str) -> Result<(), String> {
         .into_iter()
         .find(|a| a.id().is_some_and(|i| i == id))
         .ok_or_else(|| format!("no app {id}"))?;
-    info.launch(&[], None::<&gio::AppLaunchContext>)
+    info.launch(&[], Some(&crate::app_scope::context(None)))
         .map_err(|e| e.to_string())?;
     crate::app_usage::record(id);
     Ok(())

@@ -1690,7 +1690,7 @@ impl HostIface {
             use gio::prelude::*;
             let info = gio::AppInfo::all().into_iter().find(|a| a.id().is_some_and(|i| i == desktop_id)).ok_or_else(|| format!("no app {desktop_id}"))?;
             let uris: Vec<&str> = uris.iter().map(String::as_str).collect();
-            info.launch_uris(&uris, None::<&gio::AppLaunchContext>).map_err(|e| e.to_string())
+            info.launch_uris(&uris, Some(&crate::app_scope::context(None))).map_err(|e| e.to_string())
         })
         .await
         .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?

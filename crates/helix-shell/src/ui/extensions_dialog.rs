@@ -60,7 +60,7 @@ pub(super) fn open_in_settings() -> bool {
         return false;
     }
     let app = gio::AppInfo::create_from_commandline(format!("{SETTINGS_APP} extensions"), Some(tr("Settings")), gio::AppInfoCreateFlags::NONE);
-    match app.and_then(|a| gio::prelude::AppInfoExt::launch(&a, &[], None::<&gio::AppLaunchContext>)) {
+    match app.and_then(|a| gio::prelude::AppInfoExt::launch(&a, &[], Some(&crate::app_scope::context(None)))) {
         Ok(()) => true,
         Err(err) => {
             tracing::warn!(%err, "cannot open Settings");

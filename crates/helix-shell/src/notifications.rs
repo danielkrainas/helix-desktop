@@ -574,7 +574,7 @@ impl Center {
 }
 
 pub fn open_uri(uri: &str) {
-    if let Err(err) = gio::AppInfo::launch_default_for_uri(uri, None::<&gio::AppLaunchContext>) {
+    if let Err(err) = gio::AppInfo::launch_default_for_uri(uri, Some(&crate::app_scope::context(None))) {
         tracing::warn!(%err, uri, "cannot open");
     }
 }

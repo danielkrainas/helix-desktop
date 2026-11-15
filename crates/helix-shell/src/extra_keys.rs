@@ -63,7 +63,7 @@ fn settings_with(schema: &str, key: &str) -> Option<gio::Settings> {
 
 fn launch_app(app: &gio::AppInfo, uri: Option<&str>) {
     let uris: Vec<&str> = uri.into_iter().collect();
-    if let Err(err) = app.launch_uris(&uris, None::<&gio::AppLaunchContext>) {
+    if let Err(err) = app.launch_uris(&uris, Some(&crate::app_scope::context(None))) {
         tracing::warn!(%err, app = %app.name(), "cannot launch");
     }
 }
@@ -100,7 +100,7 @@ pub fn launch(key: LaunchKey) -> bool {
             (default_for("inode/directory"), Some(uri))
         }
         LaunchKey::Help => {
-            if let Err(err) = gio::AppInfo::launch_default_for_uri("help:gnome-help", None::<&gio::AppLaunchContext>) {
+            if let Err(err) = gio::AppInfo::launch_default_for_uri("help:gnome-help", Some(&crate::app_scope::context(None))) {
                 tracing::info!(%err, "no help viewer");
             }
             return true;

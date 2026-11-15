@@ -87,7 +87,7 @@ fn execute(text: &str) -> Result<(), String> {
         Plan::Nothing => Ok(()),
         Plan::Open(target) => {
             let file = if target.starts_with('/') { gio::File::for_path(&target) } else { gio::File::for_uri(&target) };
-            gio::AppInfo::launch_default_for_uri(&file.uri(), None::<&gio::AppLaunchContext>).map_err(|e| e.message().to_owned())
+            gio::AppInfo::launch_default_for_uri(&file.uri(), Some(&crate::app_scope::context(None))).map_err(|e| e.message().to_owned())
         }
         Plan::Run(line) => {
             let argv = gio::glib::shell_parse_argv(&line).map_err(|e| e.message().to_owned())?;
@@ -96,7 +96,7 @@ fn execute(text: &str) -> Result<(), String> {
                 return Err(trf!("Command not found: {program}", program = program));
             }
             let app = gio::AppInfo::create_from_commandline(&line, None, gio::AppInfoCreateFlags::NONE).map_err(|e| e.message().to_owned())?;
-            app.launch(&[], None::<&gio::AppLaunchContext>).map_err(|e| e.message().to_owned())
+            app.launch(&[], Some(&crate::app_scope::context(None))).map_err(|e| e.message().to_owned())
         }
     }
 }

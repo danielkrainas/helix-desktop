@@ -11,6 +11,7 @@ use helix_i18n::trf;
 pub mod accel;
 pub mod ambient;
 pub mod app_grid;
+pub mod app_scope;
 pub mod app_usage;
 pub mod ext_host;
 pub mod extensions;

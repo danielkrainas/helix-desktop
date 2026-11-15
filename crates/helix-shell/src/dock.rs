@@ -691,7 +691,7 @@ pub fn launch_action(desktop_id: &str, action: &str) -> Result<(), String> {
     let file = desktop_file(desktop_id).ok_or_else(|| format!("no app {desktop_id}"))?;
     let exec = file.string(&format!("Desktop Action {action}"), "Exec").map_err(|e| e.to_string())?;
     let info = gio::AppInfo::create_from_commandline(strip_field_codes(&exec), None, gio::AppInfoCreateFlags::NONE).map_err(|e| e.to_string())?;
-    info.launch(&[], None::<&gio::AppLaunchContext>).map_err(|e| e.to_string())
+    info.launch(&[], Some(&crate::app_scope::context(Some(desktop_id)))).map_err(|e| e.to_string())
 }
 
 /// Pushes against the screen edge longer apart than this start over.

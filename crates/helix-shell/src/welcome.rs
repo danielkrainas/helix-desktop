@@ -56,7 +56,7 @@ pub async fn run(ui: mpsc::UnboundedSender<UiEvent>) {
     if let Answer::Continue { .. } = answer {
         if let Some(app) = tour() {
             tracing::info!("starting the tour");
-            if let Err(err) = app.launch(&[], None::<&gio::AppLaunchContext>) {
+            if let Err(err) = app.launch(&[], Some(&crate::app_scope::context(None))) {
                 tracing::warn!(%err, "cannot start the tour");
             }
         }
