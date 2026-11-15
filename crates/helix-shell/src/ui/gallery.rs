@@ -434,7 +434,7 @@ fn dock_and_grid() {
     let text = Text::load();
     let mut icons = crate::icon_cache::IconCache::default();
     let (w, h) = (760, 200);
-    let looks: Vec<(String, Accent, bool, f64)> = [Accent::Blue, Accent::Orange, Accent::Slate, Accent::Green]
+    let looks: Vec<(String, Accent, bool, f64)> = [Accent::Blue, Accent::Yellow, Accent::Orange, Accent::Slate, Accent::Green]
         .into_iter()
         .map(|a| (a.name().to_owned(), a, false, 1.0))
         .chain([("hc".to_owned(), Accent::Blue, true, 1.0), ("text1.5".to_owned(), Accent::Blue, false, 1.5)])
