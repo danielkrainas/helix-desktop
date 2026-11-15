@@ -365,6 +365,45 @@ fn maximized_after_mapping() {
     assert_eq!(inset, Point::from((0, 0)));
 }
 
+/// xdg-shell ordering: nothing is configured before the client's initial
+/// commit (not even the focus a new window gets), and the first configure
+/// answers that commit with what the client asked for before it.
+#[test]
+fn first_configure_follows_the_initial_commit() {
+    for fullscreen in [false, true] {
+        let (mut event_loop, mut state) = start();
+        state.wm_settings.center_new_windows = false;
+        state.wm_settings.auto_maximize = false;
+        let rx = connect(&mut state, move |stream, tx| {
+            let mut app = App::new(stream);
+            app.roundtrip();
+            tx.send(Step::Configured(app.state.clone())).unwrap();
+            if fullscreen {
+                app.toplevel.set_fullscreen(None);
+            } else {
+                app.toplevel.set_maximized();
+            }
+            app.roundtrip();
+            tx.send(Step::Configured(app.state.clone())).unwrap();
+            app.surface.commit();
+            app.roundtrip();
+            tx.send(Step::Drawn(app.state.clone())).unwrap();
+            std::thread::sleep(Duration::from_secs(1));
+        });
+        let Step::Configured(created) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+        assert_eq!(created.configures, 0, "no configure for a new toplevel before its initial commit");
+        assert_eq!(state.focused_surface(), None, "not focused before its initial commit");
+        let Step::Configured(asked) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+        assert_eq!(asked.configures, 0, "asking for a state before the initial commit is not answered yet");
+        let Step::Drawn(first) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+        assert_eq!(first.configures, 1, "{first:?}");
+        assert_eq!((first.maximized, first.fullscreen), (!fullscreen, fullscreen), "{first:?}");
+        assert_eq!(first.size, SIZE, "the monitor's (work area's) size");
+        let window = state.space.elements().next().unwrap().clone();
+        assert_eq!(state.focused_surface().as_ref(), window.toplevel().map(|t| t.wl_surface()), "focused at its initial commit");
+    }
+}
+
 /// The panel (a top layer surface) has the keyboard exclusively, as after
 /// `switch-panels`; a click on a window gives that window the keyboard,
 /// and the panel's next redraws don't take it back until it asks anew.

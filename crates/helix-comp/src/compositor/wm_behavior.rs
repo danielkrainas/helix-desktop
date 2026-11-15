@@ -31,6 +31,9 @@ pub struct WmState {
     raise_at: Option<(Window, Instant)>,
     /// New Wayland windows waiting for their first buffer to be placed.
     pub unplaced: Vec<Window>,
+    /// New Wayland windows to focus at their initial commit (they get no
+    /// keyboard focus or configure before it).
+    pub focus_on_commit: Vec<Window>,
     /// Modal dialogs attached to their parent: (dialog, parent, offset).
     attached: Vec<(Window, Window, Point<i32, Logical>)>,
     /// Surfaces marked modal (`xdg_dialog_v1`).
@@ -187,6 +190,9 @@ impl Helix {
                 self.space.raise_element(&focused, false);
                 self.restack_above();
             }
+            // A new xdg toplevel is focused at its initial commit, so that
+            // its first configure follows that commit (xdg-shell).
+            None if window.toplevel().is_some_and(|t| !t.is_initial_configure_sent()) => self.wm.focus_on_commit.push(window.clone()),
             None => self.focus_window(window),
         }
     }

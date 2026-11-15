@@ -55,6 +55,7 @@ use smithay::{
 };
 
 use super::grabs::{MoveGrab, ResizeGrab, ResizeTracking};
+use super::wm::ConfigureWhenReady;
 use super::{ClientState, Helix};
 
 /// How long an activation token stays valid.
@@ -325,7 +326,7 @@ impl XdgShellHandler for Helix {
         surface.with_pending_state(|state| {
             state.states.set(xdg_toplevel::State::Resizing);
         });
-        surface.send_pending_configure();
+        surface.configure_pending();
         self.resize = Some(ResizeTracking {
             window: window.clone(),
             edges,
@@ -394,6 +395,7 @@ impl XdgShellHandler for Helix {
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
+        self.wm.focus_on_commit.retain(|w| w.toplevel().is_some_and(|t| t != &surface));
         self.window_gone(surface.wl_surface());
     }
 }
@@ -428,7 +430,7 @@ impl XdgDecorationHandler for Helix {
     fn request_mode(&mut self, toplevel: ToplevelSurface, _mode: DecorationMode) {
         self.new_decoration(toplevel.clone());
         if toplevel.is_initial_configure_sent() {
-            toplevel.send_pending_configure();
+            toplevel.configure_pending();
         }
     }
 
@@ -645,12 +647,8 @@ impl Helix {
     }
 
     fn handle_xdg_commit(&mut self, surface: &WlSurface) {
-        if let Some(window) = self
-            .space
-            .elements()
-            .find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface))
-            .cloned()
-        {
+        let found = self.space.elements().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == surface)).cloned();
+        if let Some(window) = found {
             let initial_configure_sent = with_states(surface, |states| {
                 states
                     .data_map
@@ -661,6 +659,13 @@ impl Helix {
                     .initial_configure_sent
             });
             if !initial_configure_sent {
+                // The initial commit: focus it now if it was to be focused
+                // when it opened (that sets its activated state), then
+                // send the first configure with everything asked so far.
+                if let Some(i) = self.wm.focus_on_commit.iter().position(|w| w == &window) {
+                    self.wm.focus_on_commit.remove(i);
+                    self.focus_window(&window);
+                }
                 window.toplevel().unwrap().send_configure();
             }
         }

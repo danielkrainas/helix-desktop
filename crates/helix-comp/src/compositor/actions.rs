@@ -12,7 +12,7 @@ use smithay::utils::{Logical, Point, Rectangle, SERIAL_COUNTER};
 
 use super::frames::frame_top;
 use super::grabs::{Edges, MoveGrab, ResizeGrab, ResizeTracking};
-use super::wm::{is_override_redirect, Takeover};
+use super::wm::{is_override_redirect, ConfigureWhenReady, Takeover};
 use super::Helix;
 
 /// A direction to another monitor.
@@ -234,7 +234,7 @@ impl Helix {
                     state.states.unset(smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::Resizing);
                     state.size = Some(initial.size);
                 });
-                toplevel.send_pending_configure();
+                toplevel.configure_pending();
             }
         }
         self.space.map_element(window.clone(), initial.loc, true);

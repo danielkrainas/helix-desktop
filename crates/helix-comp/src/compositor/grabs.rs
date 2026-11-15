@@ -14,6 +14,7 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
+use super::wm::ConfigureWhenReady;
 use super::Helix;
 
 
@@ -256,7 +257,7 @@ impl PointerGrab<Helix> for ResizeGrab {
             state.states.set(xdg_toplevel::State::Resizing);
             state.size = Some(self.last_size);
         });
-        toplevel.send_pending_configure();
+        toplevel.configure_pending();
     }
 
     fn button(&mut self, data: &mut Helix, handle: &mut PointerInnerHandle<'_, Helix>, event: &ButtonEvent) {
@@ -277,7 +278,7 @@ impl PointerGrab<Helix> for ResizeGrab {
                 state.states.unset(xdg_toplevel::State::Resizing);
                 state.size = Some(self.last_size);
             });
-            toplevel.send_pending_configure();
+            toplevel.configure_pending();
         }
         if let Some(tracking) = data.resize.as_mut() {
             tracking.finished = true;

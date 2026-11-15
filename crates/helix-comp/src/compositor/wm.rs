@@ -10,6 +10,27 @@ use smithay::wayland::seat::WaylandFocus;
 
 use super::Helix;
 
+/// Configuring a toplevel only once it has made its initial commit.
+///
+/// xdg-shell has the compositor answer the client's initial (bufferless)
+/// commit with the first configure, after the client set its app id,
+/// parent, maximized or fullscreen state. Changes made to a new window
+/// before then (focus, maximize, bounds) stay pending and go out together
+/// in that first configure (`handle_xdg_commit`).
+pub(super) trait ConfigureWhenReady {
+    /// Send the pending state if it changed and the first configure was
+    /// already sent; otherwise keep it for the first configure.
+    fn configure_pending(&self);
+}
+
+impl ConfigureWhenReady for smithay::wayland::shell::xdg::ToplevelSurface {
+    fn configure_pending(&self) {
+        if self.is_initial_configure_sent() {
+            self.send_pending_configure();
+        }
+    }
+}
+
 /// Why a window's geometry was taken over, so it can be restored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Takeover {
@@ -119,7 +140,7 @@ impl Helix {
         for w in &managed {
             w.set_activated(w == window);
             if let Some(t) = w.toplevel() {
-                t.send_pending_configure();
+                t.configure_pending();
             }
         }
     }
@@ -138,7 +159,7 @@ impl Helix {
             }
             w.set_activated(false);
             if let Some(t) = w.toplevel() {
-                t.send_pending_configure();
+                t.configure_pending();
             }
         }
     }
@@ -217,7 +238,7 @@ impl Helix {
                 }
                 state.size = Some(area.size);
             });
-            toplevel.send_pending_configure();
+            toplevel.configure_pending();
         } else if let Some(x11) = window.x11_surface() {
             let _ = x11.set_maximized(kind == Takeover::Maximized);
             let _ = x11.set_fullscreen(kind == Takeover::Fullscreen);
@@ -250,7 +271,7 @@ impl Helix {
                 }
                 state.size = Some(geometry.size);
             });
-            toplevel.send_pending_configure();
+            toplevel.configure_pending();
         } else if let Some(x11) = window.x11_surface() {
             let _ = x11.set_maximized(false);
             let _ = x11.set_fullscreen(false);
@@ -325,7 +346,7 @@ impl Helix {
             if let Some(toplevel) = window.toplevel() {
                 let changed = toplevel.with_pending_state(|s| s.bounds.replace(area.size) != Some(area.size));
                 if changed && toplevel.is_initial_configure_sent() && !self.restore.iter().any(|(w, _, _)| *w == window) {
-                    toplevel.send_pending_configure();
+                    toplevel.configure_pending();
                 }
             }
             if self.is_taken_over(&window, Takeover::Fullscreen) {
