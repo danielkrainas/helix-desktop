@@ -266,6 +266,31 @@ fn text_scale() {
         shot("scaled-list", &mut |canvas| {
             paint_sample(canvas, (text.as_ref(), bold.as_ref()), (w, h), &entries, &open, &cal, None);
         });
+        shot("scaled-banner", &mut |canvas| {
+            // A banner as the shell draws it: measured, then its box and
+            // contents, centered at the top.
+            let banner = crate::notifications::Banner {
+                summary: "Meeting starts now".into(),
+                body: "Weekly planning in room 4 — the agenda is attached, please read it before we start.".into(),
+                buttons: vec![("snooze".into(), "Snooze".into()), ("join".into(), "Join".into())],
+                ..notify::tests::note(7, "Calendar", "org.gnome.Calendar")
+            };
+            let bw = banner_w() as i32;
+            let x = (w as i32 - bw) / 2;
+            let mut scratch = vec![0u8; w * h * 4];
+            let mut dry = Canvas::scaled(&mut scratch, w, h, 1.0);
+            let (_, bottom) = notify::paint_notification(&mut dry, (text.as_ref(), bold.as_ref()), None, &banner, (x + 16, 24), bw - 32 - 24, 2);
+            let bh = bottom - 8 + helix_draw::theme::grow(52);
+            canvas.rect(x - 1, 7, bw + 2, bh + 2, BANNER_BORDER);
+            canvas.rect(x, 8, bw, bh, BANNER_BG);
+            let (_, bottom) = notify::paint_notification(canvas, (text.as_ref(), bold.as_ref()), None, &banner, (x + 16, 24), bw - 32 - 24, 2);
+            let bt = helix_draw::theme::grow(36);
+            for (i, (_, l)) in banner.buttons.iter().enumerate() {
+                let bx = x + 16 + i as i32 * ((bw - 40) / 2 + 8);
+                theme::control(canvas, bx, bottom + 8, (bw - 40) / 2, bt, theme::Look::default());
+                label(text.as_ref(), canvas, l, (bx + 12) as f32, baseline(text.as_ref(), bottom + 8, bt, 14.0), 14.0, FG, 100.0);
+            }
+        });
         shot("scaled-dialog", &mut |canvas| {
             let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60);
             paint_question(canvas, text.as_ref(), (w, h), &state);

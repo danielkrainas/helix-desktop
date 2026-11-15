@@ -155,7 +155,7 @@ fn spans(banner: &Banner) -> Vec<Span> {
 /// Draw one notification's icon, app, summary and body with its top-left
 /// at (x, y) in `width`; returns link areas and the bottom.
 #[allow(clippy::too_many_arguments)]
-fn paint_notification(
+pub(super) fn paint_notification(
     canvas: &mut Canvas,
     (text, bold): (Option<&Text>, Option<&Text>),
     icon: Option<&Image>,

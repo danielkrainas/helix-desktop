@@ -1821,8 +1821,9 @@ impl Ui {
         let first = switcher.selected.saturating_sub(shown - 1);
         let text = self.text.as_ref();
         let switcher = &overlay.state.switcher;
-        let bw = 480.min(w as i32 - 40);
-        let bh = shown as i32 * ROW_H + 16;
+        let bw = helix_draw::theme::grow(480).min(w as i32 - 40);
+        let row_h = helix_draw::theme::grow(ROW_H);
+        let bh = shown as i32 * row_h + 16;
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 2;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
@@ -1830,7 +1831,7 @@ impl Ui {
         overlay.hits.clear();
         for (row, index) in (first..switcher.entries.len()).take(shown).enumerate() {
             let entry = &switcher.entries[index];
-            let r = Rect { x: bx + 8, y: by + 8 + row as i32 * ROW_H, w: bw - 16, h: ROW_H };
+            let r = Rect { x: bx + 8, y: by + 8 + row as i32 * row_h, w: bw - 16, h: row_h };
             if index == switcher.selected {
                 canvas.rect(r.x, r.y, r.w, r.h, accent_fill());
             }
@@ -2864,8 +2865,9 @@ impl Ui {
         canvas.fill(SCRIM);
         let text = self.text.as_ref();
         let rows = sources.len().min(8) as i32;
-        let bw = 460.min(w as i32 - 40);
-        let bh = 140 + rows * (ROW_H + 8) + 56 + if *remember { 12 } else { 0 };
+        let bw = helix_draw::theme::grow(460).min(w as i32 - 40);
+        let row_h = helix_draw::theme::grow(ROW_H);
+        let bh = helix_draw::theme::grow(140) + rows * (row_h + 8) + helix_draw::theme::grow(56) + if *remember { helix_draw::theme::grow(12) } else { 0 };
         let bx = (w as i32 - bw) / 2;
         let by = (h as i32 - bh) / 3;
         canvas.rect(bx - 1, by - 1, bw + 2, bh + 2, BANNER_BORDER);
@@ -2873,21 +2875,21 @@ impl Ui {
         let inner = (bw - 48) as f32;
         let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
         let title = "Share your screen?";
-        label(text, &mut canvas, title, center(title, 20.0), (by + 44) as f32, 20.0, FG, inner);
+        label(text, &mut canvas, title, center(title, 20.0), (by + helix_draw::theme::grow(44)) as f32, 20.0, FG, inner);
         let message = if control.is_empty() {
             format!("{app} wants to see your screen. Choose what to share.")
         } else {
             format!("{app} wants to see your screen and control your {}.", crate::screencast_chooser::device_list(control))
         };
-        label(text, &mut canvas, &message, center(&message, 14.0), (by + 78) as f32, 14.0, DIM_FG, inner);
+        label(text, &mut canvas, &message, center(&message, 14.0), (by + helix_draw::theme::grow(78)) as f32, 14.0, DIM_FG, inner);
         if *remember {
             let note = "It will be able to share the same screen again without asking.";
-            label(text, &mut canvas, note, center(note, 13.0), (by + 96) as f32, 13.0, DIM_FG, inner);
+            label(text, &mut canvas, note, center(note, 13.0), (by + helix_draw::theme::grow(96)) as f32, 13.0, DIM_FG, inner);
         }
         let mut hits = Vec::new();
-        let top = if *remember { by + 112 } else { by + 100 };
+        let top = if *remember { by + helix_draw::theme::grow(112) } else { by + helix_draw::theme::grow(100) };
         for (i, (_, name, connector)) in sources.iter().take(8).enumerate() {
-            let r = Rect { x: bx + 24, y: top + i as i32 * (ROW_H + 8), w: bw - 48, h: ROW_H };
+            let r = Rect { x: bx + 24, y: top + i as i32 * (row_h + 8), w: bw - 48, h: row_h };
             let on = picked.contains(&i);
             canvas.rect(r.x, r.y, r.w, r.h, if on { accent_fill() } else { HOVER_BG });
             let fg = if on { on_accent() } else { FG };
@@ -2912,13 +2914,13 @@ impl Ui {
         }
         // Cancel; with several to choose, Share beside it.
         let cw = if *multiple { (bw - 48 - 12) / 2 } else { bw - 48 };
-        let cancel = Rect { x: bx + 24, y: by + bh - 56, w: cw, h: 36 };
+        let cancel = Rect { x: bx + 24, y: by + bh - helix_draw::theme::grow(56), w: cw, h: helix_draw::theme::grow(36) };
         theme::control(&mut canvas, cancel.x, cancel.y, cancel.w, cancel.h, theme::Look::default());
         let lw = text.map_or(0.0, |t| t.width("Cancel", 15.0));
         label(text, &mut canvas, "Cancel", cancel.x as f32 + (cancel.w as f32 - lw) / 2.0, baseline(text, cancel.y, cancel.h, 15.0), 15.0, FG, cancel.w as f32);
         hits.push((cancel, OverlayHit::Cancel));
         if *multiple {
-            let share = Rect { x: cancel.x + cw + 12, y: cancel.y, w: cw, h: 36 };
+            let share = Rect { x: cancel.x + cw + 12, y: cancel.y, w: cw, h: cancel.h };
             theme::control(&mut canvas, share.x, share.y, share.w, share.h, theme::Look { on: !picked.is_empty(), ..Default::default() });
             let sw = text.map_or(0.0, |t| t.width("Share", 15.0));
             label(text, &mut canvas, "Share", share.x as f32 + (share.w as f32 - sw) / 2.0, baseline(text, share.y, share.h, 15.0), 15.0, if picked.is_empty() { DIM_FG } else { on_accent() }, share.w as f32);
