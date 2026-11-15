@@ -200,6 +200,76 @@ async fn windows_are_read_and_pressed_over_atspi() {
         assert_eq!(states, expected, "focus on control {focus}");
     }
 
+    // The dock: what an item shows is in its description, the focused
+    // app's item is selected, and a change (a window wanting attention)
+    // reaches clients as an event.
+    let changes = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.a11y.atspi.Event.Object")
+        .unwrap()
+        .member("PropertyChange")
+        .unwrap()
+        .build();
+    let mut changes = zbus::MessageStream::for_match_rule(changes, &client, None).await.unwrap();
+    let dock = |mail: &str| Window {
+        title: "Dock".into(),
+        bounds: Rect::new(300, 740, 680, 60),
+        active: false,
+        children: vec![Node::new(Role::Toolbar, "Dock").id("dock").children([
+            Node::button("Files", Rect::new(10, 4, 60, 56)).id("files").describe("2 windows").selected(true),
+            Node::button("Mail", Rect::new(70, 4, 60, 56)).id("mail").describe(mail).selected(false),
+        ])],
+    };
+    let dock_shown = || vec![("dock:0".to_owned(), "dock surface")];
+    let d = dock("1 window");
+    publisher.sync(dock_shown(), |_| Some(d.clone()));
+    while let Ok(event) = events.recv_timeout(Duration::from_millis(500)) {
+        assert!(publisher.event(event).is_none());
+        publisher.sync(dock_shown(), |_| Some(d.clone()));
+    }
+    // Find the dock's buttons.
+    let mut buttons = Vec::new();
+    for _ in 0..50 {
+        buttons.clear();
+        for window in children(&root).await {
+            let w = accessible(&client, &window.0, window.1).await;
+            if describe(&w).await.1 != "Dock" {
+                continue;
+            }
+            for bar in children(&w).await {
+                for button in children(&accessible(&client, &bar.0, bar.1).await).await {
+                    buttons.push(button);
+                }
+            }
+        }
+        if buttons.len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(buttons.len(), 2, "the dock's two items");
+    let files = accessible(&client, &buttons[0].0, buttons[0].1.clone()).await;
+    let mail = accessible(&client, &buttons[1].0, buttons[1].1.clone()).await;
+    assert_eq!(files.get_property::<String>("Description").await.unwrap(), "2 windows");
+    // State bit 23: selected (the focused window's app).
+    let selected = |state: Vec<u32>| state.first().is_some_and(|w| w & (1 << 23) != 0);
+    assert!(selected(files.call("GetState", &()).await.unwrap()), "the focused app's item is selected");
+    assert!(!selected(mail.call("GetState", &()).await.unwrap()));
+    // Mail now wants attention: the description changes, with an event.
+    let d = dock("1 window, needs attention");
+    publisher.sync(dock_shown(), |_| Some(d.clone()));
+    let mut announced = false;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !announced && std::time::Instant::now() < deadline {
+        let Ok(Some(Ok(msg))) = tokio::time::timeout(Duration::from_millis(500), futures_util::StreamExt::next(&mut changes)).await else { continue };
+        let header = msg.header();
+        let from_mail = header.path().is_some_and(|p| p.as_str() == buttons[1].1.as_str());
+        let (what, ..): (String, i32, i32, zbus::zvariant::OwnedValue, std::collections::HashMap<String, zbus::zvariant::OwnedValue>) = msg.body().deserialize().unwrap();
+        announced = from_mail && what == "accessible-description";
+    }
+    assert!(announced, "a description change event for Mail");
+    assert_eq!(mail.get_property::<String>("Description").await.unwrap(), "1 window, needs attention");
+
     // The surfaces go away: so do their windows.
     publisher.sync(Vec::new(), |_| None);
     let mut left = children(&root).await;

@@ -43,8 +43,9 @@ const DOCK: &str = "dock:";
 /// What the app grid last showed: the page's cells, the open folder's
 /// cells, the selected item, the page dots, the page.
 pub(super) type GridShown<'a> = (&'a [(Rect, String)], &'a [(Rect, String)], Option<usize>, &'a [(Rect, usize)], usize);
-/// A dock shown: its surface, monitor area, size, and items' places.
-pub(super) type DockShown<'a> = (&'a WlSurface, (i32, i32, i32, i32), (u32, u32), Vec<(Rect, &'a crate::dock::Item)>);
+/// A dock shown: its surface, monitor area, size, its items' places and
+/// what they show, and the item with the keyboard focus.
+pub(super) type DockShown<'a> = (&'a WlSurface, (i32, i32, i32, i32), (u32, u32), Vec<(Rect, &'a crate::dock::Item, crate::dock::ItemState)>, Option<usize>);
 /// The notification list shown: its surface, size, and places.
 pub(super) type ListShown<'a> = (&'a WlSurface, (u32, u32), &'a [(Rect, ListHit)], Option<&'a ListHit>);
 
@@ -251,7 +252,7 @@ impl Ui {
             dock => {
                 let index: usize = dock.strip_prefix(DOCK)?.parse().ok()?;
                 let docks = self.dock_a11y();
-                let (_, area, (w, h), items) = docks.get(index)?;
+                let (_, area, (w, h), items, keyboard) = docks.get(index)?;
                 let (w, h) = (*w as i32, *h as i32);
                 let (ax, ay, aw, ah) = *area;
                 let (x, y) = match self.dock.settings.edge {
@@ -260,7 +261,7 @@ impl Ui {
                     crate::dock::Edge::Left => (ax, ay + (ah - h) / 2),
                     crate::dock::Edge::Right => (ax + aw - w, ay + (ah - h) / 2),
                 };
-                ("Dock".to_owned(), crate::a11y::Rect::new(x, y, w, h), self.dock_nodes(items))
+                ("Dock".to_owned(), crate::a11y::Rect::new(x, y, w, h), self.dock_nodes(items, *keyboard))
             }
         };
         Some(Window { title, bounds, active, children })
@@ -473,20 +474,19 @@ impl Ui {
 
     // ----- Dock --------------------------------------------------------------
 
-    fn dock_nodes(&self, items: &[(Rect, &crate::dock::Item)]) -> Vec<Node> {
+    /// The dock's items: each a button whose description says what is
+    /// painted on it (windows, badge, progress, attention); the focused
+    /// window's item is selected; the keyboard's item has the focus.
+    fn dock_nodes(&self, items: &[(Rect, &crate::dock::Item, crate::dock::ItemState)], keyboard: Option<usize>) -> Vec<Node> {
         use crate::dock::Item;
         let names = self.atspi.app_names.as_ref().map(|(n, _)| n);
-        let running = |id: &str| {
-            let id = id.strip_suffix(".desktop").unwrap_or(id).to_lowercase();
-            self.windows.mru().iter().any(|e| e.app_id.to_lowercase() == id)
-        };
-        let buttons = items.iter().map(|(r, item)| {
+        let buttons = items.iter().enumerate().map(|(n, (r, item, state))| {
             let r = crate::a11y::Rect::from(*r);
-            match item {
+            let node = match item {
                 Item::App { id, .. } => {
                     let key = id.strip_suffix(".desktop").unwrap_or(id).to_lowercase();
                     let name = names.and_then(|n| n.get(&key)).cloned().unwrap_or_else(|| id.clone());
-                    Node::button(name, r).id(id.clone()).describe(if running(id) { "Running" } else { "" })
+                    Node::button(name, r).id(id.clone())
                 }
                 Item::Mount(i) => Node::button(self.dock.mounts.get(*i).map_or_else(String::new, |m| m.name.clone()), r).id(format!("mount:{i}")),
                 Item::Ext(i) => {
@@ -495,7 +495,9 @@ impl Ui {
                 }
                 Item::Trash => Node::button("Trash", r).id("trash"),
                 Item::ShowApps => Node::button("Show Apps", r).id("show-apps").toggled(self.launcher.is_some()),
-            }
+            };
+            let node = node.describe(crate::dock::describe_item(state)).focusable().focused(keyboard == Some(n));
+            if matches!(item, Item::ShowApps) { node } else { node.selected(state.focused) }
         });
         vec![Node::new(Role::Toolbar, "Dock").id("dock").children(buttons)]
     }

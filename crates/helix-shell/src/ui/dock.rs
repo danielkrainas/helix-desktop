@@ -100,6 +100,8 @@ pub(super) struct DockView {
     tooltip_timer: Option<RegistrationToken>,
     /// The item with the keyboard focus (switch-panels).
     pub(super) keyboard: Option<usize>,
+    /// What the items showed when last drawn (for the accessibility bus).
+    states: Vec<logic::ItemState>,
 }
 
 #[derive(Default)]
@@ -746,6 +748,15 @@ impl Ui {
         let mut canvas = Canvas::scaled(data, w as usize, h as usize, scale);
         canvas.fill(0);
         let painted = paint_dock(&mut canvas, self.text.as_ref(), &paint);
+        self.dock.views[self.dock.cur].states = (0..paint.items.len())
+            .map(|i| logic::ItemState {
+                windows: paint.counts[i].0,
+                badge: paint.counts[i].1,
+                progress: paint.progress[i],
+                urgent: paint.urgent[i],
+                focused: paint.focused_item == Some(i),
+            })
+            .collect();
         let bar = painted.bar;
         self.dock.views[self.dock.cur].bar = bar;
         self.dock.views[self.dock.cur].hits = painted.hits;
@@ -1960,6 +1971,11 @@ impl Ui {
     /// surface, monitor area and size, and its items where they are.
     pub(super) fn dock_a11y(&self) -> Vec<super::atspi::DockShown<'_>> {
         let views = self.dock.views.iter().filter(|v| v.configured && v.width > 0);
-        views.filter_map(|v| Some((v.layer.as_ref()?.wl_surface(), v.area, (v.width, v.height), v.hits.iter().filter_map(|(r, i)| Some((*r, v.items.get(*i)?))).collect()))).collect()
+        views
+            .filter_map(|v| {
+                let items = v.hits.iter().filter_map(|(r, i)| Some((*r, v.items.get(*i)?, v.states.get(*i).copied().unwrap_or_default()))).collect();
+                Some((v.layer.as_ref()?.wl_surface(), v.area, (v.width, v.height), items, v.keyboard))
+            })
+            .collect()
     }
 }

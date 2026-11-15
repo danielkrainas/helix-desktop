@@ -485,6 +485,43 @@ pub fn items(s: &DockSettings, favorites: &[String], installed: &[String], runni
     out
 }
 
+/// What a dock item shows besides its icon, for the accessibility bus.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct ItemState {
+    /// Its windows (the running marks; at most four are counted).
+    pub windows: usize,
+    /// The badge: the app's count, else its notifications.
+    pub badge: usize,
+    /// The progress bar, 0 to 1.
+    pub progress: Option<f64>,
+    /// Wanting attention.
+    pub urgent: bool,
+    /// The focused window's app (or drive, or Trash).
+    pub focused: bool,
+}
+
+/// An item's accessible description: what the dock paints on it, in
+/// words ("2 windows, 4 new, 45 % done, needs attention"). Empty when
+/// nothing is shown.
+pub fn describe_item(s: &ItemState) -> String {
+    let mut parts = Vec::new();
+    match s.windows {
+        0 => {}
+        1 => parts.push("1 window".to_owned()),
+        n => parts.push(format!("{n} windows")),
+    }
+    if s.badge > 0 {
+        parts.push(format!("{} new", s.badge));
+    }
+    if let Some(p) = s.progress {
+        parts.push(format!("{} % done", (p.clamp(0.0, 1.0) * 100.0).round()));
+    }
+    if s.urgent {
+        parts.push("needs attention".to_owned());
+    }
+    parts.join(", ")
+}
+
 /// The lines of a running app's tooltip: its name, then its windows'
 /// titles (at most `MAX_TITLES`, then "N more"; untitled ones as
 /// "Untitled").
@@ -706,6 +743,16 @@ pub fn window_location(title: &str, mount_names: &[&str], trash: &str) -> Option
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn item_descriptions() {
+        assert_eq!(describe_item(&ItemState::default()), "");
+        let s = ItemState { windows: 2, badge: 4, progress: Some(0.454), urgent: true, focused: true };
+        assert_eq!(describe_item(&s), "2 windows, 4 new, 45 % done, needs attention");
+        assert_eq!(describe_item(&ItemState { windows: 1, ..Default::default() }), "1 window");
+        assert_eq!(describe_item(&ItemState { progress: Some(0.0), ..Default::default() }), "0 % done");
+    }
+
     #[test]
     fn pressure() {
         use super::{Edge, Pressure};
