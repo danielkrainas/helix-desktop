@@ -30,9 +30,15 @@ fn main() -> ExitCode {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with_writer(std::io::stderr)
         .init();
-    // Month and weekday names in the system's language.
-    // SAFETY: before any other thread starts.
-    unsafe { libc::setlocale(libc::LC_ALL, c"".as_ptr()) };
+    // The system's locale (helix-desktop-spec components/greeter.md,
+    // "Language"): the environment's, else /etc/locale.conf or
+    // /etc/default/locale; then its translations, month and weekday
+    // names. Before any other thread starts.
+    let adopted = helix_i18n::adopt_system_locale();
+    helix_i18n::init();
+    if !adopted.is_empty() {
+        tracing::info!(?adopted, "using the system locale");
+    }
 
     let mut demo = false;
     for arg in std::env::args().skip(1) {
@@ -62,6 +68,8 @@ fn main() -> ExitCode {
     };
 
     let config = config::Config::load();
+    let (twelve_hour, source) = clock::decide(config.clock_format.as_deref(), clock::settings_clock_format());
+    tracing::debug!(twelve_hour, ?source, "clock format");
     helix_draw::accent::set(config.accent());
     let state = state::State::load();
     let sessions = sessions::load(std::path::Path::new(sessions::SESSIONS_DIR));

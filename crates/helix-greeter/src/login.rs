@@ -7,8 +7,9 @@
 //! request is outstanding; [`Login::busy`] says when one is.
 
 use crate::greetd::{AuthMessageType, ErrorType, Request, Response};
+use helix_i18n::{n_, tr};
 
-pub const RETRY_MESSAGE: &str = "Sorry, that didn't work. Please try again.";
+pub const RETRY_MESSAGE: &str = n_("Sorry, that didn't work. Please try again.");
 
 /// A message shown under the field.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -242,7 +243,7 @@ impl Login {
                     },
                     Response::Error { error_type: ErrorType::AuthError, .. } => {
                         // Try again for the same user.
-                        self.notes = vec![Note { text: RETRY_MESSAGE.into(), error: true }];
+                        self.notes = vec![Note { text: tr(RETRY_MESSAGE).into(), error: true }];
                         let user = self.user.clone();
                         self.cancel_now(user)
                     }

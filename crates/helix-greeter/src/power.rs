@@ -1,6 +1,7 @@
 //! Restart and Power Off through logind (helix-desktop-spec
 //! `components/greeter.md`, "Power").
 
+
 const LOGIND: &str = "org.freedesktop.login1";
 const LOGIND_PATH: &str = "/org/freedesktop/login1";
 const LOGIND_MANAGER: &str = "org.freedesktop.login1.Manager";

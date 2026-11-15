@@ -15,6 +15,97 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
 
+#: crates/helix-greeter/src/app.rs:398
+msgid "No sessions are installed."
+msgstr ""
+
+#. Translators: the login screen's clock in 12-hour time (strftime).
+#: crates/helix-greeter/src/clock.rs:98
+msgid "%l:%M %p"
+msgstr ""
+
+#. Translators: the login screen's clock in 24-hour time (strftime).
+#: crates/helix-greeter/src/clock.rs:101
+msgid "%H:%M"
+msgstr ""
+
+#. Translators: the login screen's date (strftime): weekday, month and day, in your language's order.
+#: crates/helix-greeter/src/clock.rs:110
+msgid "%A, %B %-d"
+msgstr ""
+
+#: crates/helix-greeter/src/login.rs:12 crates/helix-shell/src/polkit.rs:24
+msgid "Sorry, that didn't work. Please try again."
+msgstr ""
+
+#: crates/helix-greeter/src/paint.rs:263
+msgid "Username"
+msgstr ""
+
+#: crates/helix-greeter/src/paint.rs:285
+#: crates/helix-shell/src/ui/window_menu.rs:354
+msgid "Back"
+msgstr ""
+
+#: crates/helix-greeter/src/paint.rs:297 crates/helix-shell/src/ui.rs:4479
+#: crates/helix-shell/src/ui/lock.rs:504 crates/helix-shell/src/ui/lock.rs:579
+msgid "Power Off…"
+msgstr ""
+
+#: crates/helix-greeter/src/paint.rs:297 crates/helix-shell/src/ui.rs:4476
+#: crates/helix-shell/src/ui/lock.rs:504 crates/helix-shell/src/ui/lock.rs:578
+msgid "Restart…"
+msgstr ""
+
+#: crates/helix-greeter/src/paint.rs:305 crates/helix-shell/src/ui.rs:1027
+#: crates/helix-shell/src/ui/lock.rs:185 crates/helix-shell/src/ui/lock.rs:186
+#: crates/helix-shell/src/ui/lock.rs:581
+msgid "Restart"
+msgstr ""
+
+#: crates/helix-greeter/src/paint.rs:305 crates/helix-shell/src/ui/lock.rs:185
+msgid "Restart this computer?"
+msgstr ""
+
+#: crates/helix-greeter/src/paint.rs:306 crates/helix-shell/src/ui.rs:1026
+#: crates/helix-shell/src/ui/lock.rs:187 crates/helix-shell/src/ui/lock.rs:188
+#: crates/helix-shell/src/ui/lock.rs:582
+msgid "Power Off"
+msgstr ""
+
+#: crates/helix-greeter/src/paint.rs:306 crates/helix-shell/src/ui/lock.rs:187
+msgid "Power off this computer?"
+msgstr ""
+
+#: crates/helix-greeter/src/paint.rs:309
+#: crates/helix-portals/src/dialogs.rs:181
+#: crates/helix-portals/src/dynamic_launcher.rs:146
+#: crates/helix-portals/src/file_chooser.rs:548
+#: crates/helix-portals/src/file_chooser.rs:672
+#: crates/helix-portals/src/print.rs:146
+#: crates/helix-portals/src/wallpaper.rs:118
+#: crates/helix-shell/src/bluetooth_agent.rs:104
+#: crates/helix-shell/src/bluetooth_agent.rs:165
+#: crates/helix-shell/src/keyring_prompt.rs:85
+#: crates/helix-shell/src/lib.rs:1263 crates/helix-shell/src/lib.rs:1351
+#: crates/helix-shell/src/mount_handler.rs:125
+#: crates/helix-shell/src/mount_handler.rs:139
+#: crates/helix-shell/src/mount_handler.rs:174
+#: crates/helix-shell/src/network_agent.rs:213
+#: crates/helix-shell/src/network_agent.rs:448
+#: crates/helix-shell/src/notifications.rs:501
+#: crates/helix-shell/src/obex.rs:498 crates/helix-shell/src/polkit.rs:226
+#: crates/helix-shell/src/polkit.rs:309
+#: crates/helix-shell/src/portal_dialog.rs:121
+#: crates/helix-shell/src/run_dialog.rs:183 crates/helix-shell/src/ui.rs:1038
+#: crates/helix-shell/src/ui.rs:1041 crates/helix-shell/src/ui.rs:2921
+#: crates/helix-shell/src/ui.rs:2922 crates/helix-shell/src/ui/atspi.rs:568
+#: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:580
+#: crates/helix-shell/src/ui/prompt.rs:592
+#: crates/helix-shell/src/vpn_secrets.rs:195
+msgid "Cancel"
+msgstr ""
+
 #. Translators: write "right-to-left" here (in English) if your language is written from right to left, else keep "left-to-right". It is not shown; it mirrors the shell.
 #: crates/helix-i18n/src/lib.rs:296
 msgctxt "text direction"
@@ -53,34 +144,6 @@ msgstr ""
 
 #: crates/helix-portals/src/dialogs.rs:178
 msgid "Name: {real} ({user})"
-msgstr ""
-
-#: crates/helix-portals/src/dialogs.rs:181
-#: crates/helix-portals/src/dynamic_launcher.rs:146
-#: crates/helix-portals/src/file_chooser.rs:548
-#: crates/helix-portals/src/file_chooser.rs:672
-#: crates/helix-portals/src/print.rs:146
-#: crates/helix-portals/src/wallpaper.rs:118
-#: crates/helix-shell/src/bluetooth_agent.rs:104
-#: crates/helix-shell/src/bluetooth_agent.rs:165
-#: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1263 crates/helix-shell/src/lib.rs:1351
-#: crates/helix-shell/src/mount_handler.rs:125
-#: crates/helix-shell/src/mount_handler.rs:139
-#: crates/helix-shell/src/mount_handler.rs:174
-#: crates/helix-shell/src/network_agent.rs:213
-#: crates/helix-shell/src/network_agent.rs:448
-#: crates/helix-shell/src/notifications.rs:501
-#: crates/helix-shell/src/obex.rs:498 crates/helix-shell/src/polkit.rs:226
-#: crates/helix-shell/src/polkit.rs:309
-#: crates/helix-shell/src/portal_dialog.rs:121
-#: crates/helix-shell/src/run_dialog.rs:183 crates/helix-shell/src/ui.rs:1038
-#: crates/helix-shell/src/ui.rs:1041 crates/helix-shell/src/ui.rs:2921
-#: crates/helix-shell/src/ui.rs:2922 crates/helix-shell/src/ui/atspi.rs:568
-#: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:580
-#: crates/helix-shell/src/ui/prompt.rs:592
-#: crates/helix-shell/src/vpn_secrets.rs:195
-msgid "Cancel"
 msgstr ""
 
 #: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:2927
@@ -1208,10 +1271,6 @@ msgstr ""
 msgid "Do Not Disturb"
 msgstr ""
 
-#: crates/helix-shell/src/polkit.rs:24
-msgid "Sorry, that didn't work. Please try again."
-msgstr ""
-
 #: crates/helix-shell/src/polkit.rs:194
 msgid "cannot run the polkit helper: {e}"
 msgstr ""
@@ -1325,16 +1384,6 @@ msgstr ""
 
 #: crates/helix-shell/src/ui.rs:1021
 msgid "Some applications are busy or have unsaved work:"
-msgstr ""
-
-#: crates/helix-shell/src/ui.rs:1026 crates/helix-shell/src/ui/lock.rs:187
-#: crates/helix-shell/src/ui/lock.rs:188 crates/helix-shell/src/ui/lock.rs:582
-msgid "Power Off"
-msgstr ""
-
-#: crates/helix-shell/src/ui.rs:1027 crates/helix-shell/src/ui/lock.rs:185
-#: crates/helix-shell/src/ui/lock.rs:186 crates/helix-shell/src/ui/lock.rs:581
-msgid "Restart"
 msgstr ""
 
 #: crates/helix-shell/src/ui.rs:1028 crates/helix-shell/src/ui.rs:1029
@@ -1525,16 +1574,6 @@ msgstr ""
 
 #: crates/helix-shell/src/ui.rs:4473
 msgid "Log Out…"
-msgstr ""
-
-#: crates/helix-shell/src/ui.rs:4476 crates/helix-shell/src/ui/lock.rs:504
-#: crates/helix-shell/src/ui/lock.rs:578
-msgid "Restart…"
-msgstr ""
-
-#: crates/helix-shell/src/ui.rs:4479 crates/helix-shell/src/ui/lock.rs:504
-#: crates/helix-shell/src/ui/lock.rs:579
-msgid "Power Off…"
 msgstr ""
 
 #: crates/helix-shell/src/ui.rs:4558
@@ -1960,16 +1999,8 @@ msgstr ""
 msgid "Caps Lock is on"
 msgstr ""
 
-#: crates/helix-shell/src/ui/lock.rs:185
-msgid "Restart this computer?"
-msgstr ""
-
 #: crates/helix-shell/src/ui/lock.rs:186
 msgid "Restart anyway?"
-msgstr ""
-
-#: crates/helix-shell/src/ui/lock.rs:187
-msgid "Power off this computer?"
 msgstr ""
 
 #: crates/helix-shell/src/ui/lock.rs:188
@@ -2173,10 +2204,6 @@ msgstr ""
 
 #: crates/helix-shell/src/ui/window_menu.rs:102
 msgid "Move to Monitor Down"
-msgstr ""
-
-#: crates/helix-shell/src/ui/window_menu.rs:354
-msgid "Back"
 msgstr ""
 
 #: crates/helix-shell/src/ui/workspace_popup.rs:22

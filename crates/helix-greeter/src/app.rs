@@ -9,6 +9,7 @@ use crate::power::{Offered, PowerAction};
 use crate::sessions::{self, Session};
 use crate::state::State;
 use crate::users::User;
+use helix_i18n::tr;
 
 /// A key, after the keymap.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -394,7 +395,7 @@ impl Greeter {
             Step::Authenticated => {
                 let request = match self.sessions.get(self.session) {
                     Some(session) => self.login.start(sessions::start_request(session)),
-                    None => self.login.abandon("No sessions are installed."),
+                    None => self.login.abandon(tr("No sessions are installed.")),
                 };
                 request.map(Effect::Greetd).into_iter().collect()
             }
@@ -557,7 +558,7 @@ mod tests {
 
     #[test]
     fn username_field() {
-        let config = Config { user_list: false, banner: Some("Hi".into()), accent: None };
+        let config = Config { user_list: false, banner: Some("Hi".into()), accent: None, clock_format: None };
         let mut g = Greeter::new(config, vec![session("helix", "Helix")], &State::default());
         g.set_users(vec![user("ann", "Ann")]);
         assert_eq!(g.view(0).main, Main::Username { text: String::new() });

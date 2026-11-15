@@ -48,8 +48,16 @@ fn unescape(value: &str) -> String {
 /// `NoDisplay`, missing `Name` or `Exec`, or its `TryExec` program does not
 /// exist (`exists` says whether a program can be found).
 pub fn parse(id: &str, contents: &str, exists: impl Fn(&str) -> bool) -> Option<Session> {
+    parse_in(id, contents, exists, &helix_i18n::locale_key_candidates(&helix_i18n::messages_locale()))
+}
+
+/// [`parse`] with the locale's `Name[…]` keys to look for, best first
+/// (see `helix_i18n::locale_key_candidates`).
+pub fn parse_in(id: &str, contents: &str, exists: impl Fn(&str) -> bool, locales: &[String]) -> Option<Session> {
     let mut in_entry = false;
     let (mut name, mut exec, mut try_exec, mut desktop_names) = (None, None, None, None);
+    // The best localized name so far: (rank in `locales`, name).
+    let mut localized: Option<(usize, String)> = None;
     let (mut hidden, mut no_display) = (false, false);
     for line in contents.lines() {
         let line = line.trim();
@@ -67,8 +75,17 @@ pub fn parse(id: &str, contents: &str, exists: impl Fn(&str) -> bool) -> Option<
             continue;
         };
         let value = unescape(value.trim());
-        // Localized keys (`Name[de]`) are not used.
-        match key.trim() {
+        let key = key.trim();
+        // `Name[de]`: the name in the system's language.
+        if let Some(lang) = key.strip_prefix("Name[").and_then(|k| k.strip_suffix(']')) {
+            if let Some(rank) = locales.iter().position(|l| l == lang) {
+                if !value.is_empty() && localized.as_ref().is_none_or(|(best, _)| rank < *best) {
+                    localized = Some((rank, value));
+                }
+            }
+            continue;
+        }
+        match key {
             "Name" => name = Some(value),
             "Exec" => exec = Some(value),
             "TryExec" => try_exec = Some(value),
@@ -87,6 +104,7 @@ pub fn parse(id: &str, contents: &str, exists: impl Fn(&str) -> bool) -> Option<
         }
     }
     let (name, exec) = (name.filter(|n| !n.is_empty())?, exec.filter(|e| !e.is_empty())?);
+    let name = localized.map_or(name, |(_, n)| n);
     let desktop_names = desktop_names.filter(|d| !d.trim_matches(';').is_empty());
     Some(Session { id: id.to_owned(), name, exec, desktop_names })
 }
@@ -161,6 +179,16 @@ mod tests {
         let s = parse("ubuntu", ubuntu, |p| p == "/usr/bin/gnome-session").unwrap();
         assert_eq!(s.name, "Ubuntu");
         assert_eq!(s.exec, "/usr/bin/gnome-session --session=ubuntu");
+        // The name in the system's language: the best `Name[…]` there is.
+        let de = |locale: &str| parse_in("ubuntu", ubuntu, |_| true, &helix_i18n::locale_key_candidates(locale)).unwrap().name;
+        assert_eq!(de("de_DE.UTF-8"), "Ubuntu DE");
+        assert_eq!(de("fr_FR.UTF-8"), "Ubuntu");
+        let regional = "[Desktop Entry]\nName=Colour\nName[en_US]=Color\nName[en]=Colour (en)\nName[sr@latin]=Boja\nExec=x\n";
+        let name = |locale: &str| parse_in("x", regional, |_| true, &helix_i18n::locale_key_candidates(locale)).unwrap().name;
+        assert_eq!(name("en_US.UTF-8"), "Color", "lang_COUNTRY before lang");
+        assert_eq!(name("en_GB.UTF-8"), "Colour (en)");
+        assert_eq!(name("sr_RS.UTF-8@latin"), "Boja");
+        assert_eq!(name("C"), "Colour");
         assert_eq!(parse("ubuntu", ubuntu, |_| false), None, "TryExec missing");
         assert_eq!(parse("h", "[Desktop Entry]\nName=H\nExec=h\nHidden=true\n", |_| true), None);
         assert_eq!(parse("h", "[Desktop Entry]\nName=H\nExec=h\nNoDisplay=true\n", |_| true), None);

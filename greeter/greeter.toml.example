@@ -5,3 +5,7 @@
 
 # Text shown under the clock.
 #banner = "Authorized use only."
+
+# 12h or 24h. Unset: the org.gnome.desktop.interface clock-format setting
+# (system defaults and dconf overrides), else the system locale's format.
+#clock-format = "24h"

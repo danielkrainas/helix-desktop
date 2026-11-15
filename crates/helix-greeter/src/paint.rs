@@ -7,6 +7,7 @@ use helix_draw::{Canvas, Style, Text};
 
 use crate::app::{Focus, Hit, Main, PowerView, View};
 use crate::power::PowerAction;
+use helix_i18n::tr;
 
 const FG: u32 = 0xFFEDEDEF;
 const DIM_FG: u32 = 0xFF9A9AA4;
@@ -259,7 +260,7 @@ pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i
         Main::Username { text: typed } => {
             let field = Rect { x: col_x, y: top + 20, w: col_w, h: FIELD_H };
             text_field(canvas, field, main_focused);
-            field_contents(canvas, text, field, typed, false, "Username", main_focused);
+            field_contents(canvas, text, field, typed, false, tr("Username"), main_focused);
             hits.push((field, Hit::Field));
             field.y + field.h + 30
         }
@@ -281,7 +282,7 @@ pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i
     let mut below = notes(canvas, text, view, col_x, notes_y, col_w);
     if let Main::Login { .. } = view.main {
         below = below.max(notes_y) - 4;
-        let back = button(canvas, text, col_x, below, "Back", false, hovered(Hit::Back), false);
+        let back = button(canvas, text, col_x, below, tr("Back"), false, hovered(Hit::Back), false);
         hits.push((back, Hit::Back));
     }
 
@@ -293,7 +294,7 @@ pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i
         PowerView::Buttons(_) => {
             let mut x = MARGIN;
             for (n, hit) in power_hits.iter().enumerate() {
-                let s = if *hit == Hit::Power(PowerAction::Restart) { "Restart…" } else { "Power Off…" };
+                let s = if *hit == Hit::Power(PowerAction::Restart) { tr("Restart…") } else { tr("Power Off…") };
                 let r = button(canvas, text, x, y, s, false, hovered(*hit), focus_power(n));
                 hits.push((r, *hit));
                 x = r.x + r.w + 12;
@@ -301,11 +302,11 @@ pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i
         }
         PowerView::Confirm(action) => {
             let (question, verb) = match action {
-                PowerAction::Restart => ("Restart this computer?", "Restart"),
-                PowerAction::PowerOff => ("Power off this computer?", "Power Off"),
+                PowerAction::Restart => (tr("Restart this computer?"), tr("Restart")),
+                PowerAction::PowerOff => (tr("Power off this computer?"), tr("Power Off")),
             };
             label(canvas, text, question, MARGIN as f32, (y - 14) as f32, 15.0, FG, (w / 2) as f32);
-            let cancel = button(canvas, text, MARGIN, y, "Cancel", false, hovered(Hit::PowerCancel), focus_power(0));
+            let cancel = button(canvas, text, MARGIN, y, tr("Cancel"), false, hovered(Hit::PowerCancel), focus_power(0));
             hits.push((cancel, Hit::PowerCancel));
             let confirm = button(canvas, text, cancel.x + cancel.w + 12, y, verb, true, hovered(Hit::PowerConfirm), focus_power(1));
             hits.push((confirm, Hit::PowerConfirm));

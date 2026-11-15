@@ -15,11 +15,14 @@ pub struct Config {
     /// The accent color's name, as `accent-color` takes it (the greeter
     /// user has no settings of their own); blue when unset or unknown.
     pub accent: Option<String>,
+    /// `12h` or `24h`; unset: `org.gnome.desktop.interface clock-format`,
+    /// else the locale's own time format.
+    pub clock_format: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { user_list: true, banner: None, accent: None }
+        Self { user_list: true, banner: None, accent: None, clock_format: None }
     }
 }
 
@@ -59,13 +62,14 @@ mod tests {
     #[test]
     fn parses() {
         assert_eq!(Config::parse("").unwrap(), Config::default());
-        assert_eq!(Config::parse("user-list = false\nbanner = \"Authorized use only.\"\n").unwrap(), Config { user_list: false, banner: Some("Authorized use only.".into()), accent: None });
+        assert_eq!(Config::parse("user-list = false\nbanner = \"Authorized use only.\"\n").unwrap(), Config { user_list: false, banner: Some("Authorized use only.".into()), accent: None, clock_format: None });
         assert_eq!(Config::parse("banner = \"  \"").unwrap().banner, None);
         assert!(Config::parse("user-list = \"no\"").is_err());
         use helix_draw::accent::Accent;
         assert_eq!(Config::default().accent(), Accent::Blue);
         assert_eq!(Config::parse("accent = \"orange\"").unwrap().accent(), Accent::Orange);
         assert_eq!(Config::parse("accent = \"magenta\"").unwrap().accent(), Accent::Blue, "unknown: blue");
+        assert_eq!(Config::parse("clock-format = \"12h\"").unwrap().clock_format.as_deref(), Some("12h"));
         // Unknown keys are allowed (newer configuration, older greeter).
         assert!(Config::parse("theme = \"x\"").is_ok());
     }

@@ -1414,6 +1414,7 @@ dependencies = [
 name = "helix-greeter"
 version = "0.1.0"
 dependencies = [
+ "gio",
  "helix-draw",
  "helix-i18n",
  "libc",
