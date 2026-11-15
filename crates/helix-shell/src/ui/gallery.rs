@@ -359,3 +359,118 @@ fn accents() {
     helix_draw::set_high_contrast(false);
     helix_draw::accent::set(Accent::Blue);
 }
+
+/// A dock on a bottom edge with every state shown: the focused window's
+/// app (Files), one under the pointer (Calculator, with its tooltip), one
+/// wanting attention with a count (Calendar), one downloading (Chrome),
+/// the keyboard on Terminal, and an app without an icon (the generic one).
+pub(super) fn sample_dock(icons: &mut crate::icon_cache::IconCache, (w, h): (i32, i32), scale: f64) -> dock::DockPaint {
+    use crate::dock::{Edge, Indicator, Item};
+    let ids = ["org.gnome.Nautilus", "org.gnome.Calculator", "org.gnome.Calendar", "com.google.Chrome", "org.gnome.Terminal", "org.example.NoIcon"];
+    let mut items: Vec<Item> = ids.iter().map(|id| Item::App { id: (*id).into(), favorite: true }).collect();
+    items.push(Item::Trash);
+    items.push(Item::ShowApps);
+    let icon = 48;
+    let px = (f64::from(icon) * scale).round() as u32;
+    let icons_of: Vec<Option<helix_draw::Image>> = items
+        .iter()
+        .map(|i| match i {
+            Item::App { id, .. } => {
+                let id = id.clone();
+                icons.get(format!("app:{id}@{px}"), move || crate::icons::app_icon(&id, px))
+            }
+            Item::Trash => icons.get(format!("named:user-trash@{px}"), move || crate::icons::load(&crate::icons::IconSource::Names(vec!["user-trash".into()]), px)),
+            _ => None,
+        })
+        .collect();
+    let n = items.len();
+    let look = |highlight: f64| crate::item_feedback::Look { highlight, pressed: false, scale: if highlight > 0.0 { crate::item_feedback::HOVER_SCALE } else { 1.0 } };
+    let mut looks = vec![look(0.0); n];
+    looks[1] = look(1.0);
+    let mut progress = vec![None; n];
+    progress[3] = Some(0.45);
+    let mut urgent = vec![false; n];
+    urgent[2] = true;
+    let mut counts = vec![(0, 0); n];
+    counts[0] = (2, 0);
+    counts[1] = (1, 0);
+    counts[2] = (1, 4);
+    counts[3] = (3, 0);
+    counts[4] = (1, 0);
+    dock::DockPaint {
+        size: (w, h),
+        edge: Edge::Bottom,
+        extend: false,
+        always_center: true,
+        indicator: Indicator::Dots,
+        icon,
+        thickness: icon + icon / 4 + 8,
+        background: 0xCC,
+        items,
+        icons: icons_of,
+        counts,
+        progress,
+        urgent,
+        wiggles: vec![0; n],
+        numbers: vec![None; n],
+        focused_item: Some(0),
+        looks,
+        ghosts: Vec::new(),
+        drag: None,
+        tooltip: Some((1, vec!["Calculator".into(), "Calculator — 12 × 7".into()])),
+        keyboard: Some(4),
+    }
+}
+
+/// The dock in its states, in several accents, in high contrast and at
+/// text scale 1.5 (`dock-…`), and app grid cells (`grid-…`): one under
+/// the pointer, one with the keyboard focus, one pressed, an app without
+/// an icon.
+#[test]
+#[ignore]
+fn dock_and_grid() {
+    use helix_draw::accent::Accent;
+    let Some(dir) = dir() else { return };
+    let text = Text::load();
+    let mut icons = crate::icon_cache::IconCache::default();
+    let (w, h) = (760, 200);
+    let looks: Vec<(String, Accent, bool, f64)> = [Accent::Blue, Accent::Orange, Accent::Slate, Accent::Green]
+        .into_iter()
+        .map(|a| (a.name().to_owned(), a, false, 1.0))
+        .chain([("hc".to_owned(), Accent::Blue, true, 1.0), ("text1.5".to_owned(), Accent::Blue, false, 1.5)])
+        .collect();
+    let apps = ["org.gnome.Nautilus", "org.gnome.Calculator", "org.gnome.Calendar", "org.gnome.Terminal", "org.example.NoIcon"]
+        .iter()
+        .map(|id| crate::launcher::App { id: format!("{id}.desktop"), name: id.rsplit('.').next().unwrap().to_owned(), search: String::new(), categories: Vec::new() })
+        .collect();
+    let model = crate::launcher::Launcher::new(apps);
+    for (name, accent, hc, factor) in &looks {
+        helix_draw::accent::set(*accent);
+        helix_draw::set_high_contrast(*hc);
+        helix_draw::theme::set_text_scale(*factor);
+        render(&dir, &format!("dock-{name}"), DARK, (w, h, 1.0), |canvas| {
+            let m = sample_dock(&mut icons, (w as i32, h as i32), 1.0);
+            dock::paint_dock(canvas, text.as_ref(), &m);
+        });
+        render(&dir, &format!("grid-{name}"), DARK, (w, 200, 1.0), |canvas| {
+            canvas.fill(SCRIM);
+            let mut p = app_grid::Paint { cache: &mut icons, text: text.as_ref(), scale: 1.0 };
+            let lit = crate::item_feedback::Look { highlight: 1.0, pressed: false, scale: crate::item_feedback::HOVER_SCALE };
+            let rest = crate::item_feedback::Look { highlight: 0.0, pressed: false, scale: 1.0 };
+            let pressed = crate::item_feedback::Look { highlight: 1.0, pressed: true, scale: 1.0 };
+            for (i, app) in model.apps.iter().enumerate() {
+                let cell = Rect { x: 20 + i as i32 * 140, y: 30, w: 120, h: 118 };
+                let (look, focused) = match i {
+                    1 => (lit, false),
+                    2 => (lit, true),
+                    3 => (pressed, false),
+                    _ => (rest, false),
+                };
+                app_grid::paint_cell(&mut p, &model, canvas, cell, &app.id, look, focused);
+            }
+        });
+    }
+    helix_draw::theme::set_text_scale(1.0);
+    helix_draw::set_high_contrast(false);
+    helix_draw::accent::set(Accent::Blue);
+}

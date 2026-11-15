@@ -23,8 +23,12 @@ const TOOLTIP_ROOM_W: i32 = 280;
 const UNPIN_DISTANCE: f64 = 60.0;
 const DOCK_BG: u32 = 0x001E1E24;
 const BADGE: u32 = 0xFFE01B24;
-/// Behind an app asking for attention.
-const URGENT: u32 = 0x80F57900;
+/// The dot on an app asking for attention.
+const URGENT: u32 = 0xFFF57900;
+/// How long the pointer rests on an item before its tooltip shows, and
+/// how soon after one hid the next shows at once (moving along the dock).
+const TOOLTIP_DELAY: Duration = Duration::from_millis(300);
+const TOOLTIP_FOLLOW: Duration = Duration::from_millis(500);
 /// How long a dock revealed at the edge waits for the pointer.
 const REVEAL_GRACE: f64 = 1.5;
 /// How deep the edge strip that reveals a hidden dock is (logical).
@@ -88,6 +92,14 @@ pub(super) struct DockView {
     drag: Option<(usize, (f64, f64))>,
     /// Hover, press and launch feedback on the items.
     feedback: crate::item_feedback::Feedback<Item>,
+    /// When the hovered item's tooltip shows; the item whose tooltip was
+    /// drawn last, and when the last one went away.
+    tooltip_since: Option<std::time::Instant>,
+    tooltip_shown: Option<usize>,
+    tooltip_gone: Option<std::time::Instant>,
+    tooltip_timer: Option<RegistrationToken>,
+    /// The item with the keyboard focus (switch-panels).
+    pub(super) keyboard: Option<usize>,
 }
 
 #[derive(Default)]
@@ -727,18 +739,37 @@ impl Ui {
         }
         let (w, h) = (self.dock.views[self.dock.cur].width as i32, self.dock.views[self.dock.cur].height as i32);
         let scale = self.scales.of(layer.wl_surface());
-        let s = self.dock.settings.clone();
-        let (icon, t) = (self.dock.views[self.dock.cur].icon, self.dock.views[self.dock.cur].thickness);
-        let bar = match s.edge {
-            Edge::Bottom => Rect { x: 0, y: h - t, w, h: t },
-            Edge::Top => Rect { x: 0, y: 0, w, h: t },
-            Edge::Left => Rect { x: 0, y: 0, w: t, h },
-            Edge::Right => Rect { x: w - t, y: 0, w: t, h },
+        let paint = self.dock_paint_model(scale);
+        let Ok((buffer, data)) = self.pool.create_buffer(physical(w as usize, scale) as i32, physical(h as usize, scale) as i32, (physical(w as usize, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+            return;
         };
+        let mut canvas = Canvas::scaled(data, w as usize, h as usize, scale);
+        canvas.fill(0);
+        let painted = paint_dock(&mut canvas, self.text.as_ref(), &paint);
+        let bar = painted.bar;
         self.dock.views[self.dock.cur].bar = bar;
-        // What to draw, gathered first.
-        let near = logic::windows_hide(logic::HideMode::AllWindows, self.dock_layout_rect(), self.dock.views[self.dock.cur].area, s.edge, &self.dock_windows(), None);
-        let items = self.dock.views[self.dock.cur].items.clone();
+        self.dock.views[self.dock.cur].hits = painted.hits;
+        let surface = layer.wl_surface();
+        // Only the bar takes the pointer; names float over windows.
+        if let Ok(region) = Region::new(&self.compositor) {
+            region.add(bar.x, bar.y, bar.w, bar.h);
+            surface.set_input_region(Some(region.wl_region()));
+        }
+        self.scales.prepare(&self.qh, surface, w, h);
+        if buffer.attach_to(surface).is_ok() {
+            layer.commit();
+        }
+    }
+
+    /// What the current dock view shows now, gathered from the shell's
+    /// state.
+    fn dock_paint_model(&mut self, scale: f64) -> DockPaint {
+        let view = &self.dock.views[self.dock.cur];
+        let (w, h) = (view.width as i32, view.height as i32);
+        let s = self.dock.settings.clone();
+        let (icon, t) = (view.icon, view.thickness);
+        let near = logic::windows_hide(logic::HideMode::AllWindows, self.dock_layout_rect(), view.area, s.edge, &self.dock_windows(), None);
+        let items = view.items.clone();
         let px = (f64::from(icon) * scale).round() as u32;
         let icons: Vec<Option<helix_draw::Image>> = items.iter().map(|i| self.dock_icon(i, px)).collect();
         let counts: Vec<(usize, usize)> = items
@@ -754,21 +785,13 @@ impl Ui {
                 _ => (0, 0),
             })
             .collect();
-        let entries: Vec<Option<crate::launcher_entry::Entry>> = items
+        let progress: Vec<Option<f64>> = items
             .iter()
             .map(|i| match i {
-                Item::App { id, .. } => self.dock_entry(id).cloned(),
-                // An extension's item: its progress and urgency as an
-                // app's launcher entry shows them.
-                Item::Ext(e) => self.ext.dock.get(*e).map(|d| crate::launcher_entry::Entry {
-                    count: d.count,
-                    count_visible: d.count > 0,
-                    progress: d.progress.max(0.0),
-                    progress_visible: d.progress >= 0.0,
-                    urgent: d.urgent,
-                    quicklist: None,
-                    quick_items: Vec::new(),
-                }),
+                Item::App { id, .. } => self.dock_entry(id).and_then(|e| e.shown_progress()),
+                // An extension's item: its progress as an app's launcher
+                // entry shows it.
+                Item::Ext(e) => self.ext.dock.get(*e).filter(|d| d.progress >= 0.0).map(|d| d.progress.clamp(0.0, 1.0)),
                 _ => None,
             })
             .collect();
@@ -802,160 +825,65 @@ impl Ui {
             Some(place) => items.iter().position(|i| *i == place),
             None => items.iter().position(|i| matches!(i, Item::App { id, .. } if !focused_app.is_empty() && (id.eq_ignore_ascii_case(&focused_app) || desktop_matches(&focused_app, id)))),
         };
-        // The name, and for a running app its windows' titles.
-        let hover_name: Option<Vec<String>> = self.dock.views[self.dock.cur].hover.and_then(|i| items.get(i)).filter(|_| !s.hide_tooltip).map(|i| {
-            let name = self.dock_item_name(i);
-            let titles: Vec<String> = match i {
+        let view = &self.dock.views[self.dock.cur];
+        let (hover, drag, keyboard) = (view.hover, view.drag, view.keyboard);
+        // The name, and for a running app its windows' titles: under the
+        // pointer once the tooltip delay is over, or for the keyboard.
+        let now = std::time::Instant::now();
+        let tooltip_for = match (hover, keyboard) {
+            (Some(i), _) if view.tooltip_since.is_some_and(|t| now >= t) => Some(i),
+            (None, Some(i)) => Some(i),
+            _ => None,
+        };
+        let tooltip = tooltip_for.and_then(|i| Some((i, items.get(i)?))).filter(|_| !s.hide_tooltip && drag.is_none()).map(|(i, item)| {
+            let name = self.dock_item_name(item);
+            let titles: Vec<String> = match item {
                 Item::App { id, .. } => {
                     let ids = self.app_windows(id);
                     ids.iter().filter_map(|w| self.windows.mru().iter().find(|e| e.id == *w).map(|e| e.title.clone())).collect()
                 }
                 _ => Vec::new(),
             };
-            logic::tooltip_lines(&name, &titles)
+            (i, logic::tooltip_lines(&name, &titles))
         });
-        let (hover, drag) = (self.dock.views[self.dock.cur].hover, self.dock.views[self.dock.cur].drag);
-        let now = std::time::Instant::now();
+        let view = &mut self.dock.views[self.dock.cur];
+        view.tooltip_shown = tooltip.as_ref().map(|(i, _)| *i);
         let motion = helix_draw::motion::Motion::from_settings(s.animation_time > 0.0, s.reduced_motion);
-        self.dock.views[self.dock.cur].feedback.set_motion(motion);
-        let feedback = self.dock.views[self.dock.cur].feedback.clone();
-        let mut centers: Vec<(f64, f64)> = Vec::with_capacity(items.len());
-
-        let Ok((buffer, data)) = self.pool.create_buffer(physical(w as usize, scale) as i32, physical(h as usize, scale) as i32, (physical(w as usize, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
-            return;
-        };
-        let mut canvas = Canvas::scaled(data, w as usize, h as usize, scale);
-        canvas.fill(0);
-        let text = self.text.as_ref();
-        let alpha = (logic::background_opacity(&s, near) * 255.0).round() as u32;
-        let radius = if s.extend { 0.0 } else { 12.0 };
-        canvas.round_rect(f64::from(bar.x), f64::from(bar.y), f64::from(bar.w), f64::from(bar.h), radius, (alpha << 24) | (DOCK_BG & 0xFFFFFF));
-        let vertical = s.edge.vertical();
-        let slot = icon + icon / 4;
-        let total = Self::dock_length(icon, &items);
-        let along_len = if vertical { h } else { w };
-        let mut pos = if s.extend && !s.always_center { icon / 8 } else { (along_len - total) / 2 + icon / 8 };
-        let mut hits = Vec::new();
-        let mut drop_marker = None;
-        for (i, item) in items.iter().enumerate() {
-            if i > 0 && separated(&items[i - 1], item) {
-                let (sx, sy, sw, sh) = if vertical { (bar.x + 8, pos + 4, t - 16, 1) } else { (pos + 4, bar.y + 8, 1, t - 16) };
-                canvas.rect(sx, sy, sw, sh, 0x60FFFFFF);
-                pos += 9;
-            }
-            let cell = if vertical { Rect { x: bar.x, y: pos, w: t, h: slot } } else { Rect { x: pos, y: bar.y, w: slot, h: t } };
-            if let Some((_, at)) = drag {
-                let p = if vertical { at.1 } else { at.0 };
-                if drop_marker.is_none() && p < f64::from(pos + slot / 2) {
-                    drop_marker = Some(pos);
+        view.feedback.set_motion(motion);
+        let looks = items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                if drag.is_some() {
+                    crate::item_feedback::Look { highlight: if hover == Some(i) { 1.0 } else { 0.0 }, pressed: false, scale: 1.0 }
+                } else {
+                    view.feedback.look(item, now)
                 }
-            }
-            let wiggle = wiggles[i];
-            let (ix, iy) = (cell.x + (cell.w - icon) / 2 + if vertical { 0 } else { wiggle }, cell.y + (cell.h - icon) / 2 + if vertical { wiggle } else { 0 });
-            // Hover, press and launch feedback (none while dragging).
-            let look = if drag.is_some() {
-                crate::item_feedback::Look { highlight: if hover == Some(i) { 1.0 } else { 0.0 }, pressed: false, scale: 1.0 }
-            } else {
-                feedback.look(item, now)
-            };
-            if urgent[i] {
-                canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, URGENT);
-            } else {
-                let lit = (look.highlight * f64::from(0x40)).round() as u32;
-                let alpha = if look.pressed { 0x26 } else if focused_item == Some(i) { lit.max(0x26) } else { lit };
-                if alpha > 0 {
-                    canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, (alpha << 24) | 0xFFFFFF);
-                }
-            }
-            let (cx, cy) = (f64::from(ix) + f64::from(icon) / 2.0, f64::from(iy) + f64::from(icon) / 2.0);
-            centers.push((cx, cy));
-            if !drag.is_some_and(|(d, _)| d == i) {
-                let size = f64::from(icon) * look.scale;
-                let (sx, sy) = (cx - size / 2.0, cy - size / 2.0);
-                match (item, &icons[i]) {
-                    (Item::ShowApps, _) => draw_grid(&mut canvas, sx.round() as i32, sy.round() as i32, size.round() as i32),
-                    (_, Some(image)) => canvas.image(sx, sy, size, size, image),
-                    // Being decoded (apps without one get the generic icon).
-                    (_, None) => {}
-                }
-            }
-            if let Some(progress) = entries[i].as_ref().and_then(|e| e.shown_progress()) {
-                // A bar across the icon's bottom.
-                let (px0, py0, pw) = (f64::from(ix + 3), f64::from(iy + icon - 7), f64::from(icon - 6));
-                canvas.round_rect(px0, py0, pw, 5.0, 2.5, 0xC0202024);
-                if progress > 0.0 {
-                    canvas.round_rect(px0, py0, (pw * progress).max(5.0), 5.0, 2.5, accent());
-                }
-            }
-            let (windows, badge) = counts[i];
-            draw_indicator(&mut canvas, s.indicator, s.edge, cell, windows);
-            if let Some(number) = numbers[i] {
-                // The app's hot key number, at the icon's top left.
-                let (nx, ny) = (f64::from(ix) + 4.0, f64::from(iy) + 4.0);
-                canvas.circle(nx, ny, 10.0, 0xF0505058);
-                let label_text = (number % 10).to_string();
-                let tw = text.map_or(6.0, |t| t.width(&label_text, 13.0));
-                label(text, &mut canvas, &label_text, (nx - f64::from(tw) / 2.0) as f32, ny as f32 + 5.0, 13.0, FG, 20.0);
-            }
-            if badge > 0 {
-                let (bx, by) = (f64::from(ix + icon) - 4.0, f64::from(iy) + 4.0);
-                canvas.circle(bx, by, 9.0, BADGE);
-                let label_text = if badge > 9 { "9+".to_owned() } else { badge.to_string() };
-                let tw = text.map_or(6.0, |t| t.width(&label_text, 11.0));
-                label(text, &mut canvas, &label_text, (bx - f64::from(tw) / 2.0) as f32, by as f32 + 4.0, 11.0, FG, 20.0);
-            }
-            hits.push((cell, i));
-            pos += slot;
-        }
-        // Launch copies growing out of their items.
-        for (item, p) in feedback.ghosts(now) {
-            let Some(k) = items.iter().position(|x| *x == item) else { continue };
-            if let (Some(Some(image)), Some(&(cx, cy))) = (icons.get(k), centers.get(k)) {
-                let size = f64::from(icon) * (1.0 + (crate::item_feedback::GHOST_SCALE - 1.0) * p);
-                canvas.image_alpha(cx - size / 2.0, cy - size / 2.0, size, size, image, (0.8 * (1.0 - p)) as f32);
-            }
-        }
-        if let Some((d, at)) = drag {
-            let marker = drop_marker.unwrap_or(pos);
-            let (mx, my, mw, mh) = if vertical { (bar.x + 6, marker - 1, t - 12, 3) } else { (marker - 1, bar.y + 6, 3, t - 12) };
-            canvas.rect(mx, my, mw, mh, accent());
-            if let Some(Some(image)) = icons.get(d) {
-                canvas.image(at.0 - f64::from(icon) / 2.0, at.1 - f64::from(icon) / 2.0, f64::from(icon), f64::from(icon), image);
-            }
-        }
-        // The hovered item's name, beside the bar.
-        if let (Some(i), Some(lines), None) = (hover, hover_name, drag) {
-            if let Some(&(cell, _)) = hits.iter().find(|(_, n)| *n == i) {
-                let widest = lines.iter().map(|l| text.map_or(80.0, |t| t.width(l, 13.0))).fold(0.0f32, f32::max);
-                let tw = widest.ceil() as i32 + 28;
-                let lh = 26 + (lines.len() as i32 - 1) * 18;
-                let lw = tw.min(if vertical { TOOLTIP_ROOM_W - 12 } else { w });
-                let (lx, ly) = match s.edge {
-                    Edge::Bottom => (cell.x + cell.w / 2 - lw / 2, bar.y - lh - 6),
-                    Edge::Top => (cell.x + cell.w / 2 - lw / 2, bar.y + bar.h + 6),
-                    Edge::Left => (bar.x + bar.w + 6, cell.y + cell.h / 2 - lh / 2),
-                    Edge::Right => (bar.x - lw - 6, cell.y + cell.h / 2 - lh / 2),
-                };
-                let lx = lx.clamp(0, (w - lw).max(0));
-                canvas.round_rect(f64::from(lx), f64::from(ly), f64::from(lw), f64::from(lh), 6.0, 0xF02E2E36);
-                let base = baseline(text, ly, 26, 13.0);
-                label(text, &mut canvas, &lines[0], (lx + 12) as f32, base, 13.0, FG, (lw - 16) as f32);
-                // The windows, dimmer, one per line.
-                for (n, line) in lines.iter().enumerate().skip(1) {
-                    label(text, &mut canvas, line, (lx + 12) as f32, base + n as f32 * 18.0, 13.0, DIM_FG, (lw - 16) as f32);
-                }
-            }
-        }
-        self.dock.views[self.dock.cur].hits = hits;
-        let surface = layer.wl_surface();
-        // Only the bar takes the pointer; names float over windows.
-        if let Ok(region) = Region::new(&self.compositor) {
-            region.add(bar.x, bar.y, bar.w, bar.h);
-            surface.set_input_region(Some(region.wl_region()));
-        }
-        self.scales.prepare(&self.qh, surface, w, h);
-        if buffer.attach_to(surface).is_ok() {
-            layer.commit();
+            })
+            .collect();
+        let ghosts = view.feedback.ghosts(now).into_iter().filter_map(|(item, p)| Some((items.iter().position(|x| *x == item)?, p))).collect();
+        DockPaint {
+            size: (w, h),
+            edge: s.edge,
+            extend: s.extend,
+            always_center: s.always_center,
+            indicator: s.indicator,
+            icon,
+            thickness: t,
+            background: (logic::background_opacity(&s, near) * 255.0).round() as u32,
+            items,
+            icons,
+            counts,
+            progress,
+            urgent,
+            wiggles,
+            numbers,
+            focused_item,
+            looks,
+            ghosts,
+            drag,
+            tooltip,
+            keyboard,
         }
     }
 
@@ -974,6 +902,41 @@ impl Ui {
             Edge::Left => (ax, ay + (ah - len) / 2, t, len),
             Edge::Right => (ax + aw - t, ay + (ah - len) / 2, t, len),
         }
+    }
+
+    /// The pointer moved onto item `under` (or off the items): its
+    /// tooltip shows after [`TOOLTIP_DELAY`], or at once when another
+    /// item's tooltip shows or just went (moving along the dock).
+    fn dock_set_hover(&mut self, under: Option<usize>) {
+        let now = std::time::Instant::now();
+        let cur = self.dock.cur;
+        let view = &mut self.dock.views[cur];
+        if view.hover == under {
+            return;
+        }
+        if view.tooltip_shown.is_some() {
+            view.tooltip_gone = Some(now);
+        }
+        view.hover = under;
+        let (since, follow) = tooltip_from(now, view.tooltip_shown.is_some(), view.tooltip_gone);
+        view.tooltip_since = under.map(|_| since);
+        let old = view.tooltip_timer.take();
+        let Some(handle) = self.loop_handle.as_ref() else { return };
+        if let Some(token) = old {
+            handle.remove(token);
+        }
+        if under.is_none() || follow {
+            return;
+        }
+        let output = self.dock.views[cur].output.clone();
+        let token = handle.insert_source(Timer::from_duration(TOOLTIP_DELAY), move |_, _, ui: &mut Ui| {
+            if let Some(i) = output.as_ref().and_then(|o| ui.dock.view_on(o)) {
+                ui.dock.views[i].tooltip_timer = None;
+                ui.dock_draw();
+            }
+            TimeoutAction::Drop
+        });
+        self.dock.views[cur].tooltip_timer = token.ok();
     }
 
     fn dock_set_timer(&mut self, after: f64, reveal: bool) {
@@ -1071,14 +1034,14 @@ impl Ui {
             PointerEventKind::Enter { .. } => {
                 self.dock.views[self.dock.cur].pointer_on = true;
                 self.dock_cancel_timer();
-                self.dock.views[self.dock.cur].hover = under;
+                self.dock_set_hover(under);
                 let item = self.dock_feedback_item(under);
                 self.dock.views[self.dock.cur].feedback.set_hover(item, std::time::Instant::now());
                 self.dock_draw();
             }
             PointerEventKind::Leave { .. } => {
                 self.dock.views[self.dock.cur].pointer_on = false;
-                self.dock.views[self.dock.cur].hover = None;
+                self.dock_set_hover(None);
                 self.dock.views[self.dock.cur].feedback.set_hover(None, std::time::Instant::now());
                 if self.dock.views[self.dock.cur].drag.is_none() {
                     self.dock_draw();
@@ -1098,7 +1061,7 @@ impl Ui {
                     drag.1 = (x, y);
                     self.dock_draw();
                 } else if self.dock.views[self.dock.cur].hover != under {
-                    self.dock.views[self.dock.cur].hover = under;
+                    self.dock_set_hover(under);
                     let item = self.dock_feedback_item(under);
                     self.dock.views[self.dock.cur].feedback.set_hover(item, std::time::Instant::now());
                     self.dock_draw();
@@ -1735,8 +1698,10 @@ fn draw_grid(canvas: &mut Canvas, x: i32, y: i32, icon: i32) {
     }
 }
 
-/// Running marks for `n` windows, on the screen-edge side of `cell`.
-fn draw_indicator(canvas: &mut Canvas, style: logic::Indicator, edge: Edge, cell: Rect, n: usize) {
+/// Running marks for `n` windows, on the screen-edge side of `cell`. The
+/// focused window's app (`focused`) has them joined into one wide pill in
+/// the accent, so it is told from the others by shape as well as color.
+fn draw_indicator(canvas: &mut Canvas, style: logic::Indicator, edge: Edge, cell: Rect, n: usize, focused: bool) {
     if n == 0 {
         return;
     }
@@ -1748,14 +1713,22 @@ fn draw_indicator(canvas: &mut Canvas, style: logic::Indicator, edge: Edge, cell
     };
     let count = if style == logic::Indicator::Solid { 1 } else { n };
     let span = count * mark + (count - 1) * gap;
+    // Where a mark `len` long and 3 thick starts, `along` from the cell's
+    // middle.
+    let place = |along: i32, len: i32| match edge {
+        Edge::Bottom => (cell.x + cell.w / 2 + along, cell.y + cell.h - 6, len, 3),
+        Edge::Top => (cell.x + cell.w / 2 + along, cell.y + 3, len, 3),
+        Edge::Left => (cell.x + 3, cell.y + cell.h / 2 + along, 3, len),
+        Edge::Right => (cell.x + cell.w - 6, cell.y + cell.h / 2 + along, 3, len),
+    };
+    if focused {
+        let len = span.max(18);
+        let (x, y, w, h) = place(-len / 2, len);
+        canvas.round_rect(f64::from(x), f64::from(y) - 0.5, f64::from(w), f64::from(h) + 1.0, 2.0, accent());
+        return;
+    }
     for k in 0..count {
-        let along = k * (mark + gap) - span / 2;
-        let (x, y, w, h) = match edge {
-            Edge::Bottom => (cell.x + cell.w / 2 + along, cell.y + cell.h - 6, mark, 3),
-            Edge::Top => (cell.x + cell.w / 2 + along, cell.y + 3, mark, 3),
-            Edge::Left => (cell.x + 3, cell.y + cell.h / 2 + along, 3, mark),
-            Edge::Right => (cell.x + cell.w - 6, cell.y + cell.h / 2 + along, 3, mark),
-        };
+        let (x, y, w, h) = place(k * (mark + gap) - span / 2, mark);
         match style {
             logic::Indicator::Dots => {
                 let (cx, cy) = match edge {
@@ -1767,6 +1740,219 @@ fn draw_indicator(canvas: &mut Canvas, style: logic::Indicator, edge: Edge, cell
             _ => canvas.rect(x, y, w, h, FG),
         }
     }
+}
+
+/// When the tooltip of an item the pointer just reached shows, and
+/// whether at once: at once while another is shown or soon after one went
+/// (moving along the dock), else after [`TOOLTIP_DELAY`].
+fn tooltip_from(now: std::time::Instant, shown: bool, gone: Option<std::time::Instant>) -> (std::time::Instant, bool) {
+    let follow = shown || gone.is_some_and(|g| now.duration_since(g) < TOOLTIP_FOLLOW);
+    (if follow { now } else { now + TOOLTIP_DELAY }, follow)
+}
+
+#[cfg(test)]
+mod tooltip_tests {
+    use super::*;
+
+    #[test]
+    fn tooltips_wait_then_follow() {
+        let t = std::time::Instant::now();
+        assert_eq!(tooltip_from(t, false, None), (t + TOOLTIP_DELAY, false), "resting first");
+        assert_eq!(tooltip_from(t, true, None), (t, true), "moving on from a shown one");
+        assert_eq!(tooltip_from(t + Duration::from_millis(200), false, Some(t)), (t + Duration::from_millis(200), true), "just after one went");
+        let later = t + Duration::from_secs(2);
+        assert_eq!(tooltip_from(later, false, Some(t)), (later + TOOLTIP_DELAY, false), "long after");
+    }
+}
+
+/// What one dock shows, gathered from the shell's state (see
+/// `Ui::dock_paint_model`), so that drawing it needs nothing else.
+pub(super) struct DockPaint {
+    /// The surface's size (logical).
+    pub size: (i32, i32),
+    pub edge: Edge,
+    pub extend: bool,
+    pub always_center: bool,
+    pub indicator: logic::Indicator,
+    /// Item size and the bar's thickness.
+    pub icon: i32,
+    pub thickness: i32,
+    /// The bar's opacity, 0 to 255.
+    pub background: u32,
+    pub items: Vec<Item>,
+    pub icons: Vec<Option<helix_draw::Image>>,
+    /// Per item: windows (up to 4) and the badge count.
+    pub counts: Vec<(usize, usize)>,
+    pub progress: Vec<Option<f64>>,
+    pub urgent: Vec<bool>,
+    pub wiggles: Vec<i32>,
+    /// Hot key numbers shown on the first ten apps.
+    pub numbers: Vec<Option<usize>>,
+    /// The item of the focused window's app.
+    pub focused_item: Option<usize>,
+    /// Hover, press and launch feedback per item.
+    pub looks: Vec<crate::item_feedback::Look>,
+    /// Launch copies growing out of items: (item, progress 0 to 1).
+    pub ghosts: Vec<(usize, f64)>,
+    pub drag: Option<(usize, (f64, f64))>,
+    /// The tooltip shown: the item and its lines.
+    pub tooltip: Option<(usize, Vec<String>)>,
+    /// The item with the keyboard focus (switch-panels).
+    pub keyboard: Option<usize>,
+}
+
+/// Where a drawn dock's bar and items are.
+pub(super) struct DockPainted {
+    pub bar: Rect,
+    pub hits: Vec<(Rect, usize)>,
+}
+
+/// Draw a dock. The three states an app can be in are told apart by shape
+/// as well as color: the item under the pointer (or pressed) gets a light
+/// square behind its icon; the focused window's app has its running marks
+/// joined into one wide accent pill; an app wanting attention gets an
+/// orange dot at its icon's top left corner (and wiggles).
+pub(super) fn paint_dock(canvas: &mut Canvas, text: Option<&Text>, m: &DockPaint) -> DockPainted {
+    let (w, h) = m.size;
+    let (icon, t) = (m.icon, m.thickness);
+    let bar = match m.edge {
+        Edge::Bottom => Rect { x: 0, y: h - t, w, h: t },
+        Edge::Top => Rect { x: 0, y: 0, w, h: t },
+        Edge::Left => Rect { x: 0, y: 0, w: t, h },
+        Edge::Right => Rect { x: w - t, y: 0, w: t, h },
+    };
+    let radius = if m.extend { 0.0 } else { 12.0 };
+    canvas.round_rect(f64::from(bar.x), f64::from(bar.y), f64::from(bar.w), f64::from(bar.h), radius, (m.background << 24) | (DOCK_BG & 0xFFFFFF));
+    if helix_draw::high_contrast() {
+        canvas.round_outline(f64::from(bar.x), f64::from(bar.y), f64::from(bar.w), f64::from(bar.h), radius, 1.0, 0xFFFFFFFF);
+    }
+    let vertical = m.edge.vertical();
+    let slot = icon + icon / 4;
+    let total = Ui::dock_length(icon, &m.items);
+    let along_len = if vertical { h } else { w };
+    let mut pos = if m.extend && !m.always_center { icon / 8 } else { (along_len - total) / 2 + icon / 8 };
+    let mut hits = Vec::new();
+    let mut centers: Vec<(f64, f64)> = Vec::with_capacity(m.items.len());
+    let mut drop_marker = None;
+    for (i, item) in m.items.iter().enumerate() {
+        if i > 0 && separated(&m.items[i - 1], item) {
+            let (sx, sy, sw, sh) = if vertical { (bar.x + 8, pos + 4, t - 16, 1) } else { (pos + 4, bar.y + 8, 1, t - 16) };
+            canvas.rect(sx, sy, sw, sh, 0x60FFFFFF);
+            pos += 9;
+        }
+        let cell = if vertical { Rect { x: bar.x, y: pos, w: t, h: slot } } else { Rect { x: pos, y: bar.y, w: slot, h: t } };
+        if let Some((_, at)) = m.drag {
+            let p = if vertical { at.1 } else { at.0 };
+            if drop_marker.is_none() && p < f64::from(pos + slot / 2) {
+                drop_marker = Some(pos);
+            }
+        }
+        let wiggle = m.wiggles[i];
+        let (ix, iy) = (cell.x + (cell.w - icon) / 2 + if vertical { 0 } else { wiggle }, cell.y + (cell.h - icon) / 2 + if vertical { wiggle } else { 0 });
+        // Hover and press: a light square behind the icon (only those).
+        let look = m.looks[i];
+        let lit = (look.highlight * f64::from(0x40)).round() as u32;
+        let alpha = if look.pressed { 0x59 } else { lit };
+        if alpha > 0 {
+            if helix_draw::high_contrast() {
+                canvas.round_outline(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, if look.pressed { 2.0 } else { 1.0 }, 0xFFFFFFFF);
+            } else {
+                canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, (alpha << 24) | 0xFFFFFF);
+            }
+        }
+        if m.keyboard == Some(i) {
+            helix_draw::theme::focus_ring_round(canvas, f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0);
+        }
+        let (cx, cy) = (f64::from(ix) + f64::from(icon) / 2.0, f64::from(iy) + f64::from(icon) / 2.0);
+        centers.push((cx, cy));
+        if !m.drag.is_some_and(|(d, _)| d == i) {
+            let size = f64::from(icon) * look.scale;
+            let (sx, sy) = (cx - size / 2.0, cy - size / 2.0);
+            match (item, &m.icons[i]) {
+                (Item::ShowApps, _) => draw_grid(canvas, sx.round() as i32, sy.round() as i32, size.round() as i32),
+                (_, Some(image)) => canvas.image(sx, sy, size, size, image),
+                // Being decoded (apps without one get the generic icon).
+                (_, None) => {}
+            }
+        }
+        if let Some(progress) = m.progress[i] {
+            // A bar across the icon's bottom.
+            let (px0, py0, pw) = (f64::from(ix + 3), f64::from(iy + icon - 7), f64::from(icon - 6));
+            canvas.round_rect(px0, py0, pw, 5.0, 2.5, 0xC0202024);
+            if progress > 0.0 {
+                canvas.round_rect(px0, py0, (pw * progress).max(5.0), 5.0, 2.5, accent());
+            }
+        }
+        let (windows, badge) = m.counts[i];
+        draw_indicator(canvas, m.indicator, m.edge, cell, windows, m.focused_item == Some(i));
+        if m.urgent[i] {
+            // Wanting attention: an orange dot with a dark edge.
+            let (ux, uy) = (f64::from(ix) + 3.0, f64::from(iy) + 3.0);
+            canvas.circle(ux, uy, 6.5, 0xFF1E1E24);
+            canvas.circle(ux, uy, 5.0, URGENT);
+        }
+        if let Some(number) = m.numbers[i] {
+            // The app's hot key number, at the icon's top left.
+            let (nx, ny) = (f64::from(ix) + 4.0, f64::from(iy) + 4.0);
+            canvas.circle(nx, ny, 10.0, 0xF0505058);
+            let label_text = (number % 10).to_string();
+            let tw = text.map_or(6.0, |t| t.width(&label_text, 13.0));
+            label(text, canvas, &label_text, (nx - f64::from(tw) / 2.0) as f32, ny as f32 + 5.0, 13.0, FG, 20.0);
+        }
+        if badge > 0 {
+            let (bx, by) = (f64::from(ix + icon) - 4.0, f64::from(iy) + 4.0);
+            canvas.circle(bx, by, 9.0, BADGE);
+            let label_text = if badge > 9 { "9+".to_owned() } else { badge.to_string() };
+            let tw = text.map_or(6.0, |t| t.width(&label_text, 11.0));
+            label(text, canvas, &label_text, (bx - f64::from(tw) / 2.0) as f32, by as f32 + 4.0, 11.0, FG, 20.0);
+        }
+        hits.push((cell, i));
+        pos += slot;
+    }
+    // Launch copies growing out of their items.
+    for &(k, p) in &m.ghosts {
+        if let (Some(Some(image)), Some(&(cx, cy))) = (m.icons.get(k), centers.get(k)) {
+            let size = f64::from(icon) * (1.0 + (crate::item_feedback::GHOST_SCALE - 1.0) * p);
+            canvas.image_alpha(cx - size / 2.0, cy - size / 2.0, size, size, image, (0.8 * (1.0 - p)) as f32);
+        }
+    }
+    if let Some((d, at)) = m.drag {
+        let marker = drop_marker.unwrap_or(pos);
+        let (mx, my, mw, mh) = if vertical { (bar.x + 6, marker - 1, t - 12, 3) } else { (marker - 1, bar.y + 6, 3, t - 12) };
+        canvas.rect(mx, my, mw, mh, accent());
+        if let Some(Some(image)) = m.icons.get(d) {
+            canvas.image(at.0 - f64::from(icon) / 2.0, at.1 - f64::from(icon) / 2.0, f64::from(icon), f64::from(icon), image);
+        }
+    }
+    // The item's name (and windows), beside the bar.
+    if let Some((i, lines)) = &m.tooltip {
+        if let Some(&(cell, _)) = hits.iter().find(|(_, n)| n == i) {
+            let px = 13.0;
+            let line_h = helix_draw::theme::grow(18);
+            let widest = lines.iter().map(|l| text.map_or(80.0, |t| t.width(l, px))).fold(0.0f32, f32::max);
+            let tw = widest.ceil() as i32 + 28;
+            let lh = helix_draw::theme::grow(26) + (lines.len() as i32 - 1) * line_h;
+            let lw = tw.min(if vertical { TOOLTIP_ROOM_W - 12 } else { w });
+            let (lx, ly) = match m.edge {
+                Edge::Bottom => (cell.x + cell.w / 2 - lw / 2, bar.y - lh - 6),
+                Edge::Top => (cell.x + cell.w / 2 - lw / 2, bar.y + bar.h + 6),
+                Edge::Left => (bar.x + bar.w + 6, cell.y + cell.h / 2 - lh / 2),
+                Edge::Right => (bar.x - lw - 6, cell.y + cell.h / 2 - lh / 2),
+            };
+            let lx = lx.clamp(0, (w - lw).max(0));
+            canvas.round_rect(f64::from(lx), f64::from(ly), f64::from(lw), f64::from(lh), 6.0, 0xF02E2E36);
+            if helix_draw::high_contrast() {
+                canvas.round_outline(f64::from(lx), f64::from(ly), f64::from(lw), f64::from(lh), 6.0, 1.0, 0xFFFFFFFF);
+            }
+            let base = baseline(text, ly, helix_draw::theme::grow(26), px);
+            label(text, canvas, &lines[0], (lx + 12) as f32, base, px, FG, (lw - 16) as f32);
+            // The windows, dimmer, one per line.
+            for (n, line) in lines.iter().enumerate().skip(1) {
+                label(text, canvas, line, (lx + 12) as f32, base + (n as i32 * line_h) as f32, px, DIM_FG, (lw - 16) as f32);
+            }
+        }
+    }
+    DockPainted { bar, hits }
 }
 
 impl Ui {
