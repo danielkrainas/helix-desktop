@@ -427,7 +427,8 @@ impl Helix {
             None => Vec::new(),
         };
         let focused = self.focused_window();
-        let scene = super::frames::scene(renderer, &self.space, &self.frames, output, focused.as_ref(), None);
+        let fullscreen = self.in_fullscreen(output);
+        let scene = super::frames::scene(renderer, &self.space, &self.frames, output, focused.as_ref(), None, fullscreen);
         elements.extend(scene.into_iter().map(CaptureElement::Scene));
         Ok((geometry.size, scale, elements))
     }

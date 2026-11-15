@@ -123,10 +123,9 @@ impl Helix {
         let pos = self.seat.get_pointer()?.current_location();
         let output = self.space.outputs().find(|o| self.space.output_geometry(o).is_some_and(|g| g.to_f64().contains(pos)))?;
         let origin = self.space.output_geometry(output)?.loc.to_f64();
-        let map = smithay::desktop::layer_map_for_output(output);
         [smithay::wayland::shell::wlr_layer::Layer::Overlay, smithay::wayland::shell::wlr_layer::Layer::Top]
             .into_iter()
-            .find_map(|layer| map.layer_under(layer, pos - origin).map(|l| l.namespace().to_owned()))
+            .find_map(|layer| self.shown_layer_under(output, layer, pos - origin).map(|l| l.namespace().to_owned()))
     }
 
     /// Slow keys, mouse key motion, the Shift shortcut, the timeout.

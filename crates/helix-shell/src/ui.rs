@@ -2672,7 +2672,7 @@ impl Ui {
             return;
         };
         let height = self.banner_height(&data);
-        if let Some(view) = self.banner.as_mut().filter(|v| v.data.id == data.id) {
+        if let Some(view) = self.banner.as_mut().filter(|v| v.data.id == data.id && v.data.critical == data.critical) {
             view.data = data;
             if view.height != height || view.width != banner_w() {
                 view.layer.set_size(banner_w(), height);
@@ -2683,7 +2683,10 @@ impl Ui {
             return;
         }
         let surface = self.compositor.create_surface(&self.qh);
-        let layer = self.layer_shell.create_layer_surface(&self.qh, surface, Layer::Top, Some("helix-notification"), None);
+        // The top layer, which a full-screen window hides (as GNOME holds
+        // banners back in full screen); critical ones go above it.
+        let kind = if data.critical { Layer::Overlay } else { Layer::Top };
+        let layer = self.layer_shell.create_layer_surface(&self.qh, surface, kind, Some("helix-notification"), None);
         layer.set_anchor(Anchor::TOP);
         layer.set_margin(8, 0, 0, 0);
         layer.set_size(banner_w(), height);

@@ -48,6 +48,9 @@ pub struct Banner {
     pub expanded: bool,
     /// When it arrived, Unix seconds (0: unknown).
     pub arrived: i64,
+    /// Critical urgency: shown above full-screen windows, which hide the
+    /// others.
+    pub critical: bool,
 }
 
 impl From<&Notification> for Banner {
@@ -63,6 +66,7 @@ impl From<&Notification> for Banner {
             markup: n.markup,
             expanded: crate::app_notify::force_expanded(&n.app_id),
             arrived: 0,
+            critical: n.urgency == Urgency::Critical,
         }
     }
 }

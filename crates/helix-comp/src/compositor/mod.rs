@@ -609,9 +609,32 @@ impl Helix {
     pub fn over_panel(&self, pos: Point<f64, Logical>) -> bool {
         let Some(output) = self.output_at(pos) else { return false };
         let Some(geo) = self.space.output_geometry(output) else { return false };
-        let layers = layer_map_for_output(output);
         let local = pos - geo.loc.to_f64();
-        layers.layer_under(Layer::Overlay, local).is_some() || layers.layer_under(Layer::Top, local).is_some()
+        self.shown_layer_under(output, Layer::Overlay, local).is_some() || self.shown_layer_under(output, Layer::Top, local).is_some()
+    }
+
+    /// The `layer` surface of `output` under `local` (output coordinates)
+    /// that is shown: top-layer surfaces hidden by a full-screen window
+    /// ([`wm::hidden_in_fullscreen`]) don't take input.
+    pub(super) fn shown_layer_under(&self, output: &smithay::output::Output, layer: Layer, local: Point<f64, Logical>) -> Option<smithay::desktop::LayerSurface> {
+        let fullscreen = layer == Layer::Top && self.in_fullscreen(output);
+        let map = layer_map_for_output(output);
+        if !fullscreen {
+            return map.layer_under(layer, local).cloned();
+        }
+        let found = map
+            .layers_on(layer)
+            .rev()
+            .filter(|l| !wm::hidden_in_fullscreen(layer, l.namespace()))
+            .find(|l| {
+                map.layer_geometry(l).is_some_and(|g| {
+                    let mut bbox = l.bbox_with_popups();
+                    bbox.loc += g.loc;
+                    bbox.to_f64().contains(local)
+                })
+            })
+            .cloned();
+        found
     }
 
     /// The window under `pos` and where it is: as the space has it, except
@@ -633,10 +656,9 @@ impl Helix {
         }
         let output = self.output_at(pos)?;
         let output_loc = self.space.output_geometry(output)?.loc;
-        let layers = layer_map_for_output(output);
         let layer_hit = |layer: Layer| {
-            let surface = layers.layer_under(layer, pos - output_loc.to_f64())?;
-            let geo = layers.layer_geometry(surface)?;
+            let surface = self.shown_layer_under(output, layer, pos - output_loc.to_f64())?;
+            let geo = layer_map_for_output(output).layer_geometry(&surface)?;
             let loc = geo.loc + output_loc;
             surface
                 .surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL)

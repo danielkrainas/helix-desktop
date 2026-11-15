@@ -1070,7 +1070,7 @@ pub(super) mod tests {
     }
 
     pub(in crate::ui) fn note(id: u32, app: &str, app_id: &str) -> Banner {
-        Banner { id, app_name: app.into(), app_id: app_id.into(), summary: String::new(), body: String::new(), buttons: Vec::new(), icon: None, markup: false, expanded: false, arrived: arrived_ago(i64::from(id) * 420) }
+        Banner { id, app_name: app.into(), app_id: app_id.into(), summary: String::new(), body: String::new(), buttons: Vec::new(), icon: None, markup: false, expanded: false, arrived: arrived_ago(i64::from(id) * 420), critical: false }
     }
 
     /// A list to look at: a group of chat messages, mail, an update.

@@ -593,8 +593,10 @@ impl Helix {
     pub(super) fn layer_give_back_focus(&mut self, from: &WlSurface) {
         let exclusive = self.space.outputs().find_map(|o| {
             let map = layer_map_for_output(o);
+            let fullscreen = self.in_fullscreen(o);
             [Layer::Overlay, Layer::Top].into_iter().find_map(|kind| {
                 map.layers_on(kind)
+                    .filter(|l| !(fullscreen && super::wm::hidden_in_fullscreen(kind, l.namespace())))
                     .rfind(|l| l.wl_surface() != from && l.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive && !self.layer_released.contains(l.wl_surface()))
                     .map(|l| l.wl_surface().clone())
             })
@@ -634,9 +636,10 @@ impl Helix {
         let Some(output) = self.output_at(pos).cloned() else { return };
         let Some(geo) = self.space.output_geometry(&output) else { return };
         let target = {
-            let map = layer_map_for_output(&output);
             let local = pos - geo.loc.to_f64();
-            map.layer_under(Layer::Overlay, local).or_else(|| map.layer_under(Layer::Top, local)).map(|l| (l.wl_surface().clone(), l.cached_state().keyboard_interactivity))
+            self.shown_layer_under(&output, Layer::Overlay, local)
+                .or_else(|| self.shown_layer_under(&output, Layer::Top, local))
+                .map(|l| (l.wl_surface().clone(), l.cached_state().keyboard_interactivity))
         };
         let Some((surface, interactivity)) = target else { return };
         let focused = self.focused_surface().as_ref() == Some(&surface);

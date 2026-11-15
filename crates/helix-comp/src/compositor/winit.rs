@@ -199,7 +199,7 @@ pub fn init(
                         let mut elements: Vec<super::udev::OutputElements> =
                             state.cursor_surface_elements(renderer, origin, scale).into_iter().map(super::udev::OutputElements::CursorSurface).collect();
                         elements.extend(
-                            super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref(), Some((&state.animations, state.wm_settings.motion)))
+                            super::frames::scene(renderer, &state.space, &state.frames, &output, focused.as_ref(), Some((&state.animations, state.wm_settings.motion)), state.in_fullscreen(&output))
                                 .into_iter()
                                 .map(super::udev::OutputElements::Scene),
                         );

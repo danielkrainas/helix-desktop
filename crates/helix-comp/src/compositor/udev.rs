@@ -724,6 +724,7 @@ impl Helix {
     pub fn render_crtc(&mut self, crtc: crtc::Handle) {
         let pointer_location = self.seat.get_pointer().unwrap().current_location();
         let focused = self.focused_window();
+        let fullscreen_outputs = self.fullscreen_outputs();
         let Helix {
             udev,
             frames,
@@ -775,7 +776,7 @@ impl Helix {
                 );
             }
         } else {
-            let scene = super::frames::scene(renderer, space, frames, &output, focused.as_ref(), Some((&*animations, wm_settings.motion)));
+            let scene = super::frames::scene(renderer, space, frames, &output, focused.as_ref(), Some((&*animations, wm_settings.motion)), fullscreen_outputs.contains(&output));
             elements.extend(scene.into_iter().map(OutputElements::Scene));
         }
 

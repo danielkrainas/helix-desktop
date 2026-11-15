@@ -31,6 +31,20 @@ impl ConfigureWhenReady for smithay::wayland::shell::xdg::ToplevelSurface {
     }
 }
 
+/// Top-layer shell surfaces that stay shown over a full-screen window:
+/// the on-screen keyboard (typing into the full-screen app needs it) and
+/// the dock with its reveal edge, which the shell hides itself in full
+/// screen unless `autohide-in-fullscreen` lets the pointer reveal it.
+const SHOWN_IN_FULLSCREEN: &[&str] = &["helix-osk", "helix-dock", "helix-dock-edge"];
+
+/// Whether `layer` is hidden on an output in full screen: top-layer
+/// surfaces are (the panel, notification banners, other clients' bars),
+/// except [`SHOWN_IN_FULLSCREEN`]. Overlay surfaces (OSDs, menus, the
+/// overview, critical banners) stay above the full-screen window.
+pub fn hidden_in_fullscreen(layer: smithay::wayland::shell::wlr_layer::Layer, namespace: &str) -> bool {
+    layer == smithay::wayland::shell::wlr_layer::Layer::Top && !SHOWN_IN_FULLSCREEN.contains(&namespace)
+}
+
 /// Why a window's geometry was taken over, so it can be restored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Takeover {
@@ -319,6 +333,33 @@ impl Helix {
 
     pub fn is_taken_over(&self, window: &Window, kind: Takeover) -> bool {
         self.restore.iter().any(|(w, _, k)| w == window && *k == kind)
+    }
+
+    /// Whether `output` is in full screen: the topmost managed window on
+    /// it is full-screen (its own dialogs above it don't count). Shell
+    /// surfaces on the top layer are then hidden there
+    /// ([`hidden_in_fullscreen`]); the overlay layer stays above.
+    pub fn in_fullscreen(&self, output: &Output) -> bool {
+        let fullscreen = |w: &Window| self.is_taken_over(w, Takeover::Fullscreen);
+        for window in self.managed().collect::<Vec<_>>().into_iter().rev() {
+            if self.output_of(window).as_ref() != Some(output) {
+                continue;
+            }
+            if fullscreen(window) {
+                return true;
+            }
+            let parent = window.toplevel().and_then(|t| t.parent()).and_then(|p| self.window_for_surface(&p));
+            if parent.is_some_and(|p| fullscreen(&p)) {
+                continue;
+            }
+            return false;
+        }
+        false
+    }
+
+    /// The outputs in full screen ([`Self::in_fullscreen`]).
+    pub fn fullscreen_outputs(&self) -> Vec<Output> {
+        self.space.outputs().filter(|o| self.in_fullscreen(o)).cloned().collect()
     }
 
     /// Keep windows inside the work area after it changes (e.g. a panel

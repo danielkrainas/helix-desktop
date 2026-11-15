@@ -315,7 +315,10 @@ pub fn client_rect(space: &Space<Window>, window: &Window) -> Option<Rectangle<i
 }
 
 /// What `output` shows, front to back: shell layers above windows, windows
-/// (each with its title bar), shell layers below.
+/// (each with its title bar), shell layers below. On an output in full
+/// screen (`fullscreen`), top-layer surfaces other than the
+/// [`super::wm::hidden_in_fullscreen`] exceptions are left out.
+#[allow(clippy::too_many_arguments)]
 pub fn scene(
     renderer: &mut GlesRenderer,
     space: &Space<Window>,
@@ -323,13 +326,17 @@ pub fn scene(
     output: &Output,
     focused: Option<&Window>,
     animations: Option<(&super::animations::Animations, helix_comp::animation::Motion)>,
+    fullscreen: bool,
 ) -> Vec<SceneElement> {
     let Some(output_geo) = space.output_geometry(output) else { return Vec::new() };
     let scale = output.current_scale().fractional_scale();
     let mut elements = Vec::new();
     let layers = layer_map_for_output(output);
-    let (lower, upper): (Vec<_>, Vec<_>) =
-        layers.layers().rev().partition(|s| matches!(s.layer(), Layer::Background | Layer::Bottom));
+    let (lower, upper): (Vec<_>, Vec<_>) = layers
+        .layers()
+        .rev()
+        .filter(|s| !(fullscreen && super::wm::hidden_in_fullscreen(s.layer(), s.namespace())))
+        .partition(|s| matches!(s.layer(), Layer::Background | Layer::Bottom));
     let push_layers = |elements: &mut Vec<SceneElement>, renderer: &mut GlesRenderer, list: &[&smithay::desktop::LayerSurface]| {
         for surface in list {
             let Some(geo) = layers.layer_geometry(surface) else { continue };

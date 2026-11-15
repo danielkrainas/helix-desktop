@@ -117,11 +117,22 @@ impl Helix {
     /// Write what `output` would show to `path` (shared-memory surfaces,
     /// at scale 1) and log where each window is.
     fn headless_snapshot(&mut self, output: &Output, path: &std::path::Path) {
-        let Some(geo) = self.space.output_geometry(output) else { return };
+        let Some(image) = self.headless_image(output) else { return };
+        if let Err(err) = image.save(path) {
+            tracing::warn!(%err, path = %path.display(), "cannot write the headless snapshot");
+        }
+    }
+
+    /// What `output` shows (shared-memory surfaces, at scale 1); logs
+    /// where each window is.
+    pub(super) fn headless_image(&self, output: &Output) -> Option<Image> {
+        let geo = self.space.output_geometry(output)?;
         let mut image = Image { width: geo.size.w, height: geo.size.h, pixels: vec![0xFF1E1E24; (geo.size.w * geo.size.h) as usize] };
+        let fullscreen = self.in_fullscreen(output);
         let layers: Vec<(Layer, WlSurface, Point<i32, Logical>)> = {
             let map = layer_map_for_output(output);
             map.layers()
+                .filter(|l| !(fullscreen && super::wm::hidden_in_fullscreen(l.layer(), l.namespace())))
                 .filter_map(|l| Some((l.layer(), l.wl_surface().clone(), map.layer_geometry(l)?.loc + geo.loc)))
                 .collect()
         };
@@ -157,17 +168,23 @@ impl Helix {
             );
         }
         draw_layers(&mut image, &[Layer::Top, Layer::Overlay]);
-        if let Err(err) = image.save(path) {
-            tracing::warn!(%err, path = %path.display(), "cannot write the headless snapshot");
-        }
+        Some(image)
     }
 }
 
 /// An ARGB image the snapshot is drawn into.
-struct Image {
-    width: i32,
-    height: i32,
-    pixels: Vec<u32>,
+pub(super) struct Image {
+    pub(super) width: i32,
+    pub(super) height: i32,
+    pub(super) pixels: Vec<u32>,
+}
+
+impl Image {
+    /// The pixel at (`x`, `y`), ARGB.
+    #[cfg(test)]
+    pub(super) fn at(&self, x: i32, y: i32) -> u32 {
+        self.pixels[(y * self.width + x) as usize]
+    }
 }
 
 impl Image {

@@ -206,7 +206,12 @@ impl App {
 
     /// A `w`×`h` buffer (the margin is transparent).
     fn buffer(&self, w: i32, h: i32) -> wl_buffer::WlBuffer {
-        let bytes = vec![0u8; (w * h * 4) as usize];
+        self.filled(w, h, 0)
+    }
+
+    /// A `w`×`h` buffer of one ARGB color.
+    fn filled(&self, w: i32, h: i32, argb: u32) -> wl_buffer::WlBuffer {
+        let bytes: Vec<u8> = std::iter::repeat_n(argb.to_le_bytes(), (w * h) as usize).flatten().collect();
         // SAFETY: memfd_create returns a new fd we own (or -1).
         let raw = unsafe { libc::memfd_create(c"placement-test".as_ptr(), libc::MFD_CLOEXEC) };
         assert!(raw >= 0);
@@ -492,4 +497,99 @@ fn clicking_a_window_takes_the_keyboard_from_the_panel() {
     go.send(()).unwrap();
     let Step::Drawn(_) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
     assert_eq!(state.focused_surface().as_ref(), Some(&panel_surface), "asking anew takes it");
+}
+
+/// A full-screen window hides the panel and other top-layer shell
+/// surfaces on its monitor (drawn and hit alike), except the on-screen
+/// keyboard; overlay surfaces (an OSD) stay above it. Leaving full screen
+/// brings the panel back.
+#[test]
+fn fullscreen_hides_the_top_layer() {
+    use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
+    const WINDOW: u32 = 0xFFFF_FFFF;
+    const PANEL: u32 = 0xFFFF_0000;
+    const OSK: u32 = 0xFF00_FF00;
+    const OSD: u32 = 0xFF00_00FF;
+    let (mut event_loop, mut state) = start();
+    state.wm_settings.center_new_windows = true;
+    state.wm_settings.auto_maximize = false;
+    let (go, wait) = mpsc::channel::<()>();
+    let rx = connect(&mut state, move |stream, tx| {
+        use zwlr_layer_surface_v1::Anchor;
+        let mut app = App::new(stream);
+        app.surface.commit();
+        app.roundtrip();
+        let frame = |app: &mut App, size: (i32, i32)| {
+            if let Some(serial) = app.state.serial.take() {
+                app.xdg.ack_configure(serial);
+            }
+            let (w, h) = if app.state.size.0 > 0 { app.state.size } else { size };
+            app.xdg.set_window_geometry(0, 0, w, h);
+            app.surface.attach(Some(&app.filled(w, h, WINDOW)), 0, 0);
+            app.surface.commit();
+            app.roundtrip();
+        };
+        frame(&mut app, (640, 480));
+        let shell: zwlr_layer_shell_v1::ZwlrLayerShellV1 = app.globals.bind(&app.qh, 1..=4, ()).unwrap();
+        let layers = [
+            (zwlr_layer_shell_v1::Layer::Top, "helix-panel", Anchor::Top | Anchor::Left | Anchor::Right, (0, 32), (SIZE.0, 32), PANEL),
+            (zwlr_layer_shell_v1::Layer::Top, "helix-osk", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 100), (SIZE.0, 100), OSK),
+            (zwlr_layer_shell_v1::Layer::Overlay, "helix-osd", Anchor::empty(), (100, 100), (100, 100), OSD),
+        ];
+        let mut surfaces = Vec::new();
+        for (layer, namespace, anchor, size, buffer, color) in layers {
+            let surface = app.compositor.create_surface(&app.qh, ());
+            let layer = shell.get_layer_surface(&surface, None, layer, namespace.into(), &app.qh, ());
+            layer.set_size(size.0 as u32, size.1 as u32);
+            layer.set_anchor(anchor);
+            surface.commit();
+            app.roundtrip();
+            layer.ack_configure(app.state.layer_serial.take().expect("a layer configure"));
+            surface.attach(Some(&app.filled(buffer.0, buffer.1, color)), 0, 0);
+            surface.commit();
+            app.roundtrip();
+            surfaces.push((surface, layer));
+        }
+        tx.send(Step::Drawn(app.state.clone())).unwrap();
+        wait.recv().unwrap();
+        app.toplevel.set_fullscreen(None);
+        app.roundtrip();
+        frame(&mut app, SIZE);
+        tx.send(Step::Drawn(app.state.clone())).unwrap();
+        wait.recv().unwrap();
+        app.toplevel.unset_fullscreen();
+        app.roundtrip();
+        frame(&mut app, (640, 480));
+        tx.send(Step::Drawn(app.state.clone())).unwrap();
+        std::thread::sleep(Duration::from_secs(1));
+    });
+    let Step::Drawn(_) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+    let output = state.space.outputs().next().unwrap().clone();
+    let window = state.space.elements().next().unwrap().clone();
+    let window_surface = window.toplevel().unwrap().wl_surface().clone();
+    // Output-local points: on the panel, on the keyboard, on the OSD.
+    let (panel_at, osk_at, osd_at) = ((SIZE.0 / 2, 10), (SIZE.0 / 2, SIZE.1 - 10), (SIZE.0 / 2, SIZE.1 / 2));
+    let global = |(x, y): (i32, i32)| Point::<f64, Logical>::from((f64::from(ORIGIN.0 + x), f64::from(ORIGIN.1 + y)));
+    let shown = |state: &Helix| {
+        let image = state.headless_image(&output).expect("a snapshot");
+        (image.at(panel_at.0, panel_at.1), image.at(osk_at.0, osk_at.1), image.at(osd_at.0, osd_at.1))
+    };
+    assert!(!state.in_fullscreen(&output));
+    assert_eq!(shown(&state), (PANEL, OSK, OSD));
+    assert!(state.over_panel(global(panel_at)));
+
+    go.send(()).unwrap();
+    let Step::Drawn(drawn) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+    assert!(drawn.fullscreen, "{drawn:?}");
+    assert!(state.in_fullscreen(&output));
+    assert_eq!(shown(&state), (WINDOW, OSK, OSD), "the panel is hidden; the keyboard and the OSD stay");
+    assert!(!state.over_panel(global(panel_at)), "the hidden panel takes no input");
+    assert_eq!(state.surface_under(global(panel_at)).map(|(s, _)| s), Some(window_surface.clone()));
+    assert!(state.over_panel(global(osk_at)));
+
+    go.send(()).unwrap();
+    let Step::Drawn(drawn) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+    assert!(!drawn.fullscreen, "{drawn:?}");
+    assert!(!state.in_fullscreen(&output));
+    assert_eq!(shown(&state).0, PANEL, "the panel is back");
 }
