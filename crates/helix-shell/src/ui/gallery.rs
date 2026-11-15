@@ -346,6 +346,49 @@ fn screenshot_ui() {
     in_looks(&dir, "shot-record", (1280, 720), &mut |canvas, (w, h)| capture::gallery_scene(canvas, text.as_ref(), (w as i32, h as i32), true, 2, false));
 }
 
+/// The rest of the shared look in every look (`look-…`): a banner with
+/// actions (one hovered), an authentication prompt and a run dialog with
+/// a list, and the on-screen keyboard.
+#[test]
+#[ignore]
+fn shared_look_more() {
+    use crate::prompt::Prompt;
+    let Some(dir) = dir() else { return };
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    in_looks(&dir, "look-banner", (1280, 360), &mut |canvas, (w, _)| {
+        let banner = crate::notifications::Banner {
+            summary: "Meeting starts now".into(),
+            body: "Weekly planning in room 4 — the agenda is attached.".into(),
+            buttons: vec![("snooze".into(), "Snooze".into()), ("join".into(), "Join".into())],
+            ..notify::tests::note(7, "Calendar", "org.gnome.Calendar")
+        };
+        let bw = banner_w() as i32;
+        let x = (w as i32 - bw) / 2;
+        let mut scratch = vec![0u8; canvas.data.len()];
+        let mut dry = Canvas::scaled(&mut scratch, w, 360, canvas.scale);
+        let (_, bottom) = notify::paint_notification(&mut dry, (text.as_ref(), bold.as_ref()), None, &banner, (x + 16, 24), bw - 32 - 24, 2);
+        let bh = bottom - 8 + helix_draw::theme::grow(52);
+        theme::popover(canvas, x, 8, bw, bh);
+        let (_, bottom) = notify::paint_notification(canvas, (text.as_ref(), bold.as_ref()), None, &banner, (x + 16, 24), bw - 32 - 24, 2);
+        let bt = helix_draw::theme::grow(36);
+        for (i, (_, l)) in banner.buttons.iter().enumerate() {
+            let bx = x + 16 + i as i32 * ((bw - 40) / 2 + 8);
+            let look = theme::Look { hovered: i == 1, ..Default::default() };
+            theme::button(canvas, text.as_ref(), (bx, bottom + 8, (bw - 40) / 2, bt), l, theme::Kind::Normal, look, false);
+        }
+    });
+    let auth = Prompt { title: "Authentication Required".into(), message: "Authentication is needed to change the system time.".into(), password: Some("Password".into()), choice: Some(("Remember for this session".into(), true)), continue_label: "Authenticate".into(), ..Default::default() };
+    in_looks(&dir, "look-prompt", (1280, 720), &mut |canvas, size| {
+        let view = prompt::sample_view(auth.clone());
+        prompt::paint_prompt_view(canvas, (text.as_ref(), bold.as_ref()), size, &view, (Some(OverlayHit::Toggle), Some(OverlayHit::Cancel)));
+    });
+    let list = Prompt { title: "Open With".into(), message: "Choose an app for notes.txt".into(), list: vec!["Text Editor".into(), "Notes".into(), "Terminal".into()], selected: 1, ..Default::default() };
+    in_looks(&dir, "look-prompt-list", (1280, 720), &mut |canvas, size| {
+        let view = prompt::sample_view(list.clone());
+        prompt::paint_prompt_view(canvas, (text.as_ref(), bold.as_ref()), size, &view, (Some(OverlayHit::Row(2)), None));
+    });
+}
+
 #[test]
 #[ignore]
 fn dialogs() {
@@ -889,6 +932,11 @@ fn on_screen_keyboard() {
             });
         }
     }
+    // A key held, in every look.
+    let held = OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &bar, accents: false, down: Some((1, 2)) };
+    in_looks(&dir, "look-osk", (w, h), &mut |canvas, (w, h)| {
+        osk::paint_keyboard(canvas, (text.as_ref(), None), &icons, &held, (w as i32, h as i32));
+    });
     helix_draw::set_high_contrast(false);
     helix_draw::accent::set(Accent::Blue);
 }

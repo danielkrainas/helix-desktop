@@ -427,220 +427,9 @@ impl Ui {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(overlay.layer.wl_surface()));
-        canvas.fill(SCRIM);
-        let text = self.text.as_ref();
-        let p = &view.prompt;
-        let side = if p.places.is_empty() { 0 } else { SIDEBAR_W };
-        // Lengths that hold text grow with the text scale.
-        let grow = helix_draw::theme::grow;
-        let bw = (grow(440) + side).min(w as i32 - 40);
-        let inner = (bw - 48) as f32;
-        let wrap = |s: &str, px: f32| -> Vec<String> {
-            if s.is_empty() {
-                Vec::new()
-            } else {
-                text.map_or_else(|| vec![s.to_owned()], |t| t.wrap(s, px, inner, 4))
-            }
-        };
-        let message = wrap(&p.message, size::LABEL);
-        let description = wrap(&p.description, size::CAPTION);
-        let fields = usize::from(p.entry.is_some()) + usize::from(p.password.is_some()) + usize::from(p.confirm.is_some());
-        // The picture: at most the inner width and 220 high.
-        let picture = p.picture.as_deref().filter(|i| i.width > 0 && i.height > 0).map(|i| {
-            let k = (f64::from(inner) / i.width as f64).min(220.0 / i.height as f64);
-            (i, (i.width as f64 * k).round(), (i.height as f64 * k).round())
-        });
-        let picture_h = picture.map_or(0, |(_, _, ph)| ph as i32 + 12);
-        // At most LIST_SHOWN rows, scrolled to keep the selection in view.
-        let shown = p.list.len().min(LIST_SHOWN);
-        let first = view.selected.saturating_sub(LIST_SHOWN - 1).min(p.list.len().saturating_sub(shown));
-        let places_shown = p.places.len().min(PLACES_SHOWN);
-        let list_rows = shown.max(places_shown);
-        let list_h = if list_rows > 0 { list_rows as i32 * grow(LIST_ROW) + 8 } else { 0 };
-        // An icon above the title.
-        let icon = p.icon.as_deref().filter(|i| i.width > 0 && i.height > 0);
-        let top = if icon.is_some() { 60 } else { 0 };
-        let preview_h = if p.previews.iter().any(|f| !f.is_empty()) { PREVIEW_H + 12 } else { 0 };
-        let bh = preview_h + top + grow(70) + message.len() as i32 * grow(19) + description.len() as i32 * grow(17) + 8 + picture_h + list_h + fields as i32 * grow(62) + if p.choice.is_some() { grow(34) } else { 0 } + p.checks.len() as i32 * grow(34) + grow(26) + grow(64);
-        let bx = (w as i32 - bw) / 2;
-        let by = (h as i32 - bh) / 3;
-        theme::popover(&mut canvas, bx, by, bw, bh);
-        let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
-        if let Some(icon) = icon {
-            canvas.image(f64::from(bx + (bw - 48) / 2), f64::from(by + 20), 48.0, 48.0, icon);
-        }
-        // Below the icon, laid out as without it.
-        let (by, bh) = (by + top, bh - top);
-        let bold = self.bold.as_ref().or(text);
-        let tw = bold.map_or(0.0, |t| t.width(&p.title, size::TITLE).min(inner));
-        label(bold, &mut canvas, &p.title, bx as f32 + (bw as f32 - tw) / 2.0, (by + grow(44)) as f32, size::TITLE, FG, inner);
-        let mut y = by + grow(76);
-        for line in &message {
-            label(text, &mut canvas, line, center(line, size::LABEL), y as f32, size::LABEL, FG, inner);
-            y += grow(19);
-        }
-        for line in &description {
-            label(text, &mut canvas, line, center(line, size::CAPTION), y as f32, size::CAPTION, DIM_FG, inner);
-            y += grow(17);
-        }
-        y += 8;
-        if let Some((image, pw, ph)) = picture {
-            canvas.image(f64::from(bx) + (f64::from(bw) - pw) / 2.0, f64::from(y), pw, ph, image);
-            y += picture_h;
-        }
-        let mut hits = Vec::new();
-        // The places, left of the list.
-        for (i, name) in p.places.iter().enumerate().take(places_shown) {
-            let r = Rect { x: bx + 24, y: y + i as i32 * grow(LIST_ROW), w: side - 12, h: grow(LIST_ROW) };
-            let hit = OverlayHit::Place(i);
-            let look = theme::Look { hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
-            if p.place_current == Some(i) {
-                theme::control_round(&mut canvas, (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h)), theme::RADIUS_ROW, look);
-                canvas.round_rect(f64::from(r.x + 3), f64::from(r.y + 8), 3.0, f64::from(r.h - 16), 1.5, accent());
-            } else {
-                theme::row(&mut canvas, r.x, r.y, r.w, r.h, look);
-            }
-            label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, (r.w - 16) as f32);
-            hits.push((r, OverlayHit::Place(i)));
-        }
-        if shown > 0 {
-            theme::well(&mut canvas, bx + 24 + side, y, bw - 48 - side, shown as i32 * grow(LIST_ROW));
-            for (i, name) in p.list.iter().enumerate().skip(first).take(shown) {
-                let r = Rect { x: bx + 24 + side, y: y + (i - first) as i32 * grow(LIST_ROW), w: bw - 48 - side, h: grow(LIST_ROW) };
-                let lit = if p.multiple { view.picked[i] } else { i == view.selected };
-                let hit = OverlayHit::Row(i);
-                let look = theme::Look { on: lit, hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit) };
-                theme::row(&mut canvas, r.x + 2, r.y + 1, r.w - 4, r.h - 2, look);
-                if p.multiple && i == view.selected {
-                    // The current row: an outline.
-                    canvas.round_outline(f64::from(r.x + 3), f64::from(r.y + 2), f64::from(r.w - 6), f64::from(r.h - 4), theme::RADIUS_ROW - 1.0, 1.0, FG);
-                }
-                label(text, &mut canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, theme::control_text(look), (r.w - 24) as f32);
-                hits.push((r, OverlayHit::Row(i)));
-            }
-        }
-        y += list_h;
-        if preview_h > 0 {
-            let area = Rect { x: bx + 24, y: y + 4, w: bw - 48, h: PREVIEW_H };
-            theme::well(&mut canvas, area.x, area.y, area.w, area.h);
-            let preview = p.previews.get(view.selected).and_then(|f| view.previews.get(f)).and_then(|i| i.as_ref());
-            let image = match preview {
-                Some(crate::Preview::Image(image)) => Some(&**image),
-                _ => None,
-            };
-            if let Some(crate::Preview::Text(lines)) = preview {
-                // A text file's first lines, small.
-                for (i, line) in lines.iter().enumerate() {
-                    label(text, &mut canvas, line, (area.x + 10) as f32, (area.y + 18 + i as i32 * 16) as f32, size::CAPTION, FG, (area.w - 20) as f32);
-                }
-            } else if let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) {
-                let k = (f64::from(area.w) / image.width as f64).min(f64::from(area.h) / image.height as f64).min(1.0);
-                let (iw, ih) = (image.width as f64 * k, image.height as f64 * k);
-                canvas.image_rounded(f64::from(area.x) + (f64::from(area.w) - iw) / 2.0, f64::from(area.y) + (f64::from(area.h) - ih) / 2.0, iw, ih, theme::RADIUS_ROW, image, 1.0);
-            } else {
-                let none = tr("No preview");
-                let tw = text.map_or(0.0, |t| t.width(none, size::CAPTION));
-                label(text, &mut canvas, none, area.x as f32 + (area.w as f32 - tw) / 2.0, baseline(text, area.y, area.h, size::CAPTION), size::CAPTION, DIM_FG, inner);
-            }
-            y += preview_h;
-        }
-        if let Some((name, _)) = &p.entry {
-            label(text, &mut canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, size::CAPTION, DIM_FG, inner);
-            let r = Rect { x: bx + 24, y: y + grow(22), w: bw - 48, h: grow(34) };
-            let focused = view.focus == 3 && !view.busy;
-            text_field(&mut canvas, r, focused);
-            // The end of the text when it does not fit, and a caret.
-            let room = (r.w - 24) as f32;
-            let mut shown = view.entry.as_str();
-            while text.is_some_and(|t| t.width(shown, size::LABEL) > room) && !shown.is_empty() {
-                let next = shown.char_indices().nth(1).map_or(shown.len(), |(i, _)| i);
-                shown = &shown[next..];
-            }
-            label(text, &mut canvas, shown, (r.x + 10) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, room);
-            if focused {
-                caret(&mut canvas, r, r.x + 10 + text.map_or(0.0, |t| t.width(shown, size::LABEL)) as i32 + 1, size::LABEL);
-            }
-            hits.push((r, OverlayHit::Field(3)));
-            y += grow(62);
-        }
-        for (index, field) in [&p.password, &p.confirm].into_iter().enumerate() {
-            let Some(name) = field else { continue };
-            label(text, &mut canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, size::CAPTION, DIM_FG, inner);
-            let r = Rect { x: bx + 24, y: y + grow(22), w: bw - 48, h: grow(34) };
-            let focused = view.focus == index && !view.busy;
-            text_field(&mut canvas, r, focused);
-            let show_w = if view.can_show { SHOW_W } else { 0 };
-            let end = if view.shown[index] {
-                let room = (r.w - 24 - show_w) as f32;
-                label(text, &mut canvas, &view.fields[index], (r.x + 10) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, room);
-                r.x + 10 + text.map_or(0.0, |t| t.width(&view.fields[index], size::LABEL).min(room)) as i32 + 1
-            } else {
-                // One dot per character (drawn: not every font has a bullet).
-                let count = view.fields[index].chars().count().min(((r.w - 28 - show_w) / 12) as usize);
-                for i in 0..count {
-                    canvas.circle(f64::from(r.x + 16 + i as i32 * 12), f64::from(r.y + r.h / 2), 4.0, FG);
-                }
-                r.x + 10 + count as i32 * 12
-            };
-            if focused {
-                caret(&mut canvas, r, end, size::LABEL);
-            }
-            if view.can_show {
-                let b = Rect { x: r.x + r.w - SHOW_W, y: r.y, w: SHOW_W, h: r.h };
-                let s = if view.shown[index] { tr("Hide") } else { tr("Show") };
-                let hit = OverlayHit::ShowPassword(index);
-                let look = theme::Look { hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
-                let inside = (f64::from(b.x + 4), f64::from(b.y + 5), f64::from(b.w - 8), f64::from(b.h - 10));
-                theme::flat(&mut canvas, inside, theme::RADIUS_ROW, look);
-                let lw = text.map_or(0.0, |t| t.width(s, size::CAPTION));
-                label(text, &mut canvas, s, b.x as f32 + (b.w as f32 - lw) / 2.0, baseline(text, b.y, b.h, size::CAPTION), size::CAPTION, if look.hovered || look.pressed { FG } else { DIM_FG }, b.w as f32);
-                if view.focus == SHOW_FOCUS + index && !view.busy {
-                    theme::focus_ring_round(&mut canvas, inside.0, inside.1, inside.2, inside.3, theme::RADIUS_ROW);
-                }
-                hits.push((b, OverlayHit::ShowPassword(index)));
-            }
-            hits.push((r, OverlayHit::Field(index)));
-            y += grow(62);
-        }
-        if let Some((name, _)) = &p.choice {
-            let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
-            let look = theme::Look { hovered: overlay.state.hover == Some(OverlayHit::Toggle), pressed: overlay.state.pressed == Some(OverlayHit::Toggle), ..Default::default() };
-            check(&mut canvas, r, view.choice, look, view.focus == 2);
-            label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, inner - 28.0);
-            hits.push((r, OverlayHit::Toggle));
-            y += grow(34);
-        }
-        for (i, (name, _)) in p.checks.iter().enumerate() {
-            let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
-            let look = theme::Look { hovered: overlay.state.hover == Some(OverlayHit::Check(i)), pressed: overlay.state.pressed == Some(OverlayHit::Check(i)), ..Default::default() };
-            check(&mut canvas, r, view.checks[i], look, view.focus == CHECK_FOCUS + i);
-            label(text, &mut canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, inner - 28.0);
-            hits.push((r, OverlayHit::Check(i)));
-            y += grow(34);
-        }
-        let status = if view.busy { tr("Authenticating…") } else { p.warning.as_str() };
-        if !status.is_empty() {
-            let color = if view.busy { DIM_FG } else { ERROR_TEXT };
-            label(text, &mut canvas, status, center(status, size::CAPTION), (y + grow(14)) as f32, size::CAPTION, color, inner);
-        }
-        let by2 = by + bh - grow(56);
-        let half = (bw - 24 * 2 - 12) / 2;
-        let cancel = Rect { x: bx + 24, y: by2, w: half, h: grow(36) };
-        let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: grow(36) };
-        let cancel_label = if p.cancel_label.is_empty() { tr("Cancel") } else { &p.cancel_label };
-        let confirm_label = if p.continue_label.is_empty() { tr("Continue") } else { &p.continue_label };
-        // Rounded buttons; the confirm button is the default one (the
-        // suggested style; Enter presses it).
-        let look = |hit| theme::Look { hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
-        let at = |r: Rect| (r.x, r.y, r.w, r.h);
-        theme::button(&mut canvas, text, at(cancel), cancel_label, theme::Kind::Normal, look(OverlayHit::Cancel), view.focus == CANCEL_FOCUS && !view.busy);
-        if view.busy {
-            theme::button_off(&mut canvas, text, at(confirm), confirm_label);
-        } else {
-            theme::button(&mut canvas, text, at(confirm), confirm_label, theme::Kind::Suggested, look(OverlayHit::Confirm), view.focus == CONFIRM_FOCUS);
-        }
-        hits.push((cancel, OverlayHit::Cancel));
-        hits.push((confirm, OverlayHit::Confirm));
+        let (text, bold) = (self.text.as_ref(), self.bold.as_ref());
+        let (hits, status, (cancel_label, confirm_label)) = paint_prompt_view(&mut canvas, (text, bold), (w, h), view, (overlay.state.hover, overlay.state.pressed));
+        let (status, cancel_label, confirm_label) = (status.as_str(), cancel_label.as_str(), confirm_label.as_str());
         let node = a11y(view, &hits, status, (cancel_label, confirm_label), text);
         overlay.hits = hits;
         self.atspi_record(overlay.layer.wl_surface(), vec![node]);
@@ -650,6 +439,234 @@ impl Ui {
             overlay.layer.commit();
         }
     }
+}
+
+/// Paint prompt `view` over a scrim on a `w`×`h` surface, the part under
+/// the pointer `hover` and the one held `pressed`. Returns the clickable
+/// parts, the status line and the buttons' labels (Cancel, Continue).
+#[allow(clippy::type_complexity)]
+pub(super) fn paint_prompt_view(canvas: &mut Canvas, (text, bold): (Option<&crate::text::Text>, Option<&crate::text::Text>), (w, h): (usize, usize), view: &PromptView, (hover, pressed): (Option<OverlayHit>, Option<OverlayHit>)) -> (Vec<(Rect, OverlayHit)>, String, (String, String)) {
+    canvas.fill(SCRIM);
+    let p = &view.prompt;
+    let side = if p.places.is_empty() { 0 } else { SIDEBAR_W };
+    // Lengths that hold text grow with the text scale.
+    let grow = helix_draw::theme::grow;
+    let bw = (grow(440) + side).min(w as i32 - 40);
+    let inner = (bw - 48) as f32;
+    let wrap = |s: &str, px: f32| -> Vec<String> {
+        if s.is_empty() {
+            Vec::new()
+        } else {
+            text.map_or_else(|| vec![s.to_owned()], |t| t.wrap(s, px, inner, 4))
+        }
+    };
+    let message = wrap(&p.message, size::LABEL);
+    let description = wrap(&p.description, size::CAPTION);
+    let fields = usize::from(p.entry.is_some()) + usize::from(p.password.is_some()) + usize::from(p.confirm.is_some());
+    // The picture: at most the inner width and 220 high.
+    let picture = p.picture.as_deref().filter(|i| i.width > 0 && i.height > 0).map(|i| {
+        let k = (f64::from(inner) / i.width as f64).min(220.0 / i.height as f64);
+        (i, (i.width as f64 * k).round(), (i.height as f64 * k).round())
+    });
+    let picture_h = picture.map_or(0, |(_, _, ph)| ph as i32 + 12);
+    // At most LIST_SHOWN rows, scrolled to keep the selection in view.
+    let shown = p.list.len().min(LIST_SHOWN);
+    let first = view.selected.saturating_sub(LIST_SHOWN - 1).min(p.list.len().saturating_sub(shown));
+    let places_shown = p.places.len().min(PLACES_SHOWN);
+    let list_rows = shown.max(places_shown);
+    let list_h = if list_rows > 0 { list_rows as i32 * grow(LIST_ROW) + 8 } else { 0 };
+    // An icon above the title.
+    let icon = p.icon.as_deref().filter(|i| i.width > 0 && i.height > 0);
+    let top = if icon.is_some() { 60 } else { 0 };
+    let preview_h = if p.previews.iter().any(|f| !f.is_empty()) { PREVIEW_H + 12 } else { 0 };
+    let bh = preview_h + top + grow(70) + message.len() as i32 * grow(19) + description.len() as i32 * grow(17) + 8 + picture_h + list_h + fields as i32 * grow(62) + if p.choice.is_some() { grow(34) } else { 0 } + p.checks.len() as i32 * grow(34) + grow(26) + grow(64);
+    let bx = (w as i32 - bw) / 2;
+    let by = (h as i32 - bh) / 3;
+    theme::popover(canvas, bx, by, bw, bh);
+    let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
+    if let Some(icon) = icon {
+        canvas.image(f64::from(bx + (bw - 48) / 2), f64::from(by + 20), 48.0, 48.0, icon);
+    }
+    // Below the icon, laid out as without it.
+    let (by, bh) = (by + top, bh - top);
+    let bold = bold.or(text);
+    let tw = bold.map_or(0.0, |t| t.width(&p.title, size::TITLE).min(inner));
+    label(bold, canvas, &p.title, bx as f32 + (bw as f32 - tw) / 2.0, (by + grow(44)) as f32, size::TITLE, FG, inner);
+    let mut y = by + grow(76);
+    for line in &message {
+        label(text, canvas, line, center(line, size::LABEL), y as f32, size::LABEL, FG, inner);
+        y += grow(19);
+    }
+    for line in &description {
+        label(text, canvas, line, center(line, size::CAPTION), y as f32, size::CAPTION, DIM_FG, inner);
+        y += grow(17);
+    }
+    y += 8;
+    if let Some((image, pw, ph)) = picture {
+        canvas.image(f64::from(bx) + (f64::from(bw) - pw) / 2.0, f64::from(y), pw, ph, image);
+        y += picture_h;
+    }
+    let mut hits = Vec::new();
+    // The places, left of the list.
+    for (i, name) in p.places.iter().enumerate().take(places_shown) {
+        let r = Rect { x: bx + 24, y: y + i as i32 * grow(LIST_ROW), w: side - 12, h: grow(LIST_ROW) };
+        let hit = OverlayHit::Place(i);
+        let look = theme::Look { hovered: hover == Some(hit), pressed: pressed == Some(hit), ..Default::default() };
+        if p.place_current == Some(i) {
+            theme::control_round(canvas, (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h)), theme::RADIUS_ROW, look);
+            canvas.round_rect(f64::from(r.x + 3), f64::from(r.y + 8), 3.0, f64::from(r.h - 16), 1.5, accent());
+        } else {
+            theme::row(canvas, r.x, r.y, r.w, r.h, look);
+        }
+        label(text, canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, (r.w - 16) as f32);
+        hits.push((r, OverlayHit::Place(i)));
+    }
+    if shown > 0 {
+        theme::well(canvas, bx + 24 + side, y, bw - 48 - side, shown as i32 * grow(LIST_ROW));
+        for (i, name) in p.list.iter().enumerate().skip(first).take(shown) {
+            let r = Rect { x: bx + 24 + side, y: y + (i - first) as i32 * grow(LIST_ROW), w: bw - 48 - side, h: grow(LIST_ROW) };
+            let lit = if p.multiple { view.picked[i] } else { i == view.selected };
+            let hit = OverlayHit::Row(i);
+            let look = theme::Look { on: lit, hovered: hover == Some(hit), pressed: pressed == Some(hit) };
+            theme::row(canvas, r.x + 2, r.y + 1, r.w - 4, r.h - 2, look);
+            if p.multiple && i == view.selected {
+                // The current row: an outline.
+                canvas.round_outline(f64::from(r.x + 3), f64::from(r.y + 2), f64::from(r.w - 6), f64::from(r.h - 4), theme::RADIUS_ROW - 1.0, 1.0, FG);
+            }
+            label(text, canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, theme::control_text(look), (r.w - 24) as f32);
+            hits.push((r, OverlayHit::Row(i)));
+        }
+    }
+    y += list_h;
+    if preview_h > 0 {
+        let area = Rect { x: bx + 24, y: y + 4, w: bw - 48, h: PREVIEW_H };
+        theme::well(canvas, area.x, area.y, area.w, area.h);
+        let preview = p.previews.get(view.selected).and_then(|f| view.previews.get(f)).and_then(|i| i.as_ref());
+        let image = match preview {
+            Some(crate::Preview::Image(image)) => Some(&**image),
+            _ => None,
+        };
+        if let Some(crate::Preview::Text(lines)) = preview {
+            // A text file's first lines, small.
+            for (i, line) in lines.iter().enumerate() {
+                label(text, canvas, line, (area.x + 10) as f32, (area.y + 18 + i as i32 * 16) as f32, size::CAPTION, FG, (area.w - 20) as f32);
+            }
+        } else if let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) {
+            let k = (f64::from(area.w) / image.width as f64).min(f64::from(area.h) / image.height as f64).min(1.0);
+            let (iw, ih) = (image.width as f64 * k, image.height as f64 * k);
+            canvas.image_rounded(f64::from(area.x) + (f64::from(area.w) - iw) / 2.0, f64::from(area.y) + (f64::from(area.h) - ih) / 2.0, iw, ih, theme::RADIUS_ROW, image, 1.0);
+        } else {
+            let none = tr("No preview");
+            let tw = text.map_or(0.0, |t| t.width(none, size::CAPTION));
+            label(text, canvas, none, area.x as f32 + (area.w as f32 - tw) / 2.0, baseline(text, area.y, area.h, size::CAPTION), size::CAPTION, DIM_FG, inner);
+        }
+        y += preview_h;
+    }
+    if let Some((name, _)) = &p.entry {
+        label(text, canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, size::CAPTION, DIM_FG, inner);
+        let r = Rect { x: bx + 24, y: y + grow(22), w: bw - 48, h: grow(34) };
+        let focused = view.focus == 3 && !view.busy;
+        text_field(canvas, r, focused);
+        // The end of the text when it does not fit, and a caret.
+        let room = (r.w - 24) as f32;
+        let mut shown = view.entry.as_str();
+        while text.is_some_and(|t| t.width(shown, size::LABEL) > room) && !shown.is_empty() {
+            let next = shown.char_indices().nth(1).map_or(shown.len(), |(i, _)| i);
+            shown = &shown[next..];
+        }
+        label(text, canvas, shown, (r.x + 10) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, room);
+        if focused {
+            caret(canvas, r, r.x + 10 + text.map_or(0.0, |t| t.width(shown, size::LABEL)) as i32 + 1, size::LABEL);
+        }
+        hits.push((r, OverlayHit::Field(3)));
+        y += grow(62);
+    }
+    for (index, field) in [&p.password, &p.confirm].into_iter().enumerate() {
+        let Some(name) = field else { continue };
+        label(text, canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, size::CAPTION, DIM_FG, inner);
+        let r = Rect { x: bx + 24, y: y + grow(22), w: bw - 48, h: grow(34) };
+        let focused = view.focus == index && !view.busy;
+        text_field(canvas, r, focused);
+        let show_w = if view.can_show { SHOW_W } else { 0 };
+        let end = if view.shown[index] {
+            let room = (r.w - 24 - show_w) as f32;
+            label(text, canvas, &view.fields[index], (r.x + 10) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, room);
+            r.x + 10 + text.map_or(0.0, |t| t.width(&view.fields[index], size::LABEL).min(room)) as i32 + 1
+        } else {
+            // One dot per character (drawn: not every font has a bullet).
+            let count = view.fields[index].chars().count().min(((r.w - 28 - show_w) / 12) as usize);
+            for i in 0..count {
+                canvas.circle(f64::from(r.x + 16 + i as i32 * 12), f64::from(r.y + r.h / 2), 4.0, FG);
+            }
+            r.x + 10 + count as i32 * 12
+        };
+        if focused {
+            caret(canvas, r, end, size::LABEL);
+        }
+        if view.can_show {
+            let b = Rect { x: r.x + r.w - SHOW_W, y: r.y, w: SHOW_W, h: r.h };
+            let s = if view.shown[index] { tr("Hide") } else { tr("Show") };
+            let hit = OverlayHit::ShowPassword(index);
+            let look = theme::Look { hovered: hover == Some(hit), pressed: pressed == Some(hit), ..Default::default() };
+            let inside = (f64::from(b.x + 4), f64::from(b.y + 5), f64::from(b.w - 8), f64::from(b.h - 10));
+            theme::flat(canvas, inside, theme::RADIUS_ROW, look);
+            let lw = text.map_or(0.0, |t| t.width(s, size::CAPTION));
+            label(text, canvas, s, b.x as f32 + (b.w as f32 - lw) / 2.0, baseline(text, b.y, b.h, size::CAPTION), size::CAPTION, if look.hovered || look.pressed { FG } else { DIM_FG }, b.w as f32);
+            if view.focus == SHOW_FOCUS + index && !view.busy {
+                theme::focus_ring_round(canvas, inside.0, inside.1, inside.2, inside.3, theme::RADIUS_ROW);
+            }
+            hits.push((b, OverlayHit::ShowPassword(index)));
+        }
+        hits.push((r, OverlayHit::Field(index)));
+        y += grow(62);
+    }
+    if let Some((name, _)) = &p.choice {
+        let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
+        let look = theme::Look { hovered: hover == Some(OverlayHit::Toggle), pressed: pressed == Some(OverlayHit::Toggle), ..Default::default() };
+        check(canvas, r, view.choice, look, view.focus == 2);
+        label(text, canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, inner - 28.0);
+        hits.push((r, OverlayHit::Toggle));
+        y += grow(34);
+    }
+    for (i, (name, _)) in p.checks.iter().enumerate() {
+        let r = Rect { x: bx + 24, y, w: bw - 48, h: grow(26) };
+        let look = theme::Look { hovered: hover == Some(OverlayHit::Check(i)), pressed: pressed == Some(OverlayHit::Check(i)), ..Default::default() };
+        check(canvas, r, view.checks[i], look, view.focus == CHECK_FOCUS + i);
+        label(text, canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, inner - 28.0);
+        hits.push((r, OverlayHit::Check(i)));
+        y += grow(34);
+    }
+    let status = if view.busy { tr("Authenticating…") } else { p.warning.as_str() };
+    if !status.is_empty() {
+        let color = if view.busy { DIM_FG } else { ERROR_TEXT };
+        label(text, canvas, status, center(status, size::CAPTION), (y + grow(14)) as f32, size::CAPTION, color, inner);
+    }
+    let by2 = by + bh - grow(56);
+    let half = (bw - 24 * 2 - 12) / 2;
+    let cancel = Rect { x: bx + 24, y: by2, w: half, h: grow(36) };
+    let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: grow(36) };
+    let cancel_label = if p.cancel_label.is_empty() { tr("Cancel") } else { &p.cancel_label };
+    let confirm_label = if p.continue_label.is_empty() { tr("Continue") } else { &p.continue_label };
+    // Rounded buttons; the confirm button is the default one (the
+    // suggested style; Enter presses it).
+    let look = |hit| theme::Look { hovered: hover == Some(hit), pressed: pressed == Some(hit), ..Default::default() };
+    let at = |r: Rect| (r.x, r.y, r.w, r.h);
+    theme::button(canvas, text, at(cancel), cancel_label, theme::Kind::Normal, look(OverlayHit::Cancel), view.focus == CANCEL_FOCUS && !view.busy);
+    if view.busy {
+        theme::button_off(canvas, text, at(confirm), confirm_label);
+    } else {
+        theme::button(canvas, text, at(confirm), confirm_label, theme::Kind::Suggested, look(OverlayHit::Confirm), view.focus == CONFIRM_FOCUS);
+    }
+    hits.push((cancel, OverlayHit::Cancel));
+    hits.push((confirm, OverlayHit::Confirm));
+    (hits, status.to_owned(), (cancel_label.to_owned(), confirm_label.to_owned()))
+}
+
+/// A prompt's view for the gallery and tests.
+#[cfg(test)]
+pub(super) fn sample_view(prompt: Prompt) -> PromptView {
+    let (reply, _) = oneshot::channel();
+    PromptView::new(Request { prompt, reply })
 }
 
 /// A check box row's box (at the start of `r`) in `look`, with the focus
