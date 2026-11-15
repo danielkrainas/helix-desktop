@@ -22,11 +22,25 @@ const SIZE: (i32, i32) = (1280, 720);
 /// The client's shadow margin around its window geometry.
 const INSET: (i32, i32) = (24, 16);
 
+/// The tests' runtime dir (for the compositor's listening sockets),
+/// shared by the tests running at once.
+fn runtime_dir_path() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("helix-comp-placement-{}", std::process::id()))
+}
+
+/// Remove the runtime dir when the test process exits, whether the tests
+/// passed or not (the harness exits through `exit`, which runs this).
+extern "C" fn remove_runtime_dir() {
+    let _ = std::fs::remove_dir_all(runtime_dir_path());
+}
+
 fn runtime_dir() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        let dir = std::env::temp_dir().join(format!("helix-comp-placement-{}", std::process::id()));
+        let dir = runtime_dir_path();
         let _ = std::fs::create_dir_all(&dir);
+        // SAFETY: registering a plain function with no captured state.
+        unsafe { libc::atexit(remove_runtime_dir) };
         // SAFETY: once, before any thread of these tests reads it.
         std::env::set_var("XDG_RUNTIME_DIR", dir);
     });
