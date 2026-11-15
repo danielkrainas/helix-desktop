@@ -1416,6 +1416,7 @@ dependencies = [
  "gio",
  "helix-draw",
  "helix-i18n",
+ "helix-test-support",
  "libc",
  "png",
  "serde",
@@ -1426,6 +1427,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zbus",
+ "zune-jpeg",
 ]
 
 [[package]]

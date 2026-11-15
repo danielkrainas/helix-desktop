@@ -80,10 +80,13 @@ impl PowerView {
 pub enum Main {
     /// Users not known yet.
     Loading,
-    Users { names: Vec<String>, selected: usize },
+    /// Display names, login names (for their pictures), the selection.
+    Users { names: Vec<String>, logins: Vec<String>, selected: usize },
     Username { text: String },
     Login {
         user: String,
+        /// The login name (for the picture).
+        login: String,
         /// The question; `None` before greetd asks one.
         question: Option<Question>,
         /// Typed so far (shown as dots for secret questions).
@@ -129,6 +132,10 @@ pub struct Greeter {
     /// Display name of the user logging in.
     login_display: String,
     last_user: Option<String>,
+    /// What the greeter remembered (each user's last session).
+    state: State,
+    /// The session was picked from the menu: choosing a user keeps it.
+    session_picked: bool,
     pub focus: Focus,
     pub hover: Option<Hit>,
 }
@@ -151,6 +158,8 @@ impl Greeter {
             answer: String::new(),
             login_display: String::new(),
             last_user: state.last_user.clone(),
+            state: state.clone(),
+            session_picked: false,
             focus: Focus::Main,
             hover: None,
         }
@@ -161,6 +170,23 @@ impl Greeter {
     pub fn set_users(&mut self, users: Vec<User>) {
         self.selected = self.last_user.as_deref().and_then(|last| users.iter().position(|u| u.name == last)).unwrap_or(0);
         self.users = Some(users);
+        self.follow_user();
+    }
+
+    /// The session menu follows the selected user (unless a session was
+    /// picked from it): their last session through the greeter, else the
+    /// one AccountsService remembers for them, else the last one used,
+    /// else Helix, else the first.
+    fn follow_user(&mut self) {
+        if self.session_picked {
+            return;
+        }
+        let user = self.list().get(self.selected);
+        let remembered = user.and_then(|u| self.state.sessions.get(&u.name)).map(String::as_str);
+        let accounts = user.and_then(|u| u.session.as_deref());
+        let installed = |id: &str| self.sessions.iter().any(|s| s.id == id);
+        let choice = remembered.filter(|id| installed(id)).or(accounts.filter(|id| installed(id))).or(self.state.last_session.as_deref());
+        self.session = sessions::default_index(&self.sessions, choice);
     }
 
     pub fn set_power(&mut self, offered: Offered) {
@@ -248,6 +274,7 @@ impl Greeter {
                 self.focus = Focus::Main;
                 if self.login.idle() && i < self.list().len() {
                     self.selected = i;
+                    self.follow_user();
                     return self.begin_selected();
                 }
             }
@@ -260,6 +287,7 @@ impl Greeter {
             Hit::SessionItem(i) => {
                 if i < self.sessions.len() {
                     self.session = i;
+                    self.session_picked = true;
                 }
                 self.session_menu = None;
                 self.focus = Focus::Session;
@@ -374,8 +402,14 @@ impl Greeter {
         }
         let count = self.list().len();
         match key {
-            Key::Up => self.selected = self.selected.saturating_sub(1),
-            Key::Down => self.selected = (self.selected + 1).min(count.saturating_sub(1)),
+            Key::Up => {
+                self.selected = self.selected.saturating_sub(1);
+                self.follow_user();
+            }
+            Key::Down => {
+                self.selected = (self.selected + 1).min(count.saturating_sub(1));
+                self.follow_user();
+            }
             Key::Return => return self.begin_selected(),
             Key::Text(t) if t == " " => return self.begin_selected(),
             _ => {}
@@ -400,7 +434,12 @@ impl Greeter {
                 request.map(Effect::Greetd).into_iter().collect()
             }
             Step::Started => {
-                let state = State { last_user: self.login.user().map(str::to_owned), last_session: self.sessions.get(self.session).map(|s| s.id.clone()) };
+                let mut state = self.state.clone();
+                state.last_user = self.login.user().map(str::to_owned);
+                state.last_session = self.sessions.get(self.session).map(|s| s.id.clone());
+                if let (Some(user), Some(session)) = (&state.last_user, &state.last_session) {
+                    state.sessions.insert(user.clone(), session.clone());
+                }
                 vec![Effect::Finished(state)]
             }
         };
@@ -414,13 +453,13 @@ impl Greeter {
 
     pub fn view(&self, now: i64) -> View {
         let main = if !self.login.idle() {
-            Main::Login { user: self.login_display.clone(), question: self.question.clone(), text: self.answer.clone(), busy: self.login.busy() || self.login.question().is_none() }
+            Main::Login { user: self.login_display.clone(), login: self.login.user().unwrap_or_default().to_owned(), question: self.question.clone(), text: self.answer.clone(), busy: self.login.busy() || self.login.question().is_none() }
         } else if self.ask_username() {
             Main::Username { text: self.username.clone() }
         } else if self.users.is_none() {
             Main::Loading
         } else {
-            Main::Users { names: self.list().iter().map(|u| u.display.clone()).collect(), selected: self.selected }
+            Main::Users { names: self.list().iter().map(|u| u.display.clone()).collect(), logins: self.list().iter().map(|u| u.name.clone()).collect(), selected: self.selected }
         };
         View {
             time: crate::clock::time(now),
@@ -449,11 +488,11 @@ mod tests {
     }
 
     fn user(name: &str, display: &str) -> User {
-        User { name: name.into(), display: display.into(), login_time: 0 }
+        User::new(name, display, 0)
     }
 
     fn greeter() -> Greeter {
-        let state = State { last_user: Some("bob".into()), last_session: None };
+        let state = State { last_user: Some("bob".into()), last_session: None, sessions: Default::default() };
         let mut g = Greeter::new(Config::default(), vec![session("helix", "Helix"), session("sway", "Sway")], &state);
         g.set_users(vec![user("ann", "Ann"), user("bob", "Bob")]);
         g
@@ -472,7 +511,7 @@ mod tests {
     #[test]
     fn last_user_selected_and_login() {
         let mut g = greeter();
-        assert_eq!(g.view(0).main, Main::Users { names: vec!["Ann".into(), "Bob".into()], selected: 1 });
+        assert_eq!(g.view(0).main, Main::Users { names: vec!["Ann".into(), "Bob".into()], logins: vec!["ann".into(), "bob".into()], selected: 1 });
         assert_eq!(g.key(Key::Return), vec![Effect::Greetd(Request::CreateSession { username: "bob".into() })]);
         assert!(matches!(g.view(0).main, Main::Login { busy: true, question: None, .. }));
         assert!(g.key(Key::Text("x".into())).is_empty(), "no typing while waiting");
@@ -485,7 +524,7 @@ mod tests {
         assert!(matches!(&g.view(0).main, Main::Login { text, busy: true, .. } if text.chars().count() == 3), "dots kept while checking");
         let effects = g.greetd_reply(Response::Success);
         assert_eq!(effects, vec![Effect::Greetd(sessions::start_request(&session("helix", "Helix")))]);
-        assert_eq!(g.greetd_reply(Response::Success), vec![Effect::Finished(State { last_user: Some("bob".into()), last_session: Some("helix".into()) })]);
+        assert_eq!(g.greetd_reply(Response::Success), vec![Effect::Finished(State { last_user: Some("bob".into()), last_session: Some("helix".into()), sessions: [("bob".to_owned(), "helix".to_owned())].into() })]);
     }
 
     #[test]
@@ -504,7 +543,7 @@ mod tests {
         assert!(matches!(&view.main, Main::Login { text, busy: false, user, .. } if text.is_empty() && user == "Ann"));
         assert_eq!(g.key(Key::Escape), vec![Effect::Greetd(Request::CancelSession)]);
         g.greetd_reply(Response::Success);
-        assert_eq!(g.view(0).main, Main::Users { names: vec!["Ann".into(), "Bob".into()], selected: 0 });
+        assert_eq!(g.view(0).main, Main::Users { names: vec!["Ann".into(), "Bob".into()], logins: vec!["ann".into(), "bob".into()], selected: 0 });
     }
 
     #[test]
@@ -576,5 +615,38 @@ mod tests {
         assert_eq!(g.greetd_reply(Response::Success), vec![Effect::Greetd(Request::CancelSession)]);
         g.greetd_reply(Response::Success);
         assert_eq!(g.view(0).notes[0].text, "No sessions are installed.");
+    }
+
+    /// The session follows the selected user: their last one through the
+    /// greeter, else AccountsService's, else the last used; a session
+    /// picked from the menu stays.
+    #[test]
+    fn per_user_sessions() {
+        let sessions = vec![session("helix", "Helix"), session("sway", "Sway"), session("gnome", "GNOME")];
+        let state = State { last_user: Some("ann".into()), last_session: Some("gnome".into()), sessions: [("ann".to_owned(), "sway".to_owned())].into() };
+        let mut g = Greeter::new(Config::default(), sessions, &state);
+        let mut bob = user("bob", "Bob");
+        bob.session = Some("helix".into());
+        let mut carol = user("carol", "Carol");
+        carol.session = Some("not-installed".into());
+        g.set_users(vec![user("ann", "Ann"), bob, carol]);
+        assert_eq!(g.view(0).session, 1, "Ann: her last session through the greeter");
+        g.key(Key::Down);
+        assert_eq!(g.view(0).session, 0, "Bob: AccountsService's");
+        g.key(Key::Down);
+        assert_eq!(g.view(0).session, 2, "Carol: not installed, so the last used");
+        g.click(Some(Hit::SessionButton));
+        g.click(Some(Hit::SessionItem(1)));
+        g.focus = Focus::Main;
+        g.key(Key::Up);
+        assert_eq!(g.view(0).session, 1, "picked from the menu: kept");
+        g.key(Key::Return);
+        g.greetd_reply(secret());
+        g.key(Key::Return);
+        g.greetd_reply(Response::Success);
+        let Some(Effect::Finished(saved)) = g.greetd_reply(Response::Success).pop() else { panic!("finished") };
+        assert_eq!(saved.last_user.as_deref(), Some("bob"));
+        assert_eq!(saved.sessions.get("bob").map(String::as_str), Some("sway"));
+        assert_eq!(saved.sessions.get("ann").map(String::as_str), Some("sway"), "others kept");
     }
 }

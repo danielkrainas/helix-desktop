@@ -161,9 +161,10 @@ fn accent() -> u32 {
 
 /// A round picture standing in for the user: their initial on a color
 /// picked from their name.
-fn avatar(canvas: &mut Canvas, text: Option<&Text>, name: &str, cx: i32, cy: i32, r: i32) {
-    // The lock screen's avatar: the same colors and initials.
-    helix_draw::screen::avatar(canvas, text, None, name, None, f64::from(cx), f64::from(cy), f64::from(r), 1.0);
+fn avatar(canvas: &mut Canvas, text: Option<&Text>, name: &str, picture: Option<&helix_draw::Image>, cx: i32, cy: i32, r: i32) {
+    // The lock screen's avatar: the same colors and initials, or the
+    // user's picture.
+    helix_draw::screen::avatar(canvas, text, None, name, picture, f64::from(cx), f64::from(cy), f64::from(r), 1.0);
 }
 
 /// A push button; `strong` for the action of a question.
@@ -202,7 +203,16 @@ fn notes(canvas: &mut Canvas, text: Option<&Text>, view: &View, x: i32, y: i32, 
 
 /// Paint the primary monitor's greeter, `w`×`h` logical; returns where
 /// clicks land.
+/// Users' pictures by login name.
+pub type Pictures = std::collections::HashMap<String, helix_draw::Image>;
+
+#[cfg(test)]
 pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i32) -> Hits {
+    paint_with(canvas, text, view, w, h, &Pictures::new())
+}
+
+/// [`paint`] with the users' `pictures`.
+pub fn paint_with(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i32, pictures: &Pictures) -> Hits {
     paint_background(canvas);
     let mut hits = Hits::new();
     let hovered = |hit: Hit| view.hover == Some(hit);
@@ -228,7 +238,7 @@ pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i
     let main_focused = view.focus == Focus::Main;
     let notes_y = match &view.main {
         Main::Loading => top + 20,
-        Main::Users { names, selected } => {
+        Main::Users { names, logins, selected } => {
             let room = (bottom_bar - 24 - top).max(ROW_H);
             let visible = ((room + ROW_GAP) / (ROW_H + ROW_GAP)).max(1) as usize;
             let first = (selected + 1).saturating_sub(visible);
@@ -243,7 +253,7 @@ pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i
                 } else if hovered(Hit::User(i)) {
                     canvas.rect(row.x, row.y, row.w, row.h, ROW_HOVER);
                 }
-                avatar(canvas, text, name, col_x + 12 + 20, y + ROW_H / 2, 20);
+                avatar(canvas, text, name, logins.get(i).and_then(|l| pictures.get(l)), col_x + 12 + 20, y + ROW_H / 2, 20);
                 label(canvas, text, name, (col_x + 64) as f32, baseline(text, y, ROW_H, 17.0), 17.0, FG, (col_w - 76) as f32);
                 hits.push((row, Hit::User(i)));
                 y += ROW_H + ROW_GAP;
@@ -264,8 +274,8 @@ pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i
             hits.push((field, Hit::Field));
             field.y + field.h + 30
         }
-        Main::Login { user, question, text: typed, busy } => {
-            avatar(canvas, text, user, w / 2, top + 36, 36);
+        Main::Login { user, login, question, text: typed, busy } => {
+            avatar(canvas, text, user, pictures.get(login), w / 2, top + 36, 36);
             centered(canvas, text, user, w, (top + 104) as f32, 20.0, FG);
             let field = Rect { x: col_x, y: top + 150, w: col_w, h: FIELD_H };
             if let Some(q) = question {
@@ -386,11 +396,11 @@ mod tests {
     }
 
     fn users() -> Main {
-        Main::Users { names: vec!["Ann Smith".into(), "bob".into(), "Carol".into()], selected: 1 }
+        Main::Users { names: vec!["Ann Smith".into(), "bob".into(), "Carol".into()], logins: vec!["ann".into(), "bob".into(), "carol".into()], selected: 1 }
     }
 
     fn password(text: &str, busy: bool) -> Main {
-        Main::Login { user: "Ann Smith".into(), question: Some(Question { prompt: "Password:".into(), secret: true }), text: text.into(), busy }
+        Main::Login { user: "Ann Smith".into(), login: "ann".into(), question: Some(Question { prompt: "Password:".into(), secret: true }), text: text.into(), busy }
     }
 
     struct Painted {
@@ -474,10 +484,37 @@ mod tests {
         }
     }
 
+    /// A user with a picture shows it in the round avatar (green here),
+    /// the others their initials.
+    #[test]
+    fn pictures_in_the_list() {
+        let text = Text::load();
+        let v = view(Main::Users { names: vec!["Ann Smith".into(), "bob".into()], logins: vec!["ann".into(), "bob".into()], selected: 0 });
+        let green = helix_draw::Image { width: 8, height: 8, rgba: [0, 200, 0, 255].repeat(64) };
+        let pictures: Pictures = [("ann".to_owned(), green)].into();
+        let mut data = vec![0u8; (W * H * 4) as usize];
+        let hits = {
+            let mut canvas = Canvas::scaled(&mut data, W as usize, H as usize, 1.0);
+            paint_with(&mut canvas, text.as_ref(), &v, W, H, &pictures)
+        };
+        if let Some(dir) = std::env::var_os("HELIX_GREETER_PNG_DIR") {
+            write_png(&std::path::Path::new(&dir).join("pictures.png"), &data, W as usize, H as usize);
+        }
+        let p = Painted { data, hits, scale: 1.0 };
+        let ann = p.rect(Hit::User(0));
+        let bob = p.rect(Hit::User(1));
+        let center = |r: Rect| p.px(r.x + 12 + 20, r.y + ROW_H / 2);
+        let ann_px = center(ann);
+        assert!(((ann_px >> 8) & 0xFF) > 150 && ((ann_px >> 16) & 0xFF) < 60, "Ann's picture: {ann_px:08x}");
+        let bob_px = center(bob);
+        assert!(!(((bob_px >> 8) & 0xFF) > 150 && ((bob_px >> 16) & 0xFF) < 60), "Bob's initials: {bob_px:08x}");
+    }
+
     #[test]
     fn many_users_scroll_to_the_selection() {
         let names: Vec<String> = (0..30).map(|i| format!("User {i}")).collect();
-        let p = render(&view(Main::Users { names, selected: 25 }), 1.0, "many-users");
+        let logins = names.clone();
+        let p = render(&view(Main::Users { names, logins, selected: 25 }), 1.0, "many-users");
         assert!(p.hits.iter().any(|(_, h)| *h == Hit::User(25)));
         assert!(!p.hits.iter().any(|(_, h)| *h == Hit::User(0)));
         let last = p.rect(Hit::User(25));
@@ -521,11 +558,11 @@ mod tests {
             assert!(red, "the error is drawn in the error color");
         }
         // Visible questions show their text; the username field.
-        let mut v = view(Main::Login { user: "ann".into(), question: Some(Question { prompt: "Token:".into(), secret: false }), text: "123456".into(), busy: false });
+        let mut v = view(Main::Login { user: "ann".into(), login: "ann".into(), question: Some(Question { prompt: "Token:".into(), secret: false }), text: "123456".into(), busy: false });
         v.notes = vec![Note { text: "Touch your security key".into(), error: false }];
         render(&v, 1.0, "visible-question");
         render(&view(Main::Username { text: String::new() }), 1.0, "username");
-        render(&view(Main::Login { user: "ann".into(), question: None, text: String::new(), busy: true }), 1.0, "waiting");
+        render(&view(Main::Login { user: "ann".into(), login: "ann".into(), question: None, text: String::new(), busy: true }), 1.0, "waiting");
     }
 
     #[test]

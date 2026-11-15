@@ -44,8 +44,11 @@ const BTN_LEFT: u32 = 0x110;
 /// Answers from the worker threads.
 enum Event {
     Greetd(std::io::Result<Response>),
-    Users(Vec<User>),
+    /// The users and their pictures (decoded on the worker).
+    Users(Vec<User>, crate::paint::Pictures),
     Power(Offered),
+    /// The primary monitor's connector (DisplayConfig), if known.
+    Primary(Option<String>),
 }
 
 /// One monitor's surface.
@@ -97,6 +100,12 @@ struct Ui {
     cursor: Option<WpCursorShapeDeviceV1>,
     shift: bool,
     text: Option<Text>,
+    /// Users' pictures by login name.
+    pictures: paint::Pictures,
+    /// The primary monitor's connector; the login screen goes there.
+    primary: Option<String>,
+    /// For asking DisplayConfig again when monitors come and go.
+    events: Sender<Event>,
     greeter: Greeter,
     hits: Hits,
     greetd: mpsc::Sender<Request>,
@@ -132,7 +141,7 @@ fn system_worker(load_users: bool, demo: bool, mut actions: tokio::sync::mpsc::U
                 Ok(rt) => rt,
                 Err(err) => {
                     tracing::error!(%err, "no async runtime; listing /etc/passwd users");
-                    let _ = events.send(Event::Users(crate::users::from_passwd()));
+                    let _ = events.send(Event::Users(crate::users::from_passwd(), Default::default()));
                     return;
                 }
             };
@@ -145,7 +154,8 @@ fn system_worker(load_users: bool, demo: bool, mut actions: tokio::sync::mpsc::U
                     }
                 };
                 let users = if load_users { crate::users::load(system.as_ref()).await } else { Vec::new() };
-                let _ = events.send(Event::Users(users));
+                let pictures = users.iter().filter_map(|u| Some((u.name.clone(), crate::picture::load(u.icon.as_deref()?)?))).collect();
+                let _ = events.send(Event::Users(users, pictures));
                 if let Some(system) = &system {
                     let _ = events.send(Event::Power(crate::power::offered(system).await));
                 }
@@ -180,7 +190,7 @@ fn run_inner(greeter: Greeter, greetd: Box<dyn Greetd>, load_users: bool, demo: 
     let (greetd_tx, greetd_rx) = mpsc::channel();
     greetd_worker(greetd, greetd_rx, events_tx.clone());
     let (system_tx, system_rx) = tokio::sync::mpsc::unbounded_channel();
-    system_worker(load_users, demo, system_rx, events_tx);
+    system_worker(load_users, demo, system_rx, events_tx.clone());
 
     let shm = Shm::bind(&globals, &qh)?;
     let text = Text::load();
@@ -205,6 +215,9 @@ fn run_inner(greeter: Greeter, greetd: Box<dyn Greetd>, load_users: bool, demo: 
         cursor: None,
         shift: false,
         text,
+        pictures: Default::default(),
+        primary: None,
+        events: events_tx.clone(),
         greeter,
         hits: Hits::new(),
         greetd: greetd_tx,
@@ -253,12 +266,21 @@ impl Ui {
                 self.outcome = Some(Outcome::Failed(format!("lost greetd: {err}")));
                 return;
             }
-            Event::Users(users) => {
+            Event::Users(users, pictures) => {
                 self.greeter.set_users(users);
+                self.pictures = pictures;
                 Vec::new()
             }
             Event::Power(offered) => {
                 self.greeter.set_power(offered);
+                Vec::new()
+            }
+            Event::Primary(primary) => {
+                if primary == self.primary {
+                    return;
+                }
+                tracing::info!(?primary, "the login screen's monitor");
+                self.primary = primary;
                 Vec::new()
             }
         };
@@ -306,6 +328,7 @@ impl Ui {
     fn draw(&mut self) {
         let view = self.greeter.view(crate::clock::now());
         self.shown_clock = view.time.clone();
+        let primary = self.primary_index();
         for index in 0..self.screens.len() {
             let screen = &self.screens[index];
             if !screen.configured || screen.width == 0 || screen.height == 0 {
@@ -319,8 +342,8 @@ impl Ui {
             };
             // Mirrored in a right-to-left language (hit tests stay unmirrored).
             let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(helix_draw::rtl());
-            if index == 0 {
-                self.hits = paint::paint(&mut canvas, self.text.as_ref(), &view, w as i32, h as i32);
+            if index == primary {
+                self.hits = paint::paint_with(&mut canvas, self.text.as_ref(), &view, w as i32, h as i32, &self.pictures);
             } else {
                 paint::paint_background(&mut canvas);
             }
@@ -357,7 +380,28 @@ impl Ui {
     }
 
     fn on_primary(&self, surface: &wl_surface::WlSurface) -> bool {
-        self.screens.first().is_some_and(|s| s.layer.wl_surface() == surface)
+        self.screens.get(self.primary_index()).is_some_and(|s| s.layer.wl_surface() == surface)
+    }
+
+    /// The screen showing the login screen (helix-desktop-spec
+    /// `components/greeter.md`, "What the screen shows").
+    fn primary_index(&self) -> usize {
+        let names: Vec<Option<String>> = self.screens.iter().map(|s| self.output_state.info(&s.output).and_then(|i| i.name)).collect();
+        crate::monitors::primary_index(&names, self.primary.as_deref())
+    }
+
+    /// Ask the compositor which monitor is primary (on a thread; the
+    /// answer comes as an event).
+    fn ask_primary(&self) {
+        let events = self.events.clone();
+        let _ = std::thread::Builder::new().name("display-config".into()).spawn(move || {
+            let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
+            let primary = rt.block_on(async {
+                let conn = zbus::Connection::session().await.ok()?;
+                crate::monitors::primary_connector(&conn).await
+            });
+            let _ = events.send(Event::Primary(primary));
+        });
     }
 }
 
@@ -375,15 +419,17 @@ impl OutputHandler for Ui {
     }
     fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
         self.add_screen(output);
+        self.ask_primary();
     }
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
     fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
-        let was_primary = self.screens.first().is_some_and(|s| s.output == output);
+        let was_primary = self.screens.get(self.primary_index()).is_some_and(|s| s.output == output);
         self.screens.retain(|s| s.output != output);
         if was_primary {
-            // The next monitor takes the login screen.
+            // Another monitor takes the login screen.
             self.draw();
         }
+        self.ask_primary();
     }
 }
 

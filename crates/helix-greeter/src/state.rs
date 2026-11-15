@@ -1,4 +1,5 @@
-//! What the greeter remembers between runs: the last user and session
+//! What the greeter remembers between runs: the last user and session,
+//! and each user's last session
 //! (`$XDG_STATE_HOME/helix-greeter/state.json` of the greeter user).
 
 use std::path::{Path, PathBuf};
@@ -11,6 +12,8 @@ pub struct State {
     pub last_user: Option<String>,
     /// The session's id (its file name without `.desktop`).
     pub last_session: Option<String>,
+    /// Each user's last session through the greeter, by login name.
+    pub sessions: std::collections::BTreeMap<String, String>,
 }
 
 /// The state file under `xdg_state_home`, else under `home`'s
@@ -75,7 +78,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("helix-greeter-state-{}", std::process::id()));
         let path = dir.join("helix-greeter/state.json");
         assert_eq!(State::load_from(&path), State::default(), "missing file");
-        let state = State { last_user: Some("ann".into()), last_session: Some("helix".into()) };
+        let state = State { last_user: Some("ann".into()), last_session: Some("helix".into()), sessions: [("ann".to_owned(), "helix".to_owned())].into() };
         state.save_to(&path).unwrap();
         assert_eq!(State::load_from(&path), state);
         assert!(std::fs::read_to_string(&path).unwrap().contains("\"last_user\""));

@@ -20,9 +20,12 @@ tracing-subscriber.workspace = true
 libc.workspace = true
 smithay-client-toolkit.workspace = true
 helix-draw.workspace = true
+# Account pictures.
+png.workspace = true
+zune-jpeg = "0.5"
 
 [dev-dependencies]
-png.workspace = true
+helix-test-support.workspace = true
 
 [[bin]]
 name = "helix-greeter"
