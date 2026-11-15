@@ -331,6 +331,9 @@ pub enum UiRequest {
     NotificationActivated { id: u32, action: Option<String> },
     /// A banner's (or list entry's) close button was pressed.
     NotificationDismissed { id: u32 },
+    /// The pointer is over banner `id`, or keyboard focus is in it (or no
+    /// longer): its timer waits meanwhile.
+    BannerHeld { id: u32, held: bool },
     /// The notification list was opened.
     NotificationListOpened,
     /// "Clear" in the notification list.
@@ -1192,6 +1195,10 @@ impl UiBridge {
                 self.center
                     .close(&self.conn, id, notify_store::CloseReason::Dismissed)
                     .await
+            }
+            UiRequest::BannerHeld { id, held } => {
+                self.center.hold_banner(id, held);
+                Ok(())
             }
             UiRequest::NotificationListOpened => {
                 self.center.mark_seen();

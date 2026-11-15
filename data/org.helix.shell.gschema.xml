@@ -23,5 +23,17 @@
       <summary>Switches in the quick settings menu</summary>
       <description>Switch ids, in order.</description>
     </key>
+    <key name="banner-ignore-timeout" type="u">
+      <range min="0" max="600"/>
+      <default>10</default>
+      <summary>Hide ignored banners after (seconds)</summary>
+      <description>How long a notification banner without its own timeout stays on screen while the user is active and leaves it alone, before it moves to the notification list. 0 keeps it until the user acts on it. Values from 1 to 4 count as 5.</description>
+    </key>
+    <key name="critical-banner-ignore-timeout" type="u">
+      <range min="0" max="600"/>
+      <default>30</default>
+      <summary>Hide ignored urgent banners after (seconds)</summary>
+      <description>The same as banner-ignore-timeout, for critical (urgent) notifications. 0 keeps them until the user acts on them.</description>
+    </key>
   </schema>
 </schemalist>

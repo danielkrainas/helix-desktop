@@ -75,6 +75,7 @@ fn main() -> ExitCode {
     });
     runtime.spawn(helix_shell::screencast_chooser::follow_sharing(service.connection().clone(), service.ui_sender()));
     runtime.spawn(helix_shell::notifications::follow_settings(service.notifications()));
+    runtime.spawn(helix_shell::notifications::follow_ignore_timeouts(service.notifications()));
     // High contrast for Helix's own UI.
     let contrast_ui = service.ui_sender();
     runtime.spawn(async move {

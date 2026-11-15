@@ -278,6 +278,17 @@ impl Ui {
         }
     }
 
+    /// The pointer entering or leaving the banner holds its timer.
+    pub(super) fn banner_hover(&mut self, event: &PointerEvent) {
+        let Some(view) = self.banner.as_ref().filter(|b| b.layer.wl_surface() == &event.surface) else { return };
+        let held = match event.kind {
+            PointerEventKind::Enter { .. } => true,
+            PointerEventKind::Leave { .. } => false,
+            _ => return,
+        };
+        let _ = self.requests.send(UiRequest::BannerHeld { id: view.data.id, held: held || view.focused });
+    }
+
     /// Give the banner keyboard focus (or take it away).
     pub(super) fn focus_banner(&mut self, focus: bool) {
         let Some(view) = self.banner.as_mut() else { return };
@@ -285,6 +296,7 @@ impl Ui {
             return;
         }
         view.focused = focus;
+        let _ = self.requests.send(UiRequest::BannerHeld { id: view.data.id, held: focus });
         view.layer.set_keyboard_interactivity(if focus { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None });
         view.layer.commit();
         self.draw_banner();

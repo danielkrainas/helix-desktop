@@ -14,7 +14,7 @@ use zbus::zvariant::{OwnedValue, Value};
 use zbus::{fdo, interface, Connection};
 
 use crate::icons::IconSource;
-use crate::notify_store::{CloseReason, Notification, Origin, Store, Urgency};
+use crate::notify_store::{CloseReason, IgnoreTimeouts, Notification, Origin, Store, Urgency};
 use crate::sound::Sound;
 use crate::screensaver::{self, SharedStatus};
 use crate::UiEvent;
@@ -23,6 +23,10 @@ pub const FDO_BUS_NAME: &str = "org.freedesktop.Notifications";
 pub const FDO_PATH: &str = "/org/freedesktop/Notifications";
 pub const GTK_BUS_NAME: &str = "org.gtk.Notifications";
 pub const GTK_PATH: &str = "/org/gtk/Notifications";
+/// The user counts as active (banner timers run) with input this recent.
+const ACTIVE_WINDOW: Duration = Duration::from_secs(5);
+/// Helix's own settings: the ignore periods.
+const HELIX_SCHEMA: &str = "org.helix.shell";
 
 /// What the UI draws for the current banner.
 #[derive(Debug, Clone, PartialEq)]
@@ -81,6 +85,9 @@ pub struct Center {
     listed: Arc<Mutex<Option<List>>>,
     /// Freedesktop notifications closed for the list limit, to signal.
     overflowed: Arc<Mutex<Vec<u32>>>,
+    /// The banner the pointer is over or the keyboard is in: its timer
+    /// waits.
+    held: Arc<Mutex<Option<u32>>>,
 }
 
 impl Center {
@@ -94,7 +101,24 @@ impl Center {
             shown: Default::default(),
             listed: Default::default(),
             overflowed: Default::default(),
+            held: Default::default(),
         }
+    }
+
+    /// The pointer entered or left banner `id`, or keyboard focus moved
+    /// in or out of it.
+    pub fn hold_banner(&self, id: u32, held: bool) {
+        let mut current = self.held.lock().unwrap_or_else(|e| e.into_inner());
+        if held {
+            *current = Some(id);
+        } else if *current == Some(id) {
+            *current = None;
+        }
+    }
+
+    /// New ignore periods (`banner-ignore-timeout` and its critical twin).
+    pub fn set_ignore_timeouts(&self, ignore: IgnoreTimeouts) {
+        self.store().ignore = ignore;
     }
 
     fn store(&self) -> MutexGuard<'_, Store> {
@@ -468,7 +492,18 @@ impl Center {
     /// End banners whose time is up: transient notifications close, the
     /// rest stay in the list.
     pub async fn tick(&self, conn: &Connection) -> zbus::Result<()> {
-        let expired = self.store().expired(Instant::now());
+        let shown = *self.shown.lock().unwrap_or_else(|e| e.into_inner());
+        let expired = match shown {
+            Some(id) => {
+                // Asked only while a banner is up.
+                let active = user_active(conn).await;
+                let held = *self.held.lock().unwrap_or_else(|e| e.into_inner()) == Some(id);
+                let mut store = self.store();
+                store.advance(Instant::now(), active, held);
+                store.expired()
+            }
+            None => None,
+        };
         if let Some(id) = expired {
             let transient = self.store().get(id).is_some_and(|n| n.transient);
             if transient {
@@ -816,6 +851,45 @@ impl GtkNotifications {
 }
 
 const SETTINGS_SCHEMA: &str = "org.gnome.desktop.notifications";
+
+/// Whether the user has given input in the last [`ACTIVE_WINDOW`], by the
+/// compositor's idle monitor. Without one, the user counts as active.
+async fn user_active(conn: &Connection) -> bool {
+    let reply = conn
+        .call_method(
+            Some("org.gnome.Mutter.IdleMonitor"),
+            "/org/gnome/Mutter/IdleMonitor/Core",
+            Some("org.gnome.Mutter.IdleMonitor"),
+            "GetIdletime",
+            &(),
+        )
+        .await;
+    match reply.ok().and_then(|r| r.body().deserialize::<u64>().ok()) {
+        Some(idle_ms) => Duration::from_millis(idle_ms) < ACTIVE_WINDOW,
+        None => true,
+    }
+}
+
+/// Follow `org.helix.shell banner-ignore-timeout` and
+/// `critical-banner-ignore-timeout`.
+pub async fn follow_ignore_timeouts(center: Center) {
+    // An older installed schema without the keys: the defaults.
+    if helix_settings::key_type(HELIX_SCHEMA, "critical-banner-ignore-timeout").is_none() {
+        return;
+    }
+    let read = || {
+        let settings = gio::Settings::new(HELIX_SCHEMA);
+        IgnoreTimeouts::from_seconds(settings.uint("banner-ignore-timeout"), settings.uint("critical-banner-ignore-timeout"))
+    };
+    center.set_ignore_timeouts(read());
+    let settings = helix_settings::GSettings::new(&[HELIX_SCHEMA]);
+    let (mut changes, _watch) = settings.watch();
+    while changes.recv().await.is_some() {
+        let ignore = read();
+        tracing::debug!(?ignore, "banner ignore periods changed");
+        center.set_ignore_timeouts(ignore);
+    }
+}
 
 /// Turn do not disturb on or off (`show-banners`, inverted).
 pub fn set_do_not_disturb(on: bool) {

@@ -4066,6 +4066,7 @@ impl Ui {
                 self.lock_pointer(event);
                 continue;
             }
+            self.banner_hover(event);
             if self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.quick_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) {
                 continue;
             }

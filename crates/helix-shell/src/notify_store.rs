@@ -11,6 +11,43 @@ use std::time::{Duration, Instant};
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 /// The most notifications kept in the list.
 pub const LIST_LIMIT: usize = 50;
+/// `banner-ignore-timeout`'s default: active time a banner without a
+/// timeout stays before it moves to the list.
+pub const IGNORE_TIMEOUT: Duration = Duration::from_secs(10);
+/// `critical-banner-ignore-timeout`'s default, for critical banners.
+pub const CRITICAL_IGNORE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long banners without their own timeout stay while the user is
+/// active and leaves them alone; `None` keeps them until acted on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IgnoreTimeouts {
+    pub normal: Option<Duration>,
+    pub critical: Option<Duration>,
+}
+
+impl Default for IgnoreTimeouts {
+    fn default() -> Self {
+        Self { normal: Some(IGNORE_TIMEOUT), critical: Some(CRITICAL_IGNORE_TIMEOUT) }
+    }
+}
+
+impl IgnoreTimeouts {
+    /// From the settings' seconds: 0 means never; other values are
+    /// clamped to 5–600 s.
+    pub fn from_seconds(normal: u32, critical: u32) -> Self {
+        let period = |secs: u32| (secs != 0).then(|| Duration::from_secs(u64::from(secs.clamp(5, 600))));
+        Self { normal: period(normal), critical: period(critical) }
+    }
+}
+
+/// The banner on screen: how long it has counted (active, unheld time).
+#[derive(Debug, Clone, Copy)]
+struct Shown {
+    id: u32,
+    counted: Duration,
+    /// When the count was last brought up to date.
+    since: Instant,
+}
 
 /// `NotificationClosed` reasons.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,14 +134,16 @@ pub struct Store {
     items: BTreeMap<u32, Notification>,
     /// Waiting to be shown, oldest first.
     queue: Vec<u32>,
-    /// On screen now, and since when.
-    current: Option<(u32, Instant)>,
+    /// On screen now.
+    current: Option<Shown>,
     next_id: u32,
     /// List order: when each notification was posted or last replaced.
     order: BTreeMap<u32, u64>,
     posted: u64,
     /// Posted since the list was last looked at.
     pub unseen: bool,
+    /// When banners without a timeout leave the screen.
+    pub ignore: IgnoreTimeouts,
 }
 
 impl Store {
@@ -121,9 +160,9 @@ impl Store {
             if banner {
                 self.queue.push(notification.id);
             }
-        } else if self.current.is_some_and(|(id, _)| id == notification.id) {
+        } else if let Some(shown) = self.current.as_mut().filter(|c| c.id == notification.id) {
             // Replacing what is on screen restarts its timer.
-            self.current = Some((notification.id, Instant::now()));
+            shown.counted = Duration::ZERO;
         }
         let id = notification.id;
         self.items.insert(id, notification);
@@ -149,7 +188,7 @@ impl Store {
     /// The banner of `id` is done (timed out); the notification stays in
     /// the list.
     pub fn banner_done(&mut self, id: u32) {
-        if self.current.is_some_and(|(c, _)| c == id) {
+        if self.current.is_some_and(|c| c.id == id) {
             self.current = None;
         }
     }
@@ -171,7 +210,7 @@ impl Store {
         let n = self.items.remove(&id)?;
         self.order.remove(&id);
         self.queue.retain(|q| *q != id);
-        if self.current.is_some_and(|(c, _)| c == id) {
+        if self.current.is_some_and(|c| c.id == id) {
             self.current = None;
         }
         Some(n)
@@ -184,25 +223,47 @@ impl Store {
         if self.current.is_none() {
             let next = self.queue.iter().position(|id| self.items.get(id).is_some_and(&may_show))?;
             let id = self.queue.remove(next);
-            self.current = Some((id, now));
+            self.current = Some(Shown { id, counted: Duration::ZERO, since: now });
         }
-        let (id, _) = self.current?;
+        let id = self.current?.id;
         let n = self.items.get(&id)?;
         if may_show(n) { Some(n) } else { None }
     }
 
-    /// Ids of shown notifications whose time is up.
-    pub fn expired(&self, now: Instant) -> Option<u32> {
-        let (id, since) = self.current?;
-        let timeout = self.items.get(&id)?.timeout?;
-        (now.duration_since(since) >= timeout).then_some(id)
+    /// Bring the banner's timer up to `now`. Time counts only while the
+    /// user is `active` and the banner is not `held` (pointer over it, or
+    /// keyboard focus in it).
+    pub fn advance(&mut self, now: Instant, active: bool, held: bool) {
+        if let Some(shown) = self.current.as_mut() {
+            if active && !held {
+                shown.counted += now.saturating_duration_since(shown.since);
+            }
+            shown.since = now;
+        }
+    }
+
+    /// How long the banner of `n` counts before it leaves the screen:
+    /// its own timeout, else the ignore period for its urgency.
+    fn banner_time(&self, n: &Notification) -> Option<Duration> {
+        match (n.urgency, n.timeout) {
+            (Urgency::Critical, _) => self.ignore.critical,
+            (_, Some(timeout)) => Some(timeout),
+            (_, None) => self.ignore.normal,
+        }
+    }
+
+    /// The shown notification, if its time is up (see [`Store::advance`]).
+    pub fn expired(&self) -> Option<u32> {
+        let shown = self.current?;
+        let limit = self.banner_time(self.items.get(&shown.id)?)?;
+        (shown.counted >= limit).then_some(shown.id)
     }
 
     /// Put the on-screen notification back in front of the queue (e.g. the
-    /// screen locked before it was read).
+    /// screen locked before it was read); its timer starts over.
     pub fn requeue_current(&mut self) {
-        if let Some((id, _)) = self.current.take() {
-            self.queue.insert(0, id);
+        if let Some(shown) = self.current.take() {
+            self.queue.insert(0, shown.id);
         }
     }
 
@@ -280,19 +341,127 @@ mod tests {
         assert_ne!(s.add(v3, true), 999);
     }
 
+    const SEC: Duration = Duration::from_secs(1);
+
+    /// Advance the store second by second from `t`, `secs` times.
+    fn run(s: &mut Store, t: &mut Instant, secs: u32, active: bool, held: bool) {
+        for _ in 0..secs {
+            *t += SEC;
+            s.advance(*t, active, held);
+        }
+    }
+
     #[test]
-    fn expiry_and_critical() {
+    fn expiry_counts_active_time() {
         let mut s = Store::default();
-        let t = Instant::now();
+        let mut t = Instant::now();
         let a = s.add(n("a", Urgency::Normal, Some(Duration::from_secs(5))), true);
         s.current(t, ALL);
-        assert_eq!(s.expired(t + Duration::from_secs(4)), None);
-        assert_eq!(s.expired(t + Duration::from_secs(5)), Some(a));
-        s.close(a);
-        let c = s.add(n("c", Urgency::Critical, None), true);
+        run(&mut s, &mut t, 4, true, false);
+        assert_eq!(s.expired(), None);
+        run(&mut s, &mut t, 1, true, false);
+        assert_eq!(s.expired(), Some(a));
+    }
+
+    #[test]
+    fn idle_pauses_the_timer() {
+        let mut s = Store::default();
+        let mut t = Instant::now();
+        let a = s.add(n("a", Urgency::Normal, Some(Duration::from_secs(5))), true);
+        // Shown while the user is away: still there an hour later.
         s.current(t, ALL);
-        assert_eq!(s.expired(t + Duration::from_secs(3600)), None);
-        assert_eq!(s.current(t, ALL).unwrap().id, c);
+        run(&mut s, &mut t, 3600, false, false);
+        assert_eq!(s.expired(), None);
+        // Back: the timer runs from where it was.
+        run(&mut s, &mut t, 4, true, false);
+        assert_eq!(s.expired(), None);
+        run(&mut s, &mut t, 1, true, false);
+        assert_eq!(s.expired(), Some(a));
+    }
+
+    #[test]
+    fn hover_and_focus_hold_the_banner() {
+        let mut s = Store::default();
+        let mut t = Instant::now();
+        let a = s.add(n("a", Urgency::Normal, Some(Duration::from_secs(5))), true);
+        s.current(t, ALL);
+        run(&mut s, &mut t, 2, true, false);
+        run(&mut s, &mut t, 600, true, true);
+        assert_eq!(s.expired(), None, "held while hovered or focused");
+        run(&mut s, &mut t, 3, true, false);
+        assert_eq!(s.expired(), Some(a));
+    }
+
+    #[test]
+    fn ignored_never_expiring_banners_move_to_the_list() {
+        let mut s = Store::default();
+        let mut t = Instant::now();
+        let a = s.add(n("a", Urgency::Normal, None), true);
+        s.current(t, ALL);
+        run(&mut s, &mut t, 120, false, false);
+        assert_eq!(s.expired(), None, "never while idle");
+        run(&mut s, &mut t, 9, true, false);
+        assert_eq!(s.expired(), None);
+        run(&mut s, &mut t, 1, true, false);
+        assert_eq!(s.expired(), Some(a), "after banner-ignore-timeout of activity");
+        s.banner_done(a);
+        assert!(s.get(a).is_some(), "stays in the list");
+        // 0: kept until acted on.
+        s.ignore = IgnoreTimeouts::from_seconds(0, 0);
+        let b = s.add(n("b", Urgency::Normal, None), true);
+        s.current(t, ALL);
+        run(&mut s, &mut t, 3600, true, false);
+        assert_eq!(s.expired(), None);
+        assert_eq!(s.current(t, ALL).unwrap().id, b);
+    }
+
+    #[test]
+    fn critical_banners_need_longer_activity() {
+        let mut s = Store::default();
+        let mut t = Instant::now();
+        // Critical ignores the app's timeout and uses its own period.
+        let c = s.add(n("c", Urgency::Critical, Some(Duration::from_secs(2))), true);
+        s.current(t, ALL);
+        run(&mut s, &mut t, 3600, false, false);
+        run(&mut s, &mut t, 29, true, false);
+        assert_eq!(s.expired(), None);
+        run(&mut s, &mut t, 1, true, false);
+        assert_eq!(s.expired(), Some(c));
+        s.close(c);
+        s.ignore = IgnoreTimeouts { normal: Some(IGNORE_TIMEOUT), critical: None };
+        s.add(n("c2", Urgency::Critical, None), true);
+        s.current(t, ALL);
+        run(&mut s, &mut t, 3600, true, false);
+        assert_eq!(s.expired(), None, "0 keeps critical banners until acted on");
+    }
+
+    #[test]
+    fn ignore_settings_clamp() {
+        let t = IgnoreTimeouts::from_seconds(1, 10_000);
+        assert_eq!(t.normal, Some(Duration::from_secs(5)));
+        assert_eq!(t.critical, Some(Duration::from_secs(600)));
+        assert_eq!(IgnoreTimeouts::from_seconds(10, 30), IgnoreTimeouts::default());
+        assert_eq!(IgnoreTimeouts::from_seconds(0, 30).normal, None);
+    }
+
+    #[test]
+    fn replacing_restarts_and_requeue_starts_over() {
+        let mut s = Store::default();
+        let mut t = Instant::now();
+        let a = s.add(n("a", Urgency::Normal, Some(Duration::from_secs(5))), true);
+        s.current(t, ALL);
+        run(&mut s, &mut t, 4, true, false);
+        let mut again = n("a2", Urgency::Normal, Some(Duration::from_secs(5)));
+        again.id = a;
+        s.add(again, true);
+        run(&mut s, &mut t, 4, true, false);
+        assert_eq!(s.expired(), None, "the replacement restarted the timer");
+        s.requeue_current();
+        s.current(t, ALL);
+        run(&mut s, &mut t, 4, true, false);
+        assert_eq!(s.expired(), None, "shown again after unlocking: from the start");
+        run(&mut s, &mut t, 1, true, false);
+        assert_eq!(s.expired(), Some(a));
     }
 
     #[test]
