@@ -348,8 +348,54 @@ fn launcher_results() {
         let by = (h as i32 / 6).max(panel_height() as i32 + 24);
         let field = Rect { x: bx, y: by, w: bw, h: helix_draw::theme::grow(SEARCH_H) };
         search_field(canvas, text.as_ref(), field, &model.query, "", true);
-        paint_results(canvas, (text.as_ref(), bold.as_ref()), &model, (&rows, &headings), (bx, by + field.h + 8, bw, h as i32 - 24), (Some(3), None));
+        paint_results(canvas, (text.as_ref(), bold.as_ref()), &model, (&rows, &headings), (bx, by + field.h + 8, bw, h as i32 - 24), (Some(3), None), &mut Default::default());
     });
+}
+
+/// The launcher with more results than fit (helix-desktop#104,
+/// `launcher-more-…`): at the top (a fade and "N more results" below),
+/// scrolled into the middle (fades at both edges, the footer under the
+/// pointer) and at the end ("N results above"); in every look, and right
+/// to left (`launcher-more-rtl-…`).
+#[test]
+#[ignore]
+fn launcher_more_results() {
+    use crate::launcher::{App, Launcher, ListScroll};
+    let Some(dir) = dir() else { return };
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    let names = ["Notes", "Notebook", "Note Taker", "Notation", "Noteworthy", "Notepad", "Notify", "Nota", "Notecase", "Noted"];
+    let apps: Vec<App> = (0..24).map(|i| App { id: format!("org.example.N{i}.desktop"), name: format!("{} {}", names[i % names.len()], i / names.len() + 1), search: "note".into(), categories: Vec::new() }).collect();
+    let mut model = Launcher::new(apps);
+    model.type_text("not");
+    let icons: HashMap<usize, Option<helix_draw::Image>> = HashMap::new();
+    let scene = |canvas: &mut Canvas, (w, h): (usize, usize), model: &Launcher, scrolled: isize, hover: Option<usize>| {
+        canvas.fill(SCRIM);
+        let bw = helix_draw::theme::grow(SEARCH_W).min(w as i32 - 48);
+        let bx = (w as i32 - bw) / 2;
+        let by = (h as i32 / 6).max(panel_height() as i32 + 24);
+        let field = Rect { x: bx, y: by, w: bw, h: helix_draw::theme::grow(SEARCH_H) };
+        search_field(canvas, text.as_ref(), field, &model.query, "", true);
+        let mut scroll = ListScroll::default();
+        let area = (bx, by + field.h + 8, bw, h as i32 - 24);
+        let paint = |canvas: &mut Canvas, scroll: &mut ListScroll| paint_results(canvas, (text.as_ref(), bold.as_ref()), model, (&icons, &icons), area, (hover, None), scroll);
+        if scrolled != 0 {
+            // Placed once, then scrolled (as the wheel does).
+            let mut scratch = vec![0u8; w * h * 4];
+            let mut off = Canvas::scaled(&mut scratch, w, h, 1.0);
+            paint(&mut off, &mut scroll);
+            scroll.scroll_by(scrolled);
+        }
+        paint(canvas, &mut scroll);
+    };
+    for (what, scrolled, hover) in [("top", 0, Some(2)), ("middle", 6, Some(FOOTER_HIT)), ("end", 100, None)] {
+        in_looks(&dir, &format!("launcher-more-{what}"), (1280, 720), &mut |canvas, size| scene(canvas, size, &model, scrolled, hover));
+    }
+    helix_draw::set_rtl(true);
+    helix_draw::theme::set_text_scale(1.5);
+    render(&dir, "launcher-more-rtl-text1.5", DARK, (1280, 720, 1.0), |canvas| scene(canvas, (1280, 720), &model, 6, Some(FOOTER_HIT)));
+    helix_draw::theme::set_text_scale(1.0);
+    render(&dir, "launcher-more-rtl", DARK, (1280, 720, 1.0), |canvas| scene(canvas, (1280, 720), &model, 0, None));
+    helix_draw::set_rtl(false);
 }
 
 /// The screenshot UI (`shot-…`): an area with handles and its size, the

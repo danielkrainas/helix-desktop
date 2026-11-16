@@ -78,6 +78,10 @@ pub struct Node {
     pub selected: Option<bool>,
     pub expanded: Option<bool>,
     pub range: Option<Range>,
+    /// A list's whole number of items (some may not be shown), and an
+    /// item's place among them (from 0): read as "3 of 25".
+    pub set_size: Option<usize>,
+    pub set_position: Option<usize>,
     pub focused: bool,
     pub focusable: bool,
     /// Activating it does what a click on its bounds does.
@@ -168,6 +172,18 @@ impl Node {
 
     pub fn expanded(mut self, open: bool) -> Self {
         self.expanded = Some(open);
+        self
+    }
+
+    /// A list of `size` items, not all of them shown.
+    pub fn set_size(mut self, size: usize) -> Self {
+        self.set_size = Some(size);
+        self
+    }
+
+    /// Item `position` (from 0) of its list.
+    pub fn in_set(mut self, position: usize) -> Self {
+        self.set_position = Some(position);
         self
     }
 

@@ -449,6 +449,32 @@ async fn child() {
     // No recent apps (turned off, cleared, another page): no such group.
     let plain = super::atspi::grid_nodes(&model, (&cells[2..], &[], None, &[], 0, 0));
     assert_eq!(plain.iter().map(|n| n.name.as_str()).collect::<Vec<_>>(), ["Applications"]);
+    // ----- Its results, scrolled (helix-desktop#104): only the rows in
+    // sight are objects, and they say how many results there are and
+    // where each is among them.
+    let apps: Vec<crate::launcher::App> =
+        (0..25).map(|i| crate::launcher::App { id: format!("app{i}.desktop"), name: format!("Notes {i:02}"), search: "notes".into(), categories: Vec::new() }).collect();
+    let mut model = crate::launcher::Launcher::new(apps);
+    model.type_text("notes");
+    model.selected = 11;
+    let rows: Vec<(Rect, usize)> = (10..14).map(|i| (Rect { x: 340, y: 100 + 48 * (i as i32 - 10), w: 600, h: 48 }, i)).collect();
+    let search = Node::text_field(Role::SearchInput, "Search", "notes", crate::a11y::Rect::new(440, 24, 400, 48)).id("search");
+    shell.show("launcher", window(super::atspi::launcher_title(), true, vec![search, super::atspi::results_node(&model, &rows)]));
+    let w = client.window("Launcher", |w| w.focused().iter().any(|n| n.starts_with("Notes"))).await;
+    let list = w.named("Search Results");
+    assert_eq!(list.children.len(), 4, "{:#?}", w.outline());
+    let attributes = |o: &Obj| {
+        let at = o.at.clone();
+        let conn = client.conn.clone();
+        async move {
+            let p = proxy(&conn, &at, "org.a11y.atspi.Accessible").await;
+            let attrs: HashMap<String, String> = p.call("GetAttributes", &()).await.unwrap();
+            attrs
+        }
+    };
+    let selected = w.named(model.row_label(model.results[11]).0);
+    let attrs = attributes(selected).await;
+    assert_eq!((attrs.get("setsize").map(String::as_str), attrs.get("posinset").map(String::as_str)), (Some("25"), Some("12")), "{attrs:?}");
 
     // ----- The workspace popup: the workspace announced, the active one selected.
     shell.show("workspace-popup", window("Workspace Switcher", false, super::workspace_popup::popup_nodes(&["Mail".into()], 3, 1, 260)));

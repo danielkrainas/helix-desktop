@@ -89,6 +89,12 @@ impl Builder {
         if let Some(open) = node.expanded {
             out.set_expanded(open);
         }
+        if let Some(size) = node.set_size {
+            out.set_size_of_set(size);
+        }
+        if let Some(position) = node.set_position {
+            out.set_position_in_set(position);
+        }
         if let Some(range) = node.range {
             out.set_numeric_value(range.value);
             out.set_min_numeric_value(range.min);

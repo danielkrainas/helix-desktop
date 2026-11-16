@@ -684,24 +684,7 @@ impl Ui {
         let search = Node::text_field(Role::SearchInput, tr("Search"), &model.query, field.into()).id("search").chars(chars);
         let mut out = vec![search.focused(!results && !grid_focus)];
         if results {
-            let rows = view.rows.iter().map(|&(r, result)| {
-                let hit = model.results[result];
-                let (label, _) = model.row_label(hit);
-                let label = match hit {
-                    launcher::Hit::More(_) => trf!("Search for “{query}” in {label}", query = model.query.trim(), label = label),
-                    _ => label.to_owned(),
-                };
-                let tag = match hit {
-                    launcher::Hit::Window(_) => tr("Open window").to_owned(),
-                    launcher::Hit::Folder(_) => tr("Folder").to_owned(),
-                    launcher::Hit::App(i) if model.is_favorite(i) => tr("Favorite").to_owned(),
-                    _ => model.search_hit(hit).map(|h| if h.description.is_empty() { h.app.clone() } else { format!("{}, {}", h.description, h.app) }).unwrap_or_default(),
-                };
-                let on = result == model.selected;
-                Node::new(Role::ListBoxOption, label).id(format!("{hit:?}")).describe(tag).at(r.into()).click().selected(on).focused(on)
-            });
-            let list = Node::new(Role::ListBox, tr("Search Results")).id("results").children(rows);
-            out.push(if view.rows.is_empty() { list.child(Node::label(tr("No matching apps"))) } else { list });
+            out.push(results_node(model, &view.rows));
         } else {
             out.extend(grid_nodes(model, view.grid.a11y()));
         }
@@ -742,6 +725,42 @@ impl Ui {
 /// What a notification banner announces, as a live line beside it: the
 /// app, the summary and the body in one announcement (screen readers
 /// drop a second one that comes at once).
+/// The launcher's search results: the rows shown (`rows`, painted places
+/// and result indexes), in a list that says how many results there are
+/// and where each row is among them, so that a screen reader reads "3 of
+/// 25" whether or not the rest are scrolled into sight.
+pub(super) fn results_node(model: &Launcher, rows: &[(Rect, usize)]) -> Node {
+    // Each result's place in the list's order (sections, not result
+    // indexes).
+    let order: Vec<usize> = model.sections().into_iter().filter_map(|i| if let launcher::ListItem::Row(r) = i { Some(r) } else { None }).collect();
+    let nodes = rows.iter().map(|&(r, result)| {
+        let hit = model.results[result];
+        let (label, _) = model.row_label(hit);
+        let label = match hit {
+            launcher::Hit::More(_) => trf!("Search for “{query}” in {label}", query = model.query.trim(), label = label),
+            _ => label.to_owned(),
+        };
+        let tag = match hit {
+            launcher::Hit::Window(_) => tr("Open window").to_owned(),
+            launcher::Hit::Folder(_) => tr("Folder").to_owned(),
+            launcher::Hit::App(i) if model.is_favorite(i) => tr("Favorite").to_owned(),
+            _ => model.search_hit(hit).map(|h| if h.description.is_empty() { h.app.clone() } else { format!("{}, {}", h.description, h.app) }).unwrap_or_default(),
+        };
+        let on = result == model.selected;
+        let node = Node::new(Role::ListBoxOption, label).id(format!("{hit:?}")).describe(tag).at(r.into()).click().selected(on).focused(on);
+        match order.iter().position(|o| *o == result) {
+            Some(place) => node.in_set(place),
+            None => node,
+        }
+    });
+    let list = Node::new(Role::ListBox, tr("Search Results")).id("results").set_size(model.results.len()).children(nodes);
+    if rows.is_empty() {
+        list.child(Node::label(tr("No matching apps")))
+    } else {
+        list
+    }
+}
+
 pub(super) fn banner_said(d: &crate::notifications::Banner) -> Node {
     let body = if d.markup { crate::markup::plain(&d.body) } else { d.body.clone() };
     let mut said = d.summary.clone();

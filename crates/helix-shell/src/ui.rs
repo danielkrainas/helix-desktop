@@ -191,6 +191,11 @@ struct LauncherView {
     clear: Option<Rect>,
     /// The app grid as last painted (to repaint only cells that change).
     grid_cache: Option<app_grid::GridCache>,
+    /// How the result list is scrolled.
+    scroll: launcher::ListScroll,
+    /// The result list's "more" footer (while the results overflow): where,
+    /// and how many items a click on it scrolls by.
+    footer: Option<(Rect, isize)>,
 }
 
 struct Ui {
@@ -846,6 +851,8 @@ const SEARCH_TEXT_X: i32 = 46;
 /// The part of the launcher's search field that clears it (among the
 /// result rows' indexes).
 const CLEAR_HIT: usize = usize::MAX;
+/// The result list's "more" footer (among the result rows' indexes).
+const FOOTER_HIT: usize = usize::MAX - 1;
 
 /// Paint a search field at `r` (helix-desktop-spec `components/README.md`,
 /// "Text fields"): a pill with the search symbol at its start, `query`
@@ -1433,6 +1440,8 @@ impl Ui {
             pressed: None,
             clear: None,
             grid_cache: None,
+            scroll: Default::default(),
+            footer: None,
         });
         if notify {
             let _ = self.requests.send(UiRequest::Overview(true));
@@ -2258,9 +2267,11 @@ impl Ui {
         // Results, in sections: open windows, apps, each search provider.
         let list_top = by + field.h + 8;
         let fonts = (self.text.as_ref(), self.bold.as_ref());
-        let (rows, list_h) = paint_results(&mut canvas, fonts, &view.model, (&row_icons, &heading_icons), (bx, list_top, bw, h as i32 - 24), (view.hover, view.pressed));
-        view.rows = rows;
-        view.content = Rect { x: bx, y: by, w: bw, h: list_top + list_h - by };
+        let shown = paint_results(&mut canvas, fonts, &view.model, (&row_icons, &heading_icons), (bx, list_top, bw, h as i32 - 24), (view.hover, view.pressed), &mut view.scroll);
+        view.rows = shown.rows;
+        view.footer = shown.footer;
+        tracing::debug!(start = shown.start, above = shown.more.0, below = shown.more.1, rows = view.rows.len(), hover = ?view.hover, "launcher results");
+        view.content = Rect { x: bx, y: by, w: bw, h: list_top + shown.height - by };
 
         let surface = view.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -4507,14 +4518,55 @@ impl Ui {
             if view.model.query.is_empty() {
                 return false;
             }
-            let row = view.rows.iter().find(|(r, _)| r.contains(x, y)).map(|(_, i)| *i);
-            let row = row.or_else(|| view.clear.filter(|c| c.contains(x, y)).map(|_| CLEAR_HIT));
+            let row_at = |view: &LauncherView, x: f64, y: f64| {
+                let row = view.rows.iter().find(|(r, _)| r.contains(x, y)).map(|(_, i)| *i);
+                let row = row.or_else(|| view.footer.filter(|(f, _)| f.contains(x, y)).map(|_| FOOTER_HIT));
+                row.or_else(|| view.clear.filter(|c| c.contains(x, y)).map(|_| CLEAR_HIT))
+            };
+            if let PointerEventKind::Axis { vertical, .. } = kind {
+                // The wheel (notches) or touchpad (travel) scrolls the
+                // list; a press is let go (its row moved away), and what
+                // is under the pointer now is lit.
+                let items = if vertical.discrete != 0 {
+                    vertical.discrete as isize
+                } else {
+                    view.scroll.travel(vertical.absolute, f64::from(helix_draw::theme::grow(RESULT_H)))
+                };
+                if items != 0 && view.footer.is_some() {
+                    view.scroll.scroll_by(items);
+                    view.pressed = None;
+                    self.draw_launcher();
+                    if let Some(view) = self.launcher.as_mut() {
+                        let now = row_at(view, x, y);
+                        if now != view.hover {
+                            view.hover = now;
+                            self.draw_launcher();
+                        }
+                    }
+                }
+                return true;
+            }
+            let row = row_at(view, x, y);
             if pressed_left && row.is_none() && !view.content.contains(x, y) {
                 self.close_launcher(true);
                 return true;
             }
             let out = press::track(&mut view.hover, &mut view.pressed, kind, row);
-            if out.click == Some(CLEAR_HIT) {
+            if out.click == Some(FOOTER_HIT) {
+                if let Some((_, by)) = view.footer {
+                    view.scroll.scroll_by(by);
+                }
+                self.draw_launcher();
+                // The footer stays under the pointer unless the list got
+                // shorter.
+                if let Some(view) = self.launcher.as_mut() {
+                    let now = row_at(view, x, y);
+                    if now != view.hover {
+                        view.hover = now;
+                        self.draw_launcher();
+                    }
+                }
+            } else if out.click == Some(CLEAR_HIT) {
                 view.model.set_query("");
                 view.hover = None;
                 self.search_changed();
@@ -4776,9 +4828,10 @@ struct SwitcherState {
 /// Paint the launcher's results in sections (open windows, apps, each
 /// search provider under a heading with its app's icon and name, "Search
 /// for … in <app>" last) in a popover at (bx, list_top), `bw` wide, down
-/// to `bottom` at most, scrolled to keep the selection in sight; every
-/// row with an icon. Returns the rows' places (with their result
-/// indexes) and the list's height.
+/// to `bottom` at most, scrolled as `scroll` says (the selection kept in
+/// sight when it moves); every row with an icon. Results that do not fit
+/// fade out at the list's edge, and a footer says how many more there
+/// are (a click on it scrolls a page).
 #[allow(clippy::type_complexity)]
 fn paint_results(
     canvas: &mut Canvas,
@@ -4787,14 +4840,20 @@ fn paint_results(
     (row_icons, heading_icons): (&HashMap<usize, Option<helix_draw::Image>>, &HashMap<usize, Option<helix_draw::Image>>),
     (bx, list_top, bw, bottom): (i32, i32, i32, i32),
     (hover, pressed): (Option<usize>, Option<usize>),
-) -> (Vec<(Rect, usize)>, i32) {
+    scroll: &mut launcher::ListScroll,
+) -> ResultsShown {
     let grow = helix_draw::theme::grow;
     let items = model.sections();
     let (row_h, head_h) = (grow(RESULT_H), grow(HEADING_H));
     let heights: Vec<i32> = items.iter().map(|i| if matches!(i, launcher::ListItem::Heading(_)) { head_h } else { row_h }).collect();
+    let headings: Vec<bool> = items.iter().map(|i| matches!(i, launcher::ListItem::Heading(_))).collect();
     let room = (bottom - list_top - 8).max(row_h + head_h);
+    // Not all fit: room for the footer.
+    let footer_h = grow(FOOTER_H);
+    let overflow = heights.iter().sum::<i32>() > room;
+    let room = if overflow { (room - footer_h).max(row_h) } else { room };
     let keep = items.iter().position(|i| *i == launcher::ListItem::Row(model.selected)).unwrap_or(0);
-    let start = launcher::list_start(&heights, keep, room);
+    let start = scroll.place(&model.query, &heights, &headings, keep, room);
     let mut shown = Vec::new();
     let mut used = 0;
     for (item, ih) in items.iter().zip(&heights).skip(start) {
@@ -4809,7 +4868,12 @@ fn paint_results(
         let (_, ih) = shown.pop().unwrap_or((launcher::ListItem::Row(0), 0));
         used -= ih;
     }
-    let list_h = used.max(row_h) + 8;
+    let is_row = |i: &&launcher::ListItem| matches!(i, launcher::ListItem::Row(_));
+    let above = items[..start.min(items.len())].iter().filter(is_row).count();
+    let below = items.iter().skip(start + shown.len()).filter(is_row).count();
+    let shown_n = shown.len();
+    let footer_h = if overflow { footer_h } else { 0 };
+    let list_h = used.max(row_h) + 8 + footer_h;
     theme::popover(canvas, bx, list_top, bw, list_h);
     let mut rows = Vec::new();
     if shown.is_empty() {
@@ -4898,8 +4962,65 @@ fn paint_results(
         }
         rows.push((rect, result));
     }
-    (rows, list_h)
+    let mut footer = None;
+    if overflow {
+        let lit = |result: usize| result == model.selected || hover == Some(result) || pressed == Some(result);
+        // The rows fade out where more follow (unless lit: the
+        // selection's ring stays whole). Not in high contrast.
+        if !helix_draw::high_contrast() {
+            // Over the edge row, from clear to mostly the popover itself.
+            let fade = row_h;
+            let edge = |canvas: &mut Canvas, y0: i32, down: bool| {
+                for i in 0..fade {
+                    let a = 0.75 * f64::from(if down { i + 1 } else { fade - i }) / f64::from(fade);
+                    let color = ((a * 255.0).round() as u32) << 24 | (theme::POPOVER & 0x00FF_FFFF);
+                    canvas.rect(bx + 1, y0 + i, bw - 2, 1, color);
+                }
+            };
+            if below > 0 && rows.last().is_none_or(|(_, r)| !lit(*r)) {
+                edge(canvas, list_top + 4 + used - fade, true);
+            }
+            if above > 0 && rows.first().is_none_or(|(r, i)| r.y > list_top + 4 || !lit(*i)) {
+                edge(canvas, list_top + 4, false);
+            }
+        }
+        // The footer: how many more, and which way; a click scrolls a page
+        // down, or back to the top at the end.
+        let rect = Rect { x: bx + 4, y: list_top + 4 + used, w: bw - 8, h: footer_h };
+        theme::separator(canvas, bx + 12, rect.y, bw - 24);
+        let look = theme::Look { on: false, hovered: hover == Some(FOOTER_HIT), pressed: pressed == Some(FOOTER_HIT) };
+        theme::row(canvas, rect.x, rect.y + 2, rect.w, rect.h - 4, look);
+        let (words, towards, by) = if below > 0 {
+            (helix_i18n::trnf!("{n} more result", "{n} more results", below), theme::Towards::Down, shown_n.saturating_sub(1).max(1) as isize)
+        } else {
+            (helix_i18n::trnf!("{n} result above", "{n} results above", above), theme::Towards::Up, -(start as isize))
+        };
+        let fg = if look.hovered || look.pressed { theme::control_text(look) } else { DIM_FG };
+        let tw = text.map_or(0.0, |t| t.width(&words, size::CAPTION)) as i32;
+        let chevron = 12;
+        let x = rect.x + (rect.w - tw - chevron - 8) / 2;
+        theme::chevron(canvas, f64::from(x + chevron / 2), f64::from(rect.y + rect.h / 2), f64::from(chevron), towards, fg);
+        label(text, canvas, &words, (x + chevron + 8) as f32, baseline(text, rect.y, rect.h, size::CAPTION), size::CAPTION, fg, (rect.w - chevron - 24) as f32);
+        footer = Some((rect, by));
+    }
+    ResultsShown { rows, height: list_h, footer, start, more: (above, below) }
 }
+
+/// The launcher's result list as painted.
+struct ResultsShown {
+    /// The rows shown, with their result indexes.
+    rows: Vec<(Rect, usize)>,
+    height: i32,
+    /// The "more" footer, and how many items a click on it scrolls by.
+    footer: Option<(Rect, isize)>,
+    /// The first item shown, and the results out of sight above and below.
+    start: usize,
+    more: (usize, usize),
+}
+
+/// The result list's "more" footer's height (logical px, before the
+/// text scale).
+const FOOTER_H: i32 = 32;
 
 /// The application switcher's icons: as large as fit `n` of them on a
 /// surface `w` wide, from [`APP_ICON_MAX`] down to [`APP_ICON_MIN`]
@@ -5296,8 +5417,8 @@ mod tests {
         let paint = |hover: Option<usize>| {
             let mut data = vec![0u8; 800 * 600 * 4];
             let mut canvas = Canvas::scaled(&mut data, 800, 600, 1.0);
-            let (rows, _) = paint_results(&mut canvas, (None, None), &model, (&empty, &empty), (100, 20, 600, 580), (hover, None));
-            (data, rows)
+            let shown = paint_results(&mut canvas, (None, None), &model, (&empty, &empty), (100, 20, 600, 580), (hover, None), &mut Default::default());
+            (data, shown.rows)
         };
         let (rest, rows) = paint(None);
         let (lit, _) = paint(Some(rows[2].1));
@@ -5309,6 +5430,50 @@ mod tests {
         assert_eq!(ring(&lit, rows[0].0), theme::focus(), "the selection has the focus ring");
         assert_ne!(ring(&lit, rows[2].0), theme::focus(), "the hover has none");
         assert_eq!(at(&lit, rows[1].0), at(&rest, rows[1].0), "other rows stay");
+    }
+
+    /// More results than fit (helix-desktop#104): a footer says how many
+    /// more and which way, the wheel's scroll shows later rows (never past
+    /// the end), and the keyboard's selection brings the list back to it.
+    #[test]
+    fn result_overflow() {
+        let apps: Vec<launcher::App> = (0..20).map(|i| launcher::App { id: format!("a{i}.desktop"), name: format!("Note {i:02}"), search: String::new(), categories: Vec::new() }).collect();
+        let mut model = Launcher::new(apps);
+        model.type_text("note");
+        assert_eq!(model.results.len(), 20);
+        let empty = HashMap::new();
+        let paint = |model: &Launcher, scroll: &mut launcher::ListScroll| {
+            let mut data = vec![0u8; 800 * 600 * 4];
+            let mut canvas = Canvas::scaled(&mut data, 800, 600, 1.0);
+            paint_results(&mut canvas, (None, None), model, (&empty, &empty), (100, 20, 600, 580), (None, None), scroll)
+        };
+        let mut scroll = launcher::ListScroll::default();
+        // 552 px of room: the heading (30), the footer (32) and ten rows.
+        let shown = paint(&model, &mut scroll);
+        assert_eq!(shown.rows.iter().map(|r| r.1).collect::<Vec<_>>(), (0..10).collect::<Vec<_>>());
+        let (footer, by) = shown.footer.expect("a footer while results do not fit");
+        assert_eq!(by, 10, "a click on it scrolls a page (less an item)");
+        assert!(footer.y >= shown.rows[9].0.y + shown.rows[9].0.h, "under the last row");
+        assert_eq!(shown.height, 30 + 10 * 48 + 32 + 8);
+        // The wheel: three notches down.
+        scroll.scroll_by(3);
+        let shown = paint(&model, &mut scroll);
+        assert_eq!(shown.rows.first().map(|r| r.1), Some(2), "the heading and two rows went by");
+        // Far down: the end, and the footer points back up.
+        scroll.scroll_by(50);
+        let shown = paint(&model, &mut scroll);
+        assert_eq!(shown.rows.last().map(|r| r.1), Some(19));
+        let (_, by) = shown.footer.expect("still a footer");
+        assert!(by < 0, "at the end it goes back to the top");
+        // The keyboard's selection moves: the list follows it.
+        model.selected = 1;
+        model.move_selection(1);
+        let shown = paint(&model, &mut scroll);
+        assert!(shown.rows.iter().any(|r| r.1 == 2), "the selection is in sight");
+        // Few results: no footer.
+        model.type_text(" 1");
+        let shown = paint(&model, &mut scroll);
+        assert!(shown.footer.is_none() && !shown.rows.is_empty());
     }
 
     #[test]
