@@ -368,7 +368,7 @@ pub async fn run(conn: Connection, center: Center, ui: mpsc::UnboundedSender<UiE
                     let Some(s) = setting(kind) else { continue };
                     if overdue && s.notify_overdue {
                         let minutes = s.interval / 60;
-                        center.notice(tr("Break Reminders"), tr("Break Overdue"), &trf!("You have been working for {minutes} minutes without a break.", minutes = minutes), "alarm-symbolic", false);
+                        center.notice(tr("Break Reminders"), tr("Break Overdue"), &trnf!("You have been working for {minutes} minute without a break.", "You have been working for {minutes} minutes without a break.", minutes, minutes = minutes), "alarm-symbolic", false);
                     }
                     if s.sound {
                         sound::play(&Sound::Name("alarm-clock-elapsed".into()));

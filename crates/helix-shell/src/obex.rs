@@ -565,8 +565,8 @@ impl Shell {
         let id = *id.lock().unwrap_or_else(|e| e.into_inner());
         match result {
             Ok(()) => {
-                let what = if paths.len() == 1 { tr("1 file").to_owned() } else { trf!("{} files", paths.len()) };
-                self.notice(id, &trf!("Files sent to {name}", name = name), &trf!("Sent {what}.", what = what));
+                let sent = helix_i18n::trnf!("Sent {n} file.", "Sent {n} files.", paths.len());
+                self.notice(id, &trf!("Files sent to {name}", name = name), &sent);
             }
             Err(err) => {
                 tracing::warn!(err, "Bluetooth sending failed");

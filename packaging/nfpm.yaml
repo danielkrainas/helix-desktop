@@ -122,6 +122,9 @@ overrides:
       - bubblewrap
       # The login screen's monitor layout (helix-login-monitors).
       - pkexec
+    # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
+    suggests:
+      - fonts-noto-cjk
   rpm:
     depends:
       - glibc
@@ -147,6 +150,9 @@ overrides:
       - bubblewrap
       # The login screen's monitor layout (helix-login-monitors).
       - polkit
+    # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
+    suggests:
+      - google-noto-sans-cjk-fonts
   archlinux:
     scripts:
       postinstall: ./packaging/postinstall.sh
@@ -174,5 +180,8 @@ overrides:
       - bubblewrap
       # The login screen's monitor layout (helix-login-monitors).
       - polkit
+    # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
+    suggests:
+      - noto-fonts-cjk
 archlinux:
   packager: Helix release workflow

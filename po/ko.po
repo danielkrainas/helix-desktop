@@ -1,0 +1,2850 @@
+# Korean translation of the Helix desktop (shell, portals, session, greeter).
+# This file is distributed under the same license as helix-desktop (CC0-1.0).
+# Machine-translated and not yet reviewed by a native speaker; see TRANSLATING.md.
+msgid ""
+msgstr ""
+"Project-Id-Version: helix-desktop\n"
+"Report-Msgid-Bugs-To: https://github.com/danielkrainas/helix-desktop/issues\n"
+"PO-Revision-Date: 2026-11-16 12:00+0000\n"
+"Last-Translator: Machine translation (unreviewed)\n"
+"Language-Team: Korean\n"
+"Language: ko\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#. Translators: display modes shown when switching (Super+P).
+#: crates/helix-comp/src/display_switch.rs:31
+msgid "Mirror"
+msgstr "미러"
+
+#: crates/helix-comp/src/display_switch.rs:32
+msgid "Join Displays"
+msgstr "디스플레이 연결"
+
+#: crates/helix-comp/src/display_switch.rs:33
+msgid "External Only"
+msgstr "외부만"
+
+#: crates/helix-comp/src/display_switch.rs:34
+msgid "Built-in Only"
+msgstr "내장만"
+
+#: crates/helix-greeter/src/app.rs:30 crates/helix-shell/src/a11y_menu.rs:28
+msgid "High Contrast"
+msgstr "고대비"
+
+#: crates/helix-greeter/src/app.rs:31 crates/helix-shell/src/a11y_menu.rs:30
+msgid "Large Text"
+msgstr "큰 글씨"
+
+#: crates/helix-greeter/src/app.rs:32 crates/helix-shell/src/a11y_menu.rs:31
+msgid "Screen Reader"
+msgstr "화면 읽기 프로그램"
+
+#: crates/helix-greeter/src/app.rs:33 crates/helix-greeter/src/atspi.rs:86
+#: crates/helix-shell/src/a11y_menu.rs:32
+msgid "Screen Keyboard"
+msgstr "화면 키보드"
+
+#: crates/helix-greeter/src/app.rs:557
+msgid "No sessions are installed."
+msgstr "설치된 세션이 없습니다."
+
+#: crates/helix-greeter/src/atspi.rs:23
+msgid "Login screen"
+msgstr "로그인 화면"
+
+#: crates/helix-greeter/src/atspi.rs:59
+msgid "Users"
+msgstr "사용자"
+
+#: crates/helix-greeter/src/atspi.rs:63 crates/helix-greeter/src/paint.rs:430
+msgid "Username"
+msgstr "사용자 이름"
+
+#: crates/helix-greeter/src/atspi.rs:79 crates/helix-greeter/src/paint.rs:459
+#: crates/helix-shell/src/ui/window_menu.rs:405
+msgid "Back"
+msgstr "뒤로"
+
+#: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:476
+#: crates/helix-shell/src/ui.rs:5226 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui/lock.rs:587
+msgid "Power Off…"
+msgstr "전원 끄기…"
+
+#: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:476
+#: crates/helix-shell/src/ui.rs:5223 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui/lock.rs:586
+msgid "Restart…"
+msgstr "다시 시작…"
+
+#: crates/helix-greeter/src/atspi.rs:97 crates/helix-greeter/src/paint.rs:484
+#: crates/helix-shell/src/ui.rs:1196 crates/helix-shell/src/ui/lock.rs:185
+#: crates/helix-shell/src/ui/lock.rs:186 crates/helix-shell/src/ui/lock.rs:589
+msgid "Restart"
+msgstr "다시 시작"
+
+#: crates/helix-greeter/src/atspi.rs:97 crates/helix-greeter/src/paint.rs:484
+#: crates/helix-shell/src/ui/lock.rs:185
+msgid "Restart this computer?"
+msgstr "이 컴퓨터를 다시 시작할까요?"
+
+#: crates/helix-greeter/src/atspi.rs:98 crates/helix-greeter/src/paint.rs:485
+#: crates/helix-shell/src/ui.rs:1195 crates/helix-shell/src/ui/lock.rs:187
+#: crates/helix-shell/src/ui/lock.rs:188 crates/helix-shell/src/ui/lock.rs:590
+msgid "Power Off"
+msgstr "전원 끄기"
+
+#: crates/helix-greeter/src/atspi.rs:98 crates/helix-greeter/src/paint.rs:485
+#: crates/helix-shell/src/ui/lock.rs:187
+msgid "Power off this computer?"
+msgstr "이 컴퓨터의 전원을 끌까요?"
+
+#: crates/helix-greeter/src/atspi.rs:101 crates/helix-greeter/src/paint.rs:487
+#: crates/helix-portals/src/dialogs.rs:181
+#: crates/helix-portals/src/dynamic_launcher.rs:146
+#: crates/helix-portals/src/file_chooser.rs:548
+#: crates/helix-portals/src/file_chooser.rs:672
+#: crates/helix-portals/src/print.rs:146
+#: crates/helix-portals/src/wallpaper.rs:118
+#: crates/helix-shell/src/bluetooth_agent.rs:104
+#: crates/helix-shell/src/bluetooth_agent.rs:165
+#: crates/helix-shell/src/keyring_prompt.rs:85
+#: crates/helix-shell/src/lib.rs:1275 crates/helix-shell/src/lib.rs:1363
+#: crates/helix-shell/src/mount_handler.rs:125
+#: crates/helix-shell/src/mount_handler.rs:139
+#: crates/helix-shell/src/mount_handler.rs:174
+#: crates/helix-shell/src/network_agent.rs:206
+#: crates/helix-shell/src/network_agent.rs:441
+#: crates/helix-shell/src/notifications.rs:505
+#: crates/helix-shell/src/obex.rs:498 crates/helix-shell/src/polkit.rs:231
+#: crates/helix-shell/src/polkit.rs:314
+#: crates/helix-shell/src/portal_dialog.rs:121
+#: crates/helix-shell/src/run_dialog.rs:181 crates/helix-shell/src/ui.rs:1229
+#: crates/helix-shell/src/ui.rs:1232 crates/helix-shell/src/ui.rs:3164
+#: crates/helix-shell/src/ui/atspi.rs:908 crates/helix-shell/src/ui/lock.rs:220
+#: crates/helix-shell/src/ui/lock.rs:588
+#: crates/helix-shell/src/ui/prompt.rs:664
+#: crates/helix-shell/src/vpn_secrets.rs:195
+msgid "Cancel"
+msgstr "취소"
+
+#: crates/helix-greeter/src/atspi.rs:107 crates/helix-greeter/src/atspi.rs:110
+msgid "Session"
+msgstr "세션"
+
+#: crates/helix-greeter/src/atspi.rs:113 crates/helix-greeter/src/atspi.rs:116
+#: crates/helix-shell/src/panel_layout.rs:52
+#: crates/helix-shell/src/ui/atspi.rs:568
+#: crates/helix-shell/src/ui/atspi.rs:625
+msgid "Accessibility"
+msgstr "접근성"
+
+#. Translators: the login screen's clock in 12-hour time (strftime).
+#: crates/helix-greeter/src/clock.rs:98
+msgid "%l:%M %p"
+msgstr "%p %l:%M"
+
+#. Translators: the login screen's clock in 24-hour time (strftime).
+#: crates/helix-greeter/src/clock.rs:101
+msgid "%H:%M"
+msgstr "%H:%M"
+
+#. Translators: the login screen's date (strftime): weekday, month and day, in your language's order.
+#: crates/helix-greeter/src/clock.rs:110
+msgid "%A, %B %-d"
+msgstr "%-m월 %-d일 %A"
+
+#: crates/helix-greeter/src/login.rs:12 crates/helix-shell/src/polkit.rs:24
+msgid "Sorry, that didn't work. Please try again."
+msgstr "죄송합니다. 실패했습니다. 다시 시도하십시오."
+
+#: crates/helix-greeter/src/osk.rs:123
+#: crates/helix-portals/src/global_shortcuts.rs:85
+#: crates/helix-portals/src/input_capture.rs:48
+#: crates/helix-shell/src/ui/osk.rs:886
+msgid "Shift"
+msgstr "Shift"
+
+#: crates/helix-greeter/src/osk.rs:124 crates/helix-shell/src/ui/osk.rs:883
+msgid "Backspace"
+msgstr "Backspace"
+
+#: crates/helix-greeter/src/osk.rs:125 crates/helix-shell/src/ui/osk.rs:887
+msgid "Space"
+msgstr "스페이스"
+
+#: crates/helix-greeter/src/osk.rs:126
+msgid "Return"
+msgstr "Enter"
+
+#: crates/helix-greeter/src/osk.rs:127 crates/helix-shell/src/ui/osk.rs:896
+msgid "Symbols"
+msgstr "기호"
+
+#: crates/helix-greeter/src/osk.rs:128 crates/helix-shell/src/ui/osk.rs:899
+msgid "Letters"
+msgstr "문자"
+
+#. Translators: write "right-to-left" here (in English) if your language is written from right to left, else keep "left-to-right". It is not shown; it mirrors the shell.
+#: crates/helix-i18n/src/lib.rs:296
+msgctxt "text direction"
+msgid "left-to-right"
+msgstr "left-to-right"
+
+#. Translators: a percentage; {} is the number. Write it as your language does ("{} %", "%{}", "{}٪"…).
+#: crates/helix-i18n/src/lib.rs:327
+msgid "{}%"
+msgstr "{}%"
+
+#: crates/helix-portals/src/dialogs.rs:105
+#: crates/helix-portals/src/dialogs.rs:324
+#: crates/helix-portals/src/global_shortcuts.rs:185
+#: crates/helix-portals/src/input_capture.rs:148
+#: crates/helix-shell/src/bluetooth_agent.rs:170
+#: crates/helix-shell/src/bluetooth_agent.rs:175
+#: crates/helix-shell/src/geoclue_agent.rs:115
+#: crates/helix-shell/src/ui.rs:1237 crates/helix-shell/src/ui.rs:1244
+msgid "Allow"
+msgstr "허용"
+
+#: crates/helix-portals/src/dialogs.rs:106
+#: crates/helix-portals/src/global_shortcuts.rs:186
+#: crates/helix-portals/src/input_capture.rs:149
+#: crates/helix-shell/src/bluetooth_agent.rs:170
+#: crates/helix-shell/src/bluetooth_agent.rs:175
+#: crates/helix-shell/src/geoclue_agent.rs:116
+#: crates/helix-shell/src/ui.rs:1236 crates/helix-shell/src/ui.rs:1243
+msgid "Deny"
+msgstr "거부"
+
+#: crates/helix-portals/src/dialogs.rs:177
+msgid "{} wants to know your name."
+msgstr "{}에서 사용자 이름을 알고 싶어 합니다."
+
+#: crates/helix-portals/src/dialogs.rs:178
+msgid "Name: {real} ({user})"
+msgstr "이름: {real} ({user})"
+
+#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3171
+#: crates/helix-shell/src/ui.rs:3172 crates/helix-shell/src/ui.rs:3174
+#: crates/helix-shell/src/ui/atspi.rs:909
+msgid "Share"
+msgstr "공유"
+
+#: crates/helix-portals/src/dialogs.rs:181
+msgid "Share Details"
+msgstr "세부 정보 공유"
+
+#: crates/helix-portals/src/dialogs.rs:214
+msgid "Choose an app to open {n}."
+msgstr "{n}을(를) 열 앱을 선택하십시오."
+
+#: crates/helix-portals/src/dialogs.rs:215
+msgid "Choose an app."
+msgstr "앱을 선택하십시오."
+
+#: crates/helix-portals/src/dialogs.rs:241
+msgid "Open With"
+msgstr "다른 앱으로 열기"
+
+#: crates/helix-portals/src/dialogs.rs:324
+msgid "Background Activity"
+msgstr "백그라운드 활동"
+
+#: crates/helix-portals/src/dialogs.rs:324
+msgid "Forbid"
+msgstr "금지"
+
+#: crates/helix-portals/src/dialogs.rs:324
+msgid "{name} is running in the background."
+msgstr "{name}이(가) 백그라운드에서 실행 중입니다."
+
+#: crates/helix-portals/src/dynamic_launcher.rs:83
+msgid "{who} wants to add a launcher for this web app to your apps."
+msgstr "{who}에서 이 웹 앱의 실행기를 앱에 추가하려고 합니다."
+
+#: crates/helix-portals/src/dynamic_launcher.rs:84
+msgid "{who} wants to add a launcher for this app to your apps."
+msgstr "{who}에서 이 앱의 실행기를 앱에 추가하려고 합니다."
+
+#: crates/helix-portals/src/dynamic_launcher.rs:85
+msgid "{who} wants to add a launcher for the web app “{name}” to your apps."
+msgstr "{who}에서 “{name}” 웹 앱의 실행기를 앱에 추가하려고 합니다."
+
+#: crates/helix-portals/src/dynamic_launcher.rs:86
+msgid "{who} wants to add a launcher for the app “{name}” to your apps."
+msgstr "{who}에서 “{name}” 앱의 실행기를 앱에 추가하려고 합니다."
+
+#: crates/helix-portals/src/dynamic_launcher.rs:140
+#: crates/helix-portals/src/global_shortcuts.rs:173
+#: crates/helix-portals/src/input_capture.rs:144
+#: crates/helix-portals/src/wallpaper.rs:107
+msgid "An app"
+msgstr "앱"
+
+#: crates/helix-portals/src/dynamic_launcher.rs:143
+msgid "Add to Apps"
+msgstr "앱에 추가"
+
+#: crates/helix-portals/src/dynamic_launcher.rs:145
+#: crates/helix-shell/src/ui/panel_editor.rs:338
+msgid "Add"
+msgstr "추가"
+
+#: crates/helix-portals/src/dynamic_launcher.rs:154
+#: crates/helix-portals/src/file_chooser.rs:526
+msgid "Name"
+msgstr "이름"
+
+#: crates/helix-portals/src/dynamic_launcher.rs:158
+msgid "Choose a different icon"
+msgstr "다른 아이콘 선택"
+
+#: crates/helix-portals/src/dynamic_launcher.rs:177
+msgid "Choose an Icon"
+msgstr "아이콘 선택"
+
+#: crates/helix-portals/src/file_chooser.rs:72
+#: crates/helix-portals/src/file_chooser.rs:534
+msgid "Recent"
+msgstr "최근"
+
+#: crates/helix-portals/src/file_chooser.rs:99
+msgid "Home"
+msgstr "홈"
+
+#: crates/helix-portals/src/file_chooser.rs:101
+msgid "Computer"
+msgstr "컴퓨터"
+
+#: crates/helix-portals/src/file_chooser.rs:370
+msgid "Parent Folder"
+msgstr "상위 폴더"
+
+#: crates/helix-portals/src/file_chooser.rs:371
+msgid "File type: {filter_name} (choose to change)"
+msgstr "파일 형식: {filter_name} (선택하여 변경)"
+
+#: crates/helix-portals/src/file_chooser.rs:372
+msgid "Select This Folder"
+msgstr "이 폴더 선택"
+
+#: crates/helix-portals/src/file_chooser.rs:373
+msgid "Save Here"
+msgstr "여기에 저장"
+
+#: crates/helix-portals/src/file_chooser.rs:464
+msgid "Images"
+msgstr "이미지"
+
+#: crates/helix-portals/src/file_chooser.rs:467
+#: crates/helix-shell/src/mount_handler.rs:138
+#: crates/helix-shell/src/obex.rs:497
+msgid "Choose"
+msgstr "선택"
+
+#: crates/helix-portals/src/file_chooser.rs:515
+msgid "All Files"
+msgstr "모든 파일"
+
+#: crates/helix-portals/src/file_chooser.rs:527
+msgid "Location"
+msgstr "위치"
+
+#: crates/helix-portals/src/file_chooser.rs:533
+msgid "Search for “{query}” in {folder}"
+msgstr "{folder}에서 “{query}” 검색"
+
+#: crates/helix-portals/src/file_chooser.rs:597
+msgid "No files named like “{}”."
+msgstr "“{}”와(과) 비슷한 이름의 파일이 없습니다."
+
+#: crates/helix-portals/src/file_chooser.rs:603
+msgid "“{}” was not found."
+msgstr "“{}”을(를) 찾을 수 없습니다."
+
+#: crates/helix-portals/src/file_chooser.rs:641
+msgid "Type a name for the file."
+msgstr "파일 이름을 입력하십시오."
+
+#: crates/helix-portals/src/file_chooser.rs:651
+msgid "That folder does not exist."
+msgstr "해당 폴더가 없습니다."
+
+#: crates/helix-portals/src/file_chooser.rs:669
+msgid "Replace File?"
+msgstr "파일을 바꿀까요?"
+
+#: crates/helix-portals/src/file_chooser.rs:670
+msgid ""
+"A file named “{name}” already exists in “{folder}”. Replacing it overwrites "
+"its contents."
+msgstr "“{folder}”에 “{name}” 파일이 이미 있습니다. 바꾸면 내용을 덮어씁니다."
+
+#: crates/helix-portals/src/file_chooser.rs:671
+msgid "Replace"
+msgstr "바꾸기"
+
+#: crates/helix-portals/src/file_chooser.rs:729
+msgid "Select"
+msgstr "선택"
+
+#: crates/helix-portals/src/file_chooser.rs:730
+#: crates/helix-shell/src/notifications.rs:233
+#: crates/helix-shell/src/notifications.rs:348
+#: crates/helix-shell/src/portal_dialog.rs:120
+#: crates/helix-shell/src/ui/dock.rs:1467
+#: crates/helix-shell/src/ui/dock.rs:1482
+#: crates/helix-shell/src/ui/dock.rs:1510
+msgid "Open"
+msgstr "열기"
+
+#: crates/helix-portals/src/file_chooser.rs:731
+msgid "Save"
+msgstr "저장"
+
+#: crates/helix-portals/src/global_shortcuts.rs:77
+msgid "Not assigned"
+msgstr "할당 안 됨"
+
+#: crates/helix-portals/src/global_shortcuts.rs:83
+#: crates/helix-portals/src/input_capture.rs:45
+msgid "Ctrl"
+msgstr "Ctrl"
+
+#: crates/helix-portals/src/global_shortcuts.rs:84
+#: crates/helix-portals/src/input_capture.rs:47
+msgid "Alt"
+msgstr "Alt"
+
+#: crates/helix-portals/src/global_shortcuts.rs:86
+#: crates/helix-portals/src/input_capture.rs:46
+msgid "Super"
+msgstr "Super"
+
+#: crates/helix-portals/src/global_shortcuts.rs:178
+msgid "{} — not assigned"
+msgstr "{} — 할당 안 됨"
+
+#: crates/helix-portals/src/global_shortcuts.rs:182
+msgid "Allow Global Shortcuts?"
+msgstr "전역 바로 가기 키를 허용할까요?"
+
+#: crates/helix-portals/src/global_shortcuts.rs:183
+msgid "{who} wants to use these shortcuts in every app."
+msgstr "{who}에서 모든 앱에서 이 바로 가기 키를 사용하려고 합니다."
+
+#: crates/helix-portals/src/input_capture.rs:34
+msgid ""
+"{app} wants to take over the pointer and keyboard when the pointer leaves "
+"the screen. {cancel} gives them back."
+msgstr ""
+"{app}에서 포인터가 화면을 벗어나면 포인터와 키보드를 넘겨받으려고 합니다. "
+"{cancel} 키를 누르면 되돌려 받습니다."
+
+#: crates/helix-portals/src/input_capture.rs:146
+msgid "Allow Input Capture?"
+msgstr "입력 캡처를 허용할까요?"
+
+#: crates/helix-portals/src/print.rs:21
+msgid "Print to File"
+msgstr "파일로 인쇄"
+
+#: crates/helix-portals/src/print.rs:138 crates/helix-portals/src/print.rs:193
+#: crates/helix-portals/src/print.rs:249
+msgid "Print"
+msgstr "인쇄"
+
+#: crates/helix-portals/src/print.rs:139
+msgid "Choose a printer."
+msgstr "프린터를 선택하십시오."
+
+#: crates/helix-portals/src/print.rs:139
+msgid "Print “{title}” on:"
+msgstr "“{title}” 인쇄할 프린터:"
+
+#: crates/helix-portals/src/print.rs:142
+msgid "Copies"
+msgstr "매수"
+
+#: crates/helix-portals/src/print.rs:152
+msgid "The number of copies must be 1 to 999."
+msgstr "매수는 1에서 999 사이여야 합니다."
+
+#: crates/helix-portals/src/screenshot.rs:86
+#: crates/helix-shell/src/screenshot.rs:315
+msgid "Screenshot From {stamp}.png"
+msgstr "스크린샷 {stamp}.png"
+
+#: crates/helix-portals/src/wallpaper.rs:109
+msgid "{who} wants to set this picture as the background and lock screen."
+msgstr "{who}에서 이 그림을 배경과 잠금 화면으로 설정하려고 합니다."
+
+#: crates/helix-portals/src/wallpaper.rs:110
+msgid "{who} wants to set this picture as the background."
+msgstr "{who}에서 이 그림을 배경으로 설정하려고 합니다."
+
+#: crates/helix-portals/src/wallpaper.rs:111
+msgid "{who} wants to set this picture as the lock screen."
+msgstr "{who}에서 이 그림을 잠금 화면으로 설정하려고 합니다."
+
+#: crates/helix-portals/src/wallpaper.rs:114
+msgid "Set Background"
+msgstr "배경 설정"
+
+#: crates/helix-portals/src/wallpaper.rs:117
+msgid "Set"
+msgstr "설정"
+
+#: crates/helix-shell/src/a11y_menu.rs:29
+msgid "Zoom"
+msgstr "확대/축소"
+
+#: crates/helix-shell/src/a11y_menu.rs:33
+msgid "Visual Alerts"
+msgstr "시각적 알림"
+
+#: crates/helix-shell/src/a11y_menu.rs:34
+msgid "Sticky Keys"
+msgstr "고정 키"
+
+#: crates/helix-shell/src/a11y_menu.rs:35
+msgid "Slow Keys"
+msgstr "느린 키"
+
+#: crates/helix-shell/src/a11y_menu.rs:36
+msgid "Bounce Keys"
+msgstr "튕김 키"
+
+#: crates/helix-shell/src/a11y_menu.rs:37
+msgid "Mouse Keys"
+msgstr "마우스 키"
+
+#: crates/helix-shell/src/bluetooth_agent.rs:66
+#: crates/helix-shell/src/bluetooth_agent.rs:68
+#: crates/helix-shell/src/obex.rs:356
+msgid "A device"
+msgstr "장치"
+
+#: crates/helix-shell/src/bluetooth_agent.rs:99
+#: crates/helix-shell/src/bluetooth_agent.rs:124
+msgid "Pair with {name}"
+msgstr "{name}와(과) 페어링"
+
+#: crates/helix-shell/src/bluetooth_agent.rs:100
+msgid "Type the code {name} asks for."
+msgstr "{name}에서 요청하는 코드를 입력하십시오."
+
+#: crates/helix-shell/src/bluetooth_agent.rs:103
+#: crates/helix-shell/src/bluetooth_agent.rs:165
+msgid "Pair"
+msgstr "페어링"
+
+#: crates/helix-shell/src/bluetooth_agent.rs:113
+msgid "This code is not valid."
+msgstr "올바른 코드가 아닙니다."
+
+#: crates/helix-shell/src/bluetooth_agent.rs:124
+#: crates/helix-shell/src/lib.rs:1089 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/panel_layout.rs:219
+#: crates/helix-shell/src/ui/quick.rs:409
+msgid "Bluetooth"
+msgstr "Bluetooth"
+
+#: crates/helix-shell/src/bluetooth_agent.rs:124
+msgid "Type {code} on {name}, then press Enter."
+msgstr "{name}에서 {code}을(를) 입력한 다음 Enter 키를 누르십시오."
+
+#: crates/helix-shell/src/bluetooth_agent.rs:153
+msgid "Passkey"
+msgstr "패스키"
+
+#: crates/helix-shell/src/bluetooth_agent.rs:165
+msgid "Confirm that {code} is shown on {name}."
+msgstr "{name}에 {code}이(가) 표시되는지 확인하십시오."
+
+#: crates/helix-shell/src/bluetooth_agent.rs:165
+msgid "Pair with {name}?"
+msgstr "{name}와(과) 페어링할까요?"
+
+#: crates/helix-shell/src/bluetooth_agent.rs:170
+msgid "{name} wants to pair with this computer."
+msgstr "{name}에서 이 컴퓨터와 페어링하려고 합니다."
+
+#: crates/helix-shell/src/bluetooth_agent.rs:175
+msgid "{name} wants to connect to this computer."
+msgstr "{name}에서 이 컴퓨터에 연결하려고 합니다."
+
+#. Translators: a time in 24-hour format (GLib DateTime format).
+#: crates/helix-shell/src/clock.rs:80 crates/helix-shell/src/clock.rs:128
+msgctxt "24-hour time"
+msgid "%H:%M"
+msgstr "%H:%M"
+
+#. Translators: a time in 24-hour format with seconds.
+#: crates/helix-shell/src/clock.rs:82
+msgctxt "24-hour time with seconds"
+msgid "%H:%M:%S"
+msgstr "%H:%M:%S"
+
+#. Translators: a time in 12-hour format; %l is the hour without padding, %p AM or PM in the locale's words.
+#: crates/helix-shell/src/clock.rs:85
+msgctxt "12-hour time"
+msgid "%l:%M %p"
+msgstr "%p %l:%M"
+
+#. Translators: a time in 12-hour format with seconds.
+#: crates/helix-shell/src/clock.rs:87
+msgctxt "12-hour time with seconds"
+msgid "%l:%M:%S %p"
+msgstr "%p %l:%M:%S"
+
+#. Translators: the top bar clock's date with the weekday (GLib DateTime format): "Thu Nov 12".
+#: crates/helix-shell/src/clock.rs:104
+msgctxt "top bar date with weekday"
+msgid "%a %b %e"
+msgstr "%-m월 %-d일 (%a)"
+
+#. Translators: the top bar clock's date: "Nov 12".
+#: crates/helix-shell/src/clock.rs:106
+msgctxt "top bar date"
+msgid "%b %e"
+msgstr "%-m월 %-d일"
+
+#. Translators: the top bar clock's weekday: "Thu".
+#: crates/helix-shell/src/clock.rs:108
+msgctxt "top bar weekday"
+msgid "%a"
+msgstr "%a"
+
+#. Translators: the top bar clock: a date part and the time.
+#: crates/helix-shell/src/clock.rs:112
+msgid "{date} {time}"
+msgstr "{date} {time}"
+
+#. Translators: the lock screen's clock digits in 12-hour format (the AM/PM suffix is drawn apart, with %p).
+#: crates/helix-shell/src/clock.rs:126
+msgctxt "lock screen 12-hour time"
+msgid "%l:%M"
+msgstr "%l:%M"
+
+#. Translators: the lock screen's date (GLib DateTime format): "Thursday, November 12".
+#: crates/helix-shell/src/clock.rs:137
+msgctxt "lock screen date"
+msgid "%A, %B %e"
+msgstr "%-m월 %-d일 %A"
+
+#: crates/helix-shell/src/dock.rs:512 crates/helix-shell/src/windows.rs:431
+msgid "{n} window"
+msgid_plural "{n} windows"
+msgstr[0] "창 {n}개"
+
+#. Translators: unread items counted on a dock icon's badge.
+#: crates/helix-shell/src/dock.rs:516
+msgid "{n} new"
+msgid_plural "{n} new"
+msgstr[0] "새 항목 {n}개"
+
+#: crates/helix-shell/src/dock.rs:519
+msgid "{percent} done"
+msgstr "{percent} 완료"
+
+#: crates/helix-shell/src/dock.rs:533
+msgid "Untitled"
+msgstr "제목 없음"
+
+#: crates/helix-shell/src/dock.rs:536 crates/helix-shell/src/ui/calendar.rs:356
+msgid "{n} more"
+msgid_plural "{n} more"
+msgstr[0] "{n}개 더"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:12
+msgid "show notifications"
+msgstr "알림 표시"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:13
+msgid "keep the screen on"
+msgstr "화면 켜진 상태 유지"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:14
+msgid "start apps"
+msgstr "앱 실행"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:16
+msgid "show its own panels"
+msgstr "자체 패널 표시"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:18
+msgid "use the network"
+msgstr "네트워크 사용"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:19
+msgid "read and change all your files"
+msgstr "모든 파일 읽기 및 변경"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:20
+msgid "read and change your Documents"
+msgstr "문서 폴더 읽기 및 변경"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:21
+msgid "read and change your Downloads"
+msgstr "다운로드 폴더 읽기 및 변경"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:22
+msgid "read and change your Music"
+msgstr "음악 폴더 읽기 및 변경"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:23
+msgid "read and change your Pictures"
+msgstr "사진 폴더 읽기 및 변경"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:24
+msgid "read and change your Videos"
+msgstr "비디오 폴더 읽기 및 변경"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:25
+msgid "read and change your Desktop"
+msgstr "바탕 화면 폴더 읽기 및 변경"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:26
+msgid "talk to your other programs"
+msgstr "다른 프로그램과 통신"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:27
+msgid "talk to system services"
+msgstr "시스템 서비스와 통신"
+
+#: crates/helix-shell/src/ext_host/runner.rs:325
+#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/ext_host/runner.rs:870
+#: crates/helix-shell/src/ui/atspi.rs:493
+#: crates/helix-shell/src/ui/extensions_dialog.rs:111
+#: crates/helix-shell/src/ui/extensions_dialog.rs:216
+msgid "Extensions"
+msgstr "확장"
+
+#: crates/helix-shell/src/ext_host/runner.rs:325
+msgid "Extensions are off for this session"
+msgstr "이 세션에서는 확장이 꺼져 있습니다"
+
+#: crates/helix-shell/src/ext_host/runner.rs:325
+msgid "Shift was held at login."
+msgstr "로그인할 때 Shift 키를 누르고 있었습니다."
+
+#. Translators: the separator between the names of a list ("a, b, c").
+#. Translators: the end of a list, "keyboard, pointer and touchscreen".
+#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/media.rs:228
+#: crates/helix-shell/src/screencast_chooser.rs:133
+msgid ", "
+msgstr ", "
+
+#: crates/helix-shell/src/ext_host/runner.rs:549
+msgid "Already in use: {keys}. Set them in Extensions…"
+msgstr "이미 사용 중: {keys}. 확장…에서 설정하십시오."
+
+#: crates/helix-shell/src/ext_host/runner.rs:549
+msgid "{name}: keys left unset"
+msgstr "{name}: 설정되지 않은 키"
+
+#: crates/helix-shell/src/ext_host/runner.rs:870
+msgid "{name} stopped working"
+msgstr "{name}이(가) 작동을 멈췄습니다"
+
+#: crates/helix-shell/src/extra_keys.rs:183
+msgid "Touchpad Off"
+msgstr "터치패드 꺼짐"
+
+#: crates/helix-shell/src/extra_keys.rs:183
+msgid "Touchpad On"
+msgstr "터치패드 켜짐"
+
+#: crates/helix-shell/src/extra_keys.rs:271
+msgid "Airplane Mode On"
+msgstr "비행기 모드 켜짐"
+
+#: crates/helix-shell/src/extra_keys.rs:272
+msgid "Airplane Mode Off"
+msgstr "비행기 모드 꺼짐"
+
+#: crates/helix-shell/src/extra_keys.rs:273
+msgid "Bluetooth On"
+msgstr "Bluetooth 켜짐"
+
+#: crates/helix-shell/src/extra_keys.rs:274
+msgid "Bluetooth Off"
+msgstr "Bluetooth 꺼짐"
+
+#: crates/helix-shell/src/favorites.rs:147
+#: crates/helix-shell/src/ui/atspi.rs:748
+#: crates/helix-shell/src/ui/desktop_icons.rs:191
+msgid "Folder"
+msgstr "폴더"
+
+#: crates/helix-shell/src/favorites.rs:233
+msgid "Unnamed Folder"
+msgstr "이름 없는 폴더"
+
+#: crates/helix-shell/src/geoclue_agent.rs:112
+msgid "Location Access"
+msgstr "위치 접근"
+
+#: crates/helix-shell/src/geoclue_agent.rs:113
+msgid "{} wants to use your location."
+msgstr "{}에서 위치를 사용하려고 합니다."
+
+#: crates/helix-shell/src/geoclue_agent.rs:114
+msgid "Location access can be changed at any time from the privacy settings."
+msgstr "위치 접근은 개인 정보 설정에서 언제든지 바꿀 수 있습니다."
+
+#: crates/helix-shell/src/keyring_prompt.rs:22
+msgid "The passwords do not match."
+msgstr "암호가 일치하지 않습니다."
+
+#: crates/helix-shell/src/keyring_prompt.rs:77
+#: crates/helix-shell/src/media.rs:324 crates/helix-shell/src/ui/lock.rs:550
+#: crates/helix-shell/src/ui/lock.rs:560
+msgid "Unlock"
+msgstr "잠금 해제"
+
+#: crates/helix-shell/src/keyring_prompt.rs:80
+#: crates/helix-shell/src/mount_handler.rs:171
+#: crates/helix-shell/src/network_agent.rs:185
+#: crates/helix-shell/src/network_agent.rs:186
+#: crates/helix-shell/src/network_agent.rs:188
+#: crates/helix-shell/src/network_agent.rs:190
+#: crates/helix-shell/src/polkit.rs:154 crates/helix-shell/src/ui/lock.rs:430
+#: crates/helix-shell/src/ui/lock.rs:557
+msgid "Password"
+msgstr "암호"
+
+#: crates/helix-shell/src/keyring_prompt.rs:81
+msgid "Confirm"
+msgstr "확인"
+
+#: crates/helix-shell/src/keyring_prompt.rs:84
+#: crates/helix-shell/src/ui/prompt.rs:665
+msgid "Continue"
+msgstr "계속"
+
+#: crates/helix-shell/src/launcher_entry.rs:77
+msgid "More"
+msgstr "더 보기"
+
+#: crates/helix-shell/src/lib.rs:945
+msgid "Nothing was turned off or restarted. {err}"
+msgstr "아무것도 끄거나 다시 시작하지 않았습니다. {err}"
+
+#: crates/helix-shell/src/lib.rs:945
+msgid "Software"
+msgstr "소프트웨어"
+
+#: crates/helix-shell/src/lib.rs:945
+msgid "Updates could not be scheduled"
+msgstr "업데이트를 예약할 수 없습니다"
+
+#: crates/helix-shell/src/lib.rs:1089
+msgid "Cannot pair with {name}"
+msgstr "{name}와(과) 페어링할 수 없습니다"
+
+#: crates/helix-shell/src/lib.rs:1176
+#: crates/helix-shell/src/panel_layout.rs:221
+#: crates/helix-shell/src/ui/quick.rs:415
+msgid "Auto Rotate"
+msgstr "자동 회전"
+
+#: crates/helix-shell/src/lib.rs:1176
+msgid "Rotation Locked"
+msgstr "회전 잠김"
+
+#: crates/helix-shell/src/lib.rs:1272
+msgid "Rename Folder"
+msgstr "폴더 이름 바꾸기"
+
+#: crates/helix-shell/src/lib.rs:1273
+msgid "Folder name"
+msgstr "폴더 이름"
+
+#: crates/helix-shell/src/lib.rs:1274
+msgid "Rename"
+msgstr "이름 바꾸기"
+
+#: crates/helix-shell/src/lib.rs:1360
+msgid "Empty Trash?"
+msgstr "휴지통을 비울까요?"
+
+#: crates/helix-shell/src/lib.rs:1361
+msgid "All items in the Trash will be permanently deleted."
+msgstr "휴지통의 모든 항목이 영구히 삭제됩니다."
+
+#: crates/helix-shell/src/lib.rs:1362 crates/helix-shell/src/ui/dock.rs:1484
+msgid "Empty Trash"
+msgstr "휴지통 비우기"
+
+#: crates/helix-shell/src/logind.rs:55
+msgid "Lock the screen before suspending"
+msgstr "대기 모드 전에 화면 잠금"
+
+#: crates/helix-shell/src/media.rs:230
+msgid "{shown} and {n} more"
+msgid_plural "{shown} and {n} more"
+msgstr[0] "{shown} 외 {n}개"
+
+#: crates/helix-shell/src/media.rs:288
+msgid "process {pid}"
+msgstr "프로세스 {pid}"
+
+#: crates/helix-shell/src/media.rs:322
+msgid "Unlock {title}"
+msgstr "{title} 잠금 해제"
+
+#: crates/helix-shell/src/media.rs:366
+#: crates/helix-shell/src/mount_handler.rs:379
+msgid "In use by: {}"
+msgstr "사용 중인 프로그램: {}"
+
+#: crates/helix-shell/src/media.rs:377
+msgid "Do not unplug until finished."
+msgstr "끝날 때까지 분리하지 마십시오."
+
+#: crates/helix-shell/src/media.rs:377
+#: crates/helix-shell/src/notifications.rs:261
+msgid "Removable Media"
+msgstr "이동식 미디어"
+
+#: crates/helix-shell/src/media.rs:377
+msgid "Writing to {title}"
+msgstr "{title}에 쓰는 중"
+
+#: crates/helix-shell/src/media.rs:491
+msgid "Removable medium connected"
+msgstr "이동식 미디어가 연결되었습니다"
+
+#: crates/helix-shell/src/media.rs:519
+msgid "{name} can be removed"
+msgstr "{name}을(를) 분리할 수 있습니다"
+
+#: crates/helix-shell/src/media.rs:523 crates/helix-shell/src/media.rs:566
+msgid "Cannot eject {name}"
+msgstr "{name}을(를) 꺼낼 수 없습니다"
+
+#: crates/helix-shell/src/mount_handler.rs:53
+msgid "Connect Anonymously"
+msgstr "익명으로 연결"
+
+#: crates/helix-shell/src/mount_handler.rs:57
+msgid "PIM (optional)"
+msgstr "PIM (선택 사항)"
+
+#: crates/helix-shell/src/mount_handler.rs:59
+msgid "Hidden Volume"
+msgstr "숨겨진 볼륨"
+
+#: crates/helix-shell/src/mount_handler.rs:60
+msgid "Windows System Volume"
+msgstr "Windows 시스템 볼륨"
+
+#: crates/helix-shell/src/mount_handler.rs:161
+msgid "User name (domain\\name)"
+msgstr "사용자 이름 (도메인\\이름)"
+
+#: crates/helix-shell/src/mount_handler.rs:163
+#: crates/helix-shell/src/network_agent.rs:202
+msgid "User name"
+msgstr "사용자 이름"
+
+#: crates/helix-shell/src/mount_handler.rs:164
+msgid "Domain"
+msgstr "도메인"
+
+#: crates/helix-shell/src/mount_handler.rs:168
+msgid "Password Required"
+msgstr "암호 필요"
+
+#: crates/helix-shell/src/mount_handler.rs:172
+msgid "Remember Password"
+msgstr "암호 기억"
+
+#: crates/helix-shell/src/mount_handler.rs:173
+#: crates/helix-shell/src/network_agent.rs:205
+#: crates/helix-shell/src/network_agent.rs:440
+#: crates/helix-shell/src/vpn_secrets.rs:194
+msgid "Connect"
+msgstr "연결"
+
+#: crates/helix-shell/src/network_agent.rs:83
+msgid "The smart card's PIN is needed to connect to “{}”."
+msgstr "“{}”에 연결하려면 스마트 카드 PIN이 필요합니다."
+
+#: crates/helix-shell/src/network_agent.rs:84
+#: crates/helix-shell/src/network_agent.rs:187
+msgid "Private key password"
+msgstr "개인 키 암호"
+
+#: crates/helix-shell/src/network_agent.rs:84
+msgid "The password of your private key is needed to connect to “{}”."
+msgstr "“{}”에 연결하려면 개인 키 암호가 필요합니다."
+
+#: crates/helix-shell/src/network_agent.rs:85
+msgid "Certificate password"
+msgstr "인증서 암호"
+
+#: crates/helix-shell/src/network_agent.rs:85
+msgid "The certificate's password is needed to connect to “{}”."
+msgstr "“{}”에 연결하려면 인증서 암호가 필요합니다."
+
+#: crates/helix-shell/src/network_agent.rs:185
+#: crates/helix-shell/src/network_agent.rs:188
+msgid "A password is needed to connect to “{}”."
+msgstr "“{}”에 연결하려면 암호가 필요합니다."
+
+#: crates/helix-shell/src/network_agent.rs:186
+#: crates/helix-shell/src/network_agent.rs:190
+msgid "A user name and password are needed to connect to “{}”."
+msgstr "“{}”에 연결하려면 사용자 이름과 암호가 필요합니다."
+
+#: crates/helix-shell/src/network_agent.rs:187
+msgid ""
+"Your identity and the password of your private key are needed to connect to "
+"“{}”."
+msgstr "“{}”에 연결하려면 신원과 개인 키 암호가 필요합니다."
+
+#: crates/helix-shell/src/network_agent.rs:189
+msgid "The SIM card's PIN is needed to connect to “{}”."
+msgstr "“{}”에 연결하려면 SIM 카드 PIN이 필요합니다."
+
+#: crates/helix-shell/src/network_agent.rs:194
+msgid "Mobile Broadband"
+msgstr "모바일 광대역"
+
+#: crates/helix-shell/src/network_agent.rs:195
+msgid "DSL Connection"
+msgstr "DSL 연결"
+
+#: crates/helix-shell/src/network_agent.rs:196
+msgid "Wired Network"
+msgstr "유선 네트워크"
+
+#: crates/helix-shell/src/network_agent.rs:197
+msgid "Wi-Fi Network"
+msgstr "Wi-Fi 네트워크"
+
+#: crates/helix-shell/src/network_agent.rs:291
+msgid "Wrong password? Try again."
+msgstr "암호가 틀렸습니까? 다시 시도하십시오."
+
+#: crates/helix-shell/src/network_agent.rs:304
+msgid "A user name is needed."
+msgstr "사용자 이름이 필요합니다."
+
+#: crates/helix-shell/src/network_agent.rs:315
+msgid "A PIN has 4 to 8 digits."
+msgstr "PIN은 4~8자리 숫자입니다."
+
+#: crates/helix-shell/src/network_agent.rs:315
+msgid "This password is not valid."
+msgstr "올바른 암호가 아닙니다."
+
+#: crates/helix-shell/src/network_agent.rs:338
+msgid "Network secret for {id}/{setting}/{key}"
+msgstr "{id}/{setting}/{key}의 네트워크 비밀 정보"
+
+#: crates/helix-shell/src/network_agent.rs:430
+msgid "The private key is needed to connect to “{name}”."
+msgstr "“{name}”에 연결하려면 개인 키가 필요합니다."
+
+#: crates/helix-shell/src/network_agent.rs:431
+msgid "The preshared key for peer {peer}… is needed to connect to “{name}”."
+msgstr "“{name}”에 연결하려면 피어 {peer}…의 사전 공유 키가 필요합니다."
+
+#: crates/helix-shell/src/network_agent.rs:433
+msgid "Wrong key? Try again."
+msgstr "키가 틀렸습니까? 다시 시도하십시오."
+
+#: crates/helix-shell/src/network_agent.rs:436
+msgid "WireGuard Connection"
+msgstr "WireGuard 연결"
+
+#: crates/helix-shell/src/network_agent.rs:438
+msgid "Preshared key"
+msgstr "사전 공유 키"
+
+#: crates/helix-shell/src/network_agent.rs:438
+msgid "Private key"
+msgstr "개인 키"
+
+#: crates/helix-shell/src/network_agent.rs:460
+msgid "This key is not valid."
+msgstr "올바른 키가 아닙니다."
+
+#: crates/helix-shell/src/notifications.rs:85
+msgid "just now"
+msgstr "방금"
+
+#: crates/helix-shell/src/notifications.rs:85
+msgid "now"
+msgstr "지금"
+
+#. Translators: how long ago a notification came, for a screen reader.
+#: crates/helix-shell/src/notifications.rs:90
+msgid "{m} min"
+msgstr "{m}분"
+
+#. Translators: how long ago a notification came, for a screen reader.
+#: crates/helix-shell/src/notifications.rs:90
+msgid "{n} minute ago"
+msgid_plural "{n} minutes ago"
+msgstr[0] "{n}분 전"
+
+#. Translators: "h" is short for hours; how long ago a notification came.
+#: crates/helix-shell/src/notifications.rs:95
+msgid "{h} h"
+msgstr "{h}시간"
+
+#. Translators: "h" is short for hours; how long ago a notification came.
+#: crates/helix-shell/src/notifications.rs:95
+msgid "{n} hour ago"
+msgid_plural "{n} hours ago"
+msgstr[0] "{n}시간 전"
+
+#: crates/helix-shell/src/notifications.rs:98
+msgid "Yesterday"
+msgstr "어제"
+
+#: crates/helix-shell/src/notifications.rs:104
+msgid "%A"
+msgstr "%A"
+
+#: crates/helix-shell/src/notifications.rs:106
+msgid "%-d %B"
+msgstr "%-m월 %-d일"
+
+#: crates/helix-shell/src/notifications.rs:106
+msgid "%-d %b"
+msgstr "%-m월 %-d일"
+
+#: crates/helix-shell/src/notifications.rs:108
+msgid "%-d %B %Y"
+msgstr "%Y년 %-m월 %-d일"
+
+#: crates/helix-shell/src/notifications.rs:110
+msgid "%-d %b %Y"
+msgstr "%Y년 %-m월 %-d일"
+
+#: crates/helix-shell/src/notifications.rs:230
+#: crates/helix-shell/src/ui/atspi.rs:477
+#: crates/helix-shell/src/ui/capture.rs:339
+#: crates/helix-shell/src/ui/capture.rs:412
+msgid "Screenshot"
+msgstr "스크린샷"
+
+#: crates/helix-shell/src/notifications.rs:231
+msgid "Screenshot captured"
+msgstr "스크린샷을 찍었습니다"
+
+#: crates/helix-shell/src/notifications.rs:232
+msgid "You can paste the image from the clipboard."
+msgstr "클립보드에서 이미지를 붙여넣을 수 있습니다."
+
+#: crates/helix-shell/src/notifications.rs:233
+#: crates/helix-shell/src/notifications.rs:348
+msgid "Show in Files"
+msgstr "파일에서 보기"
+
+#: crates/helix-shell/src/notifications.rs:258
+#: crates/helix-shell/src/ui/dock.rs:1469
+msgid "Eject"
+msgstr "꺼내기"
+
+#: crates/helix-shell/src/notifications.rs:258
+msgid "Open with Files"
+msgstr "파일로 열기"
+
+#: crates/helix-shell/src/notifications.rs:279
+#: crates/helix-shell/src/panel_layout.rs:55
+msgid "Power"
+msgstr "전원"
+
+#: crates/helix-shell/src/notifications.rs:323
+msgid "{title} is ready"
+msgstr "{title} 준비 완료"
+
+#: crates/helix-shell/src/notifications.rs:345
+msgid "Screencast"
+msgstr "스크린캐스트"
+
+#: crates/helix-shell/src/notifications.rs:346
+msgid "Screencast recorded"
+msgstr "스크린캐스트를 녹화했습니다"
+
+#: crates/helix-shell/src/notifications.rs:347
+msgid "Saved as {name}."
+msgstr "{name}(으)로 저장했습니다."
+
+#: crates/helix-shell/src/notifications.rs:500
+msgid "Reply to {}"
+msgstr "{}에게 답장"
+
+#: crates/helix-shell/src/notifications.rs:503
+#: crates/helix-shell/src/notifications.rs:795
+msgid "Reply"
+msgstr "답장"
+
+#: crates/helix-shell/src/notifications.rs:504
+#: crates/helix-shell/src/obex.rs:515
+msgid "Send"
+msgstr "보내기"
+
+#: crates/helix-shell/src/notifications.rs:651
+#: crates/helix-shell/src/ui/desktop_icons.rs:191
+msgid "Application"
+msgstr "프로그램"
+
+#: crates/helix-shell/src/notifications.rs:796
+#: crates/helix-shell/src/obex.rs:458
+msgid "Accept"
+msgstr "수락"
+
+#: crates/helix-shell/src/notifications.rs:797
+#: crates/helix-shell/src/obex.rs:459
+msgid "Decline"
+msgstr "거절"
+
+#: crates/helix-shell/src/notifications.rs:798
+msgid "Hang Up"
+msgstr "끊기"
+
+#: crates/helix-shell/src/notifications.rs:799
+msgid "Speaker On"
+msgstr "스피커 켜짐"
+
+#: crates/helix-shell/src/notifications.rs:800
+msgid "Speaker Off"
+msgstr "스피커 꺼짐"
+
+#: crates/helix-shell/src/obex.rs:242
+msgid "cannot connect to the device: {e}"
+msgstr "장치에 연결할 수 없습니다: {e}"
+
+#: crates/helix-shell/src/obex.rs:253
+msgid "cannot send {name}: {e}"
+msgstr "{name}을(를) 보낼 수 없습니다: {e}"
+
+#: crates/helix-shell/src/obex.rs:267
+msgid "{name} was not sent"
+msgstr "{name}을(를) 보내지 못했습니다"
+
+#: crates/helix-shell/src/obex.rs:450
+msgid "{device} wants to send you “{file}” ({size})."
+msgstr "{device}에서 “{file}”({size})을(를) 보내려고 합니다."
+
+#: crates/helix-shell/src/obex.rs:452
+msgid "{device} wants to send you “{file}”."
+msgstr "{device}에서 “{file}”을(를) 보내려고 합니다."
+
+#: crates/helix-shell/src/obex.rs:455
+msgid "Receive a File?"
+msgstr "파일을 받을까요?"
+
+#: crates/helix-shell/src/obex.rs:457
+msgid "Accepted files are saved in Downloads."
+msgstr "받은 파일은 다운로드 폴더에 저장됩니다."
+
+#: crates/helix-shell/src/obex.rs:469
+msgid "{name} (file {index} of {count}): {percent}"
+msgstr "{name} (파일 {index}/{count}): {percent}"
+
+#: crates/helix-shell/src/obex.rs:471
+msgid "{name}: {percent}"
+msgstr "{name}: {percent}"
+
+#: crates/helix-shell/src/obex.rs:473
+msgid "Sending files to {device}"
+msgstr "{device}(으)로 파일 보내는 중"
+
+#: crates/helix-shell/src/obex.rs:488
+msgid "No Bluetooth devices"
+msgstr "Bluetooth 장치 없음"
+
+#: crates/helix-shell/src/obex.rs:488
+msgid "Pair a device to send files to it."
+msgstr "파일을 보내려면 장치를 페어링하십시오."
+
+#: crates/helix-shell/src/obex.rs:494
+msgid "Send Files"
+msgstr "파일 보내기"
+
+#: crates/helix-shell/src/obex.rs:495
+msgid "Send files to which device?"
+msgstr "어느 장치로 파일을 보낼까요?"
+
+#: crates/helix-shell/src/obex.rs:523
+msgid "Choose Files to Send"
+msgstr "보낼 파일 선택"
+
+#: crates/helix-shell/src/obex.rs:555
+msgid "Connecting…"
+msgstr "연결하는 중…"
+
+#: crates/helix-shell/src/obex.rs:555
+msgid "Sending files to {name}"
+msgstr "{name}(으)로 파일 보내는 중"
+
+#: crates/helix-shell/src/obex.rs:568
+msgid "Sent {n} file."
+msgid_plural "Sent {n} files."
+msgstr[0] "파일 {n}개를 보냈습니다."
+
+#: crates/helix-shell/src/obex.rs:569
+msgid "Files sent to {name}"
+msgstr "{name}(으)로 파일을 보냈습니다"
+
+#: crates/helix-shell/src/obex.rs:573
+msgid "Sending failed"
+msgstr "보내기 실패"
+
+#: crates/helix-shell/src/obex.rs:628
+msgid "File received"
+msgstr "파일을 받았습니다"
+
+#: crates/helix-shell/src/obex.rs:628
+msgid "“{file}” from {device} is in Downloads."
+msgstr "{device}에서 보낸 “{file}”이(가) 다운로드 폴더에 있습니다."
+
+#: crates/helix-shell/src/obex.rs:631
+msgid "File not received"
+msgstr "파일을 받지 못했습니다"
+
+#: crates/helix-shell/src/obex.rs:631
+msgid "“{}” from {} was not received."
+msgstr "{1}에서 보낸 “{0}”을(를) 받지 못했습니다."
+
+#: crates/helix-shell/src/offline_updates.rs:49
+msgid "A new version of the system"
+msgstr "새 버전의 시스템"
+
+#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:4919
+msgid "Apps"
+msgstr "앱"
+
+#: crates/helix-shell/src/panel_layout.rs:49
+#: crates/helix-shell/src/ui/atspi.rs:551
+#: crates/helix-shell/src/ui/overview.rs:1050
+#: crates/helix-shell/src/ui/workspace_popup.rs:171
+msgid "Workspaces"
+msgstr "작업 공간"
+
+#: crates/helix-shell/src/panel_layout.rs:50
+msgid "Clock"
+msgstr "시계"
+
+#: crates/helix-shell/src/panel_layout.rs:51
+msgid "Status Icons"
+msgstr "상태 아이콘"
+
+#: crates/helix-shell/src/panel_layout.rs:53
+msgid "Input Source"
+msgstr "입력 소스"
+
+#: crates/helix-shell/src/panel_layout.rs:54
+msgid "System Status"
+msgstr "시스템 상태"
+
+#: crates/helix-shell/src/panel_layout.rs:212
+msgid "Center"
+msgstr "가운데"
+
+#: crates/helix-shell/src/panel_layout.rs:212
+#: crates/helix-shell/src/ui/osk.rs:888
+msgid "Left"
+msgstr "왼쪽"
+
+#: crates/helix-shell/src/panel_layout.rs:212
+msgid "Quick Settings"
+msgstr "빠른 설정"
+
+#: crates/helix-shell/src/panel_layout.rs:212
+#: crates/helix-shell/src/ui/osk.rs:889
+msgid "Right"
+msgstr "오른쪽"
+
+#: crates/helix-shell/src/panel_layout.rs:218
+#: crates/helix-shell/src/ui/quick.rs:406
+msgid "Wi-Fi"
+msgstr "Wi-Fi"
+
+#: crates/helix-shell/src/panel_layout.rs:220
+#: crates/helix-shell/src/ui/quick.rs:412
+msgid "Airplane Mode"
+msgstr "비행기 모드"
+
+#: crates/helix-shell/src/panel_layout.rs:222
+#: crates/helix-shell/src/ui/quick.rs:417
+msgid "Night Light"
+msgstr "야간 조명"
+
+#: crates/helix-shell/src/panel_layout.rs:223
+#: crates/helix-shell/src/ui/quick.rs:417
+msgid "Dark Style"
+msgstr "어두운 스타일"
+
+#: crates/helix-shell/src/panel_layout.rs:224
+#: crates/helix-shell/src/ui/atspi.rs:821
+#: crates/helix-shell/src/ui/notify.rs:926
+#: crates/helix-shell/src/ui/notify.rs:927
+#: crates/helix-shell/src/ui/quick.rs:417
+msgid "Do Not Disturb"
+msgstr "방해 금지"
+
+#: crates/helix-shell/src/polkit.rs:196
+msgid "cannot run the polkit helper: {e}"
+msgstr "polkit 도우미를 실행할 수 없습니다: {e}"
+
+#: crates/helix-shell/src/polkit.rs:222 crates/helix-shell/src/polkit.rs:307
+msgid "Authentication Required"
+msgstr "인증 필요"
+
+#: crates/helix-shell/src/polkit.rs:230
+msgid "Authenticate"
+msgstr "인증"
+
+#: crates/helix-shell/src/polkit.rs:309
+msgid "Choose the user to authenticate as."
+msgstr "인증할 사용자를 선택하십시오."
+
+#: crates/helix-shell/src/polkit.rs:313
+msgid "Next"
+msgstr "다음"
+
+#: crates/helix-shell/src/power.rs:310
+msgid "The power button follows the power settings"
+msgstr "전원 단추는 전원 설정을 따릅니다"
+
+#: crates/helix-shell/src/power.rs:317
+msgid "An external monitor is connected"
+msgstr "외부 모니터가 연결되어 있습니다"
+
+#: crates/helix-shell/src/power.rs:344
+msgid "Battery critically low"
+msgstr "배터리 매우 부족"
+
+#: crates/helix-shell/src/power.rs:344
+msgid "{percent} remaining. Plug in soon, or the computer will take action."
+msgstr ""
+"{percent} 남았습니다. 곧 전원을 연결하지 않으면 컴퓨터가 조치를 취합니다."
+
+#: crates/helix-shell/src/power.rs:346
+msgid "Battery low"
+msgstr "배터리 부족"
+
+#: crates/helix-shell/src/power.rs:346
+msgid "{percent} remaining"
+msgstr "{percent} 남음"
+
+#: crates/helix-shell/src/recording.rs:301
+msgid "GStreamer is not available"
+msgstr "GStreamer를 사용할 수 없습니다"
+
+#: crates/helix-shell/src/recording.rs:440
+msgid "Screencast From %d %t.webm"
+msgstr "스크린캐스트 %d %t.webm"
+
+#: crates/helix-shell/src/run_dialog.rs:94
+msgid "Command not found: {program}"
+msgstr "명령을 찾을 수 없습니다: {program}"
+
+#: crates/helix-shell/src/run_dialog.rs:175
+msgid "Run a Command"
+msgstr "명령 실행"
+
+#: crates/helix-shell/src/run_dialog.rs:176
+msgid "Enter a Command"
+msgstr "명령을 입력하십시오"
+
+#: crates/helix-shell/src/run_dialog.rs:180
+msgid "Run"
+msgstr "실행"
+
+#. Translators: "… wants to control your keyboard".
+#: crates/helix-shell/src/screencast_chooser.rs:122
+msgid "keyboard"
+msgstr "키보드"
+
+#: crates/helix-shell/src/screencast_chooser.rs:123
+msgid "pointer"
+msgstr "포인터"
+
+#: crates/helix-shell/src/screencast_chooser.rs:124
+msgid "touchscreen"
+msgstr "터치스크린"
+
+#. Translators: "… wants to control your input".
+#: crates/helix-shell/src/screencast_chooser.rs:130
+msgid "input"
+msgstr "입력 장치"
+
+#. Translators: the end of a list, "keyboard, pointer and touchscreen".
+#: crates/helix-shell/src/screencast_chooser.rs:133
+msgid "{list} and {last}"
+msgstr "{list} 및 {last}"
+
+#: crates/helix-shell/src/screencast_chooser.rs:160
+msgid "An application"
+msgstr "프로그램"
+
+#: crates/helix-shell/src/ui.rs:1143 crates/helix-shell/src/ui/atspi.rs:582
+msgid "Sharing"
+msgstr "공유 중"
+
+#: crates/helix-shell/src/ui.rs:1148 crates/helix-shell/src/ui/atspi.rs:586
+msgid "Recording"
+msgstr "녹화 중"
+
+#: crates/helix-shell/src/ui.rs:1188
+msgid "It will be able to:"
+msgstr "다음을 할 수 있습니다:"
+
+#: crates/helix-shell/src/ui.rs:1190
+msgid "Some applications are busy or have unsaved work:"
+msgstr "일부 프로그램이 사용 중이거나 저장하지 않은 작업이 있습니다:"
+
+#: crates/helix-shell/src/ui.rs:1197 crates/helix-shell/src/ui.rs:1198
+msgid "Restart & Install"
+msgstr "다시 시작 및 설치"
+
+#: crates/helix-shell/src/ui.rs:1197
+msgid "Restart & Install Updates"
+msgstr "다시 시작 및 업데이트 설치"
+
+#: crates/helix-shell/src/ui.rs:1198
+msgid "Restart & Install Upgrade"
+msgstr "다시 시작 및 업그레이드 설치"
+
+#: crates/helix-shell/src/ui.rs:1199
+msgid "Log Out"
+msgstr "로그아웃"
+
+#: crates/helix-shell/src/ui.rs:1206
+msgid "Power Off Anyway"
+msgstr "그래도 전원 끄기"
+
+#: crates/helix-shell/src/ui.rs:1207
+msgid "Restart Anyway"
+msgstr "그래도 다시 시작"
+
+#: crates/helix-shell/src/ui.rs:1208
+msgid "Restart & Install Anyway"
+msgstr "그래도 다시 시작 및 설치"
+
+#: crates/helix-shell/src/ui.rs:1209
+msgid "Log Out Anyway"
+msgstr "그래도 로그아웃"
+
+#: crates/helix-shell/src/ui.rs:1214
+msgid ""
+"The computer will restart and install updates in {remaining} second. "
+"Installing can take a while."
+msgid_plural ""
+"The computer will restart and install updates in {remaining} seconds. "
+"Installing can take a while."
+msgstr[0] ""
+"{remaining}초 후 컴퓨터를 다시 시작하고 업데이트를 설치합니다. 설치에 시간이 "
+"걸릴 수 있습니다."
+
+#: crates/helix-shell/src/ui.rs:1220
+msgid ""
+"{name} will be installed after the restart, in {remaining} second. "
+"Installing can take a long time."
+msgid_plural ""
+"{name} will be installed after the restart, in {remaining} seconds. "
+"Installing can take a long time."
+msgstr[0] ""
+"{remaining}초 후 다시 시작한 다음 {name}을(를) 설치합니다. 설치에 오랜 시간"
+"이 걸릴 수 있습니다."
+
+#: crates/helix-shell/src/ui.rs:1227
+msgid "The session will end automatically in {remaining} second."
+msgid_plural "The session will end automatically in {remaining} seconds."
+msgstr[0] "{remaining}초 후 세션이 자동으로 끝납니다."
+
+#: crates/helix-shell/src/ui.rs:1232
+msgid "Turn On"
+msgstr "켜기"
+
+#: crates/helix-shell/src/ui.rs:1232
+msgid "Turn on {name}?"
+msgstr "{name}을(를) 켤까요?"
+
+#: crates/helix-shell/src/ui.rs:1234
+msgid "Allow remote control?"
+msgstr "원격 제어를 허용할까요?"
+
+#: crates/helix-shell/src/ui.rs:1235
+msgid "{app} wants to control your {devices}."
+msgstr "{app}에서 {devices}을(를) 제어하려고 합니다."
+
+#: crates/helix-shell/src/ui.rs:1241
+msgid "Allow {app} to use all keyboard shortcuts?"
+msgstr "{app}에서 모든 키보드 바로 가기 키를 사용하도록 허용할까요?"
+
+#: crates/helix-shell/src/ui.rs:1242
+msgid ""
+"While it has the keyboard, the desktop's shortcuts go to it. Super+Escape "
+"gives them back."
+msgstr ""
+"키보드를 사용하는 동안 데스크톱 바로 가기 키가 해당 앱으로 전달됩니다. "
+"Super+Escape를 누르면 되돌려 받습니다."
+
+#: crates/helix-shell/src/ui.rs:1248
+msgid "“{title}” is not responding."
+msgstr "“{title}”이(가) 응답하지 않습니다."
+
+#: crates/helix-shell/src/ui.rs:1249
+msgid ""
+"You may choose to wait a short while for it to continue or force the app to "
+"quit entirely."
+msgstr "잠시 기다려 계속 진행되게 하거나 앱을 강제로 종료할 수 있습니다."
+
+#: crates/helix-shell/src/ui.rs:1250
+msgid "Wait"
+msgstr "기다리기"
+
+#: crates/helix-shell/src/ui.rs:1251
+msgid "Force Quit"
+msgstr "강제 종료"
+
+#: crates/helix-shell/src/ui.rs:1255
+msgid "Keep the new display settings?"
+msgstr "새 디스플레이 설정을 유지할까요?"
+
+#: crates/helix-shell/src/ui.rs:1256
+msgid "The previous settings come back in {remaining} second."
+msgid_plural "The previous settings come back in {remaining} seconds."
+msgstr[0] "{remaining}초 후 이전 설정으로 돌아갑니다."
+
+#: crates/helix-shell/src/ui.rs:1257
+msgid "Revert"
+msgstr "되돌리기"
+
+#: crates/helix-shell/src/ui.rs:1258
+msgid "Keep"
+msgstr "유지"
+
+#: crates/helix-shell/src/ui.rs:1316 crates/helix-shell/src/ui/atspi.rs:885
+msgid "Install pending software updates"
+msgstr "대기 중인 소프트웨어 업데이트 설치"
+
+#: crates/helix-shell/src/ui.rs:1345
+msgid "Muted"
+msgstr "음소거됨"
+
+#: crates/helix-shell/src/ui.rs:1346 crates/helix-shell/src/ui/atspi.rs:950
+#: crates/helix-shell/src/ui/gallery.rs:1160
+#: crates/helix-shell/src/ui/quick.rs:449
+msgid "Volume"
+msgstr "음량"
+
+#: crates/helix-shell/src/ui.rs:1347 crates/helix-shell/src/ui/quick.rs:453
+msgid "Brightness"
+msgstr "밝기"
+
+#: crates/helix-shell/src/ui.rs:1348
+msgid "Microphone off"
+msgstr "마이크 꺼짐"
+
+#: crates/helix-shell/src/ui.rs:1349
+msgid "Microphone on"
+msgstr "마이크 켜짐"
+
+#: crates/helix-shell/src/ui.rs:2274 crates/helix-shell/src/ui/gallery.rs:295
+#: crates/helix-shell/src/ui/overview.rs:538
+msgid "Type to search…"
+msgstr "입력하여 검색…"
+
+#: crates/helix-shell/src/ui.rs:2486
+msgid "Checking…"
+msgstr "확인하는 중…"
+
+#: crates/helix-shell/src/ui.rs:2528
+msgid "Incorrect password. Try again."
+msgstr "암호가 올바르지 않습니다. 다시 시도하십시오."
+
+#: crates/helix-shell/src/ui.rs:2538
+msgid "Cannot check password: {err}"
+msgstr "암호를 확인할 수 없습니다: {err}"
+
+#: crates/helix-shell/src/ui.rs:3120 crates/helix-shell/src/ui/atspi.rs:895
+msgid "Share your screen?"
+msgstr "화면을 공유할까요?"
+
+#: crates/helix-shell/src/ui.rs:3125
+msgid "{app} wants to see your screen. Choose what to share."
+msgstr "{app}에서 화면을 보려고 합니다. 공유할 대상을 선택하십시오."
+
+#: crates/helix-shell/src/ui.rs:3127
+msgid "{app} wants to see your screen and control your {devices}."
+msgstr "{app}에서 화면을 보고 {devices}을(를) 제어하려고 합니다."
+
+#: crates/helix-shell/src/ui.rs:3131 crates/helix-shell/src/ui/atspi.rs:897
+msgid "It will be able to share the same screen again without asking."
+msgstr "다음에는 묻지 않고 같은 화면을 다시 공유할 수 있습니다."
+
+#: crates/helix-shell/src/ui.rs:3364
+msgid "New virtual monitor"
+msgstr "새 가상 모니터"
+
+#: crates/helix-shell/src/ui.rs:4911 crates/helix-shell/src/ui/atspi.rs:761
+msgid "No matching apps"
+msgstr "일치하는 앱 없음"
+
+#: crates/helix-shell/src/ui.rs:4918
+msgid "Open Windows"
+msgstr "열린 창"
+
+#: crates/helix-shell/src/ui.rs:4959
+msgid "Search for “{query}” in {name}"
+msgstr "{name}에서 “{query}” 검색"
+
+#: crates/helix-shell/src/ui.rs:5024
+msgid "{n} more result"
+msgid_plural "{n} more results"
+msgstr[0] "결과 {n}개 더"
+
+#: crates/helix-shell/src/ui.rs:5026
+msgid "{n} result above"
+msgid_plural "{n} results above"
+msgstr[0] "위에 결과 {n}개"
+
+#: crates/helix-shell/src/ui.rs:5211 crates/helix-shell/src/ui/atspi.rs:406
+#: crates/helix-shell/src/ui/quick.rs:560
+msgid "Lock Screen"
+msgstr "화면 잠금"
+
+#: crates/helix-shell/src/ui.rs:5214 crates/helix-shell/src/ui/lock.rs:515
+#: crates/helix-shell/src/ui/lock.rs:597
+msgid "Switch User…"
+msgstr "사용자 전환…"
+
+#: crates/helix-shell/src/ui.rs:5217
+msgid "Suspend"
+msgstr "대기 모드"
+
+#: crates/helix-shell/src/ui.rs:5220
+msgid "Log Out…"
+msgstr "로그아웃…"
+
+#: crates/helix-shell/src/ui.rs:5306
+msgid "The app"
+msgstr "앱"
+
+#: crates/helix-shell/src/ui/app_grid.rs:318
+#: crates/helix-shell/src/ui/app_grid.rs:469
+msgid "Clear Recent Apps"
+msgstr "최근 앱 지우기"
+
+#: crates/helix-shell/src/ui/app_grid.rs:871
+msgctxt "app grid heading"
+msgid "Recent"
+msgstr "최근"
+
+#: crates/helix-shell/src/ui/atspi.rs:60
+msgid "Launcher"
+msgstr "실행기"
+
+#: crates/helix-shell/src/ui/atspi.rs:66
+msgid "Window Overview"
+msgstr "창 개요"
+
+#: crates/helix-shell/src/ui/atspi.rs:93
+msgid "Recent Apps"
+msgstr "최근 앱"
+
+#: crates/helix-shell/src/ui/atspi.rs:96 crates/helix-shell/src/ui/atspi.rs:663
+msgid "Applications"
+msgstr "프로그램"
+
+#: crates/helix-shell/src/ui/atspi.rs:98
+msgid "Page {}"
+msgstr "{}페이지"
+
+#: crates/helix-shell/src/ui/atspi.rs:99
+msgid "Pages"
+msgstr "페이지"
+
+#: crates/helix-shell/src/ui/atspi.rs:408
+#: crates/helix-shell/src/ui/atspi.rs:628
+msgid "Top Bar"
+msgstr "상단 표시줄"
+
+#: crates/helix-shell/src/ui/atspi.rs:412
+msgid "Dialog"
+msgstr "대화 상자"
+
+#: crates/helix-shell/src/ui/atspi.rs:417
+msgid "System Menu"
+msgstr "시스템 메뉴"
+
+#: crates/helix-shell/src/ui/atspi.rs:434
+msgid "On-screen display"
+msgstr "화면 표시"
+
+#: crates/helix-shell/src/ui/atspi.rs:440
+msgid "Notification"
+msgstr "알림"
+
+#: crates/helix-shell/src/ui/atspi.rs:444
+#: crates/helix-shell/src/ui/atspi.rs:831
+msgid "Notifications"
+msgstr "알림"
+
+#: crates/helix-shell/src/ui/atspi.rs:457
+msgid "Workspace Switcher"
+msgstr "작업 공간 전환기"
+
+#: crates/helix-shell/src/ui/atspi.rs:463
+msgid "On-screen Keyboard"
+msgstr "화면 키보드"
+
+#: crates/helix-shell/src/ui/atspi.rs:469
+#: crates/helix-shell/src/ui/click_type.rs:136
+msgid "Click Type"
+msgstr "클릭 유형"
+
+#: crates/helix-shell/src/ui/atspi.rs:473
+#: crates/helix-shell/src/ui/desktop_icons.rs:195
+msgid "Desktop"
+msgstr "바탕 화면"
+
+#: crates/helix-shell/src/ui/atspi.rs:482
+msgid "Break"
+msgstr "휴식"
+
+#: crates/helix-shell/src/ui/atspi.rs:489
+#: crates/helix-shell/src/ui/panel_editor.rs:124
+#: crates/helix-shell/src/ui/panel_editor.rs:314
+msgid "Customize Panel"
+msgstr "패널 사용자 지정"
+
+#: crates/helix-shell/src/ui/atspi.rs:497
+msgid "Tooltip"
+msgstr "도구 설명"
+
+#: crates/helix-shell/src/ui/atspi.rs:512
+msgid "Monitor {}"
+msgstr "모니터 {}"
+
+#: crates/helix-shell/src/ui/atspi.rs:526
+#: crates/helix-shell/src/ui/atspi.rs:864
+msgid "Dock"
+msgstr "독"
+
+#: crates/helix-shell/src/ui/atspi.rs:550
+msgid "Workspace {} of {}"
+msgstr "작업 공간 {}/{}"
+
+#: crates/helix-shell/src/ui/atspi.rs:556
+msgid "Notifications and calendar"
+msgstr "알림 및 달력"
+
+#: crates/helix-shell/src/ui/atspi.rs:556
+msgid "Notifications and calendar, unread notifications"
+msgstr "알림 및 달력, 읽지 않은 알림 있음"
+
+#: crates/helix-shell/src/ui/atspi.rs:569
+msgid "Input source"
+msgstr "입력 소스"
+
+#: crates/helix-shell/src/ui/atspi.rs:571
+#: crates/helix-shell/src/ui/quick.rs:1274
+msgid "System"
+msgstr "시스템"
+
+#: crates/helix-shell/src/ui/atspi.rs:586
+msgid "Stop recording"
+msgstr "녹화 중지"
+
+#: crates/helix-shell/src/ui/atspi.rs:622
+#: crates/helix-shell/src/ui/atspi.rs:662
+msgid "Input Sources"
+msgstr "입력 소스"
+
+#: crates/helix-shell/src/ui/atspi.rs:631
+msgid "Background"
+msgstr "배경"
+
+#: crates/helix-shell/src/ui/atspi.rs:643
+#: crates/helix-shell/src/ui/atspi.rs:858 crates/helix-shell/src/ui/dock.rs:652
+#: crates/helix-shell/src/ui/dock.rs:1797
+msgid "Trash"
+msgstr "휴지통"
+
+#: crates/helix-shell/src/ui/atspi.rs:652
+#: crates/helix-shell/src/ui/atspi.rs:664
+#: crates/helix-shell/src/ui/overview.rs:1059
+msgid "Windows"
+msgstr "창"
+
+#: crates/helix-shell/src/ui/atspi.rs:654
+msgid "Window Menu"
+msgstr "창 메뉴"
+
+#: crates/helix-shell/src/ui/atspi.rs:687
+#: crates/helix-shell/src/ui/overview.rs:1043
+msgid "Search"
+msgstr "검색"
+
+#: crates/helix-shell/src/ui/atspi.rs:718
+#: crates/helix-shell/src/ui/atspi.rs:806
+#: crates/helix-shell/src/ui/capture.rs:401
+#: crates/helix-shell/src/ui/capture.rs:403
+#: crates/helix-shell/src/ui/dock.rs:1387
+#: crates/helix-shell/src/ui/window_menu.rs:115
+msgid "Close"
+msgstr "닫기"
+
+#: crates/helix-shell/src/ui/atspi.rs:743
+msgid "Search for “{query}” in {label}"
+msgstr "{label}에서 “{query}” 검색"
+
+#: crates/helix-shell/src/ui/atspi.rs:747
+msgid "Open window"
+msgstr "열린 창"
+
+#: crates/helix-shell/src/ui/atspi.rs:749
+msgid "Favorite"
+msgstr "즐겨찾기"
+
+#: crates/helix-shell/src/ui/atspi.rs:759
+msgid "Search Results"
+msgstr "검색 결과"
+
+#: crates/helix-shell/src/ui/atspi.rs:771
+msgid "{app}: {summary}"
+msgstr "{app}: {summary}"
+
+#: crates/helix-shell/src/ui/atspi.rs:774
+msgid "{summary}. {body}"
+msgstr "{summary}. {body}"
+
+#: crates/helix-shell/src/ui/atspi.rs:808
+#: crates/helix-shell/src/ui/atspi.rs:820
+#: crates/helix-shell/src/ui/notify.rs:930
+#: crates/helix-shell/src/ui/notify.rs:932 crates/helix-shell/src/weather.rs:59
+#: crates/helix-shell/src/weather.rs:60
+msgid "Clear"
+msgstr "지우기"
+
+#: crates/helix-shell/src/ui/atspi.rs:812
+msgid "{app}, {count} notifications"
+msgstr "{app}, 알림 {count}개"
+
+#: crates/helix-shell/src/ui/atspi.rs:814
+msgid "Next Month"
+msgstr "다음 달"
+
+#: crates/helix-shell/src/ui/atspi.rs:814
+msgid "Previous Month"
+msgstr "이전 달"
+
+#: crates/helix-shell/src/ui/atspi.rs:829
+#: crates/helix-shell/src/ui/calendar.rs:342
+msgid "No Events"
+msgstr "일정 없음"
+
+#: crates/helix-shell/src/ui/atspi.rs:830
+msgid "Events, {}"
+msgstr "일정, {}"
+
+#: crates/helix-shell/src/ui/atspi.rs:832
+#: crates/helix-shell/src/ui/notify.rs:940
+msgid "No Notifications"
+msgstr "알림 없음"
+
+#: crates/helix-shell/src/ui/atspi.rs:859 crates/helix-shell/src/ui/dock.rs:653
+msgid "Show Apps"
+msgstr "앱 표시"
+
+#: crates/helix-shell/src/ui/atspi.rs:943
+msgid "No network"
+msgstr "네트워크 없음"
+
+#: crates/helix-shell/src/ui/atspi.rs:944
+msgid "Wired network"
+msgstr "유선 네트워크"
+
+#: crates/helix-shell/src/ui/atspi.rs:946
+msgid "Network"
+msgstr "네트워크"
+
+#: crates/helix-shell/src/ui/atspi.rs:950
+msgid "Volume muted"
+msgstr "음소거됨"
+
+#: crates/helix-shell/src/ui/atspi.rs:955
+msgid "Battery {percent}"
+msgstr "배터리 {percent}"
+
+#: crates/helix-shell/src/ui/atspi.rs:955
+msgid "Battery {percent}, charging"
+msgstr "배터리 {percent}, 충전 중"
+
+#: crates/helix-shell/src/ui/atspi.rs:957
+msgid "Camera in use"
+msgstr "카메라 사용 중"
+
+#: crates/helix-shell/src/ui/atspi.rs:957
+msgid "Location in use"
+msgstr "위치 사용 중"
+
+#: crates/helix-shell/src/ui/atspi.rs:957
+msgid "Microphone in use"
+msgstr "마이크 사용 중"
+
+#: crates/helix-shell/src/ui/atspi.rs:968
+#: crates/helix-shell/src/ui/atspi.rs:970
+msgid "Pause"
+msgstr "일시 정지"
+
+#: crates/helix-shell/src/ui/atspi.rs:969
+msgid "Play"
+msgstr "재생"
+
+#: crates/helix-shell/src/ui/atspi.rs:971
+msgid "Stop"
+msgstr "중지"
+
+#: crates/helix-shell/src/ui/atspi.rs:972
+msgid "Next Track"
+msgstr "다음 트랙"
+
+#: crates/helix-shell/src/ui/atspi.rs:973
+msgid "Previous Track"
+msgstr "이전 트랙"
+
+#: crates/helix-shell/src/ui/atspi.rs:974
+msgid "Rewind"
+msgstr "되감기"
+
+#: crates/helix-shell/src/ui/atspi.rs:975
+msgid "Fast Forward"
+msgstr "빨리 감기"
+
+#: crates/helix-shell/src/ui/atspi.rs:976
+msgid "Repeat"
+msgstr "반복"
+
+#: crates/helix-shell/src/ui/atspi.rs:977
+msgid "Shuffle"
+msgstr "무작위 재생"
+
+#. Translators: a calendar day read out by screen readers (GLib DateTime format): "14 November 2026".
+#: crates/helix-shell/src/ui/atspi.rs:986
+msgctxt "calendar day for screen readers"
+msgid "%e %B %Y"
+msgstr "%Y년 %-m월 %-d일"
+
+#: crates/helix-shell/src/ui/background_menu.rs:57
+msgid "Change Background…"
+msgstr "배경 바꾸기…"
+
+#: crates/helix-shell/src/ui/background_menu.rs:59
+msgid "Display Settings"
+msgstr "디스플레이 설정"
+
+#: crates/helix-shell/src/ui/background_menu.rs:60
+#: crates/helix-shell/src/ui/background_menu.rs:102
+#: crates/helix-shell/src/ui/extensions_dialog.rs:62
+#: crates/helix-shell/src/ui/extensions_dialog.rs:125
+#: crates/helix-shell/src/ui/extensions_dialog.rs:264
+#: crates/helix-shell/src/ui/quick.rs:155
+#: crates/helix-shell/src/ui/quick.rs:556
+msgid "Settings"
+msgstr "설정"
+
+#: crates/helix-shell/src/ui/break_screen.rs:64
+#: crates/helix-shell/src/ui/break_screen.rs:121
+msgid "Delay"
+msgstr "미루기"
+
+#: crates/helix-shell/src/ui/break_screen.rs:64
+#: crates/helix-shell/src/ui/break_screen.rs:122
+msgid "Skip"
+msgstr "건너뛰기"
+
+#. Translators: a month and year heading (GLib DateTime format).
+#: crates/helix-shell/src/ui/calendar.rs:96
+#: crates/helix-shell/src/ui/calendar.rs:263
+msgctxt "month and year"
+msgid "%OB %Y"
+msgstr "%Y년 %OB"
+
+#: crates/helix-shell/src/ui/calendar.rs:257
+msgctxt "calendar today weekday"
+msgid "%A"
+msgstr "%A"
+
+#. Translators: today's date over the calendar (GLib DateTime format).
+#: crates/helix-shell/src/ui/calendar.rs:259
+msgctxt "calendar today"
+msgid "%B %e %Y"
+msgstr "%Y년 %-m월 %-d일"
+
+#: crates/helix-shell/src/ui/calendar.rs:331
+msgid "Today"
+msgstr "오늘"
+
+#: crates/helix-shell/src/ui/calendar.rs:332
+msgid "Tomorrow"
+msgstr "내일"
+
+#. Translators: the day whose events are listed (GLib DateTime format).
+#: crates/helix-shell/src/ui/calendar.rs:334
+msgctxt "calendar day"
+msgid "%A, %B %e"
+msgstr "%-m월 %-d일 %A"
+
+#: crates/helix-shell/src/ui/calendar.rs:347
+#: crates/helix-shell/src/ui/calendar.rs:456
+msgid "All Day"
+msgstr "하루 종일"
+
+#: crates/helix-shell/src/ui/calendar.rs:364
+msgid "World Clocks"
+msgstr "세계 시계"
+
+#. Translators: a forecast hour on another day: weekday and time.
+#: crates/helix-shell/src/ui/calendar.rs:370
+msgid "{weekday} {time}"
+msgstr "{weekday} {time}"
+
+#: crates/helix-shell/src/ui/calendar.rs:384
+msgid "Weather"
+msgstr "날씨"
+
+#: crates/helix-shell/src/ui/calendar.rs:405
+msgid "Weather unavailable"
+msgstr "날씨 정보 없음"
+
+#: crates/helix-shell/src/ui/calendar.rs:415
+msgid "Unknown Title"
+msgstr "알 수 없는 제목"
+
+#: crates/helix-shell/src/ui/calendar.rs:440
+#: crates/helix-shell/src/wellbeing.rs:237
+msgid "{n} hour"
+msgid_plural "{n} hours"
+msgstr[0] "{n}시간"
+
+#: crates/helix-shell/src/ui/calendar.rs:441
+#: crates/helix-shell/src/wellbeing.rs:238
+msgid "{n} minute"
+msgid_plural "{n} minutes"
+msgstr[0] "{n}분"
+
+#. Translators: a duration, hours then minutes ("1 hour 30 minutes").
+#: crates/helix-shell/src/ui/calendar.rs:446
+msgid "{hours} {minutes}"
+msgstr "{hours} {minutes}"
+
+#: crates/helix-shell/src/ui/calendar.rs:456
+msgid "All day, {n} day"
+msgid_plural "All day, {n} days"
+msgstr[0] "하루 종일, {n}일"
+
+#: crates/helix-shell/src/ui/calendar.rs:461
+msgid "{start} to {end}, {duration}"
+msgstr "{start}~{end}, {duration}"
+
+#: crates/helix-shell/src/ui/capture.rs:186
+msgid "Area at {x}, {y}: {w} × {h}"
+msgstr "{x}, {y} 위치의 영역: {w} × {h}"
+
+#: crates/helix-shell/src/ui/capture.rs:187
+msgid "Point at {x}, {y}"
+msgstr "{x}, {y} 위치의 점"
+
+#: crates/helix-shell/src/ui/capture.rs:253
+msgid ""
+"Drag, or arrows to move and Ctrl+arrows to resize · Enter to confirm · Esc "
+"to cancel"
+msgstr ""
+"끌거나 화살표로 이동, Ctrl+화살표로 크기 조정 · Enter로 확인 · Esc로 취소"
+
+#: crates/helix-shell/src/ui/capture.rs:254
+msgid "Click, or arrows and Enter, to pick a color · Esc to cancel"
+msgstr "클릭하거나 화살표와 Enter로 색 선택 · Esc로 취소"
+
+#: crates/helix-shell/src/ui/capture.rs:255
+msgid "Click a window, or arrows and Enter, to capture it · Esc to cancel"
+msgstr "창을 클릭하거나 화살표와 Enter로 캡처 · Esc로 취소"
+
+#: crates/helix-shell/src/ui/capture.rs:256
+msgid ""
+"S, C, W: area, screen, window · V: record · P: pointer · Enter: capture · "
+"Esc: cancel"
+msgstr ""
+"S, C, W: 영역, 화면, 창 · V: 녹화 · P: 포인터 · Enter: 캡처 · Esc: 취소"
+
+#: crates/helix-shell/src/ui/capture.rs:305
+msgid "{w} × {h}"
+msgstr "{w} × {h}"
+
+#: crates/helix-shell/src/ui/capture.rs:334
+msgid "Area"
+msgstr "영역"
+
+#: crates/helix-shell/src/ui/capture.rs:335
+msgid "Screen"
+msgstr "화면"
+
+#: crates/helix-shell/src/ui/capture.rs:336
+msgid "Window"
+msgstr "창"
+
+#: crates/helix-shell/src/ui/capture.rs:339
+msgid "Record"
+msgstr "녹화"
+
+#: crates/helix-shell/src/ui/capture.rs:341
+msgid "Show Pointer"
+msgstr "포인터 표시"
+
+#: crates/helix-shell/src/ui/capture.rs:370
+#: crates/helix-shell/src/ui/capture.rs:390
+#: crates/helix-shell/src/ui/capture.rs:401
+msgid "{name} ({key})"
+msgstr "{name} ({key})"
+
+#: crates/helix-shell/src/ui/capture.rs:372
+#: crates/helix-shell/src/ui/capture.rs:392
+#: crates/helix-shell/src/ui/capture.rs:403
+msgid "Key: {key}"
+msgstr "키: {key}"
+
+#: crates/helix-shell/src/ui/capture.rs:387
+msgid "Capture"
+msgstr "캡처"
+
+#: crates/helix-shell/src/ui/capture.rs:387
+msgid "Start Recording"
+msgstr "녹화 시작"
+
+#: crates/helix-shell/src/ui/capture.rs:390
+#: crates/helix-shell/src/ui/capture.rs:392
+#: crates/helix-shell/src/ui/osk.rs:884
+msgid "Enter"
+msgstr "Enter"
+
+#: crates/helix-shell/src/ui/capture.rs:401
+#: crates/helix-shell/src/ui/capture.rs:403
+msgid "Esc"
+msgstr "Esc"
+
+#: crates/helix-shell/src/ui/capture.rs:700
+msgid "Selected: {w} × {h}"
+msgstr "선택됨: {w} × {h}"
+
+#: crates/helix-shell/src/ui/click_type.rs:13
+msgid "Double"
+msgstr "더블"
+
+#: crates/helix-shell/src/ui/click_type.rs:13
+msgid "Drag"
+msgstr "끌기"
+
+#: crates/helix-shell/src/ui/click_type.rs:13
+msgid "Secondary"
+msgstr "보조"
+
+#: crates/helix-shell/src/ui/click_type.rs:13
+msgid "Single"
+msgstr "단일"
+
+#: crates/helix-shell/src/ui/dock.rs:1467
+msgid "Mount"
+msgstr "마운트"
+
+#: crates/helix-shell/src/ui/dock.rs:1469
+msgid "Unmount"
+msgstr "마운트 해제"
+
+#: crates/helix-shell/src/ui/dock.rs:1500
+msgid "All Windows"
+msgstr "모든 창"
+
+#: crates/helix-shell/src/ui/dock.rs:1510
+msgid "New Window"
+msgstr "새 창"
+
+#: crates/helix-shell/src/ui/dock.rs:1525
+msgid "Pin to Dash"
+msgstr "대시에 고정"
+
+#: crates/helix-shell/src/ui/dock.rs:1525
+msgid "Unpin"
+msgstr "고정 해제"
+
+#: crates/helix-shell/src/ui/dock.rs:1528
+msgid "App Details"
+msgstr "앱 세부 정보"
+
+#: crates/helix-shell/src/ui/dock.rs:1532
+msgid "Quit"
+msgstr "끝내기"
+
+#: crates/helix-shell/src/ui/dock.rs:1532
+msgid "Quit {n} Window"
+msgid_plural "Quit {n} Windows"
+msgstr[0] "창 {n}개 끝내기"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:74
+#: crates/helix-shell/src/ui/overview.rs:1068
+msgid "Running"
+msgstr "실행 중"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:75
+msgid "Starting"
+msgstr "시작하는 중"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:76
+msgid "Not running"
+msgstr "실행 중 아님"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:77
+msgid "Off for this session (Shift was held at login)"
+msgstr "이 세션에서는 꺼짐 (로그인할 때 Shift 키를 누름)"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:78
+msgid "Off"
+msgstr "꺼짐"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:79
+msgid "Needs approval: turn it on to allow what it asks"
+msgstr "승인 필요: 켜면 요청한 권한을 허용합니다"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:80
+msgid "Cannot run: {reason}"
+msgstr "실행할 수 없음: {reason}"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:81
+msgid "Stopped working"
+msgstr "작동 멈춤"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:82
+msgid "Stopped working: {last}"
+msgstr "작동 멈춤: {last}"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:90
+msgid "Sandboxed"
+msgstr "샌드박스"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:90
+msgid "Sandboxed. Can: {}"
+msgstr "샌드박스. 가능한 작업: {}"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:92
+msgid "Full access: it can do anything you can"
+msgstr "전체 접근: 사용자가 할 수 있는 모든 작업 가능"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:113
+#: crates/helix-shell/src/ui/extensions_dialog.rs:221
+msgid "No extensions are installed."
+msgstr "설치된 확장이 없습니다."
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:128
+#: crates/helix-shell/src/ui/extensions_dialog.rs:258
+msgid "None"
+msgstr "없음"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:147
+msgid "Decrease"
+msgstr "줄이기"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:147
+msgid "Increase"
+msgstr "늘리기"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:154
+#: crates/helix-shell/src/ui/extensions_dialog.rs:308
+msgid "(empty)"
+msgstr "(비어 있음)"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:164
+#: crates/helix-shell/src/ui/extensions_dialog.rs:319
+msgid "Scroll for more"
+msgstr "스크롤하여 더 보기"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:167
+#: crates/helix-shell/src/ui/extensions_dialog.rs:323
+#: crates/helix-shell/src/ui/panel_editor.rs:186
+#: crates/helix-shell/src/ui/panel_editor.rs:347
+msgid "Done"
+msgstr "완료"
+
+#: crates/helix-shell/src/ui/extensions_dialog.rs:264
+msgid "Hide Settings"
+msgstr "설정 숨기기"
+
+#: crates/helix-shell/src/ui/lock.rs:113
+msgid "Caps Lock is on"
+msgstr "Caps Lock이 켜져 있습니다"
+
+#: crates/helix-shell/src/ui/lock.rs:186
+msgid "Restart anyway?"
+msgstr "그래도 다시 시작할까요?"
+
+#: crates/helix-shell/src/ui/lock.rs:188
+msgid "Power off anyway?"
+msgstr "그래도 전원을 끌까요?"
+
+#: crates/helix-shell/src/ui/lock.rs:206 crates/helix-shell/src/ui/lock.rs:578
+msgid "Some apps are busy:"
+msgstr "일부 앱이 사용 중입니다:"
+
+#: crates/helix-shell/src/ui/lock.rs:370
+msgid "Press a key or click to unlock"
+msgstr "잠금을 해제하려면 키를 누르거나 클릭하십시오"
+
+#: crates/helix-shell/src/ui/lock.rs:570
+msgid "Keyboard layout: switch to the next"
+msgstr "키보드 배치: 다음으로 전환"
+
+#: crates/helix-shell/src/ui/lock.rs:617
+msgid "{app}: {n} notification"
+msgid_plural "{app}: {n} notifications"
+msgstr[0] "{app}: 알림 {n}개"
+
+#: crates/helix-shell/src/ui/lock_extras.rs:437
+msgid "+{n} more notification"
+msgid_plural "+{n} more notifications"
+msgstr[0] "+알림 {n}개 더"
+
+#: crates/helix-shell/src/ui/notify.rs:954
+msgid "{count} notifications"
+msgstr "알림 {count}개"
+
+#: crates/helix-shell/src/ui/osk.rs:881
+msgid "Caps Lock"
+msgstr "Caps Lock"
+
+#: crates/helix-shell/src/ui/osk.rs:885
+msgid "Tab"
+msgstr "Tab"
+
+#: crates/helix-shell/src/ui/osk.rs:890
+msgid "Hide Keyboard"
+msgstr "키보드 숨기기"
+
+#: crates/helix-shell/src/ui/osk.rs:897
+msgid "Emoji"
+msgstr "이모지"
+
+#: crates/helix-shell/src/ui/osk.rs:919
+msgid "Accents"
+msgstr "악센트"
+
+#: crates/helix-shell/src/ui/osk.rs:919
+msgid "Suggestions"
+msgstr "추천"
+
+#: crates/helix-shell/src/ui/osk.rs:931
+msgid "Keyboard"
+msgstr "키보드"
+
+#: crates/helix-shell/src/ui/overview.rs:653
+#: crates/helix-shell/src/ui/overview.rs:1060
+msgid "No open windows"
+msgstr "열린 창 없음"
+
+#: crates/helix-shell/src/ui/overview.rs:974
+msgid "{window} moved to {workspace}"
+msgstr "{window}을(를) {workspace}(으)로 옮겼습니다"
+
+#: crates/helix-shell/src/ui/overview.rs:1057
+msgid "Move to {workspace}"
+msgstr "{workspace}(으)로 이동"
+
+#: crates/helix-shell/src/ui/overview.rs:1070
+msgid "Dash"
+msgstr "대시"
+
+#: crates/helix-shell/src/ui/panel_editor.rs:127
+#: crates/helix-shell/src/ui/panel_editor.rs:197
+msgid ""
+"Changes cannot be saved: the org.helix.shell settings are not installed."
+msgstr ""
+"바뀐 내용을 저장할 수 없습니다: org.helix.shell 설정이 설치되어 있지 않습니"
+"다."
+
+#: crates/helix-shell/src/ui/panel_editor.rs:173
+#: crates/helix-shell/src/ui/panel_editor.rs:342
+msgid "Hidden"
+msgstr "숨김"
+
+#: crates/helix-shell/src/ui/panel_editor.rs:186
+#: crates/helix-shell/src/ui/panel_editor.rs:346
+msgid "Reset"
+msgstr "초기화"
+
+#: crates/helix-shell/src/ui/panel_editor.rs:295
+msgid "Customize Panel…"
+msgstr "패널 사용자 지정…"
+
+#: crates/helix-shell/src/ui/panel_editor.rs:295
+msgid "Extensions…"
+msgstr "확장…"
+
+#: crates/helix-shell/src/ui/panel_editor.rs:322
+msgid "Move Up"
+msgstr "위로 이동"
+
+#: crates/helix-shell/src/ui/panel_editor.rs:323
+msgid "Move Down"
+msgstr "아래로 이동"
+
+#: crates/helix-shell/src/ui/panel_editor.rs:324
+msgid "Move Left"
+msgstr "왼쪽으로 이동"
+
+#: crates/helix-shell/src/ui/panel_editor.rs:325
+msgid "Move Right"
+msgstr "오른쪽으로 이동"
+
+#: crates/helix-shell/src/ui/panel_editor.rs:326
+msgid "Remove"
+msgstr "제거"
+
+#: crates/helix-shell/src/ui/prompt.rs:561
+msgid "No preview"
+msgstr "미리 보기 없음"
+
+#: crates/helix-shell/src/ui/prompt.rs:618
+msgid "Hide"
+msgstr "숨기기"
+
+#: crates/helix-shell/src/ui/prompt.rs:618
+msgid "Show"
+msgstr "표시"
+
+#: crates/helix-shell/src/ui/prompt.rs:652
+msgid "Authenticating…"
+msgstr "인증하는 중…"
+
+#: crates/helix-shell/src/ui/prompt.rs:721
+msgid "Places"
+msgstr "위치"
+
+#: crates/helix-shell/src/ui/prompt.rs:760
+msgid "Show Password"
+msgstr "암호 표시"
+
+#: crates/helix-shell/src/ui/quick.rs:21
+msgid "Power Saver"
+msgstr "절전"
+
+#: crates/helix-shell/src/ui/quick.rs:22
+msgid "Balanced"
+msgstr "균형"
+
+#: crates/helix-shell/src/ui/quick.rs:23
+msgid "Performance"
+msgstr "성능"
+
+#: crates/helix-shell/src/ui/quick.rs:428
+#: crates/helix-shell/src/ui/quick.rs:1310
+msgid "Power Mode"
+msgstr "전원 모드"
+
+#: crates/helix-shell/src/ui/quick.rs:467
+msgid "Wi-Fi Networks"
+msgstr "Wi-Fi 네트워크"
+
+#: crates/helix-shell/src/ui/quick.rs:468
+msgid "{name} Devices"
+msgstr "{name} 장치"
+
+#: crates/helix-shell/src/ui/quick.rs:469
+msgid "Power Modes"
+msgstr "전원 모드"
+
+#: crates/helix-shell/src/ui/quick.rs:470
+msgid "{name} Settings"
+msgstr "{name} 설정"
+
+#: crates/helix-shell/src/ui/quick.rs:482
+msgid "{n} device"
+msgid_plural "{n} devices"
+msgstr[0] "장치 {n}개"
+
+#: crates/helix-shell/src/ui/quick.rs:523
+msgid "Send Files…"
+msgstr "파일 보내기…"
+
+#: crates/helix-shell/src/ui/quick.rs:526
+msgid "Nearby Devices"
+msgstr "주변 장치"
+
+#: crates/helix-shell/src/ui/quick.rs:528
+msgid "Searching…"
+msgstr "검색하는 중…"
+
+#: crates/helix-shell/src/ui/quick.rs:532
+msgid "Pair New Device…"
+msgstr "새 장치 페어링…"
+
+#: crates/helix-shell/src/ui/quick.rs:554
+msgid "Take Screenshot"
+msgstr "스크린샷 찍기"
+
+#: crates/helix-shell/src/ui/quick.rs:564
+#: crates/helix-shell/src/ui/quick.rs:1287
+msgid "Power Off / Log Out"
+msgstr "전원 끄기/로그아웃"
+
+#: crates/helix-shell/src/ui/quick.rs:1174
+msgid "No Devices"
+msgstr "장치 없음"
+
+#: crates/helix-shell/src/ui/quick.rs:1174
+msgid "No Networks"
+msgstr "네트워크 없음"
+
+#: crates/helix-shell/src/ui/quick.rs:1201
+#: crates/helix-shell/src/ui/quick.rs:1313
+msgid "Connected"
+msgstr "연결됨"
+
+#: crates/helix-shell/src/ui/quick.rs:1276
+msgid "Battery {charge}"
+msgstr "배터리 {charge}"
+
+#: crates/helix-shell/src/ui/quick.rs:1291
+msgid "Mute"
+msgstr "음소거"
+
+#: crates/helix-shell/src/ui/quick.rs:1313
+msgid "Secured"
+msgstr "보안"
+
+#: crates/helix-shell/src/ui/window_menu.rs:77
+msgid "Minimize"
+msgstr "최소화"
+
+#: crates/helix-shell/src/ui/window_menu.rs:79
+msgid "Restore"
+msgstr "복원"
+
+#: crates/helix-shell/src/ui/window_menu.rs:81
+msgid "Maximize"
+msgstr "최대화"
+
+#: crates/helix-shell/src/ui/window_menu.rs:84
+msgid "Move"
+msgstr "이동"
+
+#: crates/helix-shell/src/ui/window_menu.rs:85
+msgid "Resize"
+msgstr "크기 조정"
+
+#: crates/helix-shell/src/ui/window_menu.rs:89
+msgid "Always on Top"
+msgstr "항상 위에"
+
+#: crates/helix-shell/src/ui/window_menu.rs:91
+msgid "Always on Visible Workspace"
+msgstr "항상 보이는 작업 공간에"
+
+#: crates/helix-shell/src/ui/window_menu.rs:94
+msgid "Move to Workspace Left"
+msgstr "왼쪽 작업 공간으로 이동"
+
+#: crates/helix-shell/src/ui/window_menu.rs:97
+msgid "Move to Workspace Right"
+msgstr "오른쪽 작업 공간으로 이동"
+
+#: crates/helix-shell/src/ui/window_menu.rs:101
+msgid "Move to Monitor Left"
+msgstr "왼쪽 모니터로 이동"
+
+#: crates/helix-shell/src/ui/window_menu.rs:102
+msgid "Move to Monitor Right"
+msgstr "오른쪽 모니터로 이동"
+
+#: crates/helix-shell/src/ui/window_menu.rs:103
+msgid "Move to Monitor Up"
+msgstr "위쪽 모니터로 이동"
+
+#: crates/helix-shell/src/ui/window_menu.rs:104
+msgid "Move to Monitor Down"
+msgstr "아래쪽 모니터로 이동"
+
+#: crates/helix-shell/src/ui/workspace_popup.rs:22
+msgid "Workspace {}"
+msgstr "작업 공간 {}"
+
+#: crates/helix-shell/src/usb_protection.rs:90
+msgid "A USB device was plugged in while it is not allowed."
+msgstr "허용되지 않은 상태에서 USB 장치가 연결되었습니다."
+
+#: crates/helix-shell/src/usb_protection.rs:90
+msgid "USB Protection"
+msgstr "USB 보호"
+
+#: crates/helix-shell/src/usb_protection.rs:90
+msgid "USB device blocked"
+msgstr "USB 장치 차단됨"
+
+#: crates/helix-shell/src/vpn_secrets.rs:192
+msgid "VPN Connection"
+msgstr "VPN 연결"
+
+#: crates/helix-shell/src/vpn_secrets.rs:193
+msgid "A password is needed to connect to “{name}”."
+msgstr "“{name}”에 연결하려면 암호가 필요합니다."
+
+#: crates/helix-shell/src/weather.rs:62
+msgid "Mostly Clear"
+msgstr "대체로 맑음"
+
+#: crates/helix-shell/src/weather.rs:62
+msgid "Partly Cloudy"
+msgstr "구름 조금"
+
+#: crates/helix-shell/src/weather.rs:65
+msgid "Cloudy"
+msgstr "흐림"
+
+#: crates/helix-shell/src/weather.rs:66
+msgid "Fog"
+msgstr "안개"
+
+#: crates/helix-shell/src/weather.rs:67
+msgid "Thunderstorm"
+msgstr "뇌우"
+
+#: crates/helix-shell/src/weather.rs:68
+msgid "Snow"
+msgstr "눈"
+
+#: crates/helix-shell/src/weather.rs:69
+msgid "Sleet"
+msgstr "진눈깨비"
+
+#: crates/helix-shell/src/weather.rs:70
+msgid "Light Rain"
+msgstr "약한 비"
+
+#: crates/helix-shell/src/weather.rs:71
+msgid "Rain"
+msgstr "비"
+
+#: crates/helix-shell/src/weather.rs:72
+msgid "Unknown"
+msgstr "알 수 없음"
+
+#. Translators: a temperature in degrees Celsius.
+#: crates/helix-shell/src/weather.rs:87
+msgid "{}°C"
+msgstr "{}°C"
+
+#. Translators: a temperature in degrees Fahrenheit.
+#: crates/helix-shell/src/weather.rs:89
+msgid "{}°F"
+msgstr "{}°F"
+
+#. Translators: a temperature in kelvins.
+#: crates/helix-shell/src/weather.rs:91
+msgid "{} K"
+msgstr "{} K"
+
+#: crates/helix-shell/src/weather.rs:125
+msgid "Current Location"
+msgstr "현재 위치"
+
+#: crates/helix-shell/src/welcome.rs:47
+msgid "Welcome"
+msgstr "환영합니다"
+
+#: crates/helix-shell/src/welcome.rs:48
+msgid "Would you like a short tour of the desktop?"
+msgstr "데스크톱을 간단히 둘러보시겠습니까?"
+
+#: crates/helix-shell/src/welcome.rs:49
+msgid "Take Tour"
+msgstr "둘러보기"
+
+#: crates/helix-shell/src/welcome.rs:50
+msgid "No Thanks"
+msgstr "괜찮습니다"
+
+#: crates/helix-shell/src/wellbeing.rs:43
+msgid "Eyesight Break"
+msgstr "눈 휴식"
+
+#: crates/helix-shell/src/wellbeing.rs:44
+msgid "Movement Break"
+msgstr "움직임 휴식"
+
+#: crates/helix-shell/src/wellbeing.rs:50
+msgid "Look at something far away"
+msgstr "먼 곳을 바라보십시오"
+
+#: crates/helix-shell/src/wellbeing.rs:51
+msgid "Stand up and move around"
+msgstr "일어나서 몸을 움직이십시오"
+
+#. Translators: a duration, "2 hours and 5 minutes".
+#: crates/helix-shell/src/wellbeing.rs:243
+msgid "{hours} and {minutes}"
+msgstr "{hours} {minutes}"
+
+#: crates/helix-shell/src/wellbeing.rs:365
+msgid "A break starts in one minute."
+msgstr "1분 후 휴식이 시작됩니다."
+
+#: crates/helix-shell/src/wellbeing.rs:365
+#: crates/helix-shell/src/wellbeing.rs:371
+#: crates/helix-shell/src/wellbeing.rs:382
+msgid "Break Reminders"
+msgstr "휴식 알림"
+
+#: crates/helix-shell/src/wellbeing.rs:365
+msgid "{} Soon"
+msgstr "곧 {}"
+
+#: crates/helix-shell/src/wellbeing.rs:371
+msgid "Break Overdue"
+msgstr "휴식 시간 지남"
+
+#: crates/helix-shell/src/wellbeing.rs:371
+msgid "You have been working for {minutes} minute without a break."
+msgid_plural "You have been working for {minutes} minutes without a break."
+msgstr[0] "휴식 없이 {minutes}분 동안 작업했습니다."
+
+#: crates/helix-shell/src/wellbeing.rs:426
+msgid "Screen Time"
+msgstr "화면 사용 시간"
+
+#: crates/helix-shell/src/wellbeing.rs:426
+msgid "Screen Time Limit Reached"
+msgstr "화면 사용 시간 제한 도달"
+
+#: crates/helix-shell/src/wellbeing.rs:426
+msgid "You have used the computer for {} today."
+msgstr "오늘 컴퓨터를 {} 동안 사용했습니다."
+
+#: crates/helix-shell/src/windows.rs:266
+msgid "Untitled window"
+msgstr "제목 없는 창"
+
+#: session/helix.desktop
+msgid "Helix"
+msgstr "Helix"
+
+#: session/helix.desktop
+msgid "Helix desktop session"
+msgstr "Helix 데스크톱 세션"

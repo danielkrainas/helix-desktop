@@ -42,14 +42,13 @@ jobs:
           workspaces: helix-desktop
 
       # po/POTFILES and the template must match the sources, and every
-      # translation must compile (TRANSLATING.md).
+      # translation must compile (msgfmt --check) and keep the placeholders
+      # and date fields of the original messages (TRANSLATING.md).
       - name: Check translations
         working-directory: helix-desktop
         run: |
           tools/i18n/update-pot.sh --check
-          for lang in $(sed 's/#.*//' po/LINGUAS); do
-            msgfmt --check --statistics -o /dev/null "po/$lang.po"
-          done
+          python3 tools/i18n/check-po.py
 
       - name: Clippy
         working-directory: helix-desktop

@@ -141,6 +141,18 @@ Helix reads your existing GNOME settings (wallpaper, dark style, fonts,
 keyboard layouts, shortcuts, accessibility), so moving between Helix and
 GNOME keeps them.
 
+## Languages
+
+The desktop (shell, lock screen, system and portal dialogs, login
+screen) is translated into Spanish, French, German, Brazilian
+Portuguese, Russian, Simplified Chinese, Japanese, Italian, Polish,
+Dutch, Korean and Ukrainian, and follows the language of your session.
+These first translations are machine translations that no native
+speaker has reviewed yet; corrections and reviews are welcome. Chinese,
+Japanese and Korean need the Noto CJK fonts (`fonts-noto-cjk` on
+Debian/Ubuntu). See [TRANSLATING.md](TRANSLATING.md) for each language's
+status and how to help.
+
 ## Building
 
 Besides Rust, building needs the development packages listed in

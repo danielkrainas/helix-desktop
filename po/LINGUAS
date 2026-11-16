@@ -1,2 +1,14 @@
 # Languages with a translation in po/<lang>.po, one per line.
 # See TRANSLATING.md.
+de
+es
+fr
+it
+ja
+ko
+nl
+pl
+pt_BR
+ru
+uk
+zh_CN

@@ -77,11 +77,12 @@ const EAP_SECRETS: [&str; 7] = [
 
 /// What one of [`EAP_SECRETS`] is called in the dialog: (in the message,
 /// the field).
-fn eap_secret_names(key: &str) -> (&'static str, &'static str) {
+fn eap_secret_prompt(key: &str, name: &str) -> (String, &'static str) {
+    // Whole sentences, so each language can phrase them its own way.
     match key {
-        "pin" => ("the smart card's PIN", "PIN"),
-        k if k.ends_with("private-key-password") => ("the password of your private key", tr("Private key password")),
-        _ => ("the certificate's password", tr("Certificate password")),
+        "pin" => (trf!("The smart card's PIN is needed to connect to “{}”.", name), "PIN"),
+        k if k.ends_with("private-key-password") => (trf!("The password of your private key is needed to connect to “{}”.", name), tr("Private key password")),
+        _ => (trf!("The certificate's password is needed to connect to “{}”.", name), tr("Certificate password")),
     }
 }
 
@@ -178,11 +179,6 @@ pub fn wanted(settings: &Settings, setting_name: &str, hints: &[String]) -> Opti
     Some(Need { wanted, name, user, wired })
 }
 
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
-}
-
 /// The dialog for `need`.
 pub fn prompt_for(need: &Need, user: &str, warning: String) -> Prompt {
     let (message, password) = match need.wanted {
@@ -192,10 +188,7 @@ pub fn prompt_for(need: &Need, user: &str, warning: String) -> Prompt {
         Wanted::Mobile { .. } => (trf!("A password is needed to connect to “{}”.", need.name), tr("Password")),
         Wanted::Pin => (trf!("The SIM card's PIN is needed to connect to “{}”.", need.name), "PIN"),
         Wanted::Pppoe => (trf!("A user name and password are needed to connect to “{}”.", need.name), tr("Password")),
-        Wanted::EapSecret(key) => {
-            let (what, field) = eap_secret_names(key);
-            (trf!("{} is needed to connect to “{}”.", capitalize(what), need.name), field)
-        }
+        Wanted::EapSecret(key) => eap_secret_prompt(key, &need.name),
     };
     let title = match need.wanted {
         Wanted::Mobile { .. } | Wanted::Pin => tr("Mobile Broadband"),

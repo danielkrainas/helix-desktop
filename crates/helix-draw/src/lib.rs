@@ -328,28 +328,45 @@ pub struct Text {
 }
 
 /// Fonts for characters the main font lacks, by character (fontconfig's
-/// best font with that character), loaded once per process.
+/// best font with that character), loaded once per process. A font
+/// already loaded for another character that has this one is used without
+/// asking fontconfig again: a CJK text needs hundreds of characters from
+/// one font, and asking for each would stall the first frame.
 fn fallback_font(c: char) -> Option<Arc<FontVec>> {
-    type Cache = Mutex<(HashMap<char, Option<Arc<FontVec>>>, HashMap<String, Arc<FontVec>>)>;
+    type Cache = Mutex<(HashMap<char, Option<Arc<FontVec>>>, Vec<((String, u32), Arc<FontVec>)>)>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    if let Some(found) = cache.lock().unwrap_or_else(|e| e.into_inner()).0.get(&c) {
-        return found.clone();
+    {
+        let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(found) = cache.0.get(&c) {
+            return found.clone();
+        }
+        if let Some(font) = cache.1.iter().map(|(_, f)| f).find(|f| f.glyph_id(c).0 != 0).cloned() {
+            cache.0.insert(c, Some(font.clone()));
+            return Some(font);
+        }
     }
-    let path = std::process::Command::new("fc-match")
-        .args(["-f", "%{file}", &format!("sans-serif:charset={:x}", c as u32)])
+    // The face's index too: CJK fonts come as collections (.ttc) whose
+    // faces differ by language (Noto Sans CJK JP, KR, SC…), and fontconfig
+    // picks the one for the locale's language.
+    let found = std::process::Command::new("fc-match")
+        .args(["-f", "%{file}\n%{index}", &format!("sans-serif:charset={:x}", c as u32)])
         .output()
         .ok()
         .filter(|out| out.status.success())
-        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned());
+        .and_then(|out| {
+            let out = String::from_utf8_lossy(&out.stdout).into_owned();
+            let (path, index) = out.split_once('\n')?;
+            Some((path.to_owned(), index.trim().parse::<u32>().unwrap_or(0)))
+        });
     let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
-    let font = path.and_then(|path| {
-        if let Some(font) = cache.1.get(&path) {
+    let font = found.and_then(|key| {
+        if let Some((_, font)) = cache.1.iter().find(|(k, _)| *k == key) {
             return Some(font.clone());
         }
-        let font = Arc::new(FontVec::try_from_vec(std::fs::read(&path).ok()?).ok()?);
-        tracing::debug!(path, "loaded fallback font");
-        cache.1.insert(path, font.clone());
+        let font = Arc::new(FontVec::try_from_vec_and_index(std::fs::read(&key.0).ok()?, key.1).ok()?);
+        tracing::debug!(path = key.0, index = key.1, "loaded fallback font");
+        cache.1.push((key, font.clone()));
         Some(font)
     });
     let font = font.filter(|f| f.glyph_id(c).0 != 0);
@@ -546,30 +563,61 @@ impl Text {
     }
 
     /// Word-wrap `text` into at most `max_lines` lines of `max_width`; the
-    /// last line is ellipsized if text remains.
+    /// last line is ellipsized if text remains. Lines break at spaces and
+    /// between the characters of scripts written without spaces (see
+    /// [`break_pieces`]); a word wider than a line is broken between its
+    /// characters.
     pub fn wrap(&self, text: &str, px: f32, max_width: f32, max_lines: usize) -> Vec<String> {
         let mut lines: Vec<String> = Vec::new();
         let mut current = String::new();
-        let mut words = text.split_whitespace().peekable();
-        for word in words.by_ref() {
-            let candidate = if current.is_empty() { word.to_owned() } else { format!("{current} {word}") };
-            if self.width(&candidate, px) <= max_width || current.is_empty() {
+        let pieces = self.split_wide(break_pieces(text.trim()), px, max_width);
+        let mut pieces = pieces.into_iter().peekable();
+        for piece in pieces.by_ref() {
+            let candidate = format!("{current}{piece}");
+            if self.width(candidate.trim_end(), px) <= max_width || current.is_empty() {
                 current = candidate;
                 continue;
             }
-            lines.push(std::mem::take(&mut current));
-            current = word.to_owned();
+            lines.push(std::mem::take(&mut current).trim_end().to_owned());
+            current = piece;
             if lines.len() == max_lines {
                 break;
             }
         }
+        let current = current.trim_end().to_owned();
         if lines.len() < max_lines && !current.is_empty() {
             lines.push(current);
-        } else if lines.len() == max_lines && (!current.is_empty() || words.peek().is_some()) {
+        } else if lines.len() == max_lines && (!current.is_empty() || pieces.peek().is_some()) {
             let last = lines.pop().unwrap_or_default();
             lines.push(self.fit(&format!("{last}…"), px, max_width));
         }
         lines.iter().map(|l| self.fit(l, px, max_width)).collect()
+    }
+
+    /// `pieces` with each one wider than `max_width` cut between its
+    /// characters into pieces that fit (the trailing space stays with the
+    /// last).
+    fn split_wide(&self, pieces: Vec<String>, px: f32, max_width: f32) -> Vec<String> {
+        let mut out = Vec::with_capacity(pieces.len());
+        for piece in pieces {
+            if self.width(piece.trim_end(), px) <= max_width {
+                out.push(piece);
+                continue;
+            }
+            let mut part = String::new();
+            for c in piece.chars() {
+                let candidate = format!("{part}{c}");
+                if !part.is_empty() && !c.is_whitespace() && self.width(&candidate, px) > max_width {
+                    out.push(std::mem::replace(&mut part, c.to_string()));
+                } else {
+                    part = candidate;
+                }
+            }
+            if !part.is_empty() {
+                out.push(part);
+            }
+        }
+        out
     }
 
     fn fit(&self, text: &str, px: f32, max_width: f32) -> String {
@@ -918,31 +966,86 @@ pub struct Piece {
     pub width: f32,
 }
 
+/// Whether `c` belongs to a script written without spaces between words
+/// (Han ideographs, kana, CJK punctuation and full-width forms), so a
+/// line may break before and after it. Hangul is written with spaces and
+/// breaks at them, as Korean typesetting prefers.
+fn breaks_around(c: char) -> bool {
+    matches!(c as u32,
+        0x2E80..=0x2FFF        // CJK radicals, Kangxi radicals
+        | 0x3000..=0x303F      // CJK symbols and punctuation
+        | 0x3040..=0x30FF      // Hiragana, Katakana
+        | 0x3100..=0x31FF      // Bopomofo, Katakana extensions…
+        | 0x3200..=0x33FF      // enclosed CJK letters, CJK compatibility
+        | 0x3400..=0x4DBF      // CJK unified ideographs extension A
+        | 0x4E00..=0x9FFF      // CJK unified ideographs
+        | 0xF900..=0xFAFF      // CJK compatibility ideographs
+        | 0xFE30..=0xFE4F      // CJK compatibility forms
+        | 0xFF00..=0xFFEF      // half- and full-width forms
+        | 0x20000..=0x3FFFF)   // ideographs of the supplementary planes
+}
+
+/// Characters a line must not start with (closing brackets and
+/// punctuation, small kana, the prolonged sound mark): Japanese and
+/// Chinese line-breaking rules (kinsoku), as in UAX #14.
+fn no_break_before(c: char) -> bool {
+    "、。，．,.：；:;！？!?)）]］}｝」』】〕〉》〙〗〛”’'\"%％‰ーぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ・…‥々〻ゝゞヽヾ゛゜°℃".contains(c)
+}
+
+/// Characters a line must not end with (opening brackets and quotes).
+fn no_break_after(c: char) -> bool {
+    "(（[［{｛「『【〔〈《〘〖〚“‘".contains(c)
+}
+
+/// `text` cut into the pieces between which a line may break: at spaces
+/// (a piece keeps one space after it; runs of white space become one) and
+/// before and after each character of a script written without spaces
+/// (Chinese, Japanese), except where the line-breaking rules keep
+/// punctuation with its neighbour. The pieces put together are `text`
+/// with its white space collapsed.
+pub fn break_pieces(text: &str) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut current = String::new();
+    let mut prev: Option<char> = None;
+    for c in text.chars() {
+        if c.is_whitespace() {
+            if !current.ends_with(' ') {
+                current.push(' ');
+            }
+            prev = None;
+            continue;
+        }
+        let after_space = current.ends_with(' ');
+        let between = prev.is_some_and(|p| (breaks_around(p) || breaks_around(c)) && !no_break_before(c) && !no_break_after(p));
+        if !current.is_empty() && (after_space || between) {
+            pieces.push(std::mem::take(&mut current));
+        }
+        current.push(c);
+        prev = Some(c);
+    }
+    if !current.is_empty() {
+        pieces.push(current);
+    }
+    pieces
+}
+
 /// Word-wrap `spans` into at most `max_lines` lines of `max_width`; the
 /// last line ends in an ellipsis if text remains. Newlines break lines.
 pub fn wrap_spans(fonts: &Fonts, spans: &[Span], px: f32, max_width: f32, max_lines: usize) -> Vec<Vec<Piece>> {
-    // Words and the spaces before them, with their span.
+    // Pieces between which lines may break (words with the space after
+    // them, single CJK characters: see `break_pieces`), with their span.
     let mut tokens: Vec<(String, usize, bool)> = Vec::new(); // (text, span, newline before)
     let mut newline = false;
     for (i, span) in spans.iter().enumerate() {
-        let mut word = String::new();
-        for c in span.text.chars() {
-            if c == '\n' {
-                if !word.is_empty() {
-                    tokens.push((std::mem::take(&mut word), i, newline));
-                }
+        let face = fonts.face(span.bold);
+        for (n, part) in span.text.split('\n').enumerate() {
+            if n > 0 {
                 newline = true;
-            } else if c.is_whitespace() {
-                word.push(' ');
-                tokens.push((std::mem::take(&mut word), i, newline));
-                newline = false;
-            } else {
-                word.push(c);
             }
-        }
-        if !word.is_empty() {
-            tokens.push((word, i, newline));
-            newline = false;
+            for piece in face.split_wide(break_pieces(part), px, max_width) {
+                tokens.push((piece, i, newline));
+                newline = false;
+            }
         }
     }
     let mut lines: Vec<Vec<Piece>> = vec![Vec::new()];
@@ -1078,5 +1181,82 @@ mod rich_tests {
         }
         let breaks = wrap_spans(&fonts, &[Span { text: "one\ntwo".into(), ..Default::default() }], 14.0, 500.0, 3);
         assert_eq!(breaks.len(), 2, "{breaks:?}");
+    }
+
+    #[test]
+    fn break_opportunities() {
+        let p = |t: &str| break_pieces(t);
+        assert_eq!(p("Hello  world\tagain"), ["Hello ", "world ", "again"]);
+        assert_eq!(p(""), Vec::<String>::new());
+        // Chinese and Japanese break between characters, but closing
+        // punctuation stays with the character before it and opening
+        // brackets with the one after (kinsoku).
+        assert_eq!(p("网络已连接。"), ["网", "络", "已", "连", "接。"]);
+        assert_eq!(p("（测试）"), ["（测", "试）"]);
+        assert_eq!(p("「設定」を開く"), ["「設", "定」", "を", "開", "く"]);
+        assert_eq!(p("ちょっと"), ["ちょっ", "と"], "small kana never start a line");
+        assert_eq!(p("メニュー…"), ["メ", "ニュー…"]);
+        // Latin words next to CJK stay whole; spaces still break.
+        assert_eq!(p("Wi-Fi 网络"), ["Wi-Fi ", "网", "络"]);
+        assert_eq!(p("打开Helix设置"), ["打", "开", "Helix", "设", "置"]);
+        // Korean breaks at its spaces.
+        assert_eq!(p("한국어 텍스트입니다"), ["한국어 ", "텍스트입니다"]);
+        // Put back together: the text with its white space collapsed.
+        let text = "通知  已经\n清除，请稍后再试。";
+        assert_eq!(p(text).concat(), "通知 已经 清除，请稍后再试。");
+    }
+
+    /// Text without spaces (Chinese, Japanese) and words wider than the
+    /// line wrap instead of being cut off with an ellipsis.
+    #[test]
+    fn wrapping_cjk() {
+        let Some(text) = Text::load() else { return };
+        if fallback_font('网').is_none() && !text.covers("网") {
+            eprintln!("no CJK font installed (fonts-noto-cjk); skipped");
+            return;
+        }
+        let sentence = "无法连接到网络，请检查您的网络设置后再试一次。";
+        let width = text.width("无法连接到网", 14.0) + 1.0;
+        let lines = text.wrap(sentence, 14.0, width, 10);
+        assert!(lines.len() >= 3, "{lines:?}");
+        assert_eq!(lines.concat(), sentence, "nothing lost or ellipsized");
+        for line in &lines {
+            assert!(text.width(line, 14.0) <= width, "{line:?} wider than {width}");
+            assert!(!line.starts_with(['，', '。']), "{line:?} starts with closing punctuation");
+        }
+        // Cut to two lines: the second ends in an ellipsis.
+        let two = text.wrap(sentence, 14.0, width, 2);
+        assert_eq!(two.len(), 2);
+        assert!(two[1].ends_with('…'), "{two:?}");
+
+        let japanese = "このアプリケーションは応答していません";
+        let lines = text.wrap(japanese, 14.0, text.width("このアプリケ", 14.0) + 1.0, 10);
+        assert!(lines.len() >= 3, "{lines:?}");
+        assert_eq!(lines.concat(), japanese);
+
+        let fonts = Fonts { regular: &text, bold: Some(&text) };
+        let spans = vec![
+            Span { text: "微信 ".into(), bold: true, ..Default::default() },
+            Span { text: sentence.into(), ..Default::default() },
+        ];
+        let lines = wrap_spans(&fonts, &spans, 14.0, width, 10);
+        assert!(lines.len() >= 3, "{lines:?}");
+        let joined: String = lines.iter().flatten().map(|p| p.text.as_str()).collect();
+        assert_eq!(joined, format!("微信 {sentence}"));
+        for line in &lines {
+            let end = line.last().unwrap();
+            assert!(end.x + text.width(end.text.trim_end(), 14.0) <= width + 0.5, "{line:?}");
+        }
+    }
+
+    #[test]
+    fn wrapping_long_words() {
+        let Some(text) = Text::load() else { return };
+        let word = "Bildschirmfreigabeberechtigungseinstellungen";
+        let width = text.width("Bildschirm", 14.0);
+        let lines = text.wrap(&format!("Die {word} öffnen"), 14.0, width, 10);
+        assert!(lines.iter().all(|l| text.width(l, 14.0) <= width), "{lines:?}");
+        assert_eq!(lines.concat().replace(' ', ""), format!("Die{word}öffnen"));
+        assert_eq!(lines[0], "Die", "a word that does not fit starts a new line");
     }
 }

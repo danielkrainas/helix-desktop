@@ -563,7 +563,20 @@ impl Ui {
 /// one). Returns its box and each entry's place.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32, i32), at: (i32, i32), items: &[Option<Item>], selected: Option<usize>, ring: bool, sources: bool) -> (Rect, Vec<(Rect, usize)>) {
-    let (menu_w, item_h) = (menu_w(), item_h());
+    let item_h = item_h();
+    let radio_marks = sources || items.iter().flatten().any(|i| i.active);
+    // Wide enough for the longest label (translations run longer than
+    // English), up to twice the usual width; longer labels are shortened.
+    let needed = items
+        .iter()
+        .flatten()
+        .map(|item| {
+            let extra = 12 + if item.checked.is_some() { 24 } else { 0 } + if radio_marks { 16 } else { 0 } + if item.choice == Choice::Back { 14 } else { 0 } + 24 + 8;
+            text.map_or(0, |t| t.width(&item.label, size::LABEL).ceil() as i32) + extra
+        })
+        .max()
+        .unwrap_or(0);
+    let menu_w = needed.clamp(menu_w(), menu_w() * 2).min((w - 16).max(menu_w()));
     let mh: i32 = 8 + items.iter().map(|i| if i.is_some() { item_h } else { SEPARATOR_H }).sum::<i32>();
     // Keep it on the output.
     let mx = at.0.clamp(0, (w - menu_w).max(0));
@@ -572,8 +585,7 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
     let bounds = Rect { x: mx, y: my, w: menu_w, h: mh };
     let mut hits = Vec::new();
     let mut y = my + 4;
-    // Radio items show which one is on.
-    let radio_marks = sources || items.iter().flatten().any(|i| i.active);
+    // Radio items show which one is on (`radio_marks`).
     for (i, item) in items.iter().enumerate() {
         let Some(item) = item else {
             theme::separator(canvas, mx + 8, y + SEPARATOR_H / 2, menu_w - 16);

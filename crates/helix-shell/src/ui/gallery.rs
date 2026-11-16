@@ -1140,7 +1140,8 @@ fn locale() {
         copy(canvas, &panel_data);
     });
     let entries = sample();
-    let cal = sample_calendar(true);
+    // The week starts on the locale's first weekday, as in the shell.
+    let cal = sample_calendar(true).with_locale_week_start();
     render(&dir, &name("list"), DARK, (w, h, 1.0), |canvas| {
         paint_sample(canvas, (text.as_ref(), bold.as_ref()), (w, h), &entries, &Default::default(), &cal, None);
         copy(canvas, &panel_data);

@@ -69,6 +69,14 @@ impl Default for CalendarState {
 }
 
 impl CalendarState {
+    /// This state with the locale's first weekday, as the shell sets it
+    /// when the list opens (for render galleries).
+    #[cfg(test)]
+    pub(in crate::ui) fn with_locale_week_start(mut self) -> Self {
+        self.week_start = Some(locale_week_start());
+        self
+    }
+
     /// The first day the grid shows (local midnight).
     fn first_shown(&self) -> Option<DateTime> {
         let first = local_date(self.month.0, self.month.1, 1)?;

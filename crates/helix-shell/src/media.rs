@@ -224,7 +224,8 @@ thread_local! {
 
 /// "a, b, c" for at most five programs, then "and N more".
 pub fn program_list(names: &[String]) -> String {
-    let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
+    // Translators: the separator between the names of a list ("a, b, c").
+    let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(helix_i18n::tr(", "));
     match names.len() {
         n if n > 5 => helix_i18n::trnf!("{shown} and {n} more", "{shown} and {n} more", n - 5, shown = shown),
         _ => shown,

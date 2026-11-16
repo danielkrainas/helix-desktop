@@ -1198,11 +1198,33 @@ fn paint_question_with(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option
                 UPGRADE_REBOOT => (tr("Restart & Install Upgrade"), tr("Restart & Install")),
                 _ => (tr("Log Out"), tr("Log Out")),
             };
-            let confirm = if d.blockers.is_empty() { verb.to_owned() } else { trf!("{verb} Anyway", verb = verb) };
+            // Whole labels, so each language can word them its own way.
+            let confirm = if d.blockers.is_empty() {
+                verb.to_owned()
+            } else {
+                match d.kind {
+                    SHUTDOWN => tr("Power Off Anyway"),
+                    REBOOT => tr("Restart Anyway"),
+                    UPDATE_REBOOT | UPGRADE_REBOOT => tr("Restart & Install Anyway"),
+                    _ => tr("Log Out Anyway"),
+                }
+                .to_owned()
+            };
             let message = match (d.kind, &d.upgrade) {
-                (UPDATE_REBOOT, _) => trf!("The computer will restart and install updates in {remaining} seconds. Installing can take a while.", remaining = remaining),
-                (UPGRADE_REBOOT, Some(name)) => trf!("{name} will be installed after the restart, in {remaining} seconds. Installing can take a long time.", name = name, remaining = remaining),
-                _ => trf!("The session will end automatically in {remaining} seconds.", remaining = remaining),
+                (UPDATE_REBOOT, _) => helix_i18n::trnf!(
+                    "The computer will restart and install updates in {remaining} second. Installing can take a while.",
+                    "The computer will restart and install updates in {remaining} seconds. Installing can take a while.",
+                    remaining,
+                    remaining = remaining
+                ),
+                (UPGRADE_REBOOT, Some(name)) => helix_i18n::trnf!(
+                    "{name} will be installed after the restart, in {remaining} second. Installing can take a long time.",
+                    "{name} will be installed after the restart, in {remaining} seconds. Installing can take a long time.",
+                    remaining,
+                    name = name,
+                    remaining = remaining
+                ),
+                _ => helix_i18n::trnf!("The session will end automatically in {remaining} second.", "The session will end automatically in {remaining} seconds.", remaining, remaining = remaining),
             };
             (title.to_owned(), message, tr("Cancel"), confirm, &d.blockers)
         }
@@ -1231,7 +1253,7 @@ fn paint_question_with(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option
         ),
         DialogKind::DisplayChange => (
             tr("Keep the new display settings?").to_owned(),
-            trf!("The previous settings come back in {remaining} seconds.", remaining = remaining),
+            helix_i18n::trnf!("The previous settings come back in {remaining} second.", "The previous settings come back in {remaining} seconds.", remaining, remaining = remaining),
             tr("Revert"),
             tr("Keep").to_owned(),
             &no_blockers,

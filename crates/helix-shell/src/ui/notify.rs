@@ -926,7 +926,8 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     label(text, canvas, tr("Do Not Disturb"), (switch.x + switch.w + 10) as f32, baseline(text, switch.y, switch.h, size::LABEL), size::LABEL, FG, helix_draw::theme::grow(160) as f32);
     hits.push((Rect { x: switch.x, y: switch.y, w: switch.w + 10 + text.map_or(130, |t| t.width(tr("Do Not Disturb"), size::LABEL) as i32), h: switch.h }, ListHit::DoNotDisturb));
     if !m.entries.is_empty() {
-        let clear_w = helix_draw::theme::grow(64);
+        // As wide as its label needs ("Очистить", "Alle löschen").
+        let clear_w = helix_draw::theme::grow(64).max(text.map_or(0, |t| t.width(tr("Clear"), helix_draw::theme::size::BODY).ceil() as i32 + 24));
         let clear = Rect { x: bx + list_w() - LIST_PAD - clear_w, y: by + 8, w: clear_w, h: helix_draw::theme::grow(26) };
         theme::button(canvas, text, (clear.x, clear.y, clear.w, clear.h), tr("Clear"), theme::Kind::Normal, m.look(&ListHit::Clear), false);
         hits.push((clear, ListHit::Clear));

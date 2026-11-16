@@ -8,6 +8,46 @@ several of them use ("Cancel", "Power Off", "Restart") is translated
 once. Helix's applications are translated separately, in the helix-apps
 repository, the same way.
 
+## Languages
+
+| Code | Language | Status |
+| --- | --- | --- |
+| `de` | German | machine-translated, unreviewed |
+| `es` | Spanish | machine-translated, unreviewed |
+| `fr` | French | machine-translated, unreviewed |
+| `it` | Italian | machine-translated, unreviewed |
+| `ja` | Japanese | machine-translated, unreviewed |
+| `ko` | Korean | machine-translated, unreviewed |
+| `nl` | Dutch | machine-translated, unreviewed |
+| `pl` | Polish | machine-translated, unreviewed |
+| `pt_BR` | Portuguese (Brazil) | machine-translated, unreviewed |
+| `ru` | Russian | machine-translated, unreviewed |
+| `uk` | Ukrainian | machine-translated, unreviewed |
+| `zh_CN` | Chinese (Simplified) | machine-translated, unreviewed |
+
+The first catalogues were machine-translated and shipped without review
+(their header says `Last-Translator: Machine translation (unreviewed)`),
+as Helix's applications' were. If you are a fluent speaker, reports of
+wrong or awkward translations are welcome as issues, and so is a review
+of a whole catalogue: correct `po/<lang>.po`, put your name in its
+`Last-Translator` header, and change the language's status here to
+"reviewed".
+
+## Fonts
+
+Chinese, Japanese and Korean need a font that has their characters;
+Helix draws characters its interface font lacks with the font
+fontconfig picks for them (`fc-match 'sans-serif:charset=<hex>'`), and
+takes the face of a font collection that fontconfig chooses for the
+locale's language (Noto Sans CJK SC for `zh_CN`, JP for `ja`). Install
+Noto CJK: `fonts-noto-cjk` on Debian and Ubuntu (the `helix-desktop`
+package suggests it), `google-noto-sans-cjk-fonts` on Fedora,
+`noto-fonts-cjk` on Arch Linux. Without such a font those characters are
+drawn as empty boxes. Text in these languages wraps between characters
+(not only at spaces), keeping closing punctuation with the character
+before it and opening brackets with the one after, as Chinese and
+Japanese typesetting do; Korean wraps at its spaces.
+
 ## Adding a language
 
 You need the GNU gettext tools (`msginit`, `msgmerge`, `msgfmt`).
@@ -20,7 +60,11 @@ You need the GNU gettext tools (`msginit`, `msgmerge`, `msgfmt`).
 2. Add the language code (`de`) on its own line to `po/LINGUAS`.
 3. Translate `po/de.po` with a PO editor (Poedit, GNOME Translation
    Editor, Lokalize) or a text editor.
-4. Check it: `msgfmt --check --statistics -o /dev/null po/de.po`.
+4. Check it: `python3 tools/i18n/check-po.py de` (CI runs it for every
+   language). It runs `msgfmt --check` and checks that each translation
+   keeps the `{placeholders}`, `%d`-style substitutions, line breaks and,
+   in date and time patterns, the same kinds of fields as the original;
+   `--untranslated` lists what is left to do.
 
 `packaging/stage.sh` compiles every language listed in `po/LINGUAS` to
 `/usr/share/locale/<lang>/LC_MESSAGES/helix-desktop.mo` (installed by the
@@ -53,6 +97,16 @@ repository always matches the sources.
   dialogs and login screen then lay themselves out mirrored.
 - The percentage message `{}%` decides how percentages are written
   (`{} %`, `%{}`).
+- In date patterns, `%B` is the month name as it is written in a date
+  (the genitive in Russian, Ukrainian and Polish: "16 ноября") and `%OB`
+  the month on its own ("Ноябрь", in headings). Chinese, Japanese and
+  Korean may write months as numbers (`%Y年%-m月`). Keep a 12-hour
+  pattern 12-hour (`%l` or `%I` with `%p`) and a 24-hour one 24-hour.
+- Typography: use the real ellipsis (`…`) and your language's quotation
+  marks; the original's `“{}”` becomes `„{}“`, `«{}»`, `「{}」`… The
+  interface has no keyboard mnemonics (no `_` access keys).
+- Keep labels of buttons, switches and quick settings tiles short:
+  longer ones are shortened with an ellipsis.
 
 ## Trying a translation without installing it
 
@@ -88,7 +142,13 @@ files `locale-<tag>-…`):
 
 (`ui::gallery::locale`, `ui::lock::tests::locale_gallery` and the
 greeter's `paint::tests::locale`.) For a language with a translation,
-build its catalogue with `msgfmt` into the same directory layout instead.
+build its catalogue with `msgfmt` into the same directory layout instead,
+for example for Japanese:
+
+    mkdir -p /tmp/helix-locale/ja/LC_MESSAGES
+    msgfmt -o /tmp/helix-locale/ja/LC_MESSAGES/helix-desktop.mo po/ja.po
+    localedef -i ja_JP -f UTF-8 /tmp/helix-locpath/ja_JP.UTF-8     # if ja_JP is not installed
+    export HELIX_LOCALEDIR=/tmp/helix-locale LOCPATH=/tmp/helix-locpath LANGUAGE=ja LANG=ja_JP.UTF-8 HELIX_GALLERY_TAG=ja
 
 ## For developers
 
