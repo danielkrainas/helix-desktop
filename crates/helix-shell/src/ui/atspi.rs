@@ -66,9 +66,40 @@ pub(super) fn overview_title() -> &'static str {
     tr("Window Overview")
 }
 
-/// What the app grid last showed: the page's cells, the open folder's
-/// cells, the selected item, the page dots, the page.
-pub(super) type GridShown<'a> = (&'a [(Rect, String)], &'a [(Rect, String)], Option<usize>, &'a [(Rect, usize)], usize);
+/// What the app grid last showed: the cells by key (the "Recent" row's
+/// first), the open folder's cells, the selected item, the page dots, the
+/// page, how many of the cells are the "Recent" row's.
+pub(super) type GridShown<'a> = (&'a [(Rect, String)], &'a [(Rect, String)], Option<usize>, &'a [(Rect, usize)], usize, usize);
+
+/// The app grid's nodes: the open folder's apps, else the "Recent" row
+/// ("Recent Apps") and the page ("Applications") as groups of buttons,
+/// and the pages.
+pub(super) fn grid_nodes(model: &crate::launcher::Launcher, (cells, folder_cells, selected, dots, page, row): GridShown<'_>) -> Vec<Node> {
+    let name = |key: &str| {
+        let id = super::app_grid::item_id(key);
+        model.apps.iter().find(|a| a.id == id).map(|a| a.name.clone()).or_else(|| model.folders.iter().find(|f| f.id == id).map(|f| f.name.clone())).unwrap_or_default()
+    };
+    let mut out = Vec::new();
+    if let Some(folder) = model.open_folder.and_then(|i| model.folders.get(i)) {
+        let current = selected.and_then(|k| folder.apps.get(k));
+        let apps = folder_cells.iter().map(|(r, id)| Node::button(name(id), (*r).into()).id(id.clone()).selected(current == Some(id)).focused(current == Some(id)));
+        out.push(Node::new(Role::Group, &folder.name).id(format!("folder:{}", folder.id)).children(apps));
+        return out;
+    }
+    let row = row.min(cells.len());
+    let button = |i: usize, (r, key): &(Rect, String)| Node::button(name(key), (*r).into()).id(key.clone()).selected(selected == Some(i)).focused(selected == Some(i));
+    if row > 0 {
+        let recent = cells[..row].iter().enumerate().map(|(i, c)| button(i, c));
+        out.push(Node::new(Role::Group, tr("Recent Apps")).id("recent").children(recent));
+    }
+    let apps = cells[row..].iter().enumerate().map(|(i, c)| button(row + i, c));
+    out.push(Node::new(Role::Group, tr("Applications")).id("grid").children(apps));
+    if dots.len() > 1 {
+        let pages = dots.iter().map(|(r, p)| Node::button(trf!("Page {}", p + 1), (*r).into()).selected(*p == page));
+        out.push(Node::new(Role::Group, tr("Pages")).id("pages").children(pages));
+    }
+    out
+}
 /// A dock shown: its surface, monitor area, size, its items' places and
 /// what they show, and the item with the keyboard focus.
 pub(super) type DockShown<'a> = (&'a WlSurface, (i32, i32, i32, i32), (u32, u32), Vec<(Rect, &'a crate::dock::Item, crate::dock::ItemState)>, Option<usize>);
@@ -645,14 +676,13 @@ impl Ui {
         let model = &view.model;
         let field = Rect { h: helix_draw::theme::grow(super::SEARCH_H), ..view.content };
         let results = !model.query.is_empty();
-        let (cells, folder_cells, selected, dots, page) = view.grid.a11y();
+        let (_, _, selected, _, _, _) = view.grid.a11y();
         let grid_focus = !results && selected.is_some();
         // Painted from SEARCH_TEXT_X at the Entry size (see `search_field`).
         let advances = self.text.as_ref().map(|t| t.advances(&model.query, size::ENTRY)).unwrap_or_default();
         let chars = crate::a11y::Chars { x: (field.x + super::SEARCH_TEXT_X) as f32, y: field.y, h: field.h, advances };
         let search = Node::text_field(Role::SearchInput, tr("Search"), &model.query, field.into()).id("search").chars(chars);
         let mut out = vec![search.focused(!results && !grid_focus)];
-        let name = |id: &str| model.apps.iter().find(|a| a.id == id).map(|a| a.name.clone()).or_else(|| model.folders.iter().find(|f| f.id == id).map(|f| f.name.clone())).unwrap_or_default();
         if results {
             let rows = view.rows.iter().map(|&(r, result)| {
                 let hit = model.results[result];
@@ -672,17 +702,8 @@ impl Ui {
             });
             let list = Node::new(Role::ListBox, tr("Search Results")).id("results").children(rows);
             out.push(if view.rows.is_empty() { list.child(Node::label(tr("No matching apps"))) } else { list });
-        } else if let Some(folder) = model.open_folder.and_then(|i| model.folders.get(i)) {
-            let current = selected.and_then(|k| folder.apps.get(k));
-            let apps = folder_cells.iter().map(|(r, id)| Node::button(name(id), (*r).into()).id(id.clone()).selected(current == Some(id)).focused(current == Some(id)));
-            out.push(Node::new(Role::Group, &folder.name).id(format!("folder:{}", folder.id)).children(apps));
         } else {
-            let apps = cells.iter().enumerate().map(|(i, (r, id))| Node::button(name(id), (*r).into()).id(id.clone()).selected(selected == Some(i)).focused(selected == Some(i)));
-            out.push(Node::new(Role::Group, tr("Applications")).id("grid").children(apps));
-            if dots.len() > 1 {
-                let pages = dots.iter().map(|(r, p)| Node::button(trf!("Page {}", p + 1), (*r).into()).selected(*p == page));
-                out.push(Node::new(Role::Group, tr("Pages")).id("pages").children(pages));
-            }
+            out.extend(grid_nodes(model, view.grid.a11y()));
         }
         out
     }

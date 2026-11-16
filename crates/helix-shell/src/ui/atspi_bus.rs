@@ -419,6 +419,37 @@ async fn child() {
     assert!(!names.iter().any(|n| n == "Overview" || n == "Window Overview"), "the launcher is not named as the overview: {names:?}");
     assert_eq!((super::atspi::overview_title(), super::atspi::launcher_title()), ("Window Overview", "Launcher"));
 
+    // ----- The app grid's "Recent" row: a group of its own before the
+    // page's, its apps buttons as the grid's are (the same app can be in
+    // both), the selection counted across both.
+    let app = |id: &str, name: &str| crate::launcher::App { id: format!("{id}.desktop"), name: name.into(), search: String::new(), categories: Vec::new() };
+    let model = crate::launcher::Launcher::new(vec![app("org.gnome.TextEditor", "Text Editor"), app("org.gnome.Nautilus", "Files"), app("org.gnome.Calculator", "Calculator")]);
+    let cell = |i: i32, y: i32| Rect { x: 100 + i * 120, y, w: 120, h: 118 };
+    let cells: Vec<(Rect, String)> = vec![
+        (cell(0, 200), "recent:org.gnome.Nautilus.desktop".into()),
+        (cell(1, 200), "recent:org.gnome.TextEditor.desktop".into()),
+        (cell(0, 340), "org.gnome.Calculator.desktop".into()),
+        (cell(1, 340), "org.gnome.Nautilus.desktop".into()),
+        (cell(2, 340), "org.gnome.TextEditor.desktop".into()),
+    ];
+    let shown = |selected| super::atspi::grid_nodes(&model, (&cells, &[], selected, &[], 0, 2));
+    shell.show("launcher", window(super::atspi::launcher_title(), true, shown(Some(1))));
+    let w = client.window("Launcher", |w| w.children.len() == 2).await;
+    let groups: Vec<(&str, Vec<&str>)> = w.children.iter().map(|g| (g.name.as_str(), g.children.iter().map(|c| c.name.as_str()).collect())).collect();
+    assert_eq!(groups, [("Recent Apps", vec!["Files", "Text Editor"]), ("Applications", vec!["Calculator", "Files", "Text Editor"])], "{:#?}", w.outline());
+    assert_eq!(w.children[0].role, w.children[1].role, "the row is a group as the page is");
+    let recent_editor = &w.children[0].children[1];
+    assert_eq!(recent_editor.role, "push button");
+    assert!(recent_editor.has(FOCUSED | SELECTED), "the row's second app has the focus");
+    assert!(!w.children[1].children[2].has(FOCUSED), "not the same app below");
+    // Down into the grid: the page's first line has it.
+    shell.show("launcher", window(super::atspi::launcher_title(), true, shown(Some(3))));
+    let w = client.window("Launcher", |w| w.focused() == ["Files"]).await;
+    assert!(w.children[1].children[1].has(FOCUSED));
+    // No recent apps (turned off, cleared, another page): no such group.
+    let plain = super::atspi::grid_nodes(&model, (&cells[2..], &[], None, &[], 0, 0));
+    assert_eq!(plain.iter().map(|n| n.name.as_str()).collect::<Vec<_>>(), ["Applications"]);
+
     // ----- The workspace popup: the workspace announced, the active one selected.
     shell.show("workspace-popup", window("Workspace Switcher", false, super::workspace_popup::popup_nodes(&["Mail".into()], 3, 1, 260)));
     assert!(announced(&mut stream, "Workspace 2").await, "the workspace switched to is announced");

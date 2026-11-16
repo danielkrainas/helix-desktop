@@ -872,7 +872,7 @@ fn dock_and_grid() {
         });
         render(&dir, &format!("grid-{name}"), DARK, (w, 200, 1.0), |canvas| {
             canvas.fill(SCRIM);
-            let mut p = app_grid::Paint { cache: &mut icons, text: text.as_ref(), scale: 1.0 };
+            let mut p = app_grid::Paint { cache: &mut icons, text: text.as_ref(), bold: None, scale: 1.0 };
             let lit = crate::item_feedback::Look { highlight: 1.0, pressed: false, scale: crate::item_feedback::HOVER_SCALE };
             let rest = crate::item_feedback::Look { highlight: 0.0, pressed: false, scale: 1.0 };
             let pressed = crate::item_feedback::Look { highlight: 1.0, pressed: true, scale: 1.0 };

@@ -57,6 +57,8 @@ pub(super) enum DockTarget {
     CloseWindow(u32),
     /// Show the app's window previews.
     Previews(String),
+    /// Forget the app grid's recent apps (its "Recent" row's menus).
+    ClearRecent,
 }
 
 /// One monitor's dock.
@@ -1400,7 +1402,7 @@ impl Ui {
         self.capture_shots(&windows);
     }
 
-    fn dock_menu_item(&mut self, label: String, target: DockTarget) -> Option<window_menu::Item> {
+    pub(super) fn dock_menu_item(&mut self, label: String, target: DockTarget) -> Option<window_menu::Item> {
         self.dock.menu_targets.push(target);
         Some(window_menu::Item { label, choice: window_menu::Choice::Dock(self.dock.menu_targets.len() - 1), checked: None, active: false, sub: Vec::new() })
     }
@@ -1543,6 +1545,7 @@ impl Ui {
             match &target {
                 DockTarget::TogglePin(_) => {}
                 DockTarget::Quit(_) => {}
+                DockTarget::ClearRecent => {}
                 _ => self.close_launcher(true),
             }
         }
@@ -1587,6 +1590,7 @@ impl Ui {
                 let (x, y) = self.dock_item_point(&id);
                 self.dock_previews(&id, x, y);
             }
+            DockTarget::ClearRecent => self.grid_clear_recent(),
         }
     }
 

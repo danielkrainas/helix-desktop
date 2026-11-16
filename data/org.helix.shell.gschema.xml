@@ -35,5 +35,10 @@
       <summary>Hide ignored urgent banners after (seconds)</summary>
       <description>The same as banner-ignore-timeout, for critical (urgent) notifications. 0 keeps them until the user acts on them.</description>
     </key>
+    <key name="app-grid-recent" type="b">
+      <default>true</default>
+      <summary>Show recently used apps in the app grid</summary>
+      <description>Whether the first page of the app grid starts with a row of the apps launched last. The row never shows while org.gnome.desktop.privacy remember-app-usage is off.</description>
+    </key>
   </schema>
 </schemalist>

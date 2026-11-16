@@ -33,7 +33,7 @@ fn older_helix_schemas_do_not_abort() {
     let exts = std::fs::read_to_string(format!("{data}org.helix.extensions.gschema.xml")).unwrap();
     // As installed by an early package: the panel zones only, and the
     // extension lists without the later keys.
-    let old_shell = without_keys(&shell, &["quick-settings", "banner-ignore-timeout", "critical-banner-ignore-timeout"]);
+    let old_shell = without_keys(&shell, &["quick-settings", "banner-ignore-timeout", "critical-banner-ignore-timeout", "app-grid-recent"]);
     let old_exts = without_keys(&exts, &["placed", "command-keys", "require-sandbox"]);
     assert!(!old_shell.contains("quick-settings") && old_shell.contains("panel-left"));
     std::fs::write(schemas.join("org.helix.shell.gschema.xml"), old_shell).unwrap();
@@ -65,6 +65,9 @@ fn older_helix_schemas_do_not_abort() {
 
     // Banner ignore periods: the defaults.
     assert_eq!(notifications::read_ignore_timeouts(), IgnoreTimeouts::default());
+    // The app grid's "Recent" row: on, as the key's default.
+    assert!(helix_settings::key_type(panel_layout::SCHEMA, "app-grid-recent").is_none());
+    assert!(helix_shell::app_usage::recent_row_on());
 
     // Extensions: the old keys round-trip, the newer ones stay default.
     let mut keys = store::Keys::read();

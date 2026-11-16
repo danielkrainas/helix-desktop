@@ -1,13 +1,40 @@
 //! The app grid (helix-desktop-spec `contracts/wayland/README.md`, "App
 //! grid"): the launcher with an empty search, as pages of icons that can
-//! be rearranged and put into folders by dragging.
+//! be rearranged and put into folders by dragging. The first page starts
+//! with a "Recent" row: the apps launched last (a Helix addition).
 
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, BTN_LEFT, BTN_RIGHT};
 
 use crate::item_feedback::{Feedback, Look, GHOST_SCALE, LAUNCH_LINGER};
 
 use super::*;
-use crate::app_grid::{self as layout, Pages};
+use crate::app_grid::{self as layout, Pages, PerPage};
+
+/// A recent row cell's key: its app's id behind this prefix, so that its
+/// hover, focus and launch feedback is its own and not that of the same
+/// app's cell in the grid below.
+const RECENT_KEY: &str = "recent:";
+
+fn recent_key(id: &str) -> String {
+    format!("{RECENT_KEY}{id}")
+}
+
+/// The item (app or folder id) a cell key stands for.
+pub(super) fn item_id(key: &str) -> &str {
+    key.strip_prefix(RECENT_KEY).unwrap_or(key)
+}
+
+/// Whether a cell key is one of the "Recent" row's.
+fn is_recent(key: &str) -> bool {
+    key.starts_with(RECENT_KEY)
+}
+
+/// The "Recent" heading's height, and the gap between the row and the
+/// grid below it.
+fn heading_h() -> i32 {
+    helix_draw::theme::grow(28)
+}
+const ROW_GAP: i32 = 10;
 
 /// A cell's size: its label's room grows with the text scale.
 fn cell_w() -> i32 {
@@ -44,14 +71,26 @@ struct Drag {
 pub(super) struct GridView {
     pages: Pages,
     page: usize,
-    /// The selected item of the page (or of the open folder).
+    /// The selected item of the page (counting the "Recent" row's first)
+    /// or of the open folder.
     selected: Option<usize>,
     cols: usize,
-    per_page: usize,
+    per_page: PerPage,
+    /// The apps launched last (the latest first), and whether the
+    /// "Recent" row may show (`app-grid-recent` and `remember-app-usage`).
+    pub(super) recent_ids: Vec<String>,
+    pub(super) recent_on: bool,
+    /// The "Recent" row's apps (empty: no row), as last laid out.
+    recent: Vec<String>,
     press: Option<(String, (f64, f64), Option<String>)>,
     drag: Option<Drag>,
-    /// What the last paint showed.
+    /// What the last paint showed: the cells by key (the "Recent" row's
+    /// `row` first, then the page's), the row's heading, and the heading
+    /// with the row.
     cells: Vec<(Rect, String)>,
+    row: usize,
+    heading: Option<Rect>,
+    recent_area: Option<Rect>,
     dots: Vec<(Rect, usize)>,
     folder_box: Option<Rect>,
     folder_title: Option<Rect>,
@@ -95,22 +134,103 @@ impl GridView {
     fn page_items(&self) -> &[String] {
         self.pages.get(self.page).map_or(&[], Vec::as_slice)
     }
+
+    /// The "Recent" row's cell keys on the page shown (only the first
+    /// page has the row).
+    fn row_keys(&self) -> Vec<String> {
+        if self.page == 0 {
+            self.recent.iter().map(|id| recent_key(id)).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// The page's cell keys as the selection counts them: the "Recent"
+    /// row's, then the page's items.
+    fn shown(&self) -> Vec<String> {
+        let mut out = self.row_keys();
+        out.extend(self.page_items().iter().cloned());
+        out
+    }
 }
 
-/// Where `drag` would land now.
-fn drop_at(view: &LauncherView, drag: &Drag) -> Option<Drop> {
-    let g = &view.grid;
+/// The "Recent" row for `model` with `cols` columns, and what the pages
+/// then hold with `rows` rows (the first a row less while the row shows).
+/// No row while it is turned off or nothing launched is still shown.
+fn recent_layout(grid: &GridView, model: &Launcher, cols: usize, rows: usize) -> (Vec<String>, PerPage) {
+    let recent = if grid.recent_on { layout::recent_row(&grid.recent_ids, |id| model.apps.iter().any(|a| a.id == id), cols) } else { Vec::new() };
+    let first_rows = if recent.is_empty() { rows } else { rows.saturating_sub(1).max(1) };
+    (recent, PerPage { first: (cols * first_rows).max(1), rest: (cols * rows).max(1) })
+}
+
+/// Where an arrow key moves the selection.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Nav {
+    To(usize),
+    /// Past the page's end (Right) or start (Left).
+    NextPage,
+    PrevPage,
+}
+
+/// Where `key` moves the selection `at` on a page showing `row` recent
+/// apps (a line of their own above the grid) and then `count` items in
+/// lines of `cols`; indices count the row's first. Down from the row goes
+/// to the grid's first line, Up from it back to the row.
+fn arrow(at: Option<usize>, key: Keysym, row: usize, count: usize, cols: usize) -> Nav {
+    let total = row + count;
+    let cols = cols.max(1);
+    let Some(i) = at.filter(|_| total > 0) else { return Nav::To(0) };
+    let last = total - 1;
+    match key {
+        Keysym::Right if i >= last => Nav::NextPage,
+        Keysym::Right => Nav::To(i + 1),
+        Keysym::Left if i == 0 => Nav::PrevPage,
+        Keysym::Left => Nav::To(i - 1),
+        Keysym::Down if i < row => Nav::To(if count == 0 { i } else { row + i.min(count - 1) }),
+        Keysym::Down => Nav::To((i + cols).min(last)),
+        Keysym::Up if i < row => Nav::To(i),
+        Keysym::Up if i - row < cols && row > 0 => Nav::To((i - row).min(row - 1)),
+        Keysym::Up => Nav::To(i.saturating_sub(cols)),
+        _ => Nav::To(i),
+    }
+}
+
+/// Tab (`forward`) or Shift+Tab from the selection `at`: the search field
+/// (`None`), the "Recent" row's first app, the grid's first item, round.
+fn tab(at: Option<usize>, row: usize, count: usize, forward: bool) -> Option<usize> {
+    let mut stops = vec![None];
+    if row > 0 {
+        stops.push(Some(0));
+    }
+    if count > 0 {
+        stops.push(Some(row));
+    }
+    let here = match at {
+        None => 0,
+        Some(i) if i < row => 1,
+        Some(_) => stops.len() - 1,
+    };
+    let n = stops.len();
+    stops[if forward { (here + 1) % n } else { (here + n - 1) % n }]
+}
+
+/// Where `drag` would land now (nothing on the "Recent" row: it only shows
+/// what was launched).
+fn drop_at(g: &GridView, model: &Launcher, drag: &Drag) -> Option<Drop> {
     let (x, y) = drag.at;
     if let Some(b) = g.folder_box {
         if drag.from_folder.is_some() && b.contains(x, y) {
             return Some(Drop::Stay);
         }
     }
+    if g.folder_box.is_none() && g.recent_area.is_some_and(|r| r.contains(x, y)) {
+        return None;
+    }
     if let Some(&(_, page)) = g.dots.iter().find(|(r, _)| r.contains(x, y)) {
         return Some(Drop::Insert { page, index: usize::MAX });
     }
-    let is_folder = view.model.folders.iter().any(|f| f.id == drag.id);
-    for (i, (cell, id)) in g.cells.iter().enumerate() {
+    let is_folder = model.folders.iter().any(|f| f.id == drag.id);
+    for (i, (cell, id)) in g.cells.iter().skip(g.row).enumerate() {
         if !cell.contains(x, y) {
             continue;
         }
@@ -145,14 +265,61 @@ impl Ui {
         self.launcher.as_ref().is_some_and(|v| v.model.query.is_empty())
     }
 
-    /// Lay the grid out again (opened, folders or apps changed, size).
-    fn grid_refresh(view: &mut LauncherView, cols: usize, rows: usize) {
-        let per_page = (cols * rows).max(1);
-        let saved = if view.grid.pages.is_empty() { layout::read() } else { view.grid.pages.clone() };
-        view.grid.pages = layout::arrange(&saved, &grid_items(&view.model), per_page);
-        view.grid.cols = cols;
-        view.grid.per_page = per_page;
-        view.grid.page = view.grid.page.min(view.grid.pages.len().saturating_sub(1));
+    /// Lay the grid out again (opened, folders or apps changed, size, the
+    /// "Recent" row shown or hidden) with `cols` columns, pages holding
+    /// `per_page` and `recent` as the "Recent" row.
+    fn grid_refresh(grid: &mut GridView, model: &Launcher, cols: usize, per_page: PerPage, recent: Vec<String>) {
+        // The first page holding more again (the row went away): from the
+        // saved layout, so that what spilled comes back.
+        let saved = if grid.pages.is_empty() || per_page.first > grid.per_page.first { layout::read() } else { grid.pages.clone() };
+        let saved = if saved.is_empty() { grid.pages.clone() } else { saved };
+        if grid.recent != recent && !grid.pages.is_empty() {
+            // What the selection counts changed.
+            grid.selected = None;
+        }
+        grid.pages = layout::arrange(&saved, &grid_items(model), per_page);
+        grid.cols = cols;
+        grid.per_page = per_page;
+        grid.recent = recent;
+        grid.page = grid.page.min(grid.pages.len().saturating_sub(1));
+    }
+
+    /// The recent apps were cleared ("Clear Recent Apps").
+    pub(super) fn grid_clear_recent(&mut self) {
+        crate::app_usage::clear_recent();
+        tracing::info!("recent apps cleared");
+        if let Some(view) = self.launcher.as_mut() {
+            view.grid.recent_ids.clear();
+        }
+        self.draw_launcher();
+    }
+
+    /// `app-grid-recent` or `remember-app-usage` changed: the "Recent" row
+    /// shows (`on`) or not.
+    pub(super) fn grid_recent_setting(&mut self, on: bool) {
+        self.recent_apps = on;
+        if let Some(view) = self.launcher.as_mut() {
+            view.grid.recent_on = on;
+            view.grid.recent_ids = if on { crate::app_usage::recent() } else { Vec::new() };
+        }
+        self.draw_launcher();
+    }
+
+    /// The menu of the "Recent" heading, at surface point `at`.
+    fn grid_recent_menu(&mut self, (x, y): (f64, f64)) {
+        let Some(view) = self.launcher.as_ref() else { return };
+        let origin = view
+            .output
+            .as_ref()
+            .and_then(|o| self.output_state.info(o))
+            .and_then(|i| i.logical_position)
+            .unwrap_or((self.primary_area.0, self.primary_area.1));
+        self.dock.menu_targets.clear();
+        let items = vec![self.dock_menu_item(tr("Clear Recent Apps").into(), super::dock::DockTarget::ClearRecent)];
+        self.dock.menu_over_launcher = true;
+        self.dock.menu_from_grid = true;
+        self.menu_by_key = false;
+        self.open_menu(0, origin.0 + x as i32, origin.1 + y as i32, items, Vec::new());
     }
 
     fn item_name(model: &Launcher, id: &str) -> String {
@@ -220,7 +387,9 @@ impl Ui {
         self.draw_launcher();
     }
 
-    fn grid_open(&mut self, id: &str) {
+    /// Open the item of cell `key`: launch an app, open a folder.
+    fn grid_open(&mut self, key: &str) {
+        let id = item_id(key);
         let Some(view) = self.launcher.as_mut() else { return };
         if let Some(i) = view.model.folders.iter().position(|f| f.id == id) {
             view.model.enter_folder(i);
@@ -229,7 +398,7 @@ impl Ui {
             self.draw_launcher();
             return;
         }
-        tracing::info!(app = id, "launching from the app grid");
+        tracing::info!(app = id, recent = is_recent(key), "launching from the app grid");
         if let Err(err) = crate::launcher::launch(id) {
             tracing::warn!(%err, app = id, "launch failed");
         }
@@ -238,7 +407,7 @@ impl Ui {
             self.close_launcher(true);
             return;
         }
-        view.grid.feedback.launch(id.to_owned(), std::time::Instant::now());
+        view.grid.feedback.launch(key.to_owned(), std::time::Instant::now());
         if let Some(handle) = self.loop_handle.as_ref() {
             let token = handle.insert_source(Timer::from_duration(LAUNCH_LINGER), |_, _, ui: &mut Ui| {
                 // Only the launcher this was for (not one opened since).
@@ -273,15 +442,17 @@ impl Ui {
         view.grid.frame_timer = token.ok();
     }
 
-    /// The right-click menu of app `id`, at surface point `at` (else at
-    /// its icon); folders have none.
-    fn grid_menu(&mut self, id: &str, at: Option<(f64, f64)>) {
+    /// The right-click menu of the app of cell `key`, at surface point
+    /// `at` (else at its icon); folders have none. The "Recent" row's
+    /// apps' menus end with "Clear Recent Apps".
+    fn grid_menu(&mut self, key: &str, at: Option<(f64, f64)>) {
+        let id = item_id(key);
         let Some(view) = self.launcher.as_ref() else { return };
         if view.model.folders.iter().any(|f| f.id == id) {
             return;
         }
         let g = &view.grid;
-        let cell = g.folder_cells.iter().chain(&g.cells).find(|(_, i)| i == id).map(|(r, _)| *r);
+        let cell = g.folder_cells.iter().chain(&g.cells).find(|(_, i)| i == key).map(|(r, _)| *r);
         let Some((x, y)) = at.or_else(|| cell.map(|r| (f64::from(r.x + r.w / 2), f64::from(r.y + r.h / 2)))) else { return };
         let origin = view
             .output
@@ -292,7 +463,11 @@ impl Ui {
         let app = id.strip_suffix(".desktop").unwrap_or(id).to_owned();
         let favorite = crate::favorites::favorites().iter().any(|f| f == id);
         self.dock.menu_targets.clear();
-        let items = self.app_menu_items(&app, favorite, false);
+        let mut items = self.app_menu_items(&app, favorite, false);
+        if is_recent(key) {
+            items.push(None);
+            items.push(self.dock_menu_item(tr("Clear Recent Apps").into(), super::dock::DockTarget::ClearRecent));
+        }
         self.dock.menu_over_launcher = true;
         self.dock.menu_from_grid = true;
         // Shift+F10 or Menu (no pointer position): a keyboard menu.
@@ -344,8 +519,13 @@ impl Ui {
                 }
             }
             PointerEventKind::Press { button: BTN_RIGHT, .. } => {
-                let Some(id) = self.launcher.as_ref().and_then(|v| v.grid.item_at(x, y)) else { return true };
-                self.grid_menu(&id, Some((x, y)));
+                let Some(view) = self.launcher.as_ref() else { return true };
+                let on_heading = view.grid.folder_box.is_none() && view.grid.heading.is_some_and(|r| r.contains(x, y));
+                match view.grid.item_at(x, y) {
+                    Some(key) => self.grid_menu(&key, Some((x, y))),
+                    None if on_heading => self.grid_recent_menu((x, y)),
+                    None => {}
+                }
             }
             PointerEventKind::Leave { .. } => {
                 if let Some(view) = self.launcher.as_mut() {
@@ -390,7 +570,12 @@ impl Ui {
                     if ((x - sx).powi(2) + (y - sy).powi(2)).sqrt() >= threshold {
                         view.grid.press = None;
                         view.grid.feedback.release(std::time::Instant::now());
-                        view.grid.drag = Some(Drag { id, at: (x, y), from_folder: from });
+                        // The "Recent" row's apps do not drag (the row
+                        // only shows what was launched); the press is
+                        // let go, nothing opens.
+                        if !is_recent(&id) {
+                            view.grid.drag = Some(Drag { id, at: (x, y), from_folder: from });
+                        }
                         self.draw_launcher();
                     }
                 }
@@ -400,7 +585,7 @@ impl Ui {
                 view.grid.feedback.release(std::time::Instant::now());
                 if let Some(drag) = view.grid.drag.take() {
                     self.grid_edge(None);
-                    let drop = self.launcher.as_ref().and_then(|v| drop_at(v, &drag));
+                    let drop = self.launcher.as_ref().and_then(|v| drop_at(&v.grid, &v.model, &drag));
                     tracing::info!(id = drag.id, ?drop, "app grid drop");
                     match drop {
                         Some(drop) => self.grid_apply(drag, drop),
@@ -485,30 +670,36 @@ impl Ui {
         }
         let Some(view) = self.launcher.as_mut() else { return false };
         let in_folder = view.model.open_folder.and_then(|i| view.model.folders.get(i)).map(|f| f.apps.clone());
+        // The "Recent" row's apps come first on the first page.
+        let row = if in_folder.is_some() { 0 } else { view.grid.row_keys().len() };
         let (count, cols) = match &in_folder {
             Some(apps) => (apps.len(), apps.len().clamp(1, 6)),
             None => (view.grid.page_items().len(), view.grid.cols.max(1)),
         };
         let at = view.grid.selected;
         let pages = view.grid.pages.len();
+        let shown = if in_folder.is_some() { Vec::new() } else { view.grid.shown() };
         match keysym {
-            Keysym::Right | Keysym::Left | Keysym::Up | Keysym::Down if count > 0 => {
-                let step: isize = match keysym {
-                    Keysym::Right => 1,
-                    Keysym::Left => -1,
-                    Keysym::Up => -(cols as isize),
-                    _ => cols as isize,
-                };
-                let next = at.map_or(0, |i| i as isize + step);
-                if next >= count as isize && in_folder.is_none() && keysym == Keysym::Right && view.grid.page + 1 < pages {
-                    view.grid.page += 1;
-                    view.grid.selected = Some(0);
-                } else if next < 0 && in_folder.is_none() && keysym == Keysym::Left && view.grid.page > 0 {
-                    view.grid.page -= 1;
-                    view.grid.selected = Some(view.grid.page_items().len().saturating_sub(1));
-                } else {
-                    view.grid.selected = Some(next.clamp(0, count as isize - 1) as usize);
-                }
+            Keysym::Right | Keysym::Left | Keysym::Up | Keysym::Down if row + count > 0 => {
+                let last = row + count - 1;
+                view.grid.selected = Some(match arrow(at, keysym, row, count, cols) {
+                    Nav::To(i) => i.min(last),
+                    Nav::NextPage if in_folder.is_none() && view.grid.page + 1 < pages => {
+                        view.grid.page += 1;
+                        0
+                    }
+                    Nav::PrevPage if in_folder.is_none() && view.grid.page > 0 => {
+                        view.grid.page -= 1;
+                        view.grid.shown().len().saturating_sub(1)
+                    }
+                    Nav::NextPage => last,
+                    Nav::PrevPage => 0,
+                });
+            }
+            // From the search field to the "Recent" row, the grid and back.
+            Keysym::Tab | Keysym::ISO_Left_Tab if in_folder.is_none() => {
+                let forward = keysym == Keysym::Tab && !self.mods.shift;
+                view.grid.selected = tab(at, row, count, forward);
             }
             Keysym::Page_Down => {
                 self.grid_turn(true);
@@ -521,7 +712,7 @@ impl Ui {
             Keysym::Return | Keysym::KP_Enter => {
                 let id = match (&in_folder, at) {
                     (Some(apps), Some(i)) => apps.get(i).cloned(),
-                    (None, Some(i)) => view.grid.page_items().get(i).cloned(),
+                    (None, Some(i)) => shown.get(i).cloned(),
                     _ => None,
                 };
                 if let Some(id) = id {
@@ -532,7 +723,7 @@ impl Ui {
             Keysym::Menu => {
                 let id = match (&in_folder, at) {
                     (Some(apps), Some(i)) => apps.get(i).cloned(),
-                    (None, Some(i)) => view.grid.page_items().get(i).cloned(),
+                    (None, Some(i)) => shown.get(i).cloned(),
                     _ => None,
                 };
                 if let Some(id) = id {
@@ -567,6 +758,8 @@ fn grid_icon(cache: &mut Icons, id: &str, px: u32) -> Option<helix_draw::Image> 
 pub(super) struct Paint<'a> {
     pub cache: &'a mut Icons,
     pub text: Option<&'a Text>,
+    /// The bold face (the "Recent" heading).
+    pub bold: Option<&'a Text>,
     pub scale: f64,
 }
 
@@ -624,30 +817,39 @@ pub(super) fn paint_cell(p: &mut Paint, model: &Launcher, canvas: &mut Canvas, c
     label(text, canvas, &name, cell.x as f32 + (cell.w as f32 - tw) / 2.0, (iy + ICON + helix_draw::theme::grow(22)) as f32, size::CAPTION, FG, (cell.w - 12) as f32);
 }
 
-/// Paint the grid below the search field (from `top`).
-pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Canvas, w: i32, h: i32, top: i32) {
+/// Paint the grid below the search field (from `top`): on the first page
+/// the "Recent" row (a heading, one line of apps) above the grid.
+pub(super) fn paint_grid(p: &mut Paint, grid: &mut GridView, model: &Launcher, canvas: &mut Canvas, (w, h): (i32, i32), top: i32) {
     let (text, scale) = (p.text, p.scale);
     let cols = ((w - 96) / cell_w()).clamp(3, 8) as usize;
     let rows = ((h - top - 72) / cell_h()).clamp(2, 5) as usize;
-    if view.grid.cols != cols || view.grid.per_page != cols * rows {
-        Ui::grid_refresh(view, cols, rows);
+    let (recent, per_page) = recent_layout(grid, model, cols, rows);
+    if grid.cols != cols || grid.per_page != per_page || grid.recent != recent {
+        Ui::grid_refresh(grid, model, cols, per_page, recent);
     }
     let gw = cols as i32 * cell_w();
     let gx = (w - gw) / 2;
-    let items: Vec<String> = view.grid.page_items().to_vec();
-    let (selected, drag, open_folder) = (view.grid.selected, view.grid.drag.clone(), view.model.open_folder);
-    let pages = view.grid.pages.len();
-    let current = view.grid.page;
-    let target = drag.as_ref().and_then(|d| drop_at(view, d));
-    // The keyboard selection lights its item (in the open folder or on the page).
+    let row_keys = grid.row_keys();
+    // The row and its heading take the first page's first line, and the
+    // heading's height more on every page (the dots stay put).
+    let extra = if grid.recent.is_empty() { 0 } else { heading_h() + ROW_GAP };
+    let gtop = if row_keys.is_empty() { top } else { top + heading_h() + cell_h() + ROW_GAP };
+    let lines = if row_keys.is_empty() { rows } else { rows - 1 };
+    let items: Vec<String> = grid.page_items().to_vec();
+    let (selected, drag, open_folder) = (grid.selected, grid.drag.clone(), model.open_folder);
+    let pages = grid.pages.len();
+    let current = grid.page;
+    let target = drag.as_ref().and_then(|d| drop_at(grid, model, d));
+    // The keyboard selection lights its item (in the open folder, in the
+    // "Recent" row or on the page).
     let now = std::time::Instant::now();
     let focus = match (selected, open_folder) {
-        (Some(i), None) => items.get(i).cloned(),
-        (Some(i), Some(f)) => view.model.folders.get(f).and_then(|f| f.apps.get(i).cloned()),
+        (Some(i), None) => row_keys.iter().chain(&items).nth(i).cloned(),
+        (Some(i), Some(f)) => model.folders.get(f).and_then(|f| f.apps.get(i).cloned()),
         _ => None,
     };
-    view.grid.feedback.set_focus(focus.clone(), now);
-    let feedback = view.grid.feedback.clone();
+    grid.feedback.set_focus(focus.clone(), now);
+    let feedback = grid.feedback.clone();
     let look_of = |id: &str, hot: bool| -> Look {
         if drag.is_some() {
             return Look { highlight: if hot { 1.0 } else { 0.0 }, pressed: false, scale: 1.0 };
@@ -659,26 +861,45 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         look
     };
     let mut cells = Vec::new();
+    // The "Recent" row: its heading, its apps (cells of their own, keyed
+    // apart from the same apps' cells below), a line under it.
+    let (mut heading, mut recent_area) = (None, None);
+    if !row_keys.is_empty() {
+        let hh = heading_h();
+        let face = p.bold.or(text);
+        let color = if helix_draw::high_contrast() { FG } else { DIM_FG };
+        label(face, canvas, &helix_i18n::trc("app grid heading", "Recent"), (gx + 14) as f32, baseline(face, top, hh, size::CAPTION), size::CAPTION, color, (gw - 28) as f32);
+        heading = Some(Rect { x: gx, y: top, w: gw, h: hh });
+        for (i, key) in row_keys.iter().enumerate() {
+            let cell = Rect { x: gx + i as i32 * cell_w(), y: top + hh, w: cell_w(), h: cell_h() };
+            cells.push((cell, key.clone()));
+            let focused = open_folder.is_none() && focus.as_deref() == Some(key.as_str());
+            paint_cell(p, model, canvas, cell, item_id(key), look_of(key, false), focused);
+        }
+        let line = if helix_draw::high_contrast() { 0x99FFFFFF } else { 0x26FFFFFF };
+        canvas.rect(gx + 14, top + hh + cell_h() + ROW_GAP / 2, gw - 28, 1, line);
+        recent_area = Some(Rect { x: gx, y: top, w: gw, h: hh + cell_h() + ROW_GAP });
+    }
     for (i, id) in items.iter().enumerate() {
-        let cell = Rect { x: gx + (i % cols) as i32 * cell_w(), y: top + (i / cols) as i32 * cell_h(), w: cell_w(), h: cell_h() };
+        let cell = Rect { x: gx + (i % cols) as i32 * cell_w(), y: gtop + (i / cols) as i32 * cell_h(), w: cell_w(), h: cell_h() };
         cells.push((cell, id.clone()));
         if drag.as_ref().is_some_and(|d| d.id == *id && d.from_folder.is_none()) {
             continue;
         }
         let hot = matches!(&target, Some(Drop::Combine(t)) if t == id);
         let focused = open_folder.is_none() && focus.as_deref() == Some(id.as_str());
-        paint_cell(p, &view.model, canvas, cell, id, look_of(id, hot), focused);
+        paint_cell(p, model, canvas, cell, id, look_of(id, hot), focused);
     }
     // Where a dragged item would go.
     if let Some(Drop::Insert { page, index }) = &target {
         if *page == current {
             let i = (*index).min(items.len());
-            let (cx, cy) = (gx + (i % cols) as i32 * cell_w(), top + (i / cols) as i32 * cell_h());
+            let (cx, cy) = (gx + (i % cols) as i32 * cell_w(), gtop + (i / cols) as i32 * cell_h());
             canvas.rect(cx - 2, cy + 8, 3, cell_h() - 16, accent());
         }
     }
     // Page dots.
-    let dots_y = top + rows as i32 * cell_h() + 18;
+    let dots_y = top + extra + rows as i32 * cell_h() + 18;
     let dots_x = (w - pages as i32 * (DOT + 10)) / 2;
     let mut dots = Vec::new();
     for p in 0..pages {
@@ -687,10 +908,10 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         canvas.circle(f64::from(r.x + 5 + DOT / 2), f64::from(dots_y), f64::from(DOT) / 2.0, color);
         dots.push((r, p));
     }
-    let area = Rect { x: gx, y: top, w: gw, h: rows as i32 * cell_h() };
-    // An open folder: a box over the dimmed grid.
+    let area = Rect { x: gx, y: gtop, w: gw, h: lines as i32 * cell_h() };
+    // An open folder: a box over the dimmed grid (and "Recent" row).
     let (mut folder_box, mut folder_title, mut folder_cells) = (None, None, Vec::new());
-    if let Some(folder) = open_folder.and_then(|i| view.model.folders.get(i).cloned()) {
+    if let Some(folder) = open_folder.and_then(|i| model.folders.get(i).cloned()) {
         canvas.rect(0, top - 8, w, h - top + 8, 0x80000000);
         let fcols = folder.apps.len().clamp(1, 6) as i32;
         let n = folder.apps.len() as i32;
@@ -699,11 +920,11 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
         let per = (fcols * rows_fit).max(1) as usize;
         let fpages = folder.apps.len().div_ceil(per).max(1);
         if let Some(i) = selected {
-            view.grid.folder_page = i / per;
+            grid.folder_page = i / per;
         }
-        let fpage = view.grid.folder_page.min(fpages - 1);
-        view.grid.folder_page = fpage;
-        view.grid.folder_pages = fpages;
+        let fpage = grid.folder_page.min(fpages - 1);
+        grid.folder_page = fpage;
+        grid.folder_pages = fpages;
         let dots_h = if fpages > 1 { 30 } else { 0 };
         let bw = fcols * cell_w() + 32;
         let bh = frows * cell_h() + 72 + dots_h;
@@ -720,7 +941,7 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
                 continue;
             }
             let focused = focus.as_deref() == Some(id.as_str());
-            paint_cell(p, &view.model, canvas, cell, id, look_of(id, false), focused);
+            paint_cell(p, model, canvas, cell, id, look_of(id, false), focused);
         }
         let mut fdots = Vec::new();
         if fpages > 1 {
@@ -732,7 +953,7 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
                 fdots.push((r, q));
             }
         }
-        view.grid.folder_dots = fdots;
+        grid.folder_dots = fdots;
         folder_box = Some(b);
         folder_title = Some(title);
     }
@@ -740,7 +961,7 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
     for (id, progress) in feedback.ghosts(now) {
         let Some(&(cell, _)) = folder_cells.iter().chain(&cells).find(|(_, i)| *i == id) else { continue };
         let px = (f64::from(ICON) * scale).round() as u32;
-        if let Some(icon) = grid_icon(p.cache, &id, px) {
+        if let Some(icon) = grid_icon(p.cache, item_id(&id), px) {
             let (cx, cy) = icon_center(cell);
             let size = f64::from(ICON) * (1.0 + (GHOST_SCALE - 1.0) * progress);
             canvas.image_alpha(cx - size / 2.0, cy - size / 2.0, size, size, &icon, (0.8 * (1.0 - progress)) as f32);
@@ -749,27 +970,37 @@ pub(super) fn paint_grid(p: &mut Paint, view: &mut LauncherView, canvas: &mut Ca
     // The dragged item under the pointer.
     if let Some(d) = &drag {
         let px = (f64::from(ICON) * scale).round() as u32;
-        let is_folder = view.model.folders.iter().any(|f| f.id == d.id);
+        let is_folder = model.folders.iter().any(|f| f.id == d.id);
         if is_folder {
             canvas.round_rect(d.at.0 - f64::from(ICON) / 2.0, d.at.1 - f64::from(ICON) / 2.0, f64::from(ICON), f64::from(ICON), 12.0, 0x80FFFFFF);
         } else if let Some(icon) = grid_icon(p.cache, &d.id, px) {
             canvas.image(d.at.0 - f64::from(ICON) / 2.0, d.at.1 - f64::from(ICON) / 2.0, f64::from(ICON), f64::from(ICON), &icon);
         }
     }
-    view.grid.cells = cells;
-    view.grid.dots = dots;
-    view.grid.area = area;
-    view.grid.folder_box = folder_box;
-    view.grid.folder_title = folder_title;
-    view.grid.folder_cells = folder_cells;
+    // Logged when what the page shows changes (tests find the cells by
+    // it).
+    if grid.cells != cells {
+        let shown: Vec<String> = cells.iter().map(|(r, key)| format!("{key}@{},{},{},{}", r.x, r.y, r.w, r.h)).collect();
+        tracing::debug!(page = current, row = row_keys.len(), cells = shown.join(" "), "app grid shown");
+    }
+    grid.row = row_keys.len();
+    grid.heading = heading;
+    grid.recent_area = recent_area;
+    grid.cells = cells;
+    grid.dots = dots;
+    grid.area = area;
+    grid.folder_box = folder_box;
+    grid.folder_title = folder_title;
+    grid.folder_cells = folder_cells;
 }
 
 impl GridView {
     /// What the last paint showed, for the accessibility bus
-    /// (`ui/atspi.rs`): the page's cells, the open folder's cells, the
-    /// selected item, the page dots and the page.
+    /// (`ui/atspi.rs`): the cells (the "Recent" row's first), the open
+    /// folder's cells, the selected item, the page dots, the page, and how
+    /// many cells the "Recent" row has.
     pub(super) fn a11y(&self) -> super::atspi::GridShown<'_> {
-        (&self.cells, &self.folder_cells, self.selected, &self.dots, self.page)
+        (&self.cells, &self.folder_cells, self.selected, &self.dots, self.page, self.row)
     }
 }
 
@@ -816,6 +1047,13 @@ fn cell_pixels(r: Rect, scale: f64, (pw, ph): (usize, usize), mirrored: bool) ->
     (x0, lo(r.y).min(ph), x1, hi(r.y + r.h, ph))
 }
 
+/// The cells (indices) of a [`GridCache`] whose look or focus ring
+/// changed since they were painted. Cells are told apart by key, so a
+/// "Recent" row app's hover does not light the same app below.
+fn dirty_cells(cells: &[(Rect, String, Look, bool)], feedback: &Feedback<String>, focus: Option<&str>, now: std::time::Instant) -> Vec<usize> {
+    cells.iter().enumerate().filter(|(_, (_, id, look, focused))| feedback.look(id, now) != *look || (focus == Some(id.as_str())) != *focused).map(|(i, _)| i).collect()
+}
+
 /// Copy the pixels (x0, y0, x1, y1) of `from` into `to` (ARGB, `pw` wide).
 fn copy_pixels(from: &[u8], to: &mut [u8], pw: usize, (x0, y0, x1, y1): (usize, usize, usize, usize)) {
     for y in y0..y1 {
@@ -856,13 +1094,7 @@ impl Ui {
         // The keyboard's item, as `paint_grid` lights it.
         let focus = view.grid.selected.and_then(|i| cache.cells.get(i)).map(|(_, id, _, _)| id.clone());
         view.grid.feedback.set_focus(focus.clone(), now);
-        let dirty: Vec<usize> = cache
-            .cells
-            .iter()
-            .enumerate()
-            .filter(|(_, (_, id, look, focused))| view.grid.feedback.look(id, now) != *look || (focus.as_deref() == Some(id.as_str())) != *focused)
-            .map(|(i, _)| i)
-            .collect();
+        let dirty = dirty_cells(&cache.cells, &view.grid.feedback, focus.as_deref(), now);
         if dirty.is_empty() {
             return true;
         }
@@ -871,7 +1103,7 @@ impl Ui {
         let mirrored = super::mirror::on(view.layer.wl_surface());
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirrored);
         let mut damage = Vec::new();
-        let mut paint = Paint { cache: &mut self.icon_cache, text: self.text.as_ref(), scale };
+        let mut paint = Paint { cache: &mut self.icon_cache, text: self.text.as_ref(), bold: self.bold.as_ref(), scale };
         for i in dirty {
             let (r, id, _, _) = cache.cells[i].clone();
             let px = cell_pixels(r, scale, (pw, ph), mirrored);
@@ -879,7 +1111,7 @@ impl Ui {
             canvas.clip(r.x, r.y, r.w, r.h);
             let look = view.grid.feedback.look(&id, now);
             let focused = focus.as_deref() == Some(id.as_str());
-            paint_cell(&mut paint, &view.model, &mut canvas, r, &id, look, focused);
+            paint_cell(&mut paint, &view.model, &mut canvas, r, item_id(&id), look, focused);
             canvas.unclip();
             copy_pixels(canvas.data, &mut cache.full, pw, px);
             cache.cells[i].2 = look;
@@ -911,6 +1143,183 @@ impl Ui {
 }
 
 #[cfg(test)]
+mod recent_tests {
+    use super::*;
+
+    fn apps(n: usize) -> Vec<crate::launcher::App> {
+        (0..n).map(|i| crate::launcher::App { id: format!("app{i:02}.desktop"), name: format!("App {i:02}"), search: String::new(), categories: Vec::new() }).collect()
+    }
+
+    fn grid(recent: &[&str], on: bool) -> GridView {
+        GridView { recent_ids: recent.iter().map(|s| s.to_string()).collect(), recent_on: on, ..GridView::default() }
+    }
+
+    #[test]
+    fn the_row_and_what_pages_hold() {
+        let model = Launcher::new(apps(30));
+        let g = grid(&["app03.desktop", "gone.desktop", "app01.desktop", "app03.desktop"], true);
+        let (recent, per) = recent_layout(&g, &model, 4, 3);
+        assert_eq!(recent, ["app03.desktop", "app01.desktop"], "latest first, installed only, once");
+        assert_eq!(per, PerPage { first: 8, rest: 12 }, "the first page a row less");
+        // Turned off (or usage not remembered: no recent apps), or nothing
+        // launched yet: no row, full pages.
+        assert_eq!(recent_layout(&grid(&["app03.desktop"], false), &model, 4, 3), (Vec::new(), PerPage::uniform(12)));
+        assert_eq!(recent_layout(&grid(&[], true), &model, 4, 3), (Vec::new(), PerPage::uniform(12)));
+        assert_eq!(recent_layout(&grid(&["gone.desktop"], true), &model, 4, 3).0, Vec::<String>::new());
+        // One row's worth at most.
+        let many: Vec<String> = (0..12).map(|i| format!("app{i:02}.desktop")).collect();
+        let g = GridView { recent_ids: many, recent_on: true, ..GridView::default() };
+        assert_eq!(recent_layout(&g, &model, 5, 3).0.len(), 5);
+        // Two rows a page: the first keeps one.
+        assert_eq!(recent_layout(&grid(&["app01.desktop"], true), &model, 4, 2).1, PerPage { first: 4, rest: 8 });
+    }
+
+    #[test]
+    fn pages_hold_every_app_once_with_the_row() {
+        let model = Launcher::new(apps(30));
+        let mut g = grid(&["app05.desktop", "app09.desktop"], true);
+        let (recent, per) = recent_layout(&g, &model, 4, 3);
+        Ui::grid_refresh(&mut g, &model, 4, per, recent);
+        assert_eq!(g.pages.iter().map(Vec::len).collect::<Vec<_>>(), [8, 12, 10]);
+        let mut all: Vec<&String> = g.pages.iter().flatten().collect();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), 30, "every app exactly once");
+        // The row on the first page only; the selection counts it first.
+        assert_eq!(g.row_keys(), ["recent:app05.desktop", "recent:app09.desktop"]);
+        assert_eq!(g.shown().len(), 10);
+        assert_eq!(item_id(&g.shown()[1]), "app09.desktop");
+        assert!(is_recent(&g.shown()[0]) && !is_recent(&g.shown()[2]));
+        g.page = 1;
+        assert!(g.row_keys().is_empty(), "not on other pages");
+        assert_eq!(g.shown().len(), 12);
+        // The row goes away (cleared): full pages again.
+        g.page = 0;
+        g.recent_ids.clear();
+        let (recent, per) = recent_layout(&g, &model, 4, 3);
+        Ui::grid_refresh(&mut g, &model, 4, per, recent);
+        assert_eq!(g.pages.iter().flatten().count(), 30);
+        assert!(g.row_keys().is_empty());
+    }
+
+    #[test]
+    fn arrows_across_the_row() {
+        // Three recent apps over a grid of 4 columns holding 10 items:
+        // indices 0–2 the row, 3–12 the grid.
+        let (row, count, cols) = (3, 10, 4);
+        let go = |at, key| arrow(Some(at), key, row, count, cols);
+        assert_eq!(arrow(None, Keysym::Down, row, count, cols), Nav::To(0), "nothing selected: the first app");
+        assert_eq!(go(1, Keysym::Down), Nav::To(4), "down from the row: the grid's first line, same column");
+        assert_eq!(go(2, Keysym::Right), Nav::To(3), "right from the row's end: on into the grid");
+        assert_eq!(go(3, Keysym::Left), Nav::To(2), "and back");
+        assert_eq!(go(5, Keysym::Up), Nav::To(2), "up from the grid's first line: the row, same column");
+        assert_eq!(go(6, Keysym::Up), Nav::To(2), "a column the row does not reach: its last app");
+        assert_eq!(go(8, Keysym::Up), Nav::To(4), "up within the grid");
+        assert_eq!(go(4, Keysym::Down), Nav::To(8));
+        assert_eq!(go(1, Keysym::Up), Nav::To(1), "up from the row stays");
+        assert_eq!(go(0, Keysym::Left), Nav::PrevPage);
+        assert_eq!(go(12, Keysym::Right), Nav::NextPage);
+        assert_eq!(go(11, Keysym::Down), Nav::To(12), "down past the end: the last");
+        // Without the row: as before.
+        assert_eq!(arrow(Some(1), Keysym::Up, 0, 10, 4), Nav::To(0));
+        assert_eq!(arrow(Some(1), Keysym::Down, 0, 10, 4), Nav::To(5));
+        // A row and an empty page.
+        assert_eq!(arrow(Some(1), Keysym::Down, 2, 0, 4), Nav::To(1));
+    }
+
+    #[test]
+    fn tab_order() {
+        assert_eq!(tab(None, 3, 10, true), Some(0), "search → the row");
+        assert_eq!(tab(Some(1), 3, 10, true), Some(3), "the row → the grid");
+        assert_eq!(tab(Some(7), 3, 10, true), None, "the grid → search");
+        assert_eq!(tab(None, 3, 10, false), Some(3), "back: search → the grid");
+        assert_eq!(tab(Some(4), 3, 10, false), Some(0));
+        assert_eq!(tab(Some(0), 3, 10, false), None);
+        assert_eq!(tab(None, 0, 10, true), Some(0), "no row: search → the grid");
+        assert_eq!(tab(Some(0), 0, 10, true), None);
+    }
+
+    #[test]
+    fn no_drop_on_the_row() {
+        let model = Launcher::new(apps(6));
+        let mut g = grid(&["app01.desktop"], true);
+        let r = |x, y| Rect { x, y, w: 100, h: 100 };
+        g.recent_area = Some(r(0, 0));
+        g.cells = vec![(r(0, 30), "recent:app01.desktop".into()), (r(0, 140), "app00.desktop".into()), (r(100, 140), "app01.desktop".into())];
+        g.row = 1;
+        g.area = Rect { x: 0, y: 140, w: 400, h: 200 };
+        g.pages = vec![vec!["app00.desktop".into(), "app01.desktop".into()]];
+        let drag = |at| Drag { id: "app00.desktop".into(), at, from_folder: None };
+        assert_eq!(drop_at(&g, &model, &drag((50.0, 50.0))), None, "not onto the row");
+        assert_eq!(drop_at(&g, &model, &drag((195.0, 150.0))), Some(Drop::Insert { page: 0, index: 2 }), "grid indices leave the row out");
+        assert_eq!(drop_at(&g, &model, &drag((150.0, 180.0))), Some(Drop::Combine("app01.desktop".into())));
+    }
+}
+
+/// The launcher's first page with the "Recent" row (`grid-recent-…`):
+/// four recent apps, the second with the keyboard focus, the third under
+/// the pointer; in every look, and mirrored (`grid-recent-rtl`). See
+/// `ui/gallery.rs` for running it.
+#[cfg(test)]
+mod recent_gallery {
+    use super::super::gallery::{dir, in_looks, render, DARK};
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn grid_recent() {
+        let Some(dir) = dir() else { return };
+        let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+        let ids = [
+            ("org.gnome.Nautilus", "Files"),
+            ("org.gnome.TextEditor", "Text Editor"),
+            ("org.gnome.Calculator", "Calculator"),
+            ("org.gnome.Settings", "Settings"),
+            ("org.gnome.Calendar", "Calendar"),
+            ("org.gnome.Characters", "Characters"),
+            ("org.gnome.clocks", "Clocks"),
+            ("org.gnome.Console", "Console"),
+            ("org.gnome.Contacts", "Contacts"),
+            ("org.gnome.DiskUtility", "Disks"),
+            ("org.gnome.Logs", "Logs"),
+            ("org.gnome.Maps", "Maps"),
+            ("org.gnome.Software", "Software"),
+            ("org.gnome.SystemMonitor", "System Monitor"),
+            ("org.gnome.Weather", "Weather"),
+            ("org.gnome.Loupe", "Image Viewer"),
+            ("org.gnome.baobab", "Disk Usage Analyzer"),
+            ("org.gnome.font-viewer", "Fonts"),
+            ("org.gnome.Snapshot", "Camera"),
+            ("firefox", "Firefox"),
+            ("org.gnome.Papers", "Document Viewer"),
+            ("org.gnome.Totem", "Videos"),
+        ];
+        let apps: Vec<crate::launcher::App> = ids.iter().map(|(id, name)| crate::launcher::App { id: format!("{id}.desktop"), name: (*name).into(), search: String::new(), categories: Vec::new() }).collect();
+        let model = Launcher::new(apps);
+        let recent: Vec<String> = ["org.gnome.TextEditor", "firefox", "org.gnome.Console", "org.gnome.Settings"].iter().map(|id| format!("{id}.desktop")).collect();
+        let mut icons = Icons::default();
+        let mut paint = |canvas: &mut Canvas, (w, h): (usize, usize)| {
+            canvas.fill(SCRIM);
+            let bw = helix_draw::theme::grow(SEARCH_W).min(w as i32 - 48);
+            let by = (h as i32 / 6).max(panel_height() as i32 + 24);
+            let field = Rect { x: (w as i32 - bw) / 2, y: by, w: bw, h: helix_draw::theme::grow(SEARCH_H) };
+            search_field(canvas, text.as_ref(), field, "", tr("Type to search…"), false);
+            let mut grid = GridView::new(helix_draw::motion::Motion::None);
+            grid.recent_ids = recent.clone();
+            grid.recent_on = true;
+            grid.selected = Some(1);
+            grid.feedback.set_hover(Some(recent_key("org.gnome.Console.desktop")), std::time::Instant::now());
+            let mut p = Paint { cache: &mut icons, text: text.as_ref(), bold: bold.as_ref(), scale: canvas.scale };
+            paint_grid(&mut p, &mut grid, &model, canvas, (w as i32, h as i32), by + field.h + 24);
+        };
+        in_looks(&dir, "grid-recent", (1280, 800), &mut paint);
+        helix_draw::set_rtl(true);
+        render(&dir, "grid-recent-rtl", DARK, (1280, 800, 1.0), |canvas| paint(canvas, (1280, 800)));
+        helix_draw::set_rtl(false);
+    }
+}
+
+#[cfg(test)]
 mod cache_tests {
     use super::*;
 
@@ -926,6 +1335,21 @@ mod cache_tests {
         copy_pixels(&from, &mut to, 10, (2, 1, 5, 3));
         let px = |x: usize, y: usize| to[(y * 10 + x) * 4];
         assert_eq!((px(2, 1), px(4, 2), px(5, 2), px(1, 1), px(2, 3)), (7, 7, 0, 0, 0));
+    }
+
+    /// Hovering a "Recent" row app repaints that cell alone, not the same
+    /// app's cell in the grid.
+    #[test]
+    fn recent_row_hover_repaints_one_cell() {
+        let mut feedback: Feedback<String> = Feedback::with_motion(helix_draw::motion::Motion::None);
+        let now = std::time::Instant::now();
+        let rest = feedback.look(&"x".to_owned(), now);
+        let r = Rect { x: 0, y: 0, w: 10, h: 10 };
+        let cells = vec![(r, recent_key("a.desktop"), rest, false), (r, "a.desktop".to_owned(), rest, false), (r, "b.desktop".to_owned(), rest, false)];
+        assert!(dirty_cells(&cells, &feedback, None, now).is_empty());
+        feedback.set_hover(Some(recent_key("a.desktop")), now);
+        assert_eq!(dirty_cells(&cells, &feedback, None, now), [0]);
+        assert_eq!(dirty_cells(&cells, &feedback, Some("a.desktop"), now), [0, 1], "the focus ring is the grid cell's");
     }
 
     /// A hover change at 1920×1080 costs a copy of the frame and two
@@ -951,7 +1375,7 @@ mod cache_tests {
         {
             let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
             canvas.fill(SCRIM);
-            let mut p = Paint { cache: &mut cache, text: text.as_ref(), scale: 1.0 };
+            let mut p = Paint { cache: &mut cache, text: text.as_ref(), bold: None, scale: 1.0 };
             for (r, id) in &cells {
                 paint_cell(&mut p, &model, &mut canvas, *r, id, rest, false);
             }
@@ -964,7 +1388,7 @@ mod cache_tests {
         out.copy_from_slice(&frame);
         {
             let mut canvas = Canvas::scaled(&mut out, w, h, 1.0);
-            let mut p = Paint { cache: &mut cache, text: text.as_ref(), scale: 1.0 };
+            let mut p = Paint { cache: &mut cache, text: text.as_ref(), bold: None, scale: 1.0 };
             for (i, look) in [(3, rest), (4, lit)] {
                 let (r, id) = &cells[i];
                 let px = cell_pixels(*r, 1.0, (w, h), false);

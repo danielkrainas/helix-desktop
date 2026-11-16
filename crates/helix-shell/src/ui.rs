@@ -152,7 +152,7 @@ const RESULT_ICON: i32 = 32;
 const ROW_H: i32 = 40;
 const MAX_ROWS: usize = 10;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 struct Rect {
     x: i32,
     y: i32,
@@ -307,6 +307,9 @@ struct Ui {
     /// The app grid's hover changed in this pointer frame (drawn at its
     /// end).
     grid_pending: bool,
+    /// The app grid shows its "Recent" row (`org.helix.shell
+    /// app-grid-recent` and `remember-app-usage`).
+    recent_apps: bool,
     /// "Pair New Device…" started Bluetooth discovery.
     bt_discovery: bool,
     /// The lock screen's media player and notification counts.
@@ -1419,7 +1422,12 @@ impl Ui {
             configured: false,
             content: Rect { x: 0, y: 0, w: 0, h: 0 },
             rows: Vec::new(),
-            grid: app_grid::GridView::new(crate::item_feedback::motion()),
+            grid: {
+                let mut grid = app_grid::GridView::new(crate::item_feedback::motion());
+                grid.recent_on = self.recent_apps;
+                grid.recent_ids = if self.recent_apps { crate::app_usage::recent() } else { Vec::new() };
+                grid
+            },
             output: None,
             hover: None,
             pressed: None,
@@ -2237,7 +2245,7 @@ impl Ui {
             // The frame without the cells, kept for repainting single cells
             // (`grid_repaint_cells`).
             let base = canvas.data.to_vec();
-            app_grid::paint_grid(&mut app_grid::Paint { cache: &mut self.icon_cache, text: self.text.as_ref(), scale }, view, &mut canvas, w as i32, h as i32, by + field.h + 24);
+            app_grid::paint_grid(&mut app_grid::Paint { cache: &mut self.icon_cache, text: self.text.as_ref(), bold: self.bold.as_ref(), scale }, &mut view.grid, &view.model, &mut canvas, (w as i32, h as i32), by + field.h + 24);
             view.grid_cache = app_grid::GridCache::new(view, base, canvas.data.to_vec(), (canvas.width, canvas.height, scale));
             let surface = view.layer.wl_surface();
             self.scales.prepare(&self.qh, surface, w as i32, h as i32);
@@ -3292,6 +3300,7 @@ impl Ui {
                     self.draw_lock();
                 }
             }
+            UiEvent::RecentApps(on) => self.grid_recent_setting(on),
             UiEvent::DoNotDisturb(on) => {
                 self.notify.do_not_disturb = on;
                 self.draw_notification_list();
@@ -3860,6 +3869,7 @@ pub fn run(
         quick_list: None,
         quick_power_open: false,
         grid_pending: false,
+        recent_apps: false,
         bt_discovery: false,
         running_apps: HashMap::new(),
         lock_extras: Default::default(),

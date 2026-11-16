@@ -212,6 +212,10 @@ pub enum UiEvent {
     Break(Option<wellbeing::BreakView>),
     /// `org.gnome.desktop.notifications show-banners` changed.
     DoNotDisturb(bool),
+    /// Whether the app grid shows its "Recent" row (`org.helix.shell
+    /// app-grid-recent` and `remember-app-usage`; read at start and
+    /// whenever either changes).
+    RecentApps(bool),
     /// The end-session confirmation dialog to show, or none.
     EndDialog(Option<end_dialog::EndDialog>),
     /// Which power actions the Power menu may offer.
