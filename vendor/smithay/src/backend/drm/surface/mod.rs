@@ -32,6 +32,10 @@ pub struct DrmSurface {
     pub(super) internal: Arc<DrmSurfaceInternal>,
     pub(super) plane_claim_storage: PlaneClaimStorage,
     pub(super) primary_plane: (PlaneInfo, PlaneClaim),
+    // Helix: page flips may be asynchronous (tearing): asked for, and
+    // whether the last one was (it falls back to a vsynced flip).
+    pub(super) async_flip: Arc<std::sync::atomic::AtomicBool>,
+    pub(super) flipped_async: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[derive(Debug)]
@@ -430,13 +434,31 @@ impl DrmSurface {
         planes: impl IntoIterator<Item = PlaneState<'a>>,
         event: bool,
     ) -> Result<(), Error> {
-        match &*self.internal {
-            DrmSurfaceInternal::Atomic(surf) => surf.page_flip(planes, event),
+        // Helix: asynchronously when asked (see `set_async_flip`).
+        let want_async = self.async_flip.load(Ordering::SeqCst);
+        let flipped = match &*self.internal {
+            DrmSurfaceInternal::Atomic(surf) => surf.page_flip(planes, event, want_async),
             DrmSurfaceInternal::Legacy(surf) => {
                 let fb = ensure_legacy_planes(self, planes)?;
-                surf.page_flip(fb, event)
+                surf.page_flip(fb, event, want_async)
             }
-        }
+        }?;
+        self.flipped_async.store(flipped, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Helix: ask for the next page flips to be asynchronous (not waiting
+    /// for vblank: they may tear), or not. The caller checks that the
+    /// driver can (`DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP`, or
+    /// `DRM_CAP_ASYNC_PAGE_FLIP` for legacy modesetting); a flip the
+    /// driver refuses asynchronously is made again waiting for vblank.
+    pub fn set_async_flip(&self, on: bool) {
+        self.async_flip.store(on, Ordering::SeqCst);
+    }
+
+    /// Helix: whether the last page flip was asynchronous.
+    pub fn flipped_async(&self) -> bool {
+        self.flipped_async.load(Ordering::SeqCst)
     }
 
     /// Returns a set of available planes for this surface

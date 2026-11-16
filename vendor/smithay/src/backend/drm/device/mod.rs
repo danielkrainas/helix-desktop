@@ -397,6 +397,8 @@ impl DrmDevice {
             internal,
             plane_claim_storage: self.plane_claim_storage.clone(),
             primary_plane: (plane, claim),
+            async_flip: Default::default(),
+            flipped_async: Default::default(),
         })
     }
 

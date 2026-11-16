@@ -96,3 +96,5 @@ accesskit_atspi_common = { path = "vendor/accesskit_atspi_common" }
 # exclusive zone counts only where the protocol says (anchored to one edge,
 # or one edge and both perpendicular ones; src/desktop/wayland/layer.rs).
 smithay = { path = "vendor/smithay" }
+# Also patched: page flips may be asynchronous (tearing, wp_tearing_control_v1),
+# falling back to a vsynced flip (src/backend/drm/surface/*.rs, set_async_flip).

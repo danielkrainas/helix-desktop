@@ -333,7 +333,7 @@ impl LegacyDrmSurface {
 
     #[instrument(level = "trace", parent = &self.span, skip(self))]
     #[profiling::function]
-    pub fn page_flip(&self, framebuffer: framebuffer::Handle, event: bool) -> Result<(), Error> {
+    pub fn page_flip(&self, framebuffer: framebuffer::Handle, event: bool, want_async: bool) -> Result<bool, Error> {
         trace!("Queueing Page flip");
 
         if !self.active.load(Ordering::SeqCst) {
@@ -347,24 +347,27 @@ impl LegacyDrmSurface {
             *dpms = true;
         }
 
-        ControlDevice::page_flip(
-            &*self.fd,
-            self.crtc,
-            framebuffer,
-            if event {
-                PageFlipFlags::EVENT
-            } else {
-                PageFlipFlags::empty()
-            },
-            None,
-        )
-        .map_err(|source| {
-            Error::Access(AccessError {
-                errmsg: "Failed to page flip",
-                dev: self.fd.dev_path(),
-                source,
+        let flags = if event {
+            PageFlipFlags::EVENT
+        } else {
+            PageFlipFlags::empty()
+        };
+        // Helix: asynchronously when asked; refused, waiting for vblank.
+        if want_async {
+            match ControlDevice::page_flip(&*self.fd, self.crtc, framebuffer, flags | PageFlipFlags::ASYNC, None) {
+                Ok(()) => return Ok(true),
+                Err(err) => debug!(%err, "asynchronous page flip refused; waiting for vblank"),
+            }
+        }
+        ControlDevice::page_flip(&*self.fd, self.crtc, framebuffer, flags, None)
+            .map(|()| false)
+            .map_err(|source| {
+                Error::Access(AccessError {
+                    errmsg: "Failed to page flip",
+                    dev: self.fd.dev_path(),
+                    source,
+                })
             })
-        })
     }
 
     #[instrument(level = "trace", parent = &self.span, skip(self))]

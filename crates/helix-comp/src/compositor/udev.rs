@@ -182,6 +182,9 @@ struct Surface {
     /// The logical monitor it shows (x, y, scale) when the output is
     /// placed and scaled otherwise to mirror it at another size.
     mirrors: Option<(i32, i32, f64)>,
+    /// Its frames are flipped asynchronously (a full-screen game asked;
+    /// `wp_tearing_control_v1`), for logging the changes.
+    tearing: bool,
 }
 
 pub struct UdevData {
@@ -190,6 +193,8 @@ pub struct UdevData {
     manager: Manager,
     scanner: DrmScanner,
     surfaces: HashMap<crtc::Handle, Surface>,
+    /// The GPU can flip asynchronously (for tearing).
+    async_flips: bool,
 }
 
 impl UdevData {
@@ -293,6 +298,8 @@ pub fn init(
     let fd = DrmDeviceFd::new(DeviceFd::from(fd));
     state.enable_syncobj(fd.clone());
     let (drm, drm_notifier) = DrmDevice::new(fd.clone(), true)?;
+    let async_flips = helix_comp::tearing_control::async_flip_supported(&drm, drm.is_atomic());
+    tracing::info!(async_flips, atomic = drm.is_atomic(), "GPU page flips");
     let gbm = GbmDevice::new(fd)?;
 
     // SAFETY: the GBM device (and its fd) outlive the EGL display, which
@@ -406,6 +413,7 @@ pub fn init(
         manager,
         scanner: DrmScanner::new(),
         surfaces: HashMap::new(),
+        async_flips,
     });
     state.scan_connectors();
     if state.space.outputs().next().is_none() {
@@ -550,6 +558,7 @@ impl Helix {
                 underscan,
                 hdr_pass: Default::default(),
                 mirrors: None,
+                tearing: false,
             },
         );
         layer_map_for_output(&udev.surfaces[&crtc].output).arrange();
@@ -645,6 +654,7 @@ impl Helix {
         let Some(surface) = self.udev.as_mut().and_then(|u| u.surfaces.get_mut(&crtc)) else {
             return;
         };
+        let torn = surface.drm_output.with_compositor(|c| c.surface().flipped_async());
         match surface.drm_output.frame_submitted() {
             Ok(Some(Some(mut feedback))) => {
                 let output = surface.output.clone();
@@ -663,7 +673,8 @@ impl Helix {
                     time,
                     smithay::wayland::presentation::Refresh::fixed(super::timing::refresh_of(&output)),
                     seq,
-                    Kind::Vsync | Kind::HwClock | Kind::HwCompletion,
+                    // A torn frame did not wait for vblank.
+                    if torn { Kind::HwClock | Kind::HwCompletion } else { Kind::Vsync | Kind::HwClock | Kind::HwCompletion },
                 );
                 self.frame_shown(&output);
             }
@@ -722,6 +733,7 @@ impl Helix {
 
     /// Render one output if it is due, then send frame callbacks.
     pub fn render_crtc(&mut self, crtc: crtc::Handle) {
+        let tearing_frame = self.udev.as_ref().and_then(|u| u.surfaces.get(&crtc)).map(|s| s.output.clone()).map(|o| self.tearing_frame(&o));
         let pointer_location = self.seat.get_pointer().unwrap().current_location();
         let focused = self.focused_window();
         let fullscreen_outputs = self.fullscreen_outputs();
@@ -809,6 +821,13 @@ impl Helix {
             }
         };
         if rendered {
+            // A full-screen game that asked may tear (wp_tearing_control_v1).
+            let tear = tearing_frame.is_some_and(|f| helix_comp::tearing_control::may_tear(helix_comp::tearing_control::Frame { supported: udev.async_flips, ..f }));
+            if tear != surface.tearing {
+                tracing::info!(output = output.name(), tear, "asynchronous page flips");
+                surface.tearing = tear;
+            }
+            surface.drm_output.with_compositor(|c| c.surface().set_async_flip(tear));
             let feedback = Some(super::timing::presentation_feedback(space, &output));
             match surface.drm_output.queue_frame(feedback) {
                 Ok(()) => surface.frame_pending = true,

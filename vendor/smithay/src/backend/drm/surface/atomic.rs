@@ -857,7 +857,8 @@ impl AtomicDrmSurface {
         &self,
         planes: impl IntoIterator<Item = PlaneState<'a>>,
         event: bool,
-    ) -> Result<(), Error> {
+        want_async: bool,
+    ) -> Result<bool, Error> {
         if !self.active.load(Ordering::SeqCst) {
             return Err(Error::DeviceInactive);
         }
@@ -881,16 +882,27 @@ impl AtomicDrmSurface {
         // If we would set anything here, that would require a modeset, this would fail,
         // indicating a problem in our assumptions.
         trace!(?planes, "Queueing page flip: {:?}", req);
-        let res = self
-            .fd
-            .atomic_commit(
-                if event {
-                    AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK
-                } else {
-                    AtomicCommitFlags::NONBLOCK
-                },
-                req.build()?,
-            )
+        let flags = if event {
+            AtomicCommitFlags::PAGE_FLIP_EVENT | AtomicCommitFlags::NONBLOCK
+        } else {
+            AtomicCommitFlags::NONBLOCK
+        };
+        // Helix: asynchronously when asked; when the driver refuses (it
+        // takes only some plane changes asynchronously), the same flip
+        // waiting for vblank.
+        let mut flipped_async = false;
+        if want_async {
+            match self.fd.atomic_commit(flags | AtomicCommitFlags::PAGE_FLIP_ASYNC, req.build()?) {
+                Ok(()) => flipped_async = true,
+                Err(err) => debug!(%err, "asynchronous page flip refused; waiting for vblank"),
+            }
+        }
+        let res = if flipped_async {
+            Ok(())
+        } else {
+            self.fd.atomic_commit(flags, req.build()?)
+        };
+        let res = res
             .map_err(|source| {
                 Error::Access(AccessError {
                     errmsg: "Page flip commit failed",
@@ -909,7 +921,7 @@ impl AtomicDrmSurface {
             }
         }
 
-        res
+        res.map(|()| flipped_async)
     }
 
     // this helper function disconnects the plane.

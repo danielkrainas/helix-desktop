@@ -12,7 +12,9 @@ pub const MUTTER_WAYLAND: &str = "org.gnome.mutter.wayland";
 pub const MUTTER_KEYS: &str = "org.gnome.mutter.keybindings";
 pub const MUTTER_WAYLAND_KEYS: &str = "org.gnome.mutter.wayland.keybindings";
 const A11Y_INTERFACE: &str = "org.gnome.desktop.a11y.interface";
-pub const SCHEMAS: [&str; 6] = [MUTTER, WM_PREFERENCES, INTERFACE, MUTTER_WAYLAND, MUTTER_WAYLAND_KEYS, A11Y_INTERFACE];
+/// Helix's own (`allow-tearing`); missing when not installed (defaults).
+pub const HELIX_SHELL: &str = "org.helix.shell";
+pub const SCHEMAS: [&str; 7] = [MUTTER, WM_PREFERENCES, INTERFACE, MUTTER_WAYLAND, MUTTER_WAYLAND_KEYS, A11Y_INTERFACE, HELIX_SHELL];
 
 /// `focus-mode`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -215,6 +217,10 @@ pub struct WmSettings {
     pub output_luminance: Vec<(String, String, String, String, u32, f64)>,
     /// `enable-animations` and `reduced-motion`.
     pub motion: crate::animation::Motion,
+    /// `org.helix.shell allow-tearing`: full-screen windows that ask
+    /// (`wp_tearing_control_v1` `async`) may be shown without waiting
+    /// for vblank.
+    pub allow_tearing: bool,
 }
 
 impl Default for WmSettings {
@@ -252,6 +258,7 @@ impl Default for WmSettings {
             cursor_size: 24,
             output_luminance: Vec::new(),
             motion: crate::animation::Motion::Full,
+            allow_tearing: true,
         }
     }
 }
@@ -327,6 +334,7 @@ pub fn read() -> WmSettings {
             .unwrap_or_default(),
         cursor_theme: string(INTERFACE, "cursor-theme").filter(|t| !t.is_empty()).unwrap_or(d.cursor_theme),
         cursor_size: settings_with(INTERFACE, "cursor-size").map_or(d.cursor_size, |s| s.int("cursor-size").clamp(1, 512) as u32),
+        allow_tearing: boolean(HELIX_SHELL, "allow-tearing", d.allow_tearing),
         locate_pointer_key: locate.then(|| string(MUTTER, "locate-pointer-key").unwrap_or_else(|| "Control_L".into())),
         motion: crate::animation::Motion::from_settings(
             boolean(INTERFACE, "enable-animations", true),

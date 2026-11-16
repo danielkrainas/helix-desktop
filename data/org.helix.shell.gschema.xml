@@ -40,5 +40,10 @@
       <summary>Show recently used apps in the app grid</summary>
       <description>Whether the first page of the app grid starts with a row of the apps launched last. The row never shows while org.gnome.desktop.privacy remember-app-usage is off.</description>
     </key>
+    <key name="allow-tearing" type="b">
+      <default>true</default>
+      <summary>Let full-screen games tear for lower latency</summary>
+      <description>Whether a full-screen window that asks for it (the Wayland tearing-control protocol, as games with vsync off do) may be shown without waiting for the monitor's refresh, which lowers input latency but can tear. It only happens while that window is focused and nothing else is drawn over it, and only on GPUs that can flip asynchronously.</description>
+    </key>
   </schema>
 </schemalist>
