@@ -244,9 +244,8 @@ impl Ui {
         let icon = self.notification_icon(&view.data.icon);
         let scale = self.scales.of(view.layer.wl_surface());
         let Ok((buffer, data)) =
-            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
+            self.buffers.create_buffer(view.layer.wl_surface(), Ui::draw_banner, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
-            tracing::warn!("cannot allocate banner buffer");
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(view.layer.wl_surface()));
@@ -479,7 +478,7 @@ impl Ui {
         let media_icons = self.calendar_media_icons(scale);
         let cal_h = self.calendar_height();
         let Ok((buffer, data)) =
-            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
+            self.buffers.create_buffer(view.layer.wl_surface(), Ui::draw_notification_list, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
             return;
         };

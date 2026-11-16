@@ -617,7 +617,7 @@ impl Ui {
         }
         let scale = self.scales.of(view.overlay.layer.wl_surface());
         let window_rect = picker.shot.window.or(picker.shot.hover).and_then(|(px, py)| self.window_rect_at(px, py));
-        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+        let Ok((buffer, data)) = self.buffers.create_buffer(view.overlay.layer.wl_surface(), Ui::redraw_picker, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
@@ -1087,6 +1087,13 @@ impl Ui {
         before != self.flashes.len()
     }
 
+    /// Draw every flash again.
+    fn draw_flashes(&mut self) {
+        for index in 0..self.flashes.len() {
+            self.draw_flash(index);
+        }
+    }
+
     fn draw_flash(&mut self, index: usize) {
         let Some(flash) = self.flashes.get(index) else { return };
         let (w, h) = (flash.overlay.width as usize, flash.overlay.height as usize);
@@ -1094,7 +1101,7 @@ impl Ui {
             return;
         }
         let scale = self.scales.of(flash.overlay.layer.wl_surface());
-        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+        let Ok((buffer, data)) = self.buffers.create_buffer(flash.overlay.layer.wl_surface(), Ui::draw_flashes, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);

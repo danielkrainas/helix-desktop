@@ -177,7 +177,7 @@ impl Ui {
             let layer = view.layer.clone();
             let scale = self.scales.of(layer.wl_surface());
             let icon = osd.icon.as_deref().map(osd_icon_names).and_then(|names| names.iter().find_map(|n| self.symbolic_icon_px(n, f64::from(OSD_ICON), scale)));
-            let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+            let Ok((buffer, data)) = self.buffers.create_buffer(layer.wl_surface(), Ui::draw_osd, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
                 continue;
             };
             let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(layer.wl_surface()));

@@ -866,7 +866,7 @@ impl Ui {
         if dirty.is_empty() {
             return true;
         }
-        let Ok((buffer, data)) = self.pool.create_buffer(pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Argb8888) else { return false };
+        let Ok((buffer, data)) = self.buffers.create_buffer(view.layer.wl_surface(), Ui::grid_redraw, pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Argb8888) else { return false };
         data.copy_from_slice(&cache.full);
         let mirrored = super::mirror::on(view.layer.wl_surface());
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirrored);

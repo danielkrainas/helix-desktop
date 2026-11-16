@@ -143,7 +143,7 @@ impl Ui {
             let (w, h) = (tip.width as usize, tip.height as usize);
             let scale = self.scales.of(tip.layer.wl_surface());
             if let Ok((buffer, data)) =
-                self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
+                self.buffers.create_buffer(tip.layer.wl_surface(), Ui::draw_panel_tooltip, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
             {
                 let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(tip.layer.wl_surface()));
                 canvas.fill(0);

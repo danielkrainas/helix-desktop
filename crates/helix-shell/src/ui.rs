@@ -29,7 +29,6 @@ use smithay_client_toolkit::shell::wlr_layer::{
     LayerSurfaceConfigure,
 };
 use smithay_client_toolkit::shell::WaylandSurface;
-use smithay_client_toolkit::shm::slot::SlotPool;
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
 use smithay_client_toolkit::{delegate_registry, registry_handlers};
 use tokio::sync::mpsc::UnboundedSender;
@@ -62,6 +61,7 @@ mod atspi;
 #[cfg(test)]
 mod atspi_bus;
 mod background;
+mod buffers;
 mod break_screen;
 mod calendar;
 mod capture;
@@ -198,7 +198,8 @@ struct Ui {
     output_state: OutputState,
     seat_state: SeatState,
     shm: Shm,
-    pool: SlotPool,
+    /// Every surface's buffers.
+    buffers: buffers::Buffers,
     compositor: CompositorState,
     layer_shell: LayerShell,
     qh: QueueHandle<Ui>,
@@ -321,14 +322,8 @@ struct Ui {
     overview_others: Vec<Overlay<overview::OverviewState>>,
     /// Window pictures the overview shows.
     overview_shots: overview::Shots,
-    /// Buffers of the overview on the other monitors, kept apart from the
-    /// rest (sharing the pool left the primary monitor's overview stale
-    /// while a virtual monitor nobody watched was up).
-    overview_pool: Option<SlotPool>,
-    /// The desktop background on every monitor, and its own pool (large
-    /// buffers).
+    /// The desktop background on every monitor.
     backgrounds: Vec<background::BackgroundView>,
-    background_pool: Option<SlotPool>,
     desktop_background: crate::wallpaper::Background,
     /// The wallpaper shrunk for the overview's workspace thumbnails: (the
     /// image's address and the height, the picture).
@@ -1338,9 +1333,8 @@ impl Ui {
         let ext_widths: Vec<i32> = ext_icons.iter().enumerate().map(|(i, icon)| self.ext_width(i, icon.is_some())).collect();
         let (tray_w, unseen_dot) = (self.tray_width(), self.unseen_dot());
         let Ok((buffer, data)) =
-            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
+            self.buffers.create_buffer(self.panel.wl_surface(), Ui::draw_panel, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
-            tracing::warn!("cannot allocate panel buffer");
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(self.panel.wl_surface()));
@@ -1983,9 +1977,7 @@ impl Ui {
         if self.power_menu.is_some() {
             self.draw_power_menu();
         }
-        for index in 0..self.monitor_labels.len() {
-            self.draw_monitor_label(index);
-        }
+        self.draw_monitor_labels();
         self.redraw_picker();
         self.draw_notification_list();
         self.draw_window_menu();
@@ -2020,7 +2012,7 @@ impl Ui {
             let px = (f64::from(icon) * scale).ceil() as u32;
             let ids: Vec<u32> = overlay.state.switcher.entries.iter().map(|e| e.id).collect();
             let icons: Vec<Option<helix_draw::Image>> = ids.iter().map(|id| self.window_icon(*id, px)).collect();
-            let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+            let Ok((buffer, data)) = self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_switcher, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
                 return;
             };
             let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
@@ -2047,7 +2039,7 @@ impl Ui {
             .enumerate()
             .map(|(i, id)| if windows && (first..first + shown).contains(&i) { self.window_icon(*id, px) } else { None })
             .collect();
-        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+        let Ok((buffer, data)) = self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_switcher, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
@@ -2087,7 +2079,7 @@ impl Ui {
                 (small, big)
             })
             .collect();
-        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+        let Ok((buffer, data)) = self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_switcher, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
@@ -2219,9 +2211,8 @@ impl Ui {
         // their headings), asked for before drawing.
         let (row_icons, heading_icons) = if view.model.query.is_empty() { Default::default() } else { self.result_icons(&view.model, scale) };
         let Ok((buffer, data)) =
-            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
+            self.buffers.create_buffer(view.layer.wl_surface(), Ui::draw_launcher, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
-            tracing::warn!("cannot allocate launcher buffer");
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(view.layer.wl_surface()));
@@ -2652,8 +2643,7 @@ impl Ui {
             let (background, output) = (self.lock_background.clone(), view.output.clone());
             self.offload(move || lock::backdrop(&background, (w, h), scale), move |ui, pixels| ui.lock_backdrop_made(&output, key, pixels));
         }
-        let Ok((buffer, data)) = self.pool.create_buffer(pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Argb8888) else {
-            tracing::warn!("cannot allocate lock screen buffer");
+        let Ok((buffer, data)) = self.buffers.create_buffer(view.surface.wl_surface(), Ui::draw_lock, pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         match &view.backdrop {
@@ -3030,7 +3020,7 @@ impl Ui {
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
         let icons = self.blocker_icons(&overlay.state, scale);
-        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+        let Ok((buffer, data)) = self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_dialog, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
@@ -3065,7 +3055,7 @@ impl Ui {
         let DialogKind::ShareScreen { app, sources, remember, control, multiple, picked, .. } = &overlay.state.kind else { return };
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
-        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+        let Ok((buffer, data)) = self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_dialog, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
@@ -3186,6 +3176,12 @@ impl Ui {
         }
     }
 
+    fn draw_monitor_labels(&mut self) {
+        for index in 0..self.monitor_labels.len() {
+            self.draw_monitor_label(index);
+        }
+    }
+
     fn draw_monitor_label(&mut self, index: usize) {
         let Some(overlay) = self.monitor_labels.get(index) else { return };
         if !overlay.configured || overlay.width == 0 {
@@ -3193,7 +3189,7 @@ impl Ui {
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
-        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+        let Ok((buffer, data)) = self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_monitor_labels, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
@@ -3783,7 +3779,7 @@ pub fn run(
         tracing::warn!("no system font found; text is limited to the clock");
     }
 
-    let pool = SlotPool::new((1920 * PANEL_HEIGHT * 4) as usize, &shm)?;
+    let buffers = buffers::Buffers::new(&shm, &qh);
     let (auth_tx, auth_rx) = channel::channel();
     // Icons and pictures are made on workers; results come back here.
     let (finished_tx, finished_rx) = channel::channel::<offload::Finish>();
@@ -3797,7 +3793,7 @@ pub fn run(
         output_state: OutputState::new(&globals, &qh),
         seat_state: SeatState::new(&globals, &qh),
         shm,
-        pool,
+        buffers,
         compositor,
         layer_shell,
         qh: qh.clone(),
@@ -3873,9 +3869,7 @@ pub fn run(
         overview: None,
         overview_others: Vec::new(),
         overview_shots: Default::default(),
-        overview_pool: None,
         backgrounds: Vec::new(),
-        background_pool: None,
         desktop_background: Default::default(),
         overview_wall: None,
         overview_wall_wanted: None,
@@ -4009,6 +4003,7 @@ pub fn run(
             tracing::warn!(%err, "lost the compositor connection; shell UI stopping");
             break;
         }
+        ui.flush_redraws();
         let _busy = crate::watchdog::scope("accessibility tree");
         ui.atspi_sync();
     }

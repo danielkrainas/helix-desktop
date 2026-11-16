@@ -269,7 +269,8 @@ impl Ui {
         let h = POPUP_ROW_H + 8;
         let scale = self.ime.as_ref().and_then(|i| i.popup.as_ref()).map_or(1.0, |(surface, _)| self.scales.of(surface));
         let (pw, ph) = (physical(w as usize, scale) as i32, physical(h as usize, scale) as i32);
-        let Ok((buffer, data)) = self.pool.create_buffer(pw, ph, pw * 4, wl_shm::Format::Argb8888) else { return };
+        let Some(popup) = self.ime.as_ref().and_then(|i| i.popup.as_ref()).map(|(surface, _)| surface.clone()) else { return };
+        let Ok((buffer, data)) = self.buffers.create_buffer(&popup, Ui::draw_candidates, pw, ph, pw * 4, wl_shm::Format::Argb8888) else { return };
         let mut canvas = Canvas::scaled(data, w as usize, h as usize, scale);
         canvas.fill(0);
         theme::popover_round(&mut canvas, 1.0, 1.0, f64::from(w - 2), f64::from(h - 2), theme::RADIUS_BUTTON);

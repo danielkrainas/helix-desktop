@@ -66,8 +66,10 @@ pub(super) struct DockView {
     width: u32,
     height: u32,
     configured: bool,
-    /// The strip at the screen edge that reveals a hidden dock.
+    /// The strip at the screen edge that reveals a hidden dock, and its
+    /// size.
     trigger: Option<LayerSurface>,
+    trigger_size: Option<(u32, u32)>,
     /// The monitor it is on: output, area (layout coordinates).
     output: Option<wl_output::WlOutput>,
     area: (i32, i32, i32, i32),
@@ -509,6 +511,7 @@ impl Ui {
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.commit();
         self.dock.views[self.dock.cur].trigger = Some(layer);
+        self.dock.views[self.dock.cur].trigger_size = None;
     }
 
     fn dock_drop_layer(&mut self) {
@@ -609,16 +612,8 @@ impl Ui {
         let Some(i) = self.dock.views.iter().position(|v| v.layer.as_ref() == Some(layer) || v.trigger.as_ref() == Some(layer)) else { return false };
         self.dock.cur = i;
         if self.dock.views[self.dock.cur].trigger.as_ref() == Some(layer) {
-            // An empty, see-through strip that only takes the pointer.
-            let (w, h) = (size.0.max(1) as i32, size.1.max(1) as i32);
-            let scale = self.scales.of(layer.wl_surface());
-            if let Ok((buffer, data)) = self.pool.create_buffer(physical(w as usize, scale) as i32, physical(h as usize, scale) as i32, (physical(w as usize, scale) * 4) as i32, wl_shm::Format::Argb8888) {
-                data.fill(0);
-                self.scales.prepare(&self.qh, layer.wl_surface(), w, h);
-                if buffer.attach_to(layer.wl_surface()).is_ok() {
-                    layer.commit();
-                }
-            }
+            self.dock.views[self.dock.cur].trigger_size = Some(size);
+            self.dock_draw_trigger(self.dock.cur);
             return true;
         }
         if self.dock.views[self.dock.cur].layer.as_ref() != Some(layer) {
@@ -708,6 +703,27 @@ impl Ui {
         self.notify.list.entries.iter().filter(|e| e.app_id.eq_ignore_ascii_case(id) || desktop_matches(&e.app_id, id)).count()
     }
 
+    /// An empty, see-through strip that only takes the pointer.
+    fn dock_draw_trigger(&mut self, index: usize) {
+        let Some(layer) = self.dock.views[index].trigger.clone() else { return };
+        let Some(size) = self.dock.views[index].trigger_size else { return };
+        let (w, h) = (size.0.max(1) as i32, size.1.max(1) as i32);
+        let scale = self.scales.of(layer.wl_surface());
+        if let Ok((buffer, data)) = self.buffers.create_buffer(layer.wl_surface(), Ui::dock_draw_triggers, physical(w as usize, scale) as i32, physical(h as usize, scale) as i32, (physical(w as usize, scale) * 4) as i32, wl_shm::Format::Argb8888) {
+            data.fill(0);
+            self.scales.prepare(&self.qh, layer.wl_surface(), w, h);
+            if buffer.attach_to(layer.wl_surface()).is_ok() {
+                layer.commit();
+            }
+        }
+    }
+
+    fn dock_draw_triggers(&mut self) {
+        for index in 0..self.dock.views.len() {
+            self.dock_draw_trigger(index);
+        }
+    }
+
     /// Draw every dock.
     pub(super) fn dock_draw(&mut self) {
         let _busy = crate::watchdog::scope("draw dock");
@@ -744,7 +760,7 @@ impl Ui {
         let (w, h) = (self.dock.views[self.dock.cur].width as i32, self.dock.views[self.dock.cur].height as i32);
         let scale = self.scales.of(layer.wl_surface());
         let paint = self.dock_paint_model(scale);
-        let Ok((buffer, data)) = self.pool.create_buffer(physical(w as usize, scale) as i32, physical(h as usize, scale) as i32, (physical(w as usize, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+        let Ok((buffer, data)) = self.buffers.create_buffer(layer.wl_surface(), Ui::dock_draw, physical(w as usize, scale) as i32, physical(h as usize, scale) as i32, (physical(w as usize, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w as usize, h as usize, scale).mirrored(super::mirror::on(layer.wl_surface()));

@@ -5,7 +5,6 @@ use smithay_client_toolkit::reexports::client::protocol::wl_output::WlOutput;
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;
 use smithay_client_toolkit::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerSurface};
 use smithay_client_toolkit::shell::WaylandSurface;
-use smithay_client_toolkit::shm::slot::SlotPool;
 
 use super::{physical, Ui};
 use crate::wallpaper::{place, Background, Image, Shading, Span};
@@ -189,17 +188,11 @@ impl Ui {
         let view = &self.backgrounds[index];
         let (w, h) = (view.width as usize, view.height as usize);
         let (pw, ph) = key.size;
-        let pool = match self.background_pool.as_mut() {
-            Some(pool) => pool,
-            None => match SlotPool::new(pw * ph * 4, &self.shm) {
-                Ok(pool) => self.background_pool.insert(pool),
-                Err(err) => {
-                    tracing::warn!(%err, "no memory for the background");
-                    return;
-                }
-            },
+        let Ok((buffer, data)) = self.buffers.create_buffer(view.layer.wl_surface(), Ui::draw_backgrounds, pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Xrgb8888) else {
+            // Painted again (on a worker) when it can be shown.
+            self.backgrounds[index].wanted = None;
+            return;
         };
-        let Ok((buffer, data)) = pool.create_buffer(pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Xrgb8888) else { return };
         data.copy_from_slice(pixels);
         let view = &mut self.backgrounds[index];
         view.wanted = None;

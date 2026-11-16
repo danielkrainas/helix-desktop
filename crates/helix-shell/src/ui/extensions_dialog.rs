@@ -202,7 +202,7 @@ impl Ui {
         let scale = self.scales.of(overlay.layer.wl_surface());
         let list = self.ext_list.clone();
         let Ok((buffer, data)) =
-            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
+            self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_extensions_dialog, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
             return;
         };

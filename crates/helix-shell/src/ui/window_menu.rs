@@ -361,7 +361,7 @@ impl Ui {
         let (w, h) = (menu.width as usize, menu.height as usize);
         let scale = self.scales.of(menu.layer.wl_surface());
         let Ok((buffer, data)) =
-            self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
+            self.buffers.create_buffer(menu.layer.wl_surface(), Ui::draw_window_menu, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
         else {
             return;
         };

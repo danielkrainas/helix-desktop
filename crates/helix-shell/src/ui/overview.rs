@@ -451,11 +451,7 @@ impl Ui {
             let [r, g, b] = self.desktop_background.primary;
             0xFF00_0000 | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
         };
-        if !overlay.state.primary && self.overview_pool.is_none() {
-            self.overview_pool = smithay_client_toolkit::shm::slot::SlotPool::new(w * h * 4, &self.shm).ok();
-        }
-        let pool = if overlay.state.primary { &mut self.pool } else if let Some(p) = self.overview_pool.as_mut() { p } else { return };
-        let Ok((buffer, data)) = pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
+        let Ok((buffer, data)) = self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_overview, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);

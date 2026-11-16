@@ -77,7 +77,7 @@ impl Ui {
         if view.configured {
             let (w, h) = (view.width as usize, view.height as usize);
             let scale = self.scales.of(view.layer.wl_surface());
-            if let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) {
+            if let Ok((buffer, data)) = self.buffers.create_buffer(view.layer.wl_surface(), Ui::draw_click_type, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) {
                 let mut canvas = Canvas::scaled(data, w, h, scale);
                 canvas.fill(0x00000000);
                 theme::popover_round(&mut canvas, 1.0, 1.0, w as f64 - 2.0, h as f64 - 2.0, theme::RADIUS_POPOVER);

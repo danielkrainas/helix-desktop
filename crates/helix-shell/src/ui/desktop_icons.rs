@@ -98,7 +98,7 @@ impl Ui {
         let px = (f64::from(logic::ICON) * scale).round() as u32;
         let images: Vec<Option<helix_draw::Image>> = items.iter().take(cells.len()).map(|i| self.desktop_icon(i, px)).collect();
         let Some(view) = self.desktop_icons.view.as_ref() else { return };
-        let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else { return };
+        let Ok((buffer, data)) = self.buffers.create_buffer(view.layer.wl_surface(), Ui::draw_desktop_icons, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else { return };
         let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(0x00000000);
         let text = self.text.as_ref();

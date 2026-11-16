@@ -119,7 +119,7 @@ impl Ui {
             let scale = self.scales.of(popup.layer.wl_surface());
             let names = read_names();
             if let Ok((buffer, data)) =
-                self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
+                self.buffers.create_buffer(popup.layer.wl_surface(), Ui::draw_workspace_popup, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888)
             {
                 let mut canvas = Canvas::scaled(data, w, h, scale);
                 canvas.fill(0);
