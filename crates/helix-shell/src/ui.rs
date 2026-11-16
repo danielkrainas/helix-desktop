@@ -814,10 +814,12 @@ fn search_field(canvas: &mut Canvas, text: Option<&Text>, r: Rect, query: &str, 
 fn search_field_look(canvas: &mut Canvas, text: Option<&Text>, r: Rect, (query, placeholder): (&str, &str), focused: bool, clear: theme::Look) -> Option<Rect> {
     theme::field(canvas, (r.x, r.y, r.w, r.h), focused, true);
     let cy = f64::from(r.y) + f64::from(r.h) / 2.0;
-    theme::search_symbol(canvas, f64::from(r.x) + 24.0, cy, 16.0, if query.is_empty() { DIM_FG } else { FG });
-    let tx = r.x + SEARCH_TEXT_X;
+    // The symbols grow with the text, as the field does.
+    let k = f64::from(theme::text_scale());
+    theme::search_symbol(canvas, f64::from(r.x) + 24.0 * k, cy, 16.0 * k, if query.is_empty() { DIM_FG } else { FG });
+    let tx = r.x + theme::grow(SEARCH_TEXT_X);
     let d = r.h - 16;
-    let room = (r.w - SEARCH_TEXT_X - d - 16) as f32;
+    let room = (r.x + r.w - tx - d - 16) as f32;
     let base = baseline(text, r.y, r.h, size::ENTRY);
     if query.is_empty() {
         // Room for the caret before the placeholder.
@@ -835,7 +837,7 @@ fn search_field_look(canvas: &mut Canvas, text: Option<&Text>, r: Rect, (query, 
     let (bx, by) = (r.x + r.w - 8 - d, r.y + 8);
     let (ccx, ccy) = (f64::from(bx) + f64::from(d) / 2.0, f64::from(by) + f64::from(d) / 2.0);
     theme::round_flat(canvas, ccx, ccy, f64::from(d), clear, false);
-    theme::close_symbol(canvas, ccx, ccy, 10.0, if clear.hovered || clear.pressed { FG } else { DIM_FG });
+    theme::close_symbol(canvas, ccx, ccy, 10.0 * k, if clear.hovered || clear.pressed { FG } else { DIM_FG });
     Some(Rect { x: bx, y: by, w: d, h: d })
 }
 

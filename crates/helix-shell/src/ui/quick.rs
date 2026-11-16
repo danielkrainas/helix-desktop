@@ -109,6 +109,20 @@ fn settings(schema: &str, key: &str) -> Option<helix_settings::Settings> {
     source.lookup(schema, true)?.has_key(key).then(|| helix_settings::Settings::new(schema))
 }
 
+/// The size of quick settings' symbolic icons (logical px): 16, growing
+/// with the text scale as the controls holding them do (GNOME sizes them
+/// in em).
+fn icon_px() -> i32 {
+    theme::grow(16)
+}
+
+impl Ui {
+    /// A symbolic icon in the panel's text color at [`icon_px`], cached.
+    fn symbolic_icon_px_grown(&mut self, name: &str, scale: f64) -> Option<Image> {
+        self.symbolic_icon_px(name, f64::from(icon_px()), scale)
+    }
+}
+
 /// Dark Style's icon: `dark-mode-symbolic`, else (an icon theme without
 /// it) a night sky.
 fn dark_style_icon() -> &'static str {
@@ -431,17 +445,17 @@ impl Ui {
         };
         let mut sliders = Vec::new();
         if let Some((percent, muted, max)) = self.quick.volume {
-            let icon = self.symbolic_icon(volume_icon(percent, muted), scale);
+            let icon = self.symbolic_icon_px_grown(volume_icon(percent, muted), scale);
             sliders.push(Slider { name: tr("Volume").into(), id: "volume".into(), icon, value: percent, max, dim: muted, hit: Some(OverlayHit::VolumeSlider), mute: Some(muted) });
         }
         if let Some(percent) = self.quick.brightness {
-            let icon = self.symbolic_icon("display-brightness-symbolic", scale);
+            let icon = self.symbolic_icon_px_grown("display-brightness-symbolic", scale);
             sliders.push(Slider { name: tr("Brightness").into(), id: "brightness".into(), icon, value: percent, max: 100, dim: false, hit: Some(OverlayHit::BrightnessSlider), mute: None });
         }
         for &i in &ext_sliders {
             let Some(s) = self.ext.sliders.get(i).cloned() else { continue };
             let value = (s.value * 100.0).round() as u32;
-            let icon = if s.icon.is_empty() { None } else { self.symbolic_icon(&s.icon, scale) };
+            let icon = if s.icon.is_empty() { None } else { self.symbolic_icon_px_grown(&s.icon, scale) };
             sliders.push(Slider { name: s.title.clone(), id: format!("slider:{}", s.full_id), icon, value, max: 100, dim: !s.sensitive, hit: s.sensitive.then_some(OverlayHit::ExtSlider(i)), mute: None });
         }
         let profile_label_now = self.status.profile.as_deref().map(profile_label);
@@ -487,7 +501,7 @@ impl Ui {
             };
             // The icon in its words' color: dark on a light accent.
             let color = theme::control_text(theme::Look { on, ..Default::default() });
-            let icon = if icon_name.is_empty() { None } else { self.symbolic_icon_color(&icon_name, 16.0, scale, color) };
+            let icon = if icon_name.is_empty() { None } else { self.symbolic_icon_color(&icon_name, f64::from(icon_px()), scale, color) };
             toggles.push(SwitchTile { switch: *switch, name: name.clone(), on, dim: ext.as_ref().is_some_and(|t| !t.sensitive), subtitle, icon, more, key });
         }
         let profiles: Vec<(String, bool)> = self.status.profiles.iter().map(|p| (profile_label(p), self.status.profile.as_deref() == Some(p.as_str()))).collect();
@@ -500,7 +514,7 @@ impl Ui {
                 networks
                     .iter()
                     .enumerate()
-                    .map(|(i, n)| ListRow { icon: self.symbolic_icon(crate::status::wifi_icon(n.strength), scale), name: n.ssid.clone(), secured: n.secured, connected: n.active, checked: false, hit: Some(OverlayHit::Network(i)), dim: false })
+                    .map(|(i, n)| ListRow { icon: self.symbolic_icon_px_grown(crate::status::wifi_icon(n.strength), scale), name: n.ssid.clone(), secured: n.secured, connected: n.active, checked: false, hit: Some(OverlayHit::Network(i)), dim: false })
                     .collect()
             }
             Some(Switch::Bluetooth) => {
@@ -525,29 +539,29 @@ impl Ui {
                     .iter()
                     .zip(&profiles)
                     .enumerate()
-                    .map(|(i, (p, (label, active)))| ListRow { icon: self.symbolic_icon(&format!("power-profile-{p}-symbolic"), scale), checked: *active, ..row(label.clone(), Some(OverlayHit::Profile(i))) })
+                    .map(|(i, (p, (label, active)))| ListRow { icon: self.symbolic_icon_px_grown(&format!("power-profile-{p}-symbolic"), scale), checked: *active, ..row(label.clone(), Some(OverlayHit::Profile(i))) })
                     .collect()
             }
             _ => Vec::new(),
         };
-        let lock = if rows.iter().any(|r| r.secured) { self.symbolic_icon("channel-secure-symbolic", scale) } else { None };
+        let lock = if rows.iter().any(|r| r.secured) { self.symbolic_icon_px_grown("channel-secure-symbolic", scale) } else { None };
         // The top row: the battery, then Screenshot, Settings, Lock and
         // Power (its list holds the other power actions).
-        let battery = self.status.battery.clone().map(|(icon, percent)| (self.symbolic_icon(&icon, scale), helix_i18n::format_percent(percent.round())));
+        let battery = self.status.battery.clone().map(|(icon, percent)| (self.symbolic_icon_px_grown(&icon, scale), helix_i18n::format_percent(percent.round())));
         let items = power_menu_items(self.power, !crate::locked_down("disable-lock-screen"), !crate::locked_down("disable-log-out"), self.user_switch && crate::user_switch::allowed());
         let mut buttons = Vec::new();
         if !locked {
-            buttons.push(TopButton { hit: OverlayHit::QuickScreenshot, icon: self.symbolic_icon("camera-photo-symbolic", scale), name: tr("Take Screenshot").into() });
+            buttons.push(TopButton { hit: OverlayHit::QuickScreenshot, icon: self.symbolic_icon_px_grown("camera-photo-symbolic", scale), name: tr("Take Screenshot").into() });
             if settings_app().is_some() {
-                buttons.push(TopButton { hit: OverlayHit::QuickSettingsApp, icon: self.symbolic_icon("emblem-system-symbolic", scale), name: tr("Settings").into() });
+                buttons.push(TopButton { hit: OverlayHit::QuickSettingsApp, icon: self.symbolic_icon_px_grown("emblem-system-symbolic", scale), name: tr("Settings").into() });
             }
         }
         if items.iter().any(|(_, a)| *a == PowerAction::Lock) {
-            buttons.push(TopButton { hit: OverlayHit::Power(PowerAction::Lock), icon: self.symbolic_icon("system-lock-screen-symbolic", scale), name: tr("Lock Screen").into() });
+            buttons.push(TopButton { hit: OverlayHit::Power(PowerAction::Lock), icon: self.symbolic_icon_px_grown("system-lock-screen-symbolic", scale), name: tr("Lock Screen").into() });
         }
         let actions: Vec<(&'static str, PowerAction)> = items.into_iter().filter(|(_, a)| *a != PowerAction::Lock).collect();
         if !actions.is_empty() {
-            buttons.push(TopButton { hit: OverlayHit::PowerMenu, icon: self.symbolic_icon("system-shutdown-symbolic", scale), name: tr("Power Off / Log Out").into() });
+            buttons.push(TopButton { hit: OverlayHit::PowerMenu, icon: self.symbolic_icon_px_grown("system-shutdown-symbolic", scale), name: tr("Power Off / Log Out").into() });
         }
         let power_open = self.quick_power_open && !actions.is_empty();
         QuickModel { battery, buttons, power_open, actions, sliders, toggles, list_open, rows, lock, profiles, status_shapes: helix_draw::status_shapes(), hover: None, pressed: None }
@@ -1024,8 +1038,9 @@ fn paint_quick_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Tex
     if let Some((icon, charge)) = &m.battery {
         let mut x = mx + PAD + 4;
         if let Some(icon) = icon {
-            canvas.image(f64::from(x), f64::from(ty + (d - 16) / 2), 16.0, 16.0, icon);
-            x += 22;
+            let ip = icon_px();
+            canvas.image(f64::from(x), f64::from(ty + (d - ip) / 2), f64::from(ip), f64::from(ip), icon);
+            x += ip + 6;
         }
         label(text, canvas, charge, x as f32, baseline(text, ty, d, size::LABEL), size::LABEL, FG, (menu_w / 2 - x + mx) as f32);
     }
@@ -1036,7 +1051,8 @@ fn paint_quick_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Tex
         let look = m.look(b.hit, b.hit == OverlayHit::PowerMenu && m.power_open);
         theme::round_control(canvas, cx, cy, f64::from(d), look, false);
         if let Some(icon) = &b.icon {
-            canvas.image(cx - 8.0, cy - 8.0, 16.0, 16.0, icon);
+            let ip = f64::from(icon_px());
+            canvas.image(cx - ip / 2.0, cy - ip / 2.0, ip, ip, icon);
         }
         hits.push((r, b.hit));
         drawn.push((r, b.hit));
@@ -1078,7 +1094,8 @@ fn paint_quick_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Tex
             radii.push((OverlayHit::Mute, f64::from(d) / 2.0));
         }
         if let Some(icon) = &s.icon {
-            canvas.image_alpha(cx - 8.0, cy - 8.0, 16.0, 16.0, icon, if s.dim { 0.6 } else { 1.0 });
+            let ip = f64::from(icon_px());
+            canvas.image_alpha(cx - ip / 2.0, cy - ip / 2.0, ip, ip, icon, if s.dim { 0.6 } else { 1.0 });
         }
         let bar = Rect { x: icon_r.x + d + 6, y: y + row_h / 2 - 9, w: menu_w - 2 * PAD - d - 6 - value_w, h: 18 };
         let look = s.hit.map_or_else(theme::Look::default, |hit| m.look(hit, false));
@@ -1116,9 +1133,10 @@ fn paint_quick_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Tex
             x += 14;
         }
         if let Some(icon) = &t.icon {
-            canvas.image_alpha(f64::from(x), f64::from(r.y + (r.h - 16) / 2), 16.0, 16.0, icon, if t.dim && !t.on { 0.6 } else { 1.0 });
+            let ip = icon_px();
+            canvas.image_alpha(f64::from(x), f64::from(r.y + (r.h - ip) / 2), f64::from(ip), f64::from(ip), icon, if t.dim && !t.on { 0.6 } else { 1.0 });
         }
-        x += 24;
+        x += icon_px() + 8;
         let room = (main.x + main.w - x - 6) as f32;
         let title_face = bold.or(text);
         if t.subtitle.is_empty() {
@@ -1166,8 +1184,9 @@ fn paint_quick_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Tex
             }
             let mut tx = r.x + 8;
             if let Some(icon) = icon {
-                canvas.image(f64::from(tx), f64::from(r.y + (r.h - 16) / 2), 16.0, 16.0, icon);
-                tx += 24;
+                let ip = icon_px();
+                canvas.image(f64::from(tx), f64::from(r.y + (r.h - ip) / 2), f64::from(ip), f64::from(ip), icon);
+                tx += ip + 8;
             }
             let state_w = if *connected { grow(76) } else { 0 };
             let lock_w = if *secured { 22 } else { 0 };
@@ -1309,7 +1328,7 @@ pub(super) mod tests {
     /// A symbolic icon for the samples, `color`ed (none without the
     /// icon theme).
     fn icon(name: &str, color: u32) -> Option<Image> {
-        crate::icons::symbolic(name, 16, [(color >> 16) as u8, (color >> 8) as u8, color as u8])
+        crate::icons::symbolic(name, icon_px() as u32, [(color >> 16) as u8, (color >> 8) as u8, color as u8])
     }
 
     /// Quick settings as on a laptop: the battery and the top row,
