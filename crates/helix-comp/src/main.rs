@@ -249,7 +249,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let result = event_loop.run(None, &mut state, |_| {});
+    // After whatever ran (clients' requests, input, timers): the pointer
+    // goes onto what is under it now if that changed without it moving.
+    let result = event_loop.run(None, &mut state, |state| {
+        if state.sync_pointer_focus() {
+            let _ = state.display_handle.flush_clients();
+        }
+    });
     state.stop_shell();
     result?;
     Ok(())

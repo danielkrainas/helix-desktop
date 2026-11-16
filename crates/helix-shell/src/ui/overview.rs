@@ -671,6 +671,20 @@ impl Ui {
             }
             state.tiles.push((r, *id));
         }
+        if primary && tracing::enabled!(tracing::Level::DEBUG) {
+            // Where each window's tile is on screen, for tests:
+            // `title@x,y,w,h` (titles' spaces as `_`).
+            let (ox, oy) = (self.primary_area.0, self.primary_area.1 + panel_height() as i32);
+            let tiles: Vec<String> = state
+                .tiles
+                .iter()
+                .map(|(r, id)| {
+                    let title = self.windows.mru().iter().find(|e| e.id == *id).map(|e| e.label().replace(' ', "_")).unwrap_or_default();
+                    format!("{title}@{},{},{},{}", ox + r.x, oy + r.y, r.w, r.h)
+                })
+                .collect();
+            tracing::debug!(tiles = tiles.join(" "), "overview tiles");
+        }
         // The dragged window follows the pointer.
         if let Some((id, (x, y))) = state.drag {
             if let Some(shot) = self.overview_shots.pictures.get(&id) {

@@ -31,6 +31,36 @@ impl Helix {
         self.hot_corner(pos);
     }
 
+    /// Put the pointer on what is under it now, when that changed without
+    /// the pointer moving: a surface under it went away (the overview
+    /// closing after a click on a window in it), appeared, or was raised.
+    /// As in mutter, the client now under the pointer gets `enter` at
+    /// once, so its next click or scroll reaches it; before, they went to
+    /// the surface the pointer was last moved over (perhaps destroyed)
+    /// until the pointer moved. Not while a grab holds the pointer (it
+    /// decides where events go; focus is synced once it ends). True if
+    /// the focus changed.
+    pub fn sync_pointer_focus(&mut self) -> bool {
+        use smithay::reexports::wayland_server::Resource;
+        let Some(pointer) = self.seat.get_pointer() else { return false };
+        if pointer.is_grabbed() || self.input_capture_active().is_some() || self.space.outputs().next().is_none() {
+            return false;
+        }
+        let pos = pointer.current_location();
+        // Over a window's title bar the pointer is on no surface (as in
+        // `pointer_to`).
+        let under = if self.frame_under(pos).is_some() { None } else { self.surface_under(pos) };
+        let current = pointer.current_focus();
+        if under.as_ref().map(|(s, _)| s) == current.as_ref() {
+            return false;
+        }
+        tracing::trace!(from = ?current.as_ref().map(|s| s.id()), to = ?under.as_ref().map(|(s, _)| s.id()), "pointer focus synced");
+        let time = self.now_ms();
+        pointer.motion(self, under, &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time });
+        pointer.frame(self);
+        true
+    }
+
     /// A pointer device moved. While the pointer is over the shell and the
     /// shell is behind reading its socket, motion is held and sent
     /// coalesced every `COALESCED_MOTION` (where the pointer is then), so
