@@ -439,10 +439,14 @@ pub fn switch(canvas: &mut Canvas, x: f64, y: f64, on: bool, look: Look) {
 /// fill when on); with `more`, its last `more_w` px are a separate part
 /// (a "›" for a list or menu) in their own look, split from the rest by a
 /// 2 px gap. High contrast: each part outlined in white.
-pub fn toggle_pill(canvas: &mut Canvas, (x, y, w, h): (f64, f64, f64, f64), more_w: f64, main: Look, more: Option<Look>) {
+pub fn toggle_pill(canvas: &mut Canvas, rect: (f64, f64, f64, f64), more_w: f64, main: Look, more: Option<Look>) {
+    toggle_pill_in(canvas, rect, more_w, (main, more), crate::high_contrast());
+}
+
+fn toggle_pill_in(canvas: &mut Canvas, (x, y, w, h): (f64, f64, f64, f64), more_w: f64, (main, more): (Look, Option<Look>), hc: bool) {
     let r = h / 2.0;
     let Some(more) = more else {
-        control_round(canvas, (x, y, w, h), r, main);
+        control_in(canvas, (x, y, w, h), r, main, hc);
         return;
     };
     let split = x + w - more_w;
@@ -450,11 +454,35 @@ pub fn toggle_pill(canvas: &mut Canvas, (x, y, w, h): (f64, f64, f64, f64), more
     // the ends.
     let (sx, sy, sh) = (split.floor() as i32, y.floor() as i32 - 1, h.ceil() as i32 + 2);
     let saved = canvas.push_clip((x.floor() as i32) - 1, sy, sx - 1 - (x.floor() as i32 - 1), sh);
-    control_round(canvas, (x, y, split - x + r, h), r, main);
+    control_in(canvas, (x, y, split - x + r, h), r, main, hc);
     canvas.restore_clip(saved);
     let saved = canvas.push_clip(sx + 1, sy, (x + w).ceil() as i32 + 1 - (sx + 1), sh);
-    control_round(canvas, (split - r, y, more_w + r, h), r, more);
+    control_in(canvas, (split - r, y, more_w + r, h), r, more, hc);
     canvas.restore_clip(saved);
+    if hc {
+        // Each part's own white edge at the split, as wide as its
+        // outline (the clip cut it off).
+        let edge = |look: Look| if look.hovered || look.pressed { 2 } else { 1 };
+        let (top, height) = (y.round() as i32, h.round() as i32);
+        canvas.rect(sx - 1 - edge(main), top, edge(main), height, WHITE);
+        canvas.rect(sx + 1, top, edge(more), height, WHITE);
+    }
+}
+
+/// A toggle that is flat at rest (the screenshot toolbar's): nothing
+/// behind it when off, Hovered under the pointer, the accent fill when
+/// on. High contrast: a control (black with a 1 px white outline when
+/// off, 2 px hovered or pressed), so an off toggle still shows its edge.
+pub fn flat_toggle(canvas: &mut Canvas, rect: (f64, f64, f64, f64), radius: f64, look: Look) {
+    flat_toggle_in(canvas, rect, radius, look, crate::high_contrast());
+}
+
+fn flat_toggle_in(canvas: &mut Canvas, rect: (f64, f64, f64, f64), radius: f64, look: Look, hc: bool) {
+    if hc {
+        control_in(canvas, rect, radius, look, true);
+    } else {
+        flat(canvas, rect, radius, look);
+    }
 }
 
 /// A switch's size (logical px).
@@ -720,6 +748,36 @@ mod tests {
         assert_eq!(px(15, 5), 0xFFFFFFFF, "an off control is outlined in white");
         assert_eq!(px(15, 15), 0xFF000000, "and black inside");
         assert_eq!(px(5, 5), 0, "rounded: the corner stays clear");
+    }
+
+    /// High contrast: a split quick settings toggle has a white edge on
+    /// each side of the split (off or on), and a flat toggle that is off
+    /// still shows its outline at rest.
+    #[test]
+    fn high_contrast_split_and_toggles() {
+        let mut data = vec![0u8; 200 * 40 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 200, 40, 1.0);
+        toggle_pill_in(&mut canvas, (10.0, 5.0, 180.0, 30.0), 40.0, (Look::default(), Some(Look::default())), true);
+        let px = |data: &[u8], x: usize, y: usize| u32::from_le_bytes(data[(y * 200 + x) * 4..][..4].try_into().unwrap());
+        // The split is at x 150: the gap is 149 and 150.
+        assert_eq!(px(&data, 148, 20), WHITE, "the main part's edge");
+        assert_eq!(px(&data, 151, 20), WHITE, "the more part's edge");
+        assert_eq!(px(&data, 140, 20), BLACK, "black inside");
+        let mut data = vec![0u8; 200 * 40 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 200, 40, 1.0);
+        toggle_pill_in(&mut canvas, (10.0, 5.0, 180.0, 30.0), 40.0, (Look { on: true, ..Default::default() }, Some(Look { on: true, hovered: true, ..Default::default() })), true);
+        assert_eq!(px(&data, 148, 20), WHITE, "on: the main part's edge");
+        assert_eq!(px(&data, 151, 20), WHITE, "the hovered more part's edge");
+        assert_eq!(px(&data, 152, 20), WHITE, "2 px while hovered");
+        let mut data = vec![0u8; 40 * 40 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 40, 40, 1.0);
+        flat_toggle_in(&mut canvas, (5.0, 5.0, 30.0, 30.0), RADIUS_BUTTON, Look::default(), true);
+        let px = |x: usize, y: usize| u32::from_le_bytes(data[(y * 40 + x) * 4..][..4].try_into().unwrap());
+        assert_eq!(px(20, 5), WHITE, "an off flat toggle is outlined in high contrast");
+        let mut data = vec![0u8; 40 * 40 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 40, 40, 1.0);
+        flat_toggle_in(&mut canvas, (5.0, 5.0, 30.0, 30.0), RADIUS_BUTTON, Look::default(), false);
+        assert!(data.iter().all(|b| *b == 0), "and nothing at rest otherwise");
     }
 
     /// Popovers are rounded, edged and shadowed; the shadow fades out.

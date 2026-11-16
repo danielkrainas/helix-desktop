@@ -503,7 +503,9 @@ impl Ui {
                 }
                 match self.overview_shots.pictures.get(&entry.id) {
                     Some(shot) if (x0, y0, x1, y1) == (x, y, x + ww, y + wh) => canvas.image_rounded(x, y, ww, wh, 2.0, shot, 1.0),
-                    _ => canvas.round_rect(x0, y0, x1 - x0, y1 - y0, 2.0, theme::CONTROL),
+                    // No picture (yet): a Control box, outlined in high contrast
+                    // (black on the black thumbnail otherwise).
+                    _ => theme::control_round(&mut canvas, (x0, y0, x1 - x0, y1 - y0), 2.0, theme::Look::default()),
                 }
             }
             if state.region == Region::Workspaces && state.workspace_key == Some(n) {

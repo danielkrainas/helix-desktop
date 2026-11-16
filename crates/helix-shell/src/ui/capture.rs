@@ -306,7 +306,7 @@ fn paint_toolbar(canvas: &mut Canvas, text: Option<&crate::text::Text>, (w, h): 
             let r = Rect { x, y: cy - TOOL_H / 2, w: TOOL_W, h: TOOL_H };
             let l = look(b.tool, b.on);
             let rect = (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
-            theme::flat(canvas, rect, theme::RADIUS_BUTTON + 2.0, l);
+            theme::flat_toggle(canvas, rect, theme::RADIUS_BUTTON + 2.0, l);
             let fg = if b.enabled { theme::control_text(l) } else { theme::disabled_text() };
             tool_symbol(canvas, b.tool, f64::from(r.x) + f64::from(r.w) / 2.0, f64::from(cy), fg);
             if b.enabled {
