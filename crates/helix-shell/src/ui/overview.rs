@@ -59,7 +59,16 @@ pub(super) struct OverviewState {
     /// icon being dragged (app, pointer).
     dash_press: Option<(String, (f64, f64), Option<u32>)>,
     dash_drag: Option<(String, (f64, f64))>,
+    /// The last window moved with the keyboard or an accessibility
+    /// action, said: "Terminal moved to Workspace 2".
+    moved: Option<String>,
 }
+
+/// The AT-SPI custom actions of a window picture: moving it to workspace
+/// N is `MOVE_TO_WORKSPACE + N`.
+pub(super) const MOVE_TO_WORKSPACE: i32 = 0x4858_0100;
+/// How many workspaces have such an action.
+const MOVE_ACTIONS: u32 = 0x100;
 
 /// A window's app icon on its picture (logical px).
 pub(super) const TILE_ICON: i32 = 48;
@@ -789,9 +798,7 @@ impl Ui {
         if let (Some(by), Some(id), Region::Windows) = (move_by, selected, state.region) {
             let target = i64::from(active) + by;
             if target >= 0 && target < i64::from(count) {
-                if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 2) {
-                    list.move_window(id, target as u32);
-                }
+                self.overview_move(id, target as u32);
             }
             return;
         }
@@ -889,6 +896,34 @@ impl Ui {
         }
     }
 
+    /// Move `window` to workspace `to` (the keyboard's moves and the
+    /// pictures' accessibility actions), and say so.
+    fn overview_move(&mut self, window: u32, to: u32) {
+        let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 2) else { return };
+        if to >= self.windows.count.max(1) {
+            return;
+        }
+        list.move_window(window, to);
+        let title = self.windows.mru().iter().find(|e| e.id == window).map(|e| e.label().to_owned()).unwrap_or_default();
+        let workspace = super::workspace_popup::workspace_name(&super::workspace_popup::read_names(), to);
+        if let Some(overview) = self.overview.as_mut() {
+            overview.state.moved = Some(helix_i18n::trf!("{window} moved to {workspace}", window = title, workspace = workspace));
+        }
+        self.draw_overview();
+    }
+
+    /// An accessibility action on the overview: a window picture's "Move
+    /// to …" (target `window:ID`). False if `action` is no such action.
+    pub(super) fn overview_action(&mut self, target: &str, action: i32) -> bool {
+        let Some(window) = target.strip_prefix("window:").and_then(|id| id.parse::<u32>().ok()) else { return false };
+        let Some(to) = u32::try_from(action.wrapping_sub(MOVE_TO_WORKSPACE)).ok().filter(|n| *n < MOVE_ACTIONS) else { return false };
+        if self.overview.is_none() {
+            return false;
+        }
+        self.overview_move(window, to);
+        true
+    }
+
     /// Close the window chosen with the keyboard; the choice moves to a
     /// neighbour.
     fn overview_close_selected(&mut self, selected: Option<u32>) {
@@ -920,6 +955,11 @@ pub(super) struct OverviewShown<'a> {
     pub region: Region,
     pub workspace_key: Option<u32>,
     pub dash_key: Option<usize>,
+    /// The workspaces a window picture can be moved to (number, name):
+    /// its "Move to …" actions.
+    pub move_to: &'a [(u32, String)],
+    /// The last move, said.
+    pub moved: Option<&'a str>,
 }
 
 /// The overview on the accessibility bus (helix-desktop-spec
@@ -947,10 +987,16 @@ pub(super) fn overview_nodes(s: &OverviewShown) -> Vec<crate::a11y::Node> {
     }
     let pictures = s.windows.iter().map(|(r, id, title, app)| {
         let on = s.selected == Some(*id);
-        Node::new(Role::ListBoxOption, title).id(format!("window:{id}")).describe(app.as_str()).at((*r).into()).click().focusable().selected(on).focused(on && keyboard_on(Region::Windows))
+        let node = Node::new(Role::ListBoxOption, title).id(format!("window:{id}")).describe(app.as_str()).at((*r).into()).click().focusable().selected(on).focused(on && keyboard_on(Region::Windows));
+        // "Move to Workspace 2", … (helix-desktop#97): the keyboard's
+        // and the drag's moves as actions.
+        s.move_to.iter().fold(node, |node, (n, name)| node.action(MOVE_TO_WORKSPACE + *n as i32, helix_i18n::trf!("Move to {workspace}", workspace = name)))
     });
     let windows = Node::new(Role::ListBox, tr("Windows")).id("windows").children(pictures);
     out.push(if s.windows.is_empty() { windows.child(Node::label(tr("No open windows"))) } else { windows });
+    if let Some(moved) = s.moved {
+        out.push(Node::label(moved).id("moved").live());
+    }
     if !s.dash.is_empty() {
         let icons = s.dash.iter().enumerate().map(|(i, (r, app, name, running))| {
             let focused = keyboard_on(Region::Dash) && s.dash_key == Some(i);
@@ -990,7 +1036,11 @@ impl Ui {
             })
             .collect();
         let dash: Vec<(Rect, String, String, bool)> = state.dash.iter().map(|(r, app, newest, _)| (*r, app.clone(), app_name(app), newest.is_some())).collect();
+        let all_names = if state.primary { ws_names } else { super::workspace_popup::read_names() };
+        let move_to: Vec<(u32, String)> = (0..self.windows.count.clamp(1, MOVE_ACTIONS)).filter(|n| *n != self.windows.active).map(|n| (n, super::workspace_popup::workspace_name(&all_names, n))).collect();
         overview_nodes(&OverviewShown {
+            move_to: &move_to,
+            moved: state.moved.as_deref(),
             search: state.primary.then_some(state.search),
             workspaces: &workspaces,
             windows: &windows,

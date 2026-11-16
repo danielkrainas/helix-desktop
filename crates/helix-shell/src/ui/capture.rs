@@ -42,8 +42,14 @@ pub(super) struct Picker {
     reply: Option<oneshot::Sender<Picked>>,
     views: Vec<PickView>,
     drag: Option<Drag>,
-    /// The screenshot UI's state (`PickMode::Ui`).
+    /// The screenshot UI's state (`PickMode::Ui`); its selection is also
+    /// the area picker's while the keyboard makes it.
     shot: ShotState,
+    /// The point the arrow keys move (point and window pickers, the
+    /// screenshot UI's Window mode): view, place in it.
+    point: Option<(usize, (f64, f64))>,
+    /// The arrow keys made the selection or the point: it is announced.
+    keyboard: bool,
 }
 
 /// What the screenshot UI captures.
@@ -134,6 +140,54 @@ pub(super) fn grip_drag(sel: (f64, f64, f64, f64), grip: Grip, (dx, dy): (f64, f
     (x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0))
 }
 
+/// How far an arrow key moves the area or point (logical px): Shift for
+/// larger steps, Alt for single pixels.
+pub(super) fn key_step(shift: bool, alt: bool) -> f64 {
+    if alt {
+        1.0
+    } else if shift {
+        50.0
+    } else {
+        10.0
+    }
+}
+
+/// The smallest area the arrow keys make (logical px a side).
+const MIN_KEY_SIZE: f64 = 10.0;
+
+/// Area `sel` after an arrow key, kept on a `bounds` (w, h) view: moved
+/// by (dx, dy), or with `resize` (Ctrl) its right and bottom edges moved
+/// (Right and Down grow it, Left and Up shrink it).
+pub(super) fn nudge_area(sel: (f64, f64, f64, f64), (dx, dy): (f64, f64), resize: bool, bounds: (f64, f64)) -> (f64, f64, f64, f64) {
+    if !resize {
+        return grip_drag(sel, Grip::MOVE, (dx, dy), bounds);
+    }
+    let (x, y, w, h) = sel;
+    let size = |v: f64, room: f64| v.min(room).max(MIN_KEY_SIZE.min(room)).max(1.0);
+    (x, y, size(w + dx, bounds.0 - x), size(h + dy, bounds.1 - y))
+}
+
+/// Point `p` after an arrow key moving it by (dx, dy), kept on a
+/// `bounds` (w, h) view.
+pub(super) fn nudge_point(p: (f64, f64), (dx, dy): (f64, f64), bounds: (f64, f64)) -> (f64, f64) {
+    ((p.0 + dx).clamp(0.0, (bounds.0 - 1.0).max(0.0)), (p.1 + dy).clamp(0.0, (bounds.1 - 1.0).max(0.0)))
+}
+
+/// The area the arrow keys start with: the middle quarter of a `bounds`
+/// view.
+fn first_area(bounds: (f64, f64)) -> (f64, f64, f64, f64) {
+    ((bounds.0 / 4.0).round(), (bounds.1 / 4.0).round(), (bounds.0 / 2.0).round().max(1.0), (bounds.1 / 2.0).round().max(1.0))
+}
+
+/// What the keyboard's selection is, said on the accessibility bus as
+/// it changes: an area (`Some` size) or a point, in layout coordinates.
+pub(super) fn keyboard_said(at: (i32, i32), size: Option<(i32, i32)>) -> String {
+    match size {
+        Some((w, h)) => helix_i18n::trf!("Area at {x}, {y}: {w} × {h}", x = at.0, y = at.1, w = w, h = h),
+        None => helix_i18n::trf!("Point at {x}, {y}", x = at.0, y = at.1),
+    }
+}
+
 /// A selection being moved or resized: on which view, by what, from
 /// where the pointer was pressed, and the selection then.
 struct Edit {
@@ -196,9 +250,9 @@ pub struct FrameData {
 
 fn hint(mode: PickMode) -> &'static str {
     match mode {
-        PickMode::Area => tr("Drag to select an area · Esc to cancel"),
-        PickMode::Point => tr("Click to pick a color · Esc to cancel"),
-        PickMode::Window => tr("Click a window to capture it · Esc to cancel"),
+        PickMode::Area => tr("Drag, or arrows to move and Ctrl+arrows to resize · Enter to confirm · Esc to cancel"),
+        PickMode::Point => tr("Click, or arrows and Enter, to pick a color · Esc to cancel"),
+        PickMode::Window => tr("Click a window, or arrows and Enter, to capture it · Esc to cancel"),
         PickMode::Ui { .. } => tr("S, C, W: area, screen, window · V: record · P: pointer · Enter: capture · Esc: cancel"),
     }
 }
@@ -520,7 +574,7 @@ impl Ui {
             PickMode::Ui { record, allow_record } => ShotState::new(record, allow_record),
             _ => ShotState::new(false, false),
         };
-        self.picker = Some(Picker { mode, reply: Some(reply), views, drag: None, shot });
+        self.picker = Some(Picker { mode, reply: Some(reply), views, drag: None, shot, point: None, keyboard: false });
     }
 
     /// Close the picker with `result`; its surfaces are gone before the
@@ -577,8 +631,12 @@ impl Ui {
             }
             (None, true, ShotMode::Area) => picker.shot.selection.filter(|(v, _)| *v == index).map(|(_, (x, y, sw, sh))| (x as i32, y as i32, sw.round() as i32, sh.round() as i32)),
             (None, true, ShotMode::Window) => window_rect.map(|(x, y, ww, wh)| (x - view.origin.0, y - view.origin.1, ww, wh)),
+            // The area picker's selection made with the arrow keys.
+            (None, false, _) if picker.mode == PickMode::Area => picker.shot.selection.filter(|(v, _)| *v == index).map(|(_, (x, y, sw, sh))| (x as i32, y as i32, sw.round() as i32, sh.round() as i32)),
             _ => None,
         };
+        // The point the arrow keys move (pickers of a point or a window).
+        let key_point = picker.point.filter(|(v, _)| *v == index && (!is_ui || picker.shot.mode == ShotMode::Window)).map(|(_, (px, py))| (px as i32, py as i32));
         let screen_mode = is_ui && picker.shot.mode == ShotMode::Screen;
         match clear {
             _ if screen_mode => {
@@ -598,8 +656,31 @@ impl Ui {
             }
             None => canvas.rect(0, 0, w as i32, h as i32, PICK_SCRIM),
         }
+        if let Some((px, py)) = key_point {
+            // A small outlined box around the point.
+            paint_selection(&mut canvas, None, (px - 4, py - 4, 9, 9), false, None);
+        }
         let mut tools = Vec::new();
         let mut nodes = Vec::new();
+        if index == 0 && picker.keyboard {
+            // What the arrow keys picked, announced as it changes.
+            let area_mode = matches!(picker.mode, PickMode::Area) || (is_ui && picker.shot.mode == ShotMode::Area);
+            let said = if area_mode {
+                picker.shot.selection.map(|(v, (x, y, sw, sh))| {
+                    let o = picker.views[v].origin;
+                    let r = crate::a11y::Rect::new(x as i32, y as i32, sw.round() as i32, sh.round() as i32);
+                    (keyboard_said((o.0 + r.x, o.1 + r.y), Some((r.w, r.h))), r)
+                })
+            } else {
+                picker.point.map(|(v, (px, py))| {
+                    let o = picker.views[v].origin;
+                    (keyboard_said((o.0 + px as i32, o.1 + py as i32), None), crate::a11y::Rect::new(px as i32 - 4, py as i32 - 4, 9, 9))
+                })
+            };
+            if let Some((said, r)) = said {
+                nodes.push(crate::a11y::Node::label(said).id("keyboard").at(r).live());
+            }
+        }
         if index == 0 {
             let text = self.text.as_ref();
             // The pickers' hint (the screenshot UI's keys are in its
@@ -611,7 +692,8 @@ impl Ui {
                 let bx = (w as i32 - bw) / 2;
                 theme::popover_round(&mut canvas, f64::from(bx), 24.0, f64::from(bw), f64::from(bh), theme::pill(f64::from(bh)));
                 label(text, &mut canvas, message, (bx + 16) as f32, baseline(text, 24, bh, size::LABEL), size::LABEL, FG, tw as f32 + 1.0);
-                nodes.push(crate::a11y::Node::label(message).id("hint").at(crate::a11y::Rect::new(bx, 24, bw, bh)));
+                // Announced when the picker opens: how to pick with keys.
+                nodes.push(crate::a11y::Node::label(message).id("hint").at(crate::a11y::Rect::new(bx, 24, bw, bh)).live());
             }
             if let (true, Some((x, y, sw, sh))) = (is_ui && picker.shot.mode != ShotMode::Screen, clear) {
                 // The area or window that will be captured.
@@ -704,6 +786,10 @@ impl Ui {
         let origin = picker.views[index].origin;
         let mode = picker.mode;
         let ui = matches!(mode, PickMode::Ui { .. });
+        if matches!(event.kind, PointerEventKind::Press { .. }) {
+            // The pointer took over: its drags are not read out.
+            picker.keyboard = false;
+        }
         let layout = (origin.0 + event.position.0.floor() as i32, origin.1 + event.position.1.floor() as i32);
         if ui {
             let (x, y) = event.position;
@@ -849,8 +935,20 @@ impl Ui {
         let Some(picker) = self.picker.as_ref() else { return };
         let ui = matches!(picker.mode, PickMode::Ui { .. });
         let record = picker.shot.record;
+        let arrow = match event.keysym {
+            Keysym::Left | Keysym::KP_Left => Some((-1.0, 0.0)),
+            Keysym::Right | Keysym::KP_Right => Some((1.0, 0.0)),
+            Keysym::Up | Keysym::KP_Up => Some((0.0, -1.0)),
+            Keysym::Down | Keysym::KP_Down => Some((0.0, 1.0)),
+            _ => None,
+        };
+        if let Some(unit) = arrow {
+            self.picker_arrow(unit);
+            return;
+        }
         match event.keysym {
             Keysym::Escape => self.finish_pick(Picked::Cancelled),
+            Keysym::Return | Keysym::KP_Enter | Keysym::space if !ui => self.picker_confirm(),
             Keysym::Return | Keysym::KP_Enter | Keysym::space if ui => self.shot_tool(Tool::Capture),
             Keysym::s | Keysym::S if ui => self.shot_tool(Tool::Mode(ShotMode::Area)),
             Keysym::c | Keysym::C if ui => self.shot_tool(Tool::Mode(ShotMode::Screen)),
@@ -858,6 +956,72 @@ impl Ui {
             Keysym::v | Keysym::V if ui => self.shot_tool(Tool::Record(!record)),
             Keysym::p | Keysym::P if ui => self.shot_tool(Tool::Pointer),
             _ => {}
+        }
+    }
+
+    /// An arrow key (`unit` its direction) on the picker: the area is
+    /// moved (Ctrl: resized), or the point moved; the first one makes it
+    /// in the middle of the first monitor.
+    fn picker_arrow(&mut self, unit: (f64, f64)) {
+        let (shift, ctrl, alt) = (self.mods.shift, self.mods.ctrl, self.mods.alt);
+        let step = key_step(shift, alt);
+        let d = (unit.0 * step, unit.1 * step);
+        let Some(picker) = self.picker.as_mut() else { return };
+        if picker.drag.is_some() || picker.shot.edit.is_some() {
+            return;
+        }
+        let ui = matches!(picker.mode, PickMode::Ui { .. });
+        let bounds = |v: &PickView| (f64::from(v.overlay.width), f64::from(v.overlay.height));
+        let area = picker.mode == PickMode::Area || (ui && picker.shot.mode == ShotMode::Area);
+        if ui && picker.shot.mode == ShotMode::Screen {
+            return;
+        }
+        picker.keyboard = true;
+        if area {
+            picker.shot.selection = Some(match picker.shot.selection {
+                Some((v, sel)) => (v, nudge_area(sel, d, ctrl, bounds(&picker.views[v]))),
+                None => (0, first_area(bounds(&picker.views[0]))),
+            });
+        } else {
+            let (v, p) = match picker.point {
+                Some((v, p)) => (v, nudge_point(p, d, bounds(&picker.views[v]))),
+                None => {
+                    let b = bounds(&picker.views[0]);
+                    (0, ((b.0 / 2.0).floor(), (b.1 / 2.0).floor()))
+                }
+            };
+            picker.point = Some((v, p));
+            if ui {
+                // The screenshot UI's Window mode: the window under the point.
+                let origin = picker.views[v].origin;
+                let at = (origin.0 + p.0 as i32, origin.1 + p.1 as i32);
+                let on_window = self.window_rect_at(at.0, at.1).is_some();
+                if let Some(picker) = self.picker.as_mut() {
+                    picker.shot.hover = Some(at);
+                    picker.shot.window = on_window.then_some(at);
+                }
+            }
+        }
+        self.redraw_picker();
+    }
+
+    /// Enter on an area, point or window picker: what the arrow keys
+    /// picked.
+    fn picker_confirm(&mut self) {
+        let Some(picker) = self.picker.as_ref() else { return };
+        let picked = match picker.mode {
+            PickMode::Area => picker.shot.selection.map(|(v, (x, y, w, h))| {
+                let o = picker.views[v].origin;
+                Picked::Area(Area::new(o.0 + x.round() as i32, o.1 + y.round() as i32, w.round() as i32, h.round() as i32))
+            }),
+            PickMode::Point | PickMode::Window => picker.point.map(|(v, (x, y))| {
+                let o = picker.views[v].origin;
+                Picked::Point(o.0 + x.floor() as i32, o.1 + y.floor() as i32)
+            }),
+            PickMode::Ui { .. } => None,
+        };
+        if let Some(picked) = picked {
+            self.finish_pick(picked);
         }
     }
 
@@ -1006,6 +1170,25 @@ mod grip_tests {
         assert_eq!(grip_drag(sel, corner, (20.0, 10.0), bounds), (120.0, 110.0, 180.0, 90.0));
         assert_eq!(grip_drag(sel, edge, (-250.0, 0.0), bounds), (50.0, 100.0, 50.0, 100.0), "past the other side: flipped");
         assert_eq!(grip_drag(sel, edge, (5000.0, 0.0), bounds), (100.0, 100.0, 1180.0, 100.0), "kept on the monitor");
+    }
+
+    /// Arrow keys: steps of 10 px (Shift 50, Alt 1); the area moves, or
+    /// with Ctrl its right and bottom edges, kept on the monitor and at
+    /// least 10 px; the point stays on the monitor.
+    #[test]
+    fn arrow_keys() {
+        assert_eq!((key_step(false, false), key_step(true, false), key_step(false, true)), (10.0, 50.0, 1.0));
+        let bounds = (1280.0, 720.0);
+        let sel = first_area(bounds);
+        assert_eq!(sel, (320.0, 180.0, 640.0, 360.0), "the middle quarter");
+        assert_eq!(nudge_area(sel, (10.0, 0.0), false, bounds), (330.0, 180.0, 640.0, 360.0));
+        assert_eq!(nudge_area(sel, (0.0, 5000.0), false, bounds), (320.0, 360.0, 640.0, 360.0), "kept on the monitor");
+        assert_eq!(nudge_area(sel, (50.0, -10.0), true, bounds), (320.0, 180.0, 690.0, 350.0), "Ctrl: the size");
+        assert_eq!(nudge_area(sel, (-5000.0, 5000.0), true, bounds), (320.0, 180.0, 10.0, 540.0), "at least 10 px, at most to the edge");
+        assert_eq!(nudge_point((640.0, 360.0), (-1.0, 10.0), bounds), (639.0, 370.0));
+        assert_eq!(nudge_point((5.0, 715.0), (-50.0, 50.0), bounds), (0.0, 719.0), "kept on the monitor");
+        assert_eq!(keyboard_said((330, 180), Some((640, 360))), "Area at 330, 180: 640 × 360");
+        assert_eq!(keyboard_said((639, 370), None), "Point at 639, 370");
     }
 
     /// The toolbar has every button, each with its key on the

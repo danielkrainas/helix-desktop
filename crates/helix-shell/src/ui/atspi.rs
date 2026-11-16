@@ -151,6 +151,12 @@ impl Ui {
             if target.text_input && self.atspi_edit(&surface, &target, &request) {
                 return;
             }
+            // A window picture's "Move to …" in the overview.
+            if let (accesskit::Action::CustomAction, Some(accesskit::ActionData::CustomAction(action))) = (request.action, request.data.as_ref()) {
+                if self.overview_action(&target.id, *action) {
+                    return;
+                }
+            }
             match crate::a11y::tree::click_point(&target, request.action, request.data.as_ref()) {
                 Some(point) => self.atspi_click(surface, point),
                 None => tracing::debug!(?request, "accessibility action not supported"),

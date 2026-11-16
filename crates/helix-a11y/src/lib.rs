@@ -86,6 +86,9 @@ pub struct Node {
     /// Changes are announced (messages, errors, notifications).
     pub live: bool,
     pub modal: bool,
+    /// More actions than the click: (id, name), offered as AT-SPI actions
+    /// after "click" and sent back as AccessKit custom actions.
+    pub actions: Vec<(i32, String)>,
     pub children: Vec<Node>,
 }
 
@@ -185,6 +188,12 @@ impl Node {
 
     pub fn modal(mut self) -> Self {
         self.modal = true;
+        self
+    }
+
+    /// Another action, `id` named `name` (see [`Node::actions`]).
+    pub fn action(mut self, id: i32, name: impl Into<String>) -> Self {
+        self.actions.push((id, name.into()));
         self
     }
 

@@ -450,7 +450,25 @@ impl NodeWrapper<'_> {
     }
 
     fn supports_action(&self) -> bool {
-        self.0.is_clickable(&filter)
+        self.0.is_clickable(&filter) || !self.custom_actions().is_empty()
+    }
+
+    /// Helix: the node's custom actions, offered after "click" by their
+    /// descriptions.
+    fn custom_actions(&self) -> &[accesskit::CustomAction] {
+        self.0.data().custom_actions()
+    }
+
+    /// Helix: what action `index` is: `Some(None)` the click,
+    /// `Some(Some(id))` custom action `id`, `None` no action.
+    fn action_at(&self, index: i32) -> Option<Option<i32>> {
+        let clickable = self.0.is_clickable(&filter);
+        let index = usize::try_from(index).ok()?;
+        if clickable && index == 0 {
+            return Some(None);
+        }
+        let custom = index - usize::from(clickable);
+        self.custom_actions().get(custom).map(|a| Some(a.id))
     }
 
     fn supports_component(&self) -> bool {
@@ -530,18 +548,22 @@ impl NodeWrapper<'_> {
     }
 
     fn n_actions(&self) -> i32 {
-        if self.0.is_clickable(&filter) { 1 } else { 0 }
+        // Helix: the custom actions too.
+        let clickable = i32::from(self.0.is_clickable(&filter));
+        clickable + self.custom_actions().len() as i32
     }
 
     fn get_action_name(&self, index: i32) -> String {
-        if index != 0 {
-            return String::new();
+        match self.action_at(index) {
+            Some(None) => String::from("click"),
+            Some(Some(id)) => self
+                .custom_actions()
+                .iter()
+                .find(|a| a.id == id)
+                .map(|a| a.description.to_string())
+                .unwrap_or_default(),
+            None => String::new(),
         }
-        String::from(if self.0.is_clickable(&filter) {
-            "click"
-        } else {
-            ""
-        })
     }
 
     fn raw_bounds_and_transform(&self) -> (Option<Rect>, Affine) {
@@ -1125,14 +1147,24 @@ impl PlatformNode {
     }
 
     pub fn do_action(&self, index: i32) -> Result<bool> {
-        if index != 0 {
+        // Helix: index 0 clicks a clickable node; the others are its
+        // custom actions.
+        let Some(custom) = self.resolve(|node| Ok(NodeWrapper(&node).action_at(index)))? else {
             return Ok(false);
-        }
-        self.do_action_internal(self.id, |_, _, target_node, target_tree| ActionRequest {
-            action: Action::Click,
-            target_tree,
-            target_node,
-            data: None,
+        };
+        self.do_action_internal(self.id, |_, _, target_node, target_tree| match custom {
+            None => ActionRequest {
+                action: Action::Click,
+                target_tree,
+                target_node,
+                data: None,
+            },
+            Some(id) => ActionRequest {
+                action: Action::CustomAction,
+                target_tree,
+                target_node,
+                data: Some(ActionData::CustomAction(id)),
+            },
         })?;
         Ok(true)
     }

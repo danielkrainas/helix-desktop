@@ -84,8 +84,8 @@ opt-level = 2
 # marked "Helix:"): EditableText InsertText and DeleteText, which upstream
 # answers "not supported" (vendor/accesskit_unix,
 # src/atspi/interfaces/editable_text.rs), and the expandable and expanded
-# states, which upstream leaves out (vendor/accesskit_atspi_common,
-# src/node.rs).
+# states, which upstream leaves out, and nodes' custom actions as AT-SPI
+# actions after "click" (vendor/accesskit_atspi_common, src/node.rs).
 [patch.crates-io]
 accesskit_unix = { path = "vendor/accesskit_unix" }
 accesskit_atspi_common = { path = "vendor/accesskit_atspi_common" }

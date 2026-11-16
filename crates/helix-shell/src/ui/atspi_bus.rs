@@ -373,10 +373,12 @@ async fn child() {
     let workspaces = [(r(400, 80), "Workspace 1".to_owned(), true), (r(620, 80), "Mail".to_owned(), false)];
     let windows = [(r(100, 300), 7, "Inbox".to_owned(), "Mail".to_owned()), (r(400, 300), 9, "~/src".to_owned(), "Terminal".to_owned())];
     let dash = [(r(500, 700), "org.gnome.Nautilus.desktop".to_owned(), "Files".to_owned(), true)];
-    let overview = |region, dash_key| {
-        let shown = super::overview::OverviewShown { search: Some(Rect { x: 440, y: 24, w: 400, h: 40 }), workspaces: &workspaces, windows: &windows, dash: &dash, selected: Some(9), region, workspace_key: Some(1), dash_key };
+    let move_to = [(1u32, "Mail".to_owned())];
+    let overview_said = |region, dash_key, moved: Option<&str>| {
+        let shown = super::overview::OverviewShown { search: Some(Rect { x: 440, y: 24, w: 400, h: 40 }), workspaces: &workspaces, windows: &windows, dash: &dash, selected: Some(9), region, workspace_key: Some(1), dash_key, move_to: &move_to, moved };
         window(super::atspi::overview_title(), true, super::overview::overview_nodes(&shown))
     };
+    let overview = |region, dash_key| overview_said(region, dash_key, None);
     shell.show("overview", overview(super::overview::Region::Windows, None));
     let w = client.window("Window Overview", |w| !w.focused().is_empty()).await;
     let roles: Vec<(&str, &str)> = w.children.iter().map(|c| (c.role.as_str(), c.name.as_str())).collect();
@@ -394,6 +396,19 @@ async fn child() {
     assert!(w.named("~/src").has(SELECTED) && !w.named("~/src").has(FOCUSED), "the window stays chosen");
     shell.show("overview", overview(super::overview::Region::Dash, Some(0)));
     client.window("Window Overview", |w| w.focused() == ["Files"]).await;
+    // Moving a window to another workspace (helix-desktop#97): an action
+    // on its picture, after "click", for each other workspace.
+    let w = client.window("Window Overview", |w| !w.children.is_empty()).await;
+    let action = proxy(&conn, &w.named("~/src").at, "org.a11y.atspi.Action").await;
+    let names: Vec<(String, String, String)> = action.call("GetActions", &()).await.unwrap();
+    assert_eq!(names.iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), ["click", "Move to Mail"]);
+    assert!(action.call::<_, _, bool>("DoAction", &(1i32,)).await.unwrap());
+    let (target, request) = shell.action();
+    assert_eq!((target.id.as_str(), request.action, request.data), ("window:9", accesskit::Action::CustomAction, Some(accesskit::ActionData::CustomAction(super::overview::MOVE_TO_WORKSPACE + 1))));
+    assert!(!action.call::<_, _, bool>("DoAction", &(2i32,)).await.unwrap(), "no third action");
+    // The move is announced.
+    shell.show("overview", overview_said(super::overview::Region::Windows, None, Some("~/src moved to Mail")));
+    assert!(announced(&mut stream, "~/src moved to Mail").await, "the move is announced");
 
     // ----- The launcher has a name of its own (helix-desktop#98).
     let search = Node::text_field(Role::SearchInput, "Search", "", crate::a11y::Rect::new(440, 24, 400, 48)).id("search");
@@ -449,6 +464,17 @@ async fn child() {
     let w = client.window("Desktop", |w| !w.children.is_empty()).await;
     let shown: Vec<(&str, &str, &str, bool)> = w.children[0].children.iter().map(|c| (c.role.as_str(), c.name.as_str(), c.description.as_str(), c.has(SELECTED))).collect();
     assert_eq!(shown, [("list item", "Projects", "Folder", false), ("list item", "notes.txt", "", true), ("list item", "Editor", "Application", false)]);
+
+    // ----- Picking an area or a point with the keyboard (helix-desktop#97):
+    // what the arrow keys picked is a live label, announced as it changes.
+    let picked = |said: String| window("Screenshot", true, vec![Node::label(said).id("keyboard").live()]);
+    shell.show("picker", picked(super::capture::keyboard_said((320, 180), Some((640, 360)))));
+    assert!(announced(&mut stream, "Area at 320, 180: 640 × 360").await, "the area is announced");
+    shell.shown[0].1 = picked(super::capture::keyboard_said((330, 180), Some((640, 360))));
+    shell.sync();
+    assert!(announced(&mut stream, "Area at 330, 180: 640 × 360").await, "moving it is announced");
+    shell.show("picker", picked(super::capture::keyboard_said((640, 360), None)));
+    assert!(announced(&mut stream, "Point at 640, 360").await, "the point is announced");
 
     // ----- The screenshot UI's tool bar.
     let tools = super::capture::a11y_sample_tools();

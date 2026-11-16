@@ -117,11 +117,16 @@ impl Builder {
         if node.clickable && !node.disabled && node.range.is_none() {
             out.add_action(Action::Click);
         }
+        if !node.disabled {
+            for (action, name) in &node.actions {
+                out.push_custom_action(accesskit::CustomAction { id: *action, description: name.clone() });
+            }
+        }
         if node.focused && self.focus.is_none() {
             self.focus = Some(id);
         }
         let text_input = is_text_input(node.role);
-        if node.clickable || node.focusable {
+        if node.clickable || node.focusable || !node.actions.is_empty() {
             if let Some(r) = node.bounds {
                 let text = if text_input { node.text.clone().unwrap_or_default() } else { String::new() };
                 self.targets.insert(id, Target { bounds: r, range: node.range, text_input, id: node.id.clone(), text });
