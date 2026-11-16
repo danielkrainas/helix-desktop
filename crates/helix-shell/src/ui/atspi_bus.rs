@@ -399,7 +399,7 @@ async fn child() {
     // the page keys toggle buttons.
     let rows = super::osk::layout_rows("us", "");
     let bar = vec!["hello".to_owned(), "help".to_owned()];
-    let paint = super::osk::OskPaint { rows: &rows, page: super::osk::Page::Letters, shift: true, bar: &bar, accents: false, down: None };
+    let paint = super::osk::OskPaint { rows: &rows, page: super::osk::Page::Letters, shift: true, caps: false, bar: &bar, accents: false, down: None, released: None };
     let mut data = canvas_data(1280, 400);
     let (hits, bar_hits) = super::osk::paint_keyboard(&mut crate::text::Canvas::scaled(&mut data, 1280, 400, 1.0), (None, None), &[], &paint, (1280, 400));
     shell.show("osk", window("On-screen Keyboard", false, super::osk::keyboard_nodes(&paint, &hits, &bar_hits)));

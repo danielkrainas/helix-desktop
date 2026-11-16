@@ -967,10 +967,12 @@ fn on_screen_keyboard() {
         helix_draw::accent::set(accent);
         helix_draw::set_high_contrast(hc);
         let scenes: Vec<(&str, OskPaint)> = vec![
-            ("rest", OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &bar, accents: false, down: None }),
-            ("held-e", OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &bar, accents: false, down: Some((1, 2)) }),
-            ("shift", OskPaint { rows: &letters, page: Page::Letters, shift: true, bar: &[], accents: false, down: None }),
-            ("symbols", OskPaint { rows: &symbols, page: Page::Symbols, shift: false, bar: &[], accents: false, down: None }),
+            ("rest", OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &bar, accents: false, down: None, caps: false, released: None }),
+            ("held-e", OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &bar, accents: false, down: Some((1, 2)), caps: false, released: None }),
+            ("shift", OskPaint { rows: &letters, page: Page::Letters, shift: true, bar: &[], accents: false, down: None, caps: false, released: None }),
+            ("symbols", OskPaint { rows: &symbols, page: Page::Symbols, shift: false, bar: &[], accents: false, down: None, caps: false, released: None }),
+            ("caps", OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &[], accents: false, down: None, caps: true, released: None }),
+            ("released-e", OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &bar, accents: false, down: None, caps: false, released: Some(((1, 2), 0.5)) }),
         ];
         for (name, m) in &scenes {
             render(&dir, &format!("osk-{name}{look}"), DARK, (w, h, 1.0), |canvas| {
@@ -979,7 +981,7 @@ fn on_screen_keyboard() {
         }
     }
     // A key held, in every look.
-    let held = OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &bar, accents: false, down: Some((1, 2)) };
+    let held = OskPaint { rows: &letters, page: Page::Letters, shift: false, bar: &bar, accents: false, down: Some((1, 2)), caps: false, released: None };
     in_looks(&dir, "look-osk", (w, h), &mut |canvas, (w, h)| {
         osk::paint_keyboard(canvas, (text.as_ref(), None), &icons, &held, (w as i32, h as i32));
     });

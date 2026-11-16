@@ -245,7 +245,12 @@ pub(super) struct Osk {
     layout: (String, String),
     rows: Vec<Vec<Key>>,
     page: Page,
+    /// Shift latched for the next character, and since when (a second
+    /// tap soon after locks it: Caps Lock).
     shift: bool,
+    shift_at: Option<std::time::Instant>,
+    /// Caps Lock: letters stay capital until Shift is tapped again.
+    caps: bool,
     hits: Vec<(Rect, (usize, usize))>,
     /// The suggestion bar: its words, and their places.
     bar: Vec<String>,
@@ -259,6 +264,42 @@ pub(super) struct Osk {
     pressed: Option<((usize, usize), std::time::Instant)>,
     /// Any key held down (drawn pressed).
     down: Option<(usize, usize)>,
+    /// The key let go last, and when: its pressed look fades out.
+    released: Option<((usize, usize), std::time::Instant)>,
+    /// The next frame of that fade is due.
+    fade_timer: Option<smithay_client_toolkit::reexports::calloop::RegistrationToken>,
+}
+
+/// How long a key's pressed look takes to fade after it is let go (at
+/// once with animations off).
+const RELEASE: std::time::Duration = std::time::Duration::from_millis(160);
+/// A second tap on Shift this soon after the first locks it.
+const DOUBLE_TAP: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// How much of the pressed look is left `since` a key was let go (1 at
+/// the moment, 0 when the fade is over).
+pub(super) fn release_left(since: std::time::Duration) -> f64 {
+    1.0 - helix_draw::motion::ease_out(since.as_secs_f64() / RELEASE.as_secs_f64())
+}
+
+/// What Shift does when tapped: (shift, caps) after it, from (shift,
+/// caps) before and how long ago Shift was latched. Off → latched (for
+/// one character); latched and tapped again soon → Caps Lock; latched
+/// and tapped later → off; Caps Lock → off.
+pub(super) fn shift_tap(shift: bool, caps: bool, since_latched: Option<std::time::Duration>) -> (bool, bool) {
+    match (shift, caps) {
+        (_, true) => (false, false),
+        (true, false) if since_latched.is_some_and(|d| d <= DOUBLE_TAP) => (false, true),
+        (true, false) => (false, false),
+        (false, false) => (true, false),
+    }
+}
+
+/// The text of a character key: the shifted one with Shift latched, and
+/// with Caps Lock for letters only (as a hardware Caps Lock).
+pub(super) fn key_text<'a>(normal: &'a str, shifted: &'a str, shift: bool, caps: bool) -> &'a str {
+    let letter = normal.chars().any(char::is_alphabetic) && normal != shifted;
+    if shift || (caps && letter) { shifted } else { normal }
 }
 
 /// What the keyboard keeps between showings.
@@ -311,6 +352,8 @@ impl Ui {
                     rows,
                     page: Page::Letters,
                     shift: false,
+                    shift_at: None,
+                    caps: false,
                     hits: Vec::new(),
                     bar: Vec::new(),
                     bar_hits: Vec::new(),
@@ -318,6 +361,8 @@ impl Ui {
                     typed: String::new(),
                     pressed: None,
                     down: None,
+                    released: None,
+                    fade_timer: None,
                 });
             }
             (false, true) => self.osk.view = None,
@@ -386,7 +431,8 @@ impl Ui {
             self.osk.emoji_font = Some(Text::load_matching("emoji:color=false"));
         }
         let emoji = self.osk.emoji_font.as_ref().and_then(|f| f.as_ref());
-        let m = OskPaint { rows: &view.rows, page: view.page, shift: view.shift, bar: &view.bar, accents: view.accents, down: view.down };
+        let released = view.released.map(|(key, at)| (key, release_left(at.elapsed()))).filter(|(_, left)| *left > 0.0);
+        let m = OskPaint { rows: &view.rows, page: view.page, shift: view.shift, caps: view.caps, bar: &view.bar, accents: view.accents, down: view.down, released };
         let (hits, bar_hits) = paint_keyboard(&mut canvas, (self.text.as_ref(), emoji), &icons, &m, (w as i32, h as i32));
         view.hits = hits;
         view.bar_hits = bar_hits;
@@ -395,6 +441,30 @@ impl Ui {
         if buffer.attach_to(surface).is_ok() {
             view.layer.commit();
         }
+    }
+
+    /// Draw the next frame of a let-go key's fade while it lasts.
+    fn osk_fade_frame(&mut self) {
+        let Some(view) = self.osk.view.as_mut() else { return };
+        let fading = view.released.is_some_and(|(_, at)| release_left(at.elapsed()) > 0.0);
+        if !fading {
+            view.released = None;
+            return;
+        }
+        if view.fade_timer.is_some() {
+            return;
+        }
+        let Some(handle) = self.loop_handle.as_ref() else { return };
+        view.fade_timer = handle
+            .insert_source(Timer::from_duration(std::time::Duration::from_millis(16)), |_, _, ui: &mut Ui| {
+                if let Some(view) = ui.osk.view.as_mut() {
+                    view.fade_timer = None;
+                }
+                ui.draw_osk();
+                ui.osk_fade_frame();
+                TimeoutAction::Drop
+            })
+            .ok();
     }
 
     /// Load the word list for the language `layout` types (once per
@@ -506,8 +576,13 @@ impl Ui {
             _ => None,
         };
         if let Some(down) = down.filter(|d| *d != view.down) {
+            // The key let go fades back (with animations on).
+            if let Some(up) = view.down.filter(|_| crate::item_feedback::motion().fades()) {
+                view.released = Some((up, std::time::Instant::now()));
+            }
             view.down = down;
             self.draw_osk();
+            self.osk_fade_frame();
         }
         let Some(view) = self.osk.view.as_mut() else { return true };
         match event.kind {
@@ -518,7 +593,7 @@ impl Ui {
                 let Some((held, since)) = view.pressed.take() else { return true };
                 let Some(KeyKind::Char(normal, shifted)) = view.rows.get(held.0).and_then(|r| r.get(held.1)).map(|k| k.kind.clone()) else { return true };
                 let shift = view.shift;
-                let text = if shift { shifted } else { normal };
+                let text = key_text(&normal, &shifted, shift, view.caps).to_owned();
                 let accents = crate::osk_words::accents_for(&text);
                 if since.elapsed() >= LONG_PRESS && !accents.is_empty() {
                     view.shift = false;
@@ -553,7 +628,8 @@ impl Ui {
         match key.kind {
             KeyKind::Char(..) => view.pressed = Some(((ri, ki), std::time::Instant::now())),
             KeyKind::Special(Special::Shift) => {
-                view.shift = !view.shift;
+                (view.shift, view.caps) = shift_tap(view.shift, view.caps, view.shift_at.map(|t| t.elapsed()));
+                view.shift_at = view.shift.then(std::time::Instant::now);
                 self.draw_osk();
             }
             KeyKind::Special(Special::Space) => {
@@ -606,11 +682,16 @@ pub(super) struct OskPaint<'a> {
     pub rows: &'a [Vec<Key>],
     pub page: Page,
     pub shift: bool,
+    /// Caps Lock (Shift tapped twice).
+    pub caps: bool,
     pub bar: &'a [String],
     pub accents: bool,
     /// The key held down (pressed look; a character key also shows its
     /// preview above it).
     pub down: Option<(usize, usize)>,
+    /// The key let go last, with how much of its pressed look is left
+    /// (fading from 1 to 0).
+    pub released: Option<((usize, usize), f64)>,
 }
 
 /// Draw the keyboard on a `w`×`h` canvas: the suggestion bar and the keys.
@@ -654,8 +735,9 @@ pub(super) fn paint_keyboard(canvas: &mut Canvas, (text, emoji): (Option<&Text>,
             let kw = key.width * unit;
             let r = Rect { x: x as i32 + GAP / 2, y: y + GAP / 2, w: kw as i32 - GAP, h: ROW_H - GAP };
             let (rx, ry, rw, rh) = (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
-            let shift_on = matches!(key.kind, KeyKind::Special(Special::Shift)) && m.shift;
+            let shift_on = matches!(key.kind, KeyKind::Special(Special::Shift)) && (m.shift || m.caps);
             let held = m.down == Some((ri, ki));
+            let fading = m.released.filter(|(k, _)| !held && *k == (ri, ki)).map(|(_, left)| left);
             let modifier = matches!(key.kind, KeyKind::Special(s) if s != Special::Space);
             // Held or a latched Shift: the accent; else character keys
             // light, modifiers dark with a light edge.
@@ -671,12 +753,25 @@ pub(super) fn paint_keyboard(canvas: &mut Canvas, (text, emoji): (Option<&Text>,
             } else {
                 canvas.round_rect(rx, ry, rw, rh, KEY_RADIUS, KEY);
             }
+            // Let go: the pressed look over the key at rest, fading.
+            if let Some(left) = fading.filter(|_| !lit) {
+                let alpha = (left.clamp(0.0, 1.0) * 255.0).round() as u32;
+                let fill = if hc { helix_draw::accent::Accent::Blue.palette().fill } else { theme::accent_fill() };
+                let inset = if hc { if modifier { 3.0 } else { 2.0 } } else { 0.0 };
+                canvas.round_rect(rx + inset, ry + inset, rw - 2.0 * inset, rh - 2.0 * inset, KEY_RADIUS - inset, (alpha << 24) | (fill & 0x00FF_FFFF));
+            }
             let ink = if lit && !hc { on_accent() } else { FG };
             let (cx, cy) = (rx + rw / 2.0, ry + rh / 2.0);
             let caption = match &key.kind {
-                KeyKind::Char(normal, shifted) => Some(if m.shift { shifted.clone() } else { normal.clone() }),
+                KeyKind::Char(normal, shifted) => Some(key_text(normal, shifted, m.shift, m.caps).to_owned()),
                 KeyKind::Special(Special::Shift) => {
-                    shift_glyph(canvas, cx, cy, m.shift, ink);
+                    shift_glyph(canvas, cx, cy, m.shift || m.caps, ink);
+                    // Caps Lock: a bar under the arrow (⇪) and a dot in
+                    // the corner, for as long as it is on.
+                    if m.caps {
+                        canvas.round_rect(cx - 6.0, cy + 10.0, 12.0, 2.5, 1.0, ink);
+                        canvas.circle(rx + rw - 8.0, ry + 8.0, 3.0, ink);
+                    }
                     None
                 }
                 KeyKind::Special(Special::Enter) => {
@@ -771,17 +866,19 @@ impl Ui {
     /// The keyboard for the accessibility bus: its surface, size and keys.
     pub(super) fn osk_a11y(&self) -> Option<(&LayerSurface, (u32, u32), Vec<crate::a11y::Node>)> {
         let view = self.osk.view.as_ref().filter(|v| v.configured && v.width > 0)?;
-        let m = OskPaint { rows: &view.rows, page: view.page, shift: view.shift, bar: &view.bar, accents: view.accents, down: view.down };
+        let m = OskPaint { rows: &view.rows, page: view.page, shift: view.shift, caps: view.caps, bar: &view.bar, accents: view.accents, down: view.down, released: None };
         Some((&view.layer, (view.width, view.height), keyboard_nodes(&m, &view.hits, &view.bar_hits)))
     }
 }
 
 /// A key's name for screen readers, and whether it is a toggle (a
-/// modifier or a page switch) with its state, on `page` with `shift`.
-pub(super) fn key_name(kind: &KeyKind, page: Page, shift: bool) -> (String, Option<bool>) {
+/// modifier or a page switch) with its state, on `page` with `shift`
+/// latched or `caps` (Caps Lock; Shift is named so then).
+pub(super) fn key_name(kind: &KeyKind, page: Page, (shift, caps): (bool, bool)) -> (String, Option<bool>) {
     use helix_i18n::tr;
     match kind {
-        KeyKind::Char(normal, shifted) => (if shift { shifted.clone() } else { normal.clone() }, None),
+        KeyKind::Char(normal, shifted) => (key_text(normal, shifted, shift, caps).to_owned(), None),
+        KeyKind::Special(Special::Shift) if caps => (tr("Caps Lock").into(), Some(true)),
         KeyKind::Special(s) => match s {
             Special::Backspace => (tr("Backspace").into(), None),
             Special::Enter => (tr("Enter").into(), None),
@@ -824,7 +921,7 @@ pub(super) fn keyboard_nodes(m: &OskPaint, hits: &[(Rect, (usize, usize))], bar_
     }
     let keys = hits.iter().filter_map(|(r, (row, col))| {
         let key = m.rows.get(*row)?.get(*col)?;
-        let (name, toggle) = key_name(&key.kind, m.page, m.shift);
+        let (name, toggle) = key_name(&key.kind, m.page, (m.shift, m.caps));
         let node = Node::button(name, (*r).into()).id(format!("key:{row}:{col}"));
         Some(match toggle {
             Some(on) => node.toggled(on),
@@ -893,5 +990,68 @@ mod tests {
         assert!(letters[4].contains(&special(Special::Page(Page::AltGr), 1.5)), "an AltGr key");
         assert!(!layout_rows("us", "")[4].contains(&special(Special::Page(Page::AltGr), 1.5)));
         assert!(de[4].contains(&special(Special::Page(Page::Letters), 1.5)), "ABC back");
+    }
+
+    /// Shift: one tap latches it for a character, a second tap soon locks
+    /// it (Caps Lock), a later one lets it go; a tap ends Caps Lock. Caps
+    /// Lock capitalizes letters only.
+    #[test]
+    fn shift_and_caps_lock() {
+        use std::time::Duration;
+        assert_eq!(shift_tap(false, false, None), (true, false), "latched");
+        assert_eq!(shift_tap(true, false, Some(Duration::from_millis(200))), (false, true), "Caps Lock");
+        assert_eq!(shift_tap(true, false, Some(Duration::from_secs(2))), (false, false), "off");
+        assert_eq!(shift_tap(false, true, None), (false, false), "Caps Lock off");
+        assert_eq!(key_text("a", "A", false, true), "A");
+        assert_eq!(key_text("1", "!", false, true), "1", "not digits");
+        assert_eq!(key_text("1", "!", true, false), "!");
+        assert_eq!(key_text("a", "A", false, false), "a");
+        assert_eq!(key_name(&KeyKind::Special(Special::Shift), Page::Letters, (false, true)), ("Caps Lock".into(), Some(true)));
+        assert_eq!(key_name(&KeyKind::Special(Special::Shift), Page::Letters, (true, false)), ("Shift".into(), Some(true)));
+    }
+
+    /// A key let go fades from pressed to rest, quickly and steadily.
+    #[test]
+    fn release_fade() {
+        use std::time::Duration;
+        assert_eq!(release_left(Duration::ZERO), 1.0);
+        assert!(release_left(Duration::from_millis(60)) < 1.0 && release_left(Duration::from_millis(60)) > release_left(Duration::from_millis(120)));
+        assert_eq!(release_left(RELEASE), 0.0);
+        assert_eq!(release_left(Duration::from_secs(1)), 0.0);
+    }
+
+    /// Painted: Caps Lock marks Shift apart from a latched Shift (a bar
+    /// under the arrow and a dot), and a key let go is between its pressed
+    /// and its resting look.
+    #[test]
+    fn caps_lock_and_release_painted() {
+        let rows = layout_rows("us", "");
+        let (w, h) = (1000usize, 300usize);
+        let paint = |shift: bool, caps: bool, down: Option<(usize, usize)>, released: Option<((usize, usize), f64)>| {
+            let mut data = vec![0u8; w * h * 4];
+            let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
+            let m = OskPaint { rows: &rows, page: Page::Letters, shift, caps, bar: &[], accents: false, down, released };
+            let (hits, _) = paint_keyboard(&mut canvas, (None, None), &[], &m, (w as i32, h as i32));
+            (data, hits)
+        };
+        let px = |data: &[u8], x: i32, y: i32| u32::from_le_bytes(data[((y * w as i32 + x) * 4) as usize..][..4].try_into().unwrap());
+        let (latched, hits) = paint(true, false, None, None);
+        let (locked, _) = paint(false, true, None, None);
+        let shift = hits.iter().find(|(_, (r, k))| matches!(rows[*r][*k].kind, KeyKind::Special(Special::Shift))).unwrap().0;
+        let differ = (shift.y..shift.y + shift.h).flat_map(|y| (shift.x..shift.x + shift.w).map(move |x| (x, y))).filter(|&(x, y)| px(&latched, x, y) != px(&locked, x, y)).count();
+        assert!(differ > 20, "Caps Lock looks apart from a latched Shift ({differ} pixels)");
+        // A character key: pressed, let go half way, at rest.
+        let key = (1, 2);
+        let r = hits.iter().find(|(_, k)| *k == key).unwrap().0;
+        let at = |data: &[u8]| px(data, r.x + 4, r.y + r.h - 6);
+        let (pressed, _) = paint(false, false, Some(key), None);
+        let (half, _) = paint(false, false, None, Some((key, 0.5)));
+        let (rest, _) = paint(false, false, None, None);
+        let channel = |c: u32, i: u32| (c >> (8 * i)) & 0xFF;
+        for i in 0..3 {
+            let (p, f, r) = (channel(at(&pressed), i), channel(at(&half), i), channel(at(&rest), i));
+            assert!(f >= p.min(r) && f <= p.max(r), "channel {i}: {f} between {p} and {r}");
+        }
+        assert!(at(&half) != at(&pressed) && at(&half) != at(&rest), "half way");
     }
 }

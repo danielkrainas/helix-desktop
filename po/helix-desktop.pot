@@ -166,15 +166,15 @@ msgstr ""
 #: crates/helix-greeter/src/osk.rs:123
 #: crates/helix-portals/src/global_shortcuts.rs:85
 #: crates/helix-portals/src/input_capture.rs:48
-#: crates/helix-shell/src/ui/osk.rs:789
+#: crates/helix-shell/src/ui/osk.rs:886
 msgid "Shift"
 msgstr ""
 
-#: crates/helix-greeter/src/osk.rs:124 crates/helix-shell/src/ui/osk.rs:786
+#: crates/helix-greeter/src/osk.rs:124 crates/helix-shell/src/ui/osk.rs:883
 msgid "Backspace"
 msgstr ""
 
-#: crates/helix-greeter/src/osk.rs:125 crates/helix-shell/src/ui/osk.rs:790
+#: crates/helix-greeter/src/osk.rs:125 crates/helix-shell/src/ui/osk.rs:887
 msgid "Space"
 msgstr ""
 
@@ -182,11 +182,11 @@ msgstr ""
 msgid "Return"
 msgstr ""
 
-#: crates/helix-greeter/src/osk.rs:127 crates/helix-shell/src/ui/osk.rs:799
+#: crates/helix-greeter/src/osk.rs:127 crates/helix-shell/src/ui/osk.rs:896
 msgid "Symbols"
 msgstr ""
 
-#: crates/helix-greeter/src/osk.rs:128 crates/helix-shell/src/ui/osk.rs:802
+#: crates/helix-greeter/src/osk.rs:128 crates/helix-shell/src/ui/osk.rs:899
 msgid "Letters"
 msgstr ""
 
@@ -1361,7 +1361,7 @@ msgid "Center"
 msgstr ""
 
 #: crates/helix-shell/src/panel_layout.rs:212
-#: crates/helix-shell/src/ui/osk.rs:791
+#: crates/helix-shell/src/ui/osk.rs:888
 msgid "Left"
 msgstr ""
 
@@ -1370,7 +1370,7 @@ msgid "Quick Settings"
 msgstr ""
 
 #: crates/helix-shell/src/panel_layout.rs:212
-#: crates/helix-shell/src/ui/osk.rs:792
+#: crates/helix-shell/src/ui/osk.rs:889
 msgid "Right"
 msgstr ""
 
@@ -1618,7 +1618,7 @@ msgid "Muted"
 msgstr ""
 
 #: crates/helix-shell/src/ui.rs:1314 crates/helix-shell/src/ui/atspi.rs:878
-#: crates/helix-shell/src/ui/gallery.rs:1048
+#: crates/helix-shell/src/ui/gallery.rs:1050
 #: crates/helix-shell/src/ui/quick.rs:449
 msgid "Volume"
 msgstr ""
@@ -2147,7 +2147,7 @@ msgstr ""
 
 #: crates/helix-shell/src/ui/capture.rs:336
 #: crates/helix-shell/src/ui/capture.rs:338
-#: crates/helix-shell/src/ui/osk.rs:787
+#: crates/helix-shell/src/ui/osk.rs:884
 msgid "Enter"
 msgstr ""
 
@@ -2350,27 +2350,31 @@ msgstr[1] ""
 msgid "{count} notifications"
 msgstr ""
 
-#: crates/helix-shell/src/ui/osk.rs:788
+#: crates/helix-shell/src/ui/osk.rs:881
+msgid "Caps Lock"
+msgstr ""
+
+#: crates/helix-shell/src/ui/osk.rs:885
 msgid "Tab"
 msgstr ""
 
-#: crates/helix-shell/src/ui/osk.rs:793
+#: crates/helix-shell/src/ui/osk.rs:890
 msgid "Hide Keyboard"
 msgstr ""
 
-#: crates/helix-shell/src/ui/osk.rs:800
+#: crates/helix-shell/src/ui/osk.rs:897
 msgid "Emoji"
 msgstr ""
 
-#: crates/helix-shell/src/ui/osk.rs:822
+#: crates/helix-shell/src/ui/osk.rs:919
 msgid "Accents"
 msgstr ""
 
-#: crates/helix-shell/src/ui/osk.rs:822
+#: crates/helix-shell/src/ui/osk.rs:919
 msgid "Suggestions"
 msgstr ""
 
-#: crates/helix-shell/src/ui/osk.rs:834
+#: crates/helix-shell/src/ui/osk.rs:931
 msgid "Keyboard"
 msgstr ""
 
