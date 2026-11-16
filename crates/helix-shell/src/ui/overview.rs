@@ -2,15 +2,17 @@
 //! "Overview"): a search field, workspace thumbnails and the active
 //! workspace's windows as pictures, on the primary monitor.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::os::fd::AsFd;
+use std::time::{Duration, Instant};
 
 use helix_draw::Image;
 use helix_protocols::client::helix_screenshot_frame_v1::{self, HelixScreenshotFrameV1};
 use helix_protocols::client::helix_window_list_v1::Action as WindowAction;
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;
+use smithay_client_toolkit::reexports::client::backend::ObjectId;
 use smithay_client_toolkit::reexports::client::{Connection, Dispatch, Proxy, QueueHandle};
 use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym};
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, BTN_LEFT};
@@ -189,8 +191,10 @@ pub(super) fn dash_insert_index(rects: &[Rect], x: f64) -> usize {
 #[derive(Default)]
 pub(super) struct Shots {
     pictures: HashMap<u32, Image>,
-    /// Asked for and not answered yet.
-    requested: HashSet<u32>,
+    /// Asked for and not answered yet: at most one request per window.
+    requested: HashMap<u32, Asked>,
+    /// The timer that gives up on unanswered requests is running.
+    sweeping: bool,
 }
 
 impl Shots {
@@ -198,15 +202,50 @@ impl Shots {
     pub(super) fn picture(&self, id: u32) -> Option<&Image> {
         self.pictures.get(&id)
     }
+
+    /// Forget the pictures and give up on the requests.
+    fn clear(&mut self) {
+        self.pictures.clear();
+        self.requested.clear();
+    }
+
+    /// Give up on requests older than `SHOT_TIMEOUT`; how long until the
+    /// next one is due (none left: `None`).
+    fn sweep(&mut self, now: Instant) -> Option<Duration> {
+        self.requested.retain(|_, asked| now.saturating_duration_since(asked.since) < SHOT_TIMEOUT);
+        self.requested.values().map(|asked| SHOT_TIMEOUT.saturating_sub(now.saturating_duration_since(asked.since))).min()
+    }
 }
+
+/// A window picture asked for. Dropping it gives up on it: the frame is
+/// destroyed and its memory file closed.
+struct Asked {
+    frame: HelixScreenshotFrameV1,
+    /// What the compositor writes the picture to.
+    file: File,
+    since: Instant,
+}
+
+impl Drop for Asked {
+    fn drop(&mut self) {
+        if self.frame.is_alive() {
+            self.frame.destroy();
+        }
+    }
+}
+
+/// How long a window picture may take before it is given up on (the
+/// compositor answers in milliseconds; one that never answers must not
+/// leave memory files behind).
+const SHOT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// How often pictures are renewed while the overview is open.
 const LIVE: std::time::Duration = std::time::Duration::from_millis(500);
 
-/// A window picture on its way: the file it is written to.
+/// A window picture on its way: which window (its file is with the
+/// request, in `Shots`).
 pub(super) struct ShotData {
     window: u32,
-    file: File,
 }
 
 /// Rows of tiles for windows of `sizes` in an area of `w`×`h`: each
@@ -343,7 +382,7 @@ impl Ui {
 
     pub(super) fn close_overview(&mut self, notify: bool) {
         self.overview_others.clear();
-        self.overview_shots = Shots::default();
+        self.overview_shots.clear();
         if self.overview.take().is_some() {
             if notify {
                 let _ = self.requests.send(UiRequest::Overview(false));
@@ -365,13 +404,42 @@ impl Ui {
     /// Ask for pictures of `ids` (those not already on their way).
     pub(super) fn capture_shots(&mut self, ids: &[u32]) {
         let Some(manager) = self.screenshots.clone().filter(|m| m.version() >= 5) else { return };
+        let now = Instant::now();
+        self.overview_shots.sweep(now);
         for &id in ids {
-            if !self.overview_shots.requested.insert(id) {
+            if self.overview_shots.requested.contains_key(&id) {
                 continue;
             }
             let Some(file) = crate::screenshot::memfd() else { continue };
-            let Ok(fd) = file.try_clone() else { continue };
-            manager.capture_window_id(id, fd.as_fd(), &self.qh, ShotData { window: id, file });
+            let frame = manager.capture_window_id(id, file.as_fd(), &self.qh, ShotData { window: id });
+            self.overview_shots.requested.insert(id, Asked { frame, file, since: now });
+        }
+        self.sweep_shots_later();
+    }
+
+    /// Give up on unanswered pictures when they are due (one timer, while
+    /// any are waiting).
+    fn sweep_shots_later(&mut self) {
+        if self.overview_shots.sweeping || self.overview_shots.requested.is_empty() {
+            return;
+        }
+        let Some(handle) = self.loop_handle.clone() else { return };
+        use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
+        let started = handle.insert_source(Timer::from_duration(SHOT_TIMEOUT), |_, _, ui| match ui.overview_shots.sweep(Instant::now()) {
+            Some(next) => TimeoutAction::ToDuration(next.max(Duration::from_millis(10))),
+            None => {
+                ui.overview_shots.sweeping = false;
+                TimeoutAction::Drop
+            }
+        });
+        self.overview_shots.sweeping = started.is_ok();
+    }
+
+    /// The switcher closed: give up on the pictures still on their way,
+    /// unless the overview shows them.
+    pub(super) fn cancel_shots(&mut self) {
+        if self.overview.is_none() {
+            self.overview_shots.requested.clear();
         }
     }
 
@@ -1073,23 +1141,26 @@ impl Dispatch<HelixScreenshotFrameV1, ShotData> for Ui {
             helix_screenshot_frame_v1::Event::Done { .. } => {
                 frame.destroy();
                 // Read and decoded on a worker (a large window's PNG takes
-                // a while).
+                // a while); the request counts as on its way until then.
                 let window = data.window;
-                match data.file.try_clone() {
+                let id = frame.id();
+                // Given up on already: nothing to read.
+                let Some(asked) = ui.overview_shots.requested.get(&window).filter(|asked| asked.frame.id() == id) else { return };
+                match asked.file.try_clone() {
                     Ok(mut file) => ui.offload(
                         move || {
                             let mut bytes = Vec::new();
                             let read = file.seek(SeekFrom::Start(0)).is_ok() && file.read_to_end(&mut bytes).is_ok();
                             read.then(|| crate::icons::decode(&bytes, 0)).flatten()
                         },
-                        move |ui, image| ui.window_shot(window, image),
+                        move |ui, image| ui.window_shot(window, &id, image),
                     ),
-                    Err(_) => ui.window_shot(window, None),
+                    Err(_) => ui.window_shot(window, &id, None),
                 }
             }
             helix_screenshot_frame_v1::Event::Failed { .. } => {
                 frame.destroy();
-                ui.window_shot(data.window, None);
+                ui.window_shot(data.window, &frame.id(), None);
             }
             _ => {}
         }
@@ -1097,9 +1168,12 @@ impl Dispatch<HelixScreenshotFrameV1, ShotData> for Ui {
 }
 
 impl Ui {
-    /// Window `window`'s picture came (or not).
-    fn window_shot(&mut self, window: u32, image: Option<helix_draw::Image>) {
-        self.overview_shots.requested.remove(&window);
+    /// Window `window`'s picture came (or not), for request `frame`.
+    fn window_shot(&mut self, window: u32, frame: &ObjectId, image: Option<helix_draw::Image>) {
+        // Unless that request was given up on and another made since.
+        if self.overview_shots.requested.get(&window).is_some_and(|asked| asked.frame.id() == *frame) {
+            self.overview_shots.requested.remove(&window);
+        }
         if let Some(image) = image {
             self.overview_shots.pictures.insert(window, image);
         }

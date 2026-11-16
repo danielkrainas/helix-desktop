@@ -1855,6 +1855,7 @@ impl Ui {
     /// Activate the selected entry (or just close, `commit` false).
     fn finish_switching(&mut self, commit: bool) {
         let Some(overlay) = self.switcher.take() else { return };
+        self.cancel_shots();
         if commit {
             self.commit_switch(&overlay.state.kind, overlay.state.switcher.selected_id());
         }
@@ -4117,6 +4118,7 @@ impl LayerShellHandler for Ui {
             self.extensions_dialog = None;
         } else if self.switcher.as_ref().is_some_and(|o| &o.layer == layer) {
             self.switcher = None;
+            self.cancel_shots();
         } else if self.monitor_labels.iter().any(|l| &l.layer == layer) {
             self.monitor_labels.retain(|l| &l.layer != layer);
         } else {
@@ -5123,6 +5125,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                     entries.retain(|e| e.id != id);
                     if entries.len() < 2 {
                         ui.switcher = None;
+                        ui.cancel_shots();
                     } else {
                         open.state.switcher.selected = open.state.switcher.selected.min(entries.len() - 1);
                         ui.draw_switcher();
