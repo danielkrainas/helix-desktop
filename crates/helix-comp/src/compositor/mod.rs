@@ -14,6 +14,7 @@ mod focus;
 mod frames;
 mod gamma;
 mod grabs;
+mod gtk_shell;
 mod handlers;
 mod input;
 mod tablet_input;
@@ -317,6 +318,7 @@ impl Helix {
             protocol_globals: {
                 helix_comp::toplevel_icon::create_global::<Helix>(&dh, &icons::ICON_SIZES);
                 helix_comp::tearing_control::create_global::<Helix>(&dh);
+                gtk_shell::create_global(&dh);
                 protocols::globals(&dh)
             },
             keyboard_shortcuts_inhibit_state: smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState::new::<Self>(&dh),

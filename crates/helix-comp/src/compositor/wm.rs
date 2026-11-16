@@ -132,13 +132,21 @@ impl Helix {
         if is_override_redirect(window) || self.lock.locked {
             return;
         }
-        self.workspace_focus(window);
-        if let Some(pos) = self.minimized.iter().position(|w| w == window) {
-            let window = self.minimized.remove(pos);
-            let location = self.minimized_at.remove(pos);
-            self.animations.window_opened(self.wm_settings.motion, &window);
-            self.space.map_element(window, location, false);
-        }
+        // A window with a modal dialog: the dialog gets focus (mutter's
+        // meta_window_focus), the window itself shown and raised below it.
+        let dialog = self.modal_dialog_of(window);
+        let window = match &dialog {
+            Some(dialog) => {
+                tracing::debug!("focus goes to the window's modal dialog");
+                self.show_for_focus(window);
+                if raise {
+                    self.space.raise_element(window, false);
+                }
+                dialog
+            }
+            None => window,
+        };
+        self.show_for_focus(window);
         if raise {
             self.space.raise_element(window, true);
             self.restack_above();
@@ -156,6 +164,18 @@ impl Helix {
             if let Some(t) = w.toplevel() {
                 t.configure_pending();
             }
+        }
+    }
+
+    /// Before `window` gets focus: its workspace shown, and itself if it
+    /// was minimized.
+    fn show_for_focus(&mut self, window: &Window) {
+        self.workspace_focus(window);
+        if let Some(pos) = self.minimized.iter().position(|w| w == window) {
+            let window = self.minimized.remove(pos);
+            let location = self.minimized_at.remove(pos);
+            self.animations.window_opened(self.wm_settings.motion, &window);
+            self.space.map_element(window, location, false);
         }
     }
 

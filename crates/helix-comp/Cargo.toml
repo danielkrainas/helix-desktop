@@ -48,6 +48,8 @@ path = "src/bin/helix-login-monitors.rs"
 
 [dev-dependencies]
 helix-test-support.workspace = true
+# gtk_shell1, client side.
+helix-protocols = { workspace = true, features = ["client"] }
 # A Wayland client for protocol tests.
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }

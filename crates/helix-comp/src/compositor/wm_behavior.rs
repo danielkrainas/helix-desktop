@@ -197,8 +197,59 @@ impl Helix {
         }
     }
 
+    /// Whether `window` is a modal dialog (`xdg_dialog_v1` or
+    /// `gtk_surface1` modal; X11 `_NET_WM_STATE_MODAL`).
+    pub fn is_modal(&self, window: &Window) -> bool {
+        match window.toplevel() {
+            Some(t) => self.wm.modal.contains(t.wl_surface()),
+            // Smithay's name for `_NET_WM_STATE_MODAL`.
+            None => window.x11_surface().is_some_and(|x| x.is_popup()),
+        }
+    }
+
+    /// The modal dialog focus meant for `window` goes to, as mutter's
+    /// `meta_window_focus` does: its modal dialog, or that dialog's own
+    /// modal dialog, and so on.
+    pub fn modal_dialog_of(&self, window: &Window) -> Option<Window> {
+        let mut found = None;
+        let mut parent = window.clone();
+        // A bound, in case parents loop.
+        for _ in 0..8 {
+            let Some(dialog) = self
+                .space
+                .elements()
+                .rev()
+                .find(|w| {
+                    *w != &parent
+                        && *w != window
+                        // Not before its first configure (xdg-shell).
+                        && w.toplevel().is_none_or(|t| t.is_initial_configure_sent())
+                        && self.is_modal(w)
+                        && self.parent_of(w).as_ref() == Some(&parent)
+                })
+                .cloned()
+            else {
+                break;
+            };
+            parent = dialog.clone();
+            found = Some(dialog);
+        }
+        found
+    }
+
+    /// `surface`'s window became a modal dialog, or got a parent: if its
+    /// parent has focus, focus goes on to the dialog (an app may activate
+    /// the parent just before saying whose dialog it is).
+    pub fn modal_dialog_changed(&mut self, surface: &WlSurface) {
+        let Some(dialog) = self.window_for_surface(surface) else { return };
+        let Some(parent) = self.parent_of(&dialog) else { return };
+        if self.is_modal(&dialog) && self.focused_window().as_ref() == Some(&parent) && self.modal_dialog_of(&parent).is_some() {
+            self.focus_window(&parent);
+        }
+    }
+
     /// The window `window` is a dialog of, if any.
-    fn parent_of(&self, window: &Window) -> Option<Window> {
+    pub(super) fn parent_of(&self, window: &Window) -> Option<Window> {
         if let Some(toplevel) = window.toplevel() {
             let parent = toplevel.parent()?;
             return self.window_for_surface(&parent);

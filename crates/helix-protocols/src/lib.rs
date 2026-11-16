@@ -6,6 +6,8 @@
 //!   windows and focus for the shell's window switcher; activation.
 //! - `helix_screenshot_v1` (`protocols/helix-screenshot-v1.xml`): screen
 //!   captures written as PNG images, for the shell's screenshot service.
+//! - `gtk_shell1` (`protocols/gtk-shell.xml`): GNOME's own protocol, as
+//!   mutter offers it; GTK 3 says through it which dialogs are modal.
 //!
 //! Enable the `server` feature in the compositor and `client` in the shell.
 
@@ -25,6 +27,34 @@ pub mod __window_list {
 #[cfg(any(feature = "server", feature = "client"))]
 pub mod __screenshot {
     wayland_scanner::generate_interfaces!("protocols/helix-screenshot-v1.xml");
+}
+
+#[cfg(any(feature = "server", feature = "client"))]
+pub mod __gtk_shell {
+    // It refers to wl_surface and wl_seat.
+    #[cfg(feature = "server")]
+    use wayland_server::protocol::__interfaces::*;
+    #[cfg(all(feature = "client", not(feature = "server")))]
+    use wayland_client::protocol::__interfaces::*;
+    wayland_scanner::generate_interfaces!("protocols/gtk-shell.xml");
+}
+
+/// GNOME's `gtk_shell1` (not Helix-private: GTK binds it).
+#[cfg(feature = "server")]
+pub mod gtk_shell_server {
+    use crate::__gtk_shell::*;
+    use wayland_server;
+    use wayland_server::protocol::*;
+    wayland_scanner::generate_server_code!("protocols/gtk-shell.xml");
+}
+
+/// GNOME's `gtk_shell1`, client side (tests).
+#[cfg(feature = "client")]
+pub mod gtk_shell_client {
+    use crate::__gtk_shell::*;
+    use wayland_client;
+    use wayland_client::protocol::*;
+    wayland_scanner::generate_client_code!("protocols/gtk-shell.xml");
 }
 
 #[cfg(feature = "server")]

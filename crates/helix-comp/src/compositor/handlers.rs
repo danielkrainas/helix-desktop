@@ -394,6 +394,10 @@ impl XdgShellHandler for Helix {
         }
     }
 
+    fn parent_changed(&mut self, surface: ToplevelSurface) {
+        self.modal_dialog_changed(surface.wl_surface());
+    }
+
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         self.wm.focus_on_commit.retain(|w| w.toplevel().is_some_and(|t| t != &surface));
         self.window_gone(surface.wl_surface());
@@ -450,17 +454,48 @@ impl XdgActivationHandler for Helix {
         token_data: XdgActivationTokenData,
         surface: WlSurface,
     ) {
-        // Honor fresh tokens (e.g. an app launched from the shell, or a
-        // notification click); ignore stale ones rather than steal focus.
-        if let Some(window) = self.window_for_surface(&surface) {
-            if token_data.timestamp.elapsed() < ACTIVATION_TOKEN_TTL {
-                self.focus_window(&window);
-            } else {
-                // Not granted: it wants attention instead.
-                self.set_attention(&window, true);
-            }
-        }
+        let fresh = token_data.timestamp.elapsed() < ACTIVATION_TOKEN_TTL;
         self.activation_state.remove_token(&token);
+        self.activate_surface(&surface, fresh);
+    }
+}
+
+impl Helix {
+    /// `surface`'s window asks to be activated with `token` (an
+    /// `xdg_activation_v1` token, or `None`).
+    pub fn activate_with_token(&mut self, token: Option<&XdgActivationToken>, surface: &WlSurface) {
+        let fresh = token
+            .and_then(|t| self.activation_state.data_for_token(t))
+            .is_some_and(|data| data.timestamp.elapsed() < ACTIVATION_TOKEN_TTL);
+        if let Some(token) = token {
+            self.activation_state.remove_token(token);
+        }
+        self.activate_surface(surface, fresh);
+    }
+
+    /// Honor fresh tokens (e.g. an app launched from the shell, or a
+    /// notification click); for stale ones the window wants attention
+    /// instead of stealing focus. Focus goes to the window's modal dialog
+    /// if it has one (`focus_window`).
+    fn activate_surface(&mut self, surface: &WlSurface, fresh: bool) {
+        let Some(window) = self.window_for_surface(surface) else { return };
+        tracing::debug!(granted = fresh, "activation request");
+        if fresh {
+            self.focus_window(&window);
+        } else {
+            self.set_attention(&window, true);
+        }
+    }
+
+    /// Whether the window of `surface` is a modal dialog
+    /// (`xdg_dialog_v1`, or GTK 3's `gtk_surface1`).
+    pub fn set_modal(&mut self, surface: &WlSurface, modal: bool) {
+        tracing::debug!(modal, "dialog modality");
+        self.wm.modal.retain(|s| s != surface && s.is_alive());
+        if modal {
+            self.wm.modal.push(surface.clone());
+            self.modal_dialog_changed(surface);
+        }
     }
 }
 
@@ -733,14 +768,11 @@ impl smithay::wayland::xdg_system_bell::XdgSystemBellHandler for Helix {
     }
 }
 
-/// `xdg_dialog_v1`: which dialogs are modal (for `attach-modal-dialogs`).
+/// `xdg_dialog_v1`: which dialogs are modal (for `attach-modal-dialogs`,
+/// and focus going to a window's modal dialog).
 impl smithay::wayland::shell::xdg::dialog::XdgDialogHandler for Helix {
     fn modal_changed(&mut self, toplevel: ToplevelSurface, is_modal: bool) {
-        let surface = toplevel.wl_surface().clone();
-        self.wm.modal.retain(|s| s != &surface && s.is_alive());
-        if is_modal {
-            self.wm.modal.push(surface);
-        }
+        self.set_modal(toplevel.wl_surface(), is_modal);
     }
 }
 smithay::delegate_session_lock!(Helix);
