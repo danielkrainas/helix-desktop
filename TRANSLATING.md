@@ -174,3 +174,24 @@ meant for developers are not translated.
 
 `tools/i18n/update-pot.sh` regenerates `po/POTFILES` and the template;
 `tools/i18n/mark_strings.py` wraps literals in bulk (review its diff).
+
+## Tooling shared with helix-apps
+
+[helix-apps](https://github.com/danielkrainas/helix-apps) has a copy of
+these tools in its own `tools/i18n/` for the apps' domains. The two copies
+are kept in step by hand:
+
+| Shared | What differs on purpose |
+| --- | --- |
+| `extract_rs.py` | the i18n crate it documents (`helix-i18n` / `helix_app_common::i18n`), `nc_!` (apps only), the template header |
+| `update-pot.sh` | the template name; apps also extract AppStream metainfo |
+| `potfiles.py` | which directories and data files are listed |
+| `check-po.py` | apps also check markup, access keys and desktop keywords |
+| `pseudo.py`, `make-pseudo.sh` | the template name |
+| `mark_strings.py` | each repo's helper names and crate path |
+
+`pseudo_rtl.py` and `make-test-rtl.sh` are helix-desktop's own. When you
+change a shared file, make the same change in the other repository (or
+open an issue there), and say so in the commit.
+`tools/i18n/compare-with-apps.sh [PATH]` diffs the two copies with the
+project names masked, so only real drift shows.
