@@ -618,25 +618,19 @@ impl Helix {
     }
 
     /// The `layer` surface of `output` under `local` (output coordinates)
-    /// that is shown: top-layer surfaces hidden by a full-screen window
-    /// ([`wm::hidden_in_fullscreen`]) don't take input.
+    /// that is shown and takes input there: top-layer surfaces hidden by
+    /// a full-screen window ([`wm::hidden_in_fullscreen`]) don't, and
+    /// neither does a surface whose input region leaves the point out (a
+    /// click-through overlay, such as a game's HUD: the point counts as
+    /// over what is below it).
     pub(super) fn shown_layer_under(&self, output: &smithay::output::Output, layer: Layer, local: Point<f64, Logical>) -> Option<smithay::desktop::LayerSurface> {
         let fullscreen = layer == Layer::Top && self.in_fullscreen(output);
         let map = layer_map_for_output(output);
-        if !fullscreen {
-            return map.layer_under(layer, local).cloned();
-        }
         let found = map
             .layers_on(layer)
             .rev()
-            .filter(|l| !wm::hidden_in_fullscreen(layer, l.namespace()))
-            .find(|l| {
-                map.layer_geometry(l).is_some_and(|g| {
-                    let mut bbox = l.bbox_with_popups();
-                    bbox.loc += g.loc;
-                    bbox.to_f64().contains(local)
-                })
-            })
+            .filter(|l| !(fullscreen && wm::hidden_in_fullscreen(layer, l.namespace())))
+            .find(|l| map.layer_geometry(l).is_some_and(|g| l.surface_under(local - g.loc.to_f64(), WindowSurfaceType::ALL).is_some()))
             .cloned();
         found
     }

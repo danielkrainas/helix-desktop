@@ -349,7 +349,14 @@ impl LayerMap {
 
                 let location: Point<i32, Logical> = (x, y).into();
 
-                if let ExclusiveZone::Exclusive(amount) = data.exclusive_zone {
+                // Helix: a positive exclusive zone only counts for a surface
+                // anchored to one edge, or to one edge and both edges
+                // perpendicular to it; not anchored, anchored to a corner,
+                // to two parallel edges or to all four, it is treated as
+                // zero (wlr-layer-shell, `set_exclusive_zone`). Upstream
+                // applied a corner surface's zone to its left or right edge.
+                let edges = [Anchor::TOP, Anchor::BOTTOM, Anchor::LEFT, Anchor::RIGHT].into_iter().filter(|a| data.anchor.contains(*a)).count();
+                if let (ExclusiveZone::Exclusive(amount), 1 | 3) = (data.exclusive_zone, edges) {
                     match data.anchor {
                         x if x.contains(Anchor::TOP) && x.contains(Anchor::BOTTOM) => {
                             zone.size.w -= amount as i32;

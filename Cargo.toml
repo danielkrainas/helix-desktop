@@ -92,5 +92,7 @@ accesskit_atspi_common = { path = "vendor/accesskit_atspi_common" }
 # Smithay 0.7.0 (MIT), patched (changes marked "Helix:"): Xwayland window
 # frames take the window's own depth and visual, so X11 windows with an
 # alpha channel (GTK's rounded client-side decorations) keep it
-# (vendor/smithay, src/xwayland/xwm/mod.rs, MapRequest).
+# (vendor/smithay, src/xwayland/xwm/mod.rs, MapRequest); a layer surface's
+# exclusive zone counts only where the protocol says (anchored to one edge,
+# or one edge and both perpendicular ones; src/desktop/wayland/layer.rs).
 smithay = { path = "vendor/smithay" }
