@@ -122,6 +122,14 @@ impl Ui {
             }
         }
         let surface = view.layer.wl_surface();
+        // Only the icons take input: presses beside them reach the
+        // background (and its menu) underneath.
+        if let Ok(region) = smithay_client_toolkit::compositor::Region::new(&self.compositor) {
+            for &(x, y) in cells.iter().take(items.len()) {
+                region.add(x, y, logic::CELL_W, logic::CELL_H);
+            }
+            surface.set_input_region(Some(region.wl_region()));
+        }
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
             surface.damage_buffer(0, 0, i32::MAX, i32::MAX);
@@ -136,6 +144,15 @@ impl Ui {
         let items = self.desktop_icons.items.as_deref().unwrap_or_default();
         let cells = logic::cells(items.len(), view.width as i32, view.height as i32);
         Some((&view.layer, (view.width, view.height), icon_nodes(items, &cells, self.desktop_icons.selected.as_deref())))
+    }
+
+    /// Take the selection away (a press on the background beside the
+    /// icons).
+    pub(super) fn desktop_icons_unselect(&mut self) {
+        if self.desktop_icons.selected.take().is_some() {
+            self.desktop_icons.last_press = None;
+            self.draw_desktop_icons();
+        }
     }
 
     /// Pointer input on the surface; true if it was for it. A press

@@ -144,7 +144,7 @@ fn volume_icon(percent: u32, muted: bool) -> &'static str {
 
 /// The settings app to open from quick settings: Helix's (helix-apps),
 /// else GNOME's; `None` when neither is installed.
-fn settings_app() -> Option<&'static str> {
+pub(super) fn settings_app() -> Option<&'static str> {
     let on_path = |name: &str| std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(name).is_file()));
     ["helix-settings-app", "gnome-control-center"].into_iter().find(|name| on_path(name))
 }

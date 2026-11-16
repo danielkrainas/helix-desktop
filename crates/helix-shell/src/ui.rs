@@ -61,6 +61,7 @@ mod atspi;
 #[cfg(test)]
 mod atspi_bus;
 mod background;
+mod background_menu;
 mod buffers;
 mod break_screen;
 mod calendar;
@@ -267,6 +268,10 @@ struct Ui {
     /// The next menu opened was asked for with a key: its first entry
     /// starts selected (taken by `open_menu`).
     menu_by_key: bool,
+    /// A press on the background that may become a long press (its
+    /// menu), and the count telling stale timers apart.
+    bg_hold: Option<background_menu::Hold>,
+    bg_hold_serial: u64,
     /// Each window's input source (`per-window`).
     window_sources: HashMap<u32, crate::input_sources::Source>,
     /// Icons windows' apps set: theme name and image.
@@ -3858,6 +3863,8 @@ pub fn run(
         panel_lit: None,
         panel_pressed: None,
         menu_by_key: false,
+        bg_hold: None,
+        bg_hold_serial: 0,
         window_sources: HashMap::new(),
         window_icons: HashMap::new(),
         icon_cache: crate::icon_cache::IconCache::spawning(crate::workers::Workers::sized("icons"), icon_sink),
@@ -4404,6 +4411,7 @@ impl TouchHandler for Ui {
     fn cancel(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch) {
         // A cancelled touch is not a click: drop it without the release.
         self.touch_point = None;
+        self.bg_hold = None;
         self.picker_cancel_drag();
     }
 }
@@ -4425,7 +4433,7 @@ impl Ui {
             if self.field_middle_click(event) {
                 continue;
             }
-            if self.banner_pointer(event) || self.overlay_pointer(event) || self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.quick_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.desktop_icons_pointer(event) || self.panel_pointer(event) {
+            if self.banner_pointer(event) || self.overlay_pointer(event) || self.panel_drag_pointer(event) || self.tray_pointer(event) || self.ext_pointer(event) || self.extensions_dialog_axis(event) || self.panel_context(event) || self.grid_pointer(event) || self.dock_pointer(event) || self.picker_pointer(event) || self.overview_pointer(event) || self.notification_list_pointer(event) || self.quick_pointer(event) || self.window_menu_pointer(event) || self.osk_pointer(event) || self.click_type_pointer(event) || self.background_pointer(event) || self.desktop_icons_pointer(event) || self.panel_pointer(event) {
                 continue;
             }
             let PointerEventKind::Press { button: BTN_LEFT, .. } = event.kind else {

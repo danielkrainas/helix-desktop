@@ -22,6 +22,8 @@
 //!   middle) down or up.
 //! - `click X Y [CODE]`: move there, press and release (left by default).
 //! - `scroll DX DY`: smooth scrolling by (DX, DY) pixels.
+//! - `touch down|move X Y` and `touch up`: one finger (slot 0) of the
+//!   virtual touchscreen on the monitor under (X, Y).
 
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -39,6 +41,8 @@ pub enum Command {
     Input(Vec<RemoteInput>),
     Move(f64, f64),
     Click(f64, f64, u32),
+    /// A finger down or moved to (x, y); `None`: lifted.
+    Touch(Option<(f64, f64)>, bool),
 }
 
 fn number<T: std::str::FromStr>(word: Option<&str>) -> Result<T, String> {
@@ -97,6 +101,11 @@ pub fn parse(line: &str) -> Result<Command, String> {
             RemoteInput::Axis { dx: number(words.next())?, dy: number(words.next())?, finish: false, source: 1 },
             RemoteInput::Axis { dx: 0.0, dy: 0.0, finish: true, source: 1 },
         ]),
+        "touch" => match words.next() {
+            Some(what @ ("down" | "move")) => Command::Touch(Some((number(words.next())?, number(words.next())?)), what == "down"),
+            Some("up") => Command::Touch(None, false),
+            other => return Err(format!("expected down, move or up, not {other:?}")),
+        },
         other => return Err(format!("unknown command {other:?}")),
     };
     if words.next().is_some() && verb != "type" {
@@ -181,8 +190,27 @@ impl Helix {
                 self.remote_input(RemoteInput::Button { button, pressed: true });
                 self.remote_input(RemoteInput::Button { button, pressed: false });
             }
+            Command::Touch(at, down) => self.headless_touch(at, down),
         }
         let _ = self.display_handle.flush_clients();
+    }
+
+    fn headless_touch(&mut self, at: Option<(f64, f64)>, down: bool) {
+        self.note_activity();
+        let slot = smithay::backend::input::TouchSlot::from(Some(0));
+        let time = self.now_ms();
+        match at {
+            Some((x, y)) => {
+                let pos = self.clamp_to_outputs(Point::<f64, Logical>::from((x, y)));
+                if down {
+                    self.virtual_touch_down(slot, pos, time);
+                } else {
+                    self.touch_motion(slot, pos, time);
+                }
+            }
+            None => self.touch_up(slot, time),
+        }
+        self.seat.get_touch().unwrap().frame(self);
     }
 
     fn headless_move(&mut self, x: f64, y: f64) {
@@ -224,6 +252,10 @@ mod tests {
         assert_eq!(parse("move 10 20.5"), Ok(Command::Move(10.0, 20.5)));
         assert_eq!(parse("click 1 2"), Ok(Command::Click(1.0, 2.0, 0x110)));
         assert_eq!(parse("click 1 2 274"), Ok(Command::Click(1.0, 2.0, 274)));
+        assert_eq!(parse("touch down 10 20"), Ok(Command::Touch(Some((10.0, 20.0)), true)));
+        assert_eq!(parse("touch move 11 20"), Ok(Command::Touch(Some((11.0, 20.0)), false)));
+        assert_eq!(parse("touch up"), Ok(Command::Touch(None, false)));
+        assert!(parse("touch left 1 2").is_err());
         assert!(parse("key 30").is_err());
         assert!(parse("key 30 1 2").is_err());
         assert!(parse("warp 1 2").is_err());

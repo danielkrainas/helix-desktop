@@ -828,6 +828,10 @@ fn menus() {
         render(&dir, &format!("{name}-keyboard"), DARK, (640, 400, 1.0), |canvas| {
             window_menu::paint_menu(canvas, text.as_ref(), (640, 400), (40, 40), &menu_items(), Some(1), true, false);
         });
+        // The desktop background's menu.
+        render(&dir, &format!("{name}-background"), DARK, (640, 400, 1.0), |canvas| {
+            window_menu::paint_menu(canvas, text.as_ref(), (640, 400), (200, 120), &background_menu::items(), Some(2), false, false);
+        });
     }
     helix_draw::set_high_contrast(false);
 }

@@ -627,6 +627,9 @@ impl Ui {
         if has(&|c| matches!(c, Choice::CustomizePanel | Choice::Extensions)) {
             return tr("Top Bar").to_owned();
         }
+        if has(&|c| matches!(c, Choice::Settings(_))) {
+            return tr("Background").to_owned();
+        }
         if has(&|c| matches!(c, Choice::Dock(_))) {
             use super::dock::DockTarget;
             let names = self.atspi.app_names.as_ref().map(|(n, _)| n);

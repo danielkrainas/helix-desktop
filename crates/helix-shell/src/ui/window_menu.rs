@@ -48,6 +48,8 @@ pub(super) enum Choice {
     Extensions,
     /// An extension menu's entry (index into the open menu's ids).
     ExtMenu(usize),
+    /// The background menu's entries: open Settings at a panel.
+    Settings(super::background_menu::SettingsPanel),
     /// Show the item's submenu.
     Submenu,
     /// Back to the menu a submenu came from.
@@ -202,7 +204,7 @@ impl Ui {
     }
 
     /// `x` mirrored on the monitor that (x, y) is on.
-    fn mirrored_screen_x(&self, x: i32, y: i32) -> i32 {
+    pub(super) fn mirrored_screen_x(&self, x: i32, y: i32) -> i32 {
         self.output_state
             .outputs()
             .filter_map(|o| self.output_state.info(&o))
@@ -378,6 +380,12 @@ impl Ui {
         }
         let selected = menu.selected.filter(|_| !menu.focus_hidden);
         let (bounds, hits) = paint_menu(&mut canvas, self.text.as_ref(), (w as i32, h as i32), menu.at, &menu.items, selected, menu.by_keyboard, !menu.sources.is_empty());
+        if menu.hits.is_empty() {
+            // Where its entries are (for tests): "label@x,y,w,h" on the
+            // surface, which covers its monitor.
+            let entries: Vec<String> = hits.iter().filter_map(|(r, i)| Some(format!("{}@{},{},{},{}", menu.items.get(*i)?.as_ref()?.label.replace(' ', "_"), r.x, r.y, r.w, r.h))).collect();
+            tracing::debug!(origin = ?menu.origin, entries = %entries.join(" "), "menu shown");
+        }
         menu.bounds = bounds;
         menu.hits = hits;
         let surface = menu.layer.wl_surface();
@@ -447,6 +455,10 @@ impl Ui {
         }
         if let Choice::ExtMenu(i) = item.choice {
             self.ext_menu_choice(i);
+            return;
+        }
+        if let Choice::Settings(panel) = item.choice {
+            self.background_menu_choice(panel);
             return;
         }
         if let Choice::Tray(i) = item.choice {
