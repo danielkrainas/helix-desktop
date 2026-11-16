@@ -1,5 +1,5 @@
-//! Headless backend, for tests: one virtual monitor, no window, no GPU and
-//! no input devices. Clients get frame callbacks at 60 Hz and shared-memory
+//! Headless backend, for tests: one virtual monitor (two with
+//! `HELIX_HEADLESS_OUTPUTS=2`), no window, no GPU and no input devices. Clients get frame callbacks at 60 Hz and shared-memory
 //! buffers only.
 //!
 //! `HELIX_HEADLESS_SIZE` (`WIDTHxHEIGHT`, default 1280x720) sets the
@@ -27,6 +27,17 @@ use super::Helix;
 
 const REFRESH_MHZ: i32 = 60_000;
 const CONNECTOR: &str = "HEADLESS-1";
+/// The second monitor's (`HELIX_HEADLESS_OUTPUTS=2`), right of the first.
+const CONNECTOR_2: &str = "HEADLESS-2";
+
+/// `HELIX_HEADLESS_OUTPUTS`: one monitor (default) or two side by side,
+/// the same size (tests of what the shell shows on every monitor).
+fn outputs_from_env() -> usize {
+    match std::env::var("HELIX_HEADLESS_OUTPUTS").ok().as_deref().map(str::trim) {
+        Some("2") => 2,
+        _ => 1,
+    }
+}
 
 fn size_from_env() -> Size<i32, Logical> {
     std::env::var("HELIX_HEADLESS_SIZE")
@@ -40,8 +51,8 @@ fn size_from_env() -> Size<i32, Logical> {
         .into()
 }
 
-fn describe(size: Size<i32, Logical>) -> Vec<Monitor> {
-    vec![Monitor {
+fn describe(size: Size<i32, Logical>, count: usize) -> Vec<Monitor> {
+    let mut monitors = vec![Monitor {
         connector: CONNECTOR.into(),
         vendor: "Helix".into(),
         product: "Headless".into(),
@@ -58,7 +69,31 @@ fn describe(size: Size<i32, Logical>) -> Vec<Monitor> {
         hdr: false,
         color_mode: 0,
         underscan: None,
-    }]
+    }];
+    if count > 1 {
+        let mut second = monitors[0].clone();
+        second.connector = CONNECTOR_2.into();
+        second.serial = "1".into();
+        second.display_name = "Helix headless monitor 2".into();
+        second.x = size.w;
+        second.primary = false;
+        monitors.push(second);
+    }
+    monitors
+}
+
+/// A virtual monitor at `x` (layout coordinates), mapped and advertised.
+fn add_output(state: &mut Helix, connector: &str, serial: &str, mode: Mode, x: i32) -> Output {
+    let output = Output::new(
+        connector.to_string(),
+        PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Helix".into(), model: "Headless".into() },
+    );
+    output.user_data().insert_if_missing(|| helix_comp::edid::Identity { vendor: "Helix".into(), product: "Headless".into(), serial: serial.into() });
+    let _global = output.create_global::<Helix>(&state.display_handle);
+    output.change_current_state(Some(mode), Some(Transform::Normal), None, Some((x, 0).into()));
+    output.set_preferred(mode);
+    state.space.map_output(&output, (x, 0));
+    output
 }
 
 /// Set up the virtual monitor and the frame clock. Returns the monitor
@@ -66,21 +101,19 @@ fn describe(size: Size<i32, Logical>) -> Vec<Monitor> {
 pub fn init(event_loop: &mut EventLoop<'static, Helix>, state: &mut Helix) -> Result<Vec<Monitor>, Box<dyn std::error::Error>> {
     let size = size_from_env();
     let mode = Mode { size: (size.w, size.h).into(), refresh: REFRESH_MHZ };
-    let output = Output::new(
-        CONNECTOR.to_string(),
-        PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "Helix".into(), model: "Headless".into() },
-    );
-    output.user_data().insert_if_missing(|| helix_comp::edid::Identity { vendor: "Helix".into(), product: "Headless".into(), serial: "0".into() });
-    let _global = output.create_global::<Helix>(&state.display_handle);
-    output.change_current_state(Some(mode), Some(Transform::Normal), None, Some((0, 0).into()));
-    output.set_preferred(mode);
-    state.space.map_output(&output, (0, 0));
-    tracing::info!(width = size.w, height = size.h, "headless monitor");
+    let count = outputs_from_env();
+    let output = add_output(state, CONNECTOR, "0", mode, 0);
+    let mut frames_outputs = vec![output.clone()];
+    if count > 1 {
+        frames_outputs.push(add_output(state, CONNECTOR_2, "1", mode, size.w));
+    }
+    tracing::info!(width = size.w, height = size.h, count, "headless monitor");
 
     let frame = Duration::from_micros(1_000_000_000 / REFRESH_MHZ as u64);
-    let frames_output = output.clone();
     event_loop.handle().insert_source(Timer::from_duration(frame), move |_, _, state| {
-        state.headless_frame(&frames_output);
+        for output in &frames_outputs {
+            state.headless_frame(output);
+        }
         TimeoutAction::ToDuration(frame)
     })?;
 
@@ -96,7 +129,7 @@ pub fn init(event_loop: &mut EventLoop<'static, Helix>, state: &mut Helix) -> Re
             TimeoutAction::ToDuration(Duration::from_secs(1))
         })?;
     }
-    Ok(describe(size))
+    Ok(describe(size, count))
 }
 
 impl Helix {
