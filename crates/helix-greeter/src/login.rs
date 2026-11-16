@@ -266,7 +266,7 @@ mod tests {
     }
 
     fn start_request() -> Request {
-        Request::StartSession { cmd: vec!["/bin/sh".into(), "-c".into(), "exec helix-session".into()], env: vec![] }
+        Request::StartSession { cmd: vec!["helix-session".into()], env: vec![] }
     }
 
     #[test]

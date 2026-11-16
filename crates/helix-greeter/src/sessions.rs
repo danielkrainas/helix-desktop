@@ -159,17 +159,28 @@ pub fn start_request(session: &Session) -> Request {
     start_request_with(session, std::path::Path::new(SYSTEMD_CAT).is_file())
 }
 
-/// [`start_request`], with or without `systemd-cat`. greetd does not keep a
-/// session's output, so when `systemd-cat` exists the session runs under it:
-/// what the session and everything it starts print goes to the journal
-/// under the session's id (as display managers like GDM do).
+/// [`start_request`], with or without `systemd-cat`.
+///
+/// greetd does not run `cmd` as an argument list: it joins it with spaces
+/// into one shell line, `/bin/sh -c '<source the profiles>; exec <cmd>'`
+/// (as `greetd_shell_line` in the tests shows). So the command is sent as a single string,
+/// the entry's `Exec` line, which that shell interprets as the desktop entry
+/// specification allows (arguments, quoting, `env` prefixes). Sending
+/// `["/bin/sh", "-c", "exec …"]` instead ran `exec /bin/sh -c exec …`: a
+/// shell whose whole script is a bare `exec`, which exits at once without
+/// starting the session.
+///
+/// greetd does not keep a session's output either, so when `systemd-cat`
+/// exists the session runs under it: what the session and everything it
+/// starts print goes to the journal under the session's id (as display
+/// managers like GDM do).
 fn start_request_with(session: &Session, systemd_cat: bool) -> Request {
-    let shell = ["/bin/sh".to_owned(), "-c".to_owned(), format!("exec {}", session.exec)];
-    let cmd = if systemd_cat {
-        [SYSTEMD_CAT.to_owned(), format!("--identifier={}", session.id), "--".to_owned()].into_iter().chain(shell).collect()
+    let line = if systemd_cat {
+        format!("{SYSTEMD_CAT} --identifier={} -- {}", shell_quote(&session.id), session.exec)
     } else {
-        shell.to_vec()
+        session.exec.clone()
     };
+    let cmd = vec![line];
     let mut env = vec![
         "XDG_SESSION_TYPE=wayland".to_owned(),
         format!("XDG_SESSION_DESKTOP={}", session.id),
@@ -179,6 +190,22 @@ fn start_request_with(session: &Session, systemd_cat: bool) -> Request {
         env.push(format!("XDG_CURRENT_DESKTOP={}", names.replace(';', ":").trim_end_matches(':')));
     }
     Request::StartSession { cmd, env }
+}
+
+/// `word` as one shell word.
+fn shell_quote(word: &str) -> String {
+    if !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric() || "-_.+:,/@".contains(c)) {
+        word.to_owned()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
+}
+
+/// The script greetd hands `/bin/sh -c` for `cmd` (after sourcing the
+/// profiles, which this leaves out).
+#[cfg(test)]
+fn greetd_shell_line(cmd: &[String]) -> String {
+    format!("exec {}", cmd.join(" "))
 }
 
 #[cfg(test)]
@@ -223,7 +250,7 @@ mod tests {
         assert_eq!(
             start_request_with(&helix, false),
             Request::StartSession {
-                cmd: vec!["/bin/sh".into(), "-c".into(), "exec helix-session".into()],
+                cmd: vec!["helix-session".into()],
                 env: vec!["XDG_SESSION_TYPE=wayland".into(), "XDG_SESSION_DESKTOP=helix".into(), "DESKTOP_SESSION=helix".into(), "XDG_CURRENT_DESKTOP=Helix:GNOME".into()],
             }
         );
@@ -231,7 +258,7 @@ mod tests {
         assert_eq!(
             start_request_with(&plain, false),
             Request::StartSession {
-                cmd: vec!["/bin/sh".into(), "-c".into(), "exec env FOO='a b' sway --unsupported-gpu".into()],
+                cmd: vec!["env FOO='a b' sway --unsupported-gpu".into()],
                 env: vec!["XDG_SESSION_TYPE=wayland".into(), "XDG_SESSION_DESKTOP=sway".into(), "DESKTOP_SESSION=sway".into()],
             }
         );
@@ -241,8 +268,26 @@ mod tests {
     fn start_request_logs_to_the_journal() {
         let helix = parse("helix", HELIX, |_| true).unwrap();
         let Request::StartSession { cmd, env } = start_request_with(&helix, true) else { panic!("not a start request") };
-        assert_eq!(cmd, ["/usr/bin/systemd-cat", "--identifier=helix", "--", "/bin/sh", "-c", "exec helix-session"]);
+        assert_eq!(cmd, ["/usr/bin/systemd-cat --identifier=helix -- helix-session"]);
         assert!(env.contains(&"XDG_SESSION_TYPE=wayland".to_owned()));
+        let odd = Session { id: "my session".into(), name: "x".into(), exec: "x".into(), desktop_names: None };
+        let Request::StartSession { cmd, .. } = start_request_with(&odd, true) else { panic!() };
+        assert_eq!(cmd, ["/usr/bin/systemd-cat --identifier='my session' -- x"]);
+    }
+
+    /// What greetd actually runs: the joined line through `/bin/sh -c`.
+    /// The Exec line's own arguments and quoting must reach the program.
+    #[test]
+    fn greetd_runs_the_exec_line() {
+        let session = Session { id: "probe".into(), name: "Probe".into(), exec: "printf '%s|' first 'second word' \"$PROBE_VAR\"".into(), desktop_names: None };
+        let Request::StartSession { cmd, .. } = start_request_with(&session, false) else { panic!() };
+        let out = std::process::Command::new("/bin/sh").arg("-c").arg(greetd_shell_line(&cmd)).env("PROBE_VAR", "from env").output().unwrap();
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "first|second word|from env|");
+        // The old argument list started nothing at all.
+        let old = ["/bin/sh".to_owned(), "-c".to_owned(), format!("exec {}", session.exec)];
+        let out = std::process::Command::new("/bin/sh").arg("-c").arg(greetd_shell_line(&old)).output().unwrap();
+        assert!(out.status.success() && out.stdout.is_empty(), "a bare exec: nothing runs");
     }
 
     #[test]

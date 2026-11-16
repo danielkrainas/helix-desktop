@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn login_against_fake_greetd() {
-        let start = Request::StartSession { cmd: vec!["/bin/sh".into(), "-c".into(), "exec helix-session".into()], env: vec!["XDG_SESSION_TYPE=wayland".into()] };
+        let start = Request::StartSession { cmd: vec!["helix-session".into()], env: vec!["XDG_SESSION_TYPE=wayland".into()] };
         let (mut client, server) = fake_greetd(vec![
             (Request::CreateSession { username: "ann".into() }, secret("Password: ")),
             (Request::PostAuthMessageResponse { response: Some("pw".into()) }, Response::Success),
