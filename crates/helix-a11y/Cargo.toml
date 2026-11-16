@@ -1,0 +1,12 @@
+[package]
+name = "helix-a11y"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Helix's own interfaces on the accessibility bus: windows of nodes served over AT-SPI with AccessKit"
+
+[dependencies]
+accesskit = "0.25"
+accesskit_unix = { version = "0.24", default-features = false, features = ["tokio"] }

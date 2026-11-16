@@ -1,5 +1,5 @@
-//! The shell's own interface on the accessibility bus (helix-desktop-spec
-//! `contracts/dbus/org.a11y.atspi.md`).
+//! Helix's own interfaces on the accessibility bus (helix-desktop-spec
+//! `contracts/dbus/org.a11y.atspi.md`): the shell's, and the greeter's.
 //!
 //! The UI describes what each of its surfaces shows as a [`Window`] of
 //! [`Node`]s, from the same state it paints with; [`tree`] turns a window
@@ -10,6 +10,7 @@
 pub mod publish;
 pub mod tree;
 
+pub use accesskit;
 pub use accesskit::Role;
 
 /// A rectangle in logical pixels: surface coordinates for nodes, layout

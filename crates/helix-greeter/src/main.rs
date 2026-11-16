@@ -12,14 +12,19 @@ use std::process::ExitCode;
 use tracing_subscriber::EnvFilter;
 
 mod app;
+mod atspi;
+#[cfg(test)]
+mod atspi_bus;
 mod clock;
 mod config;
 mod greetd;
 mod login;
 mod monitors;
+mod osk;
 mod paint;
 mod picture;
 mod power;
+mod screen_reader;
 mod sessions;
 mod state;
 mod ui;

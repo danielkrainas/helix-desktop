@@ -5,11 +5,53 @@
 use crate::config::Config;
 use crate::greetd::{Request, Response};
 use crate::login::{Login, Note, Question, Step};
+use crate::osk::Osk;
 use crate::power::{Offered, PowerAction};
 use crate::sessions::{self, Session};
-use crate::state::State;
+use crate::state::{Accessibility, State};
 use crate::users::User;
 use helix_i18n::tr;
+
+/// A setting in the accessibility menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Setting {
+    HighContrast,
+    LargeText,
+    ScreenReader,
+    ScreenKeyboard,
+}
+
+impl Setting {
+    /// The menu's items, in order.
+    pub const ALL: [Setting; 4] = [Setting::HighContrast, Setting::LargeText, Setting::ScreenReader, Setting::ScreenKeyboard];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::HighContrast => tr("High Contrast"),
+            Self::LargeText => tr("Large Text"),
+            Self::ScreenReader => tr("Screen Reader"),
+            Self::ScreenKeyboard => tr("Screen Keyboard"),
+        }
+    }
+
+    pub fn get(self, a: &Accessibility) -> bool {
+        match self {
+            Self::HighContrast => a.high_contrast,
+            Self::LargeText => a.large_text,
+            Self::ScreenReader => a.screen_reader,
+            Self::ScreenKeyboard => a.screen_keyboard,
+        }
+    }
+
+    fn slot(self, a: &mut Accessibility) -> &mut bool {
+        match self {
+            Self::HighContrast => &mut a.high_contrast,
+            Self::LargeText => &mut a.large_text,
+            Self::ScreenReader => &mut a.screen_reader,
+            Self::ScreenKeyboard => &mut a.screen_keyboard,
+        }
+    }
+}
 
 /// A key, after the keymap.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +65,8 @@ pub enum Key {
     Backspace,
     /// Typed text.
     Text(String),
+    /// Alt+Super+S: the screen reader on or off.
+    ScreenReader,
 }
 
 /// What has keyboard focus (Tab cycles).
@@ -31,6 +75,8 @@ pub enum Focus {
     /// The user list or the field.
     Main,
     Session,
+    /// The accessibility button.
+    A11y,
     /// The n-th power button shown.
     Power(usize),
 }
@@ -46,6 +92,10 @@ pub enum Hit {
     Power(PowerAction),
     PowerCancel,
     PowerConfirm,
+    A11yButton,
+    A11yItem(Setting),
+    /// The n-th key of the on-screen keyboard ([`Osk::keys`]).
+    OskKey(usize),
 }
 
 /// What the caller does.
@@ -53,6 +103,9 @@ pub enum Hit {
 pub enum Effect {
     Greetd(Request),
     Power(PowerAction),
+    /// The accessibility settings changed: apply `state.accessibility`
+    /// (high contrast, the text scale, the screen reader) and save `state`.
+    Accessibility(State),
     /// greetd will start the session: remember this, then exit with 0.
     Finished(State),
 }
@@ -111,6 +164,11 @@ pub struct View {
     pub power: PowerView,
     pub focus: Focus,
     pub hover: Option<Hit>,
+    pub accessibility: Accessibility,
+    /// The accessibility menu, open, with its highlighted item.
+    pub a11y_menu: Option<usize>,
+    /// The on-screen keyboard, when shown.
+    pub osk: Option<Osk>,
 }
 
 pub struct Greeter {
@@ -136,6 +194,8 @@ pub struct Greeter {
     state: State,
     /// The session was picked from the menu: choosing a user keeps it.
     session_picked: bool,
+    a11y_menu: Option<usize>,
+    osk: Osk,
     pub focus: Focus,
     pub hover: Option<Hit>,
 }
@@ -160,9 +220,26 @@ impl Greeter {
             last_user: state.last_user.clone(),
             state: state.clone(),
             session_picked: false,
+            a11y_menu: None,
+            osk: Osk::default(),
             focus: Focus::Main,
             hover: None,
         }
+    }
+
+    /// The accessibility settings in effect.
+    pub fn accessibility(&self) -> Accessibility {
+        self.state.accessibility
+    }
+
+    /// Turn `setting` on or off.
+    fn toggle(&mut self, setting: Setting) -> Vec<Effect> {
+        let slot = setting.slot(&mut self.state.accessibility);
+        *slot = !*slot;
+        if setting == Setting::ScreenKeyboard {
+            self.osk = Osk::default();
+        }
+        vec![Effect::Accessibility(self.state.clone())]
     }
 
     /// The users AccountsService or `/etc/passwd` gave; the last user to
@@ -210,12 +287,14 @@ impl Greeter {
         }
     }
 
-    /// The focus cycle: main, session button, power buttons.
+    /// The focus cycle: main, session button, accessibility button, power
+    /// buttons.
     fn focus_order(&self) -> Vec<Focus> {
         let mut order = vec![Focus::Main];
         if !self.sessions.is_empty() {
             order.push(Focus::Session);
         }
+        order.push(Focus::A11y);
         order.extend((0..self.power_view().hits().len()).map(Focus::Power));
         order
     }
@@ -282,7 +361,25 @@ impl Greeter {
             Hit::Back => return self.cancel_login(),
             Hit::SessionButton => {
                 self.focus = Focus::Session;
+                self.a11y_menu = None;
                 self.session_menu = if self.session_menu.is_some() || self.sessions.is_empty() { None } else { Some(self.session) };
+            }
+            Hit::A11yButton => {
+                self.focus = Focus::A11y;
+                self.session_menu = None;
+                self.a11y_menu = if self.a11y_menu.is_some() { None } else { Some(0) };
+            }
+            Hit::A11yItem(setting) => {
+                // The menu stays open: several settings can be changed.
+                self.focus = Focus::A11y;
+                self.a11y_menu = Setting::ALL.iter().position(|s| *s == setting);
+                return self.toggle(setting);
+            }
+            Hit::OskKey(n) => {
+                // Typing goes to the list or the field.
+                let Some(key) = self.osk.press(n) else { return Vec::new() };
+                self.focus = Focus::Main;
+                return self.main_key(key);
             }
             Hit::SessionItem(i) => {
                 if i < self.sessions.len() {
@@ -316,6 +413,13 @@ impl Greeter {
             self.session_menu = None;
             return Vec::new();
         }
+        if self.a11y_menu.is_some() && !matches!(hit, Some(Hit::A11yItem(_) | Hit::A11yButton)) {
+            self.a11y_menu = None;
+            return Vec::new();
+        }
+        if matches!(hit, Some(Hit::OskKey(_))) && !self.state.accessibility.screen_keyboard {
+            return Vec::new();
+        }
         match hit {
             Some(hit) => self.activate(hit),
             None => Vec::new(),
@@ -323,6 +427,21 @@ impl Greeter {
     }
 
     pub fn key(&mut self, key: Key) -> Vec<Effect> {
+        if key == Key::ScreenReader {
+            return self.toggle(Setting::ScreenReader);
+        }
+        if let Some(highlighted) = self.a11y_menu {
+            let last = Setting::ALL.len() - 1;
+            match key {
+                Key::Up => self.a11y_menu = Some(highlighted.saturating_sub(1)),
+                Key::Down => self.a11y_menu = Some((highlighted + 1).min(last)),
+                Key::Return => return self.activate(Hit::A11yItem(Setting::ALL[highlighted])),
+                Key::Text(t) if t == " " => return self.activate(Hit::A11yItem(Setting::ALL[highlighted])),
+                Key::Escape | Key::Tab | Key::BackTab => self.a11y_menu = None,
+                _ => {}
+            }
+            return Vec::new();
+        }
         if let Some(highlighted) = self.session_menu {
             let last = self.sessions.len().saturating_sub(1);
             match key {
@@ -357,6 +476,12 @@ impl Greeter {
             Focus::Session => {
                 if activate || matches!(key, Key::Up | Key::Down) {
                     return self.activate(Hit::SessionButton);
+                }
+                Vec::new()
+            }
+            Focus::A11y => {
+                if activate || matches!(key, Key::Up | Key::Down) {
+                    return self.activate(Hit::A11yButton);
                 }
                 Vec::new()
             }
@@ -473,6 +598,9 @@ impl Greeter {
             power: self.power_view(),
             focus: self.focus,
             hover: self.hover,
+            accessibility: self.state.accessibility,
+            a11y_menu: self.a11y_menu,
+            osk: self.state.accessibility.screen_keyboard.then_some(self.osk),
         }
     }
 }
@@ -492,7 +620,7 @@ mod tests {
     }
 
     fn greeter() -> Greeter {
-        let state = State { last_user: Some("bob".into()), last_session: None, sessions: Default::default() };
+        let state = State { last_user: Some("bob".into()), last_session: None, sessions: Default::default(), ..Default::default() };
         let mut g = Greeter::new(Config::default(), vec![session("helix", "Helix"), session("sway", "Sway")], &state);
         g.set_users(vec![user("ann", "Ann"), user("bob", "Bob")]);
         g
@@ -524,7 +652,7 @@ mod tests {
         assert!(matches!(&g.view(0).main, Main::Login { text, busy: true, .. } if text.chars().count() == 3), "dots kept while checking");
         let effects = g.greetd_reply(Response::Success);
         assert_eq!(effects, vec![Effect::Greetd(sessions::start_request(&session("helix", "Helix")))]);
-        assert_eq!(g.greetd_reply(Response::Success), vec![Effect::Finished(State { last_user: Some("bob".into()), last_session: Some("helix".into()), sessions: [("bob".to_owned(), "helix".to_owned())].into() })]);
+        assert_eq!(g.greetd_reply(Response::Success), vec![Effect::Finished(State { last_user: Some("bob".into()), last_session: Some("helix".into()), sessions: [("bob".to_owned(), "helix".to_owned())].into(), ..Default::default() })]);
     }
 
     #[test]
@@ -556,6 +684,8 @@ mod tests {
         g.key(Key::Down);
         g.key(Key::Return);
         assert_eq!((g.view(0).session, g.view(0).session_menu), (1, None));
+        g.key(Key::Tab);
+        assert_eq!(g.focus, Focus::A11y, "the accessibility button");
         g.key(Key::Tab);
         assert_eq!(g.focus, Focus::Main, "no power buttons: back to the list");
         g.set_power(Offered { restart: true, power_off: true });
@@ -623,7 +753,7 @@ mod tests {
     #[test]
     fn per_user_sessions() {
         let sessions = vec![session("helix", "Helix"), session("sway", "Sway"), session("gnome", "GNOME")];
-        let state = State { last_user: Some("ann".into()), last_session: Some("gnome".into()), sessions: [("ann".to_owned(), "sway".to_owned())].into() };
+        let state = State { last_user: Some("ann".into()), last_session: Some("gnome".into()), sessions: [("ann".to_owned(), "sway".to_owned())].into(), ..Default::default() };
         let mut g = Greeter::new(Config::default(), sessions, &state);
         let mut bob = user("bob", "Bob");
         bob.session = Some("helix".into());
@@ -648,5 +778,122 @@ mod tests {
         assert_eq!(saved.last_user.as_deref(), Some("bob"));
         assert_eq!(saved.sessions.get("bob").map(String::as_str), Some("sway"));
         assert_eq!(saved.sessions.get("ann").map(String::as_str), Some("sway"), "others kept");
+    }
+
+    fn settings(effects: &[Effect]) -> Accessibility {
+        match effects {
+            [Effect::Accessibility(state)] => state.accessibility,
+            other => panic!("expected one Accessibility effect, got {other:?}"),
+        }
+    }
+
+    /// The accessibility menu by keyboard: Tab to its button, Return opens
+    /// it, arrows move, Return and Space toggle (it stays open), Escape
+    /// closes it.
+    #[test]
+    fn accessibility_menu_by_keyboard() {
+        let mut g = greeter();
+        g.key(Key::Tab);
+        g.key(Key::Tab);
+        assert_eq!(g.focus, Focus::A11y);
+        assert!(g.key(Key::Return).is_empty());
+        assert_eq!(g.view(0).a11y_menu, Some(0));
+        let a = settings(&g.key(Key::Return));
+        assert!(a.high_contrast && !a.large_text);
+        assert_eq!(g.view(0).a11y_menu, Some(0), "still open");
+        assert!(g.view(0).accessibility.high_contrast);
+        g.key(Key::Down);
+        let a = settings(&g.key(Key::Text(" ".into())));
+        assert!(a.high_contrast && a.large_text);
+        g.key(Key::Down);
+        g.key(Key::Down);
+        g.key(Key::Down);
+        assert_eq!(g.view(0).a11y_menu, Some(3), "stops at the last");
+        let a = settings(&g.key(Key::Return));
+        assert!(a.screen_keyboard);
+        assert!(g.view(0).osk.is_some(), "the keyboard is shown");
+        g.key(Key::Up);
+        g.key(Key::Return);
+        assert!(g.accessibility().screen_reader);
+        assert!(g.key(Key::Escape).is_empty());
+        assert_eq!(g.view(0).a11y_menu, None);
+        assert_eq!(g.focus, Focus::A11y);
+        // Typing does not reach the list while the menu is open.
+        g.key(Key::Return);
+        g.key(Key::Text("x".into()));
+        assert_eq!(g.view(0).a11y_menu, Some(0));
+        g.key(Key::Tab);
+        assert_eq!(g.view(0).a11y_menu, None, "Tab closes it");
+    }
+
+    #[test]
+    fn accessibility_menu_by_pointer_and_shortcut() {
+        let mut g = greeter();
+        g.click(Some(Hit::SessionButton));
+        g.click(Some(Hit::A11yButton));
+        assert_eq!((g.view(0).session_menu, g.view(0).a11y_menu), (None, None), "a click elsewhere closes the session menu first");
+        g.click(Some(Hit::A11yButton));
+        assert_eq!(g.view(0).a11y_menu, Some(0));
+        assert!(settings(&g.click(Some(Hit::A11yItem(Setting::LargeText)))).large_text);
+        assert_eq!(g.view(0).a11y_menu, Some(1), "the item clicked is highlighted");
+        g.click(None);
+        assert_eq!(g.view(0).a11y_menu, None);
+        // Alt+Super+S, whatever has the focus and with the menu open.
+        assert!(settings(&g.key(Key::ScreenReader)).screen_reader);
+        g.click(Some(Hit::A11yButton));
+        assert!(!settings(&g.key(Key::ScreenReader)).screen_reader);
+        assert_eq!(g.view(0).a11y_menu, Some(0));
+    }
+
+    /// The settings are part of what is remembered, and come back.
+    #[test]
+    fn accessibility_is_remembered() {
+        let mut g = greeter();
+        g.click(Some(Hit::A11yButton));
+        let Some(Effect::Accessibility(saved)) = g.click(Some(Hit::A11yItem(Setting::HighContrast))).pop() else { panic!("saved") };
+        assert_eq!(saved.last_user.as_deref(), Some("bob"), "the rest of the state is kept");
+        assert!(saved.accessibility.high_contrast);
+        let g2 = Greeter::new(Config::default(), vec![session("helix", "Helix")], &saved);
+        assert!(g2.accessibility().high_contrast && g2.view(0).accessibility.high_contrast);
+        // A login keeps them too.
+        g.click(None);
+        g.focus = Focus::Main;
+        g.key(Key::Return);
+        g.greetd_reply(Response::Success);
+        let Some(Effect::Finished(state)) = g.greetd_reply(Response::Success).pop() else { panic!("finished") };
+        assert!(state.accessibility.high_contrast);
+    }
+
+    /// The on-screen keyboard types into the list and the field.
+    #[test]
+    fn screen_keyboard_types() {
+        use crate::osk::Action;
+        let mut g = greeter();
+        let key = |g: &Greeter, action: Action| Hit::OskKey(g.view(0).osk.expect("shown").keys().iter().position(|k| k.action == action).unwrap());
+        assert!(g.click(Some(Hit::OskKey(0))).is_empty(), "no keyboard: nothing");
+        g.click(Some(Hit::A11yButton));
+        g.click(Some(Hit::A11yItem(Setting::ScreenKeyboard)));
+        g.click(None);
+        g.focus = Focus::Session;
+        // Return on the list begins the login, wherever the focus was.
+        assert_eq!(g.click(Some(key(&g, Action::Return))), vec![Effect::Greetd(Request::CreateSession { username: "bob".into() })]);
+        assert_eq!(g.focus, Focus::Main);
+        g.greetd_reply(secret());
+        g.click(Some(key(&g, Action::Shift)));
+        g.click(Some(key(&g, Action::Char('P'))));
+        g.click(Some(key(&g, Action::Char('w'))));
+        g.click(Some(key(&g, Action::Char('x'))));
+        g.click(Some(key(&g, Action::Backspace)));
+        g.click(Some(key(&g, Action::Page(crate::osk::Page::Symbols))));
+        g.click(Some(key(&g, Action::Char('1'))));
+        g.click(Some(key(&g, Action::Space)));
+        assert!(matches!(&g.view(0).main, Main::Login { text, .. } if text == "Pw1 "), "{:?}", g.view(0).main);
+        assert_eq!(g.click(Some(key(&g, Action::Return))), vec![Effect::Greetd(Request::PostAuthMessageResponse { response: Some("Pw1 ".into()) })]);
+        // Off again: the keyboard goes, back on its first page.
+        g.click(Some(Hit::A11yButton));
+        g.click(Some(Hit::A11yItem(Setting::ScreenKeyboard)));
+        assert_eq!(g.view(0).osk, None);
+        g.click(Some(Hit::A11yItem(Setting::ScreenKeyboard)));
+        assert_eq!(g.view(0).osk, Some(Osk::default()));
     }
 }

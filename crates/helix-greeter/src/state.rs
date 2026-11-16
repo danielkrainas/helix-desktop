@@ -1,6 +1,7 @@
 //! What the greeter remembers between runs: the last user and session,
-//! and each user's last session
-//! (`$XDG_STATE_HOME/helix-greeter/state.json` of the greeter user).
+//! each user's last session, and the login screen's accessibility
+//! settings (`$XDG_STATE_HOME/helix-greeter/state.json` of the greeter
+//! user).
 
 use std::path::{Path, PathBuf};
 
@@ -14,6 +15,29 @@ pub struct State {
     pub last_session: Option<String>,
     /// Each user's last session through the greeter, by login name.
     pub sessions: std::collections::BTreeMap<String, String>,
+    /// The accessibility menu's settings (absent in older files: all off).
+    pub accessibility: Accessibility,
+}
+
+/// The login screen's accessibility settings (helix-desktop-spec
+/// `components/greeter.md`, "Accessibility").
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Accessibility {
+    pub high_contrast: bool,
+    pub large_text: bool,
+    pub screen_reader: bool,
+    pub screen_keyboard: bool,
+}
+
+impl Accessibility {
+    /// GNOME's Large Text factor (`text-scaling-factor` 1.25).
+    pub const LARGE_TEXT: f64 = 1.25;
+
+    /// The text scale these settings ask for.
+    pub fn text_scale(&self) -> f64 {
+        if self.large_text { Self::LARGE_TEXT } else { 1.0 }
+    }
 }
 
 /// The state file under `xdg_state_home`, else under `home`'s
@@ -78,12 +102,19 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("helix-greeter-state-{}", std::process::id()));
         let path = dir.join("helix-greeter/state.json");
         assert_eq!(State::load_from(&path), State::default(), "missing file");
-        let state = State { last_user: Some("ann".into()), last_session: Some("helix".into()), sessions: [("ann".to_owned(), "helix".to_owned())].into() };
+        let accessibility = Accessibility { high_contrast: true, screen_keyboard: true, ..Default::default() };
+        let state = State { last_user: Some("ann".into()), last_session: Some("helix".into()), sessions: [("ann".to_owned(), "helix".to_owned())].into(), accessibility };
         state.save_to(&path).unwrap();
         assert_eq!(State::load_from(&path), state);
         assert!(std::fs::read_to_string(&path).unwrap().contains("\"last_user\""));
         std::fs::write(&path, "not json").unwrap();
         assert_eq!(State::load_from(&path), State::default());
+        // A file from before the accessibility settings: they are off.
+        std::fs::write(&path, r#"{"last_user":"bob","last_session":null,"sessions":{}}"#).unwrap();
+        assert_eq!(State::load_from(&path), State { last_user: Some("bob".into()), ..Default::default() });
+        // Some settings only: the others off.
+        std::fs::write(&path, r#"{"accessibility":{"large_text":true}}"#).unwrap();
+        assert_eq!(State::load_from(&path).accessibility, Accessibility { large_text: true, ..Default::default() });
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -9,6 +9,8 @@ description = "Helix login screen: a greetd greeter"
 
 [dependencies]
 helix-i18n.workspace = true
+# The login screen on the accessibility bus.
+helix-a11y.workspace = true
 gio.workspace = true
 zbus.workspace = true
 tokio.workspace = true

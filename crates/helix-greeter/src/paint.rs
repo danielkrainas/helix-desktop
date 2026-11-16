@@ -1,11 +1,19 @@
 //! Painting the greeter: a pure function of the [`View`] into a
 //! [`Canvas`] (helix-desktop-spec `components/greeter.md`, "What the
 //! screen shows"). The look follows the lock screen's: a centered column,
-//! text fields as in "Text fields" (`components/README.md`).
+//! text fields as in "Text fields" (`components/README.md`); buttons,
+//! menus and keys are `helix_draw::theme`'s.
+//!
+//! High contrast (`helix_draw::high_contrast`) and the text scale
+//! (`helix_draw::theme::text_scale`) are the process's: the background
+//! is black, text white and everything outlined in white; heights and
+//! gaps that hold text grow with the text.
 
+use helix_draw::theme::{self, Kind, Look};
 use helix_draw::{Canvas, Style, Text};
 
-use crate::app::{Focus, Hit, Main, PowerView, View};
+use crate::app::{Focus, Hit, Main, PowerView, Setting, View};
+use crate::osk::{self, Action, Osk};
 use crate::power::PowerAction;
 use helix_i18n::tr;
 
@@ -13,15 +21,14 @@ const FG: u32 = 0xFFEDEDEF;
 const DIM_FG: u32 = 0xFF9A9AA4;
 const ERROR_FG: u32 = 0xFFFF8A80;
 const FIELD_BG: u32 = 0xFF2C2C33;
-const BUTTON: u32 = 0xFF33343D;
-const BUTTON_HOVER: u32 = 0xFF41424D;
 const ROW_SELECTED: u32 = 0xFF30313B;
 const ROW_HOVER: u32 = 0xFF292A33;
-const MENU_BG: u32 = 0xFF24252D;
-const MENU_BORDER: u32 = 0xFF3C3D48;
 /// The background: a vertical gradient.
 const BG_TOP: u32 = 0xFF262A3B;
 const BG_BOTTOM: u32 = 0xFF0F1015;
+/// High contrast's background and lines.
+const BLACK: u32 = 0xFF000000;
+const WHITE: u32 = 0xFFFFFFFF;
 
 const ROW_H: i32 = 56;
 const ROW_GAP: i32 = 6;
@@ -29,6 +36,12 @@ const FIELD_H: i32 = 44;
 const BUTTON_H: i32 = 36;
 const MARGIN: i32 = 24;
 const MENU_ITEM_H: i32 = 36;
+/// The on-screen keyboard: a key's height, the gap between keys, the
+/// padding around them, and the room left above the bottom bar.
+const KEY_H: i32 = 38;
+const KEY_GAP: i32 = 6;
+const KEY_PAD: i32 = 8;
+const OSK_ABOVE_BAR: i32 = 16;
 
 /// A logical rectangle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +60,15 @@ impl Rect {
     fn grow(self, by: i32) -> Self {
         Self { x: self.x - by, y: self.y - by, w: self.w + 2 * by, h: self.h + 2 * by }
     }
+
+    #[cfg(test)]
+    pub fn overlaps(&self, o: &Rect) -> bool {
+        self.x < o.x + o.w && o.x < self.x + self.w && self.y < o.y + o.h && o.y < self.y + self.h
+    }
+
+    fn tuple(self) -> (i32, i32, i32, i32) {
+        (self.x, self.y, self.w, self.h)
+    }
 }
 
 /// Where clicks land: later entries are on top.
@@ -57,17 +79,38 @@ pub fn hit_at(hits: &Hits, x: f64, y: f64) -> Option<Hit> {
     hits.iter().rev().find(|(r, _)| r.contains(x, y)).map(|(_, h)| *h)
 }
 
+fn hc() -> bool {
+    helix_draw::high_contrast()
+}
+
+/// Text: white in high contrast.
+fn fg() -> u32 {
+    if hc() { WHITE } else { FG }
+}
+
+/// Secondary text: white in high contrast too.
+fn dim_fg() -> u32 {
+    if hc() { WHITE } else { DIM_FG }
+}
+
+/// A length that holds text, grown with the text scale.
+fn g(v: i32) -> i32 {
+    theme::grow(v)
+}
+
 fn lerp(a: u32, b: u32, t: f32) -> [u8; 3] {
     let c = |c: u32, shift: u32| ((c >> shift) & 0xFF) as f32;
     [16, 8, 0].map(|s| (c(a, s) + (c(b, s) - c(a, s)) * t).round() as u8)
 }
 
-/// The dark vertical gradient every monitor shows.
+/// The dark vertical gradient every monitor shows (black in high
+/// contrast).
 pub fn paint_background(canvas: &mut Canvas) {
     let (width, height) = (canvas.width, canvas.height);
+    let hc = hc();
     for y in 0..height {
         let t = if height > 1 { y as f32 / (height - 1) as f32 } else { 0.0 };
-        let [r, g, b] = lerp(BG_TOP, BG_BOTTOM, t);
+        let [r, g, b] = if hc { [0, 0, 0] } else { lerp(BG_TOP, BG_BOTTOM, t) };
         let row = &mut canvas.data[y * width * 4..(y + 1) * width * 4];
         for px in row.as_chunks_mut::<4>().0 {
             *px = [b, g, r, 255];
@@ -82,13 +125,14 @@ fn label(canvas: &mut Canvas, text: Option<&Text>, s: &str, x: f32, base: f32, p
     }
 }
 
+/// The width of `s` at `px` (with the text scale).
 fn width(text: Option<&Text>, s: &str, px: f32) -> f32 {
-    text.map_or(s.chars().count() as f32 * px * 0.55, |t| t.width(s, px))
+    text.map_or(s.chars().count() as f32 * px * theme::text_scale() * 0.55, |t| t.width(s, px))
 }
 
 /// Baseline that vertically centers `px` text in a box.
 fn baseline(text: Option<&Text>, top: i32, height: i32, px: f32) -> f32 {
-    let cap = text.map_or(px * 0.7, |t| t.ascent(px) * 0.72);
+    let cap = text.map_or(px * theme::text_scale() * 0.7, |t| t.ascent(px) * 0.72);
     top as f32 + (height as f32 + cap) / 2.0
 }
 
@@ -98,28 +142,36 @@ fn centered(canvas: &mut Canvas, text: Option<&Text>, s: &str, w: i32, base: f32
     label(canvas, text, s, x, base, px, color, max_w);
 }
 
-/// A 2-unit accent ring just outside `r`: keyboard focus.
-fn focus_ring(canvas: &mut Canvas, r: Rect, color: u32) {
-    let o = r.grow(2);
-    canvas.rect(o.x, o.y, o.w, 2, color);
-    canvas.rect(o.x, o.y + o.h - 2, o.w, 2, color);
-    canvas.rect(o.x, o.y, 2, o.h, color);
-    canvas.rect(o.x + o.w - 2, o.y, 2, o.h, color);
+/// A 2-unit ring just outside `r`: keyboard focus (the accent; white and
+/// 2 units further out in high contrast, clear of a white outline).
+fn focus_ring(canvas: &mut Canvas, r: Rect) {
+    let o = r.grow(if hc() { 4 } else { 2 });
+    theme::outline(canvas, o.x, o.y, o.w, o.h, 2, theme::focus());
+}
+
+/// The focus ring of a rounded control (`theme::button`'s).
+fn control_ring(canvas: &mut Canvas, r: Rect) {
+    theme::focus_ring_round(canvas, f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), theme::RADIUS_BUTTON);
 }
 
 /// A text field's box: an accent ring while it takes typing, a faint
-/// outline otherwise.
+/// outline otherwise (high contrast: black, outlined in white).
 fn text_field(canvas: &mut Canvas, r: Rect, focused: bool) {
-    let (ring, width) = if focused { (accent(), 2) } else { (0x30FFFFFF, 1) };
+    let hc = hc();
+    let (ring, width) = match (focused, hc) {
+        (true, _) => (theme::focus(), 2),
+        (false, true) => (WHITE, 1),
+        (false, false) => (0x30FFFFFF, 1),
+    };
     let o = r.grow(width);
     canvas.rect(o.x, o.y, o.w, o.h, ring);
-    canvas.rect(r.x, r.y, r.w, r.h, FIELD_BG);
+    canvas.rect(r.x, r.y, r.w, r.h, if hc { BLACK } else { FIELD_BG });
 }
 
 /// The caret at `x`, the height of a line of `px` text in field `r`.
 fn caret(canvas: &mut Canvas, r: Rect, x: i32, px: f32) {
-    let h = (px * 1.3).round() as i32;
-    canvas.rect(x, r.y + (r.h - h) / 2, 2, h, FG);
+    let h = (px * theme::text_scale() * 1.3).round() as i32;
+    canvas.rect(x, r.y + (r.h - h) / 2, 2, h, fg());
 }
 
 /// The contents of a field: dots for hidden text, else the text (its end
@@ -128,15 +180,17 @@ fn field_contents(canvas: &mut Canvas, text: Option<&Text>, field: Rect, value: 
     const PX: f32 = 17.0;
     let inner = field.w - 34;
     let end = if value.is_empty() {
-        label(canvas, text, placeholder, (field.x + 20) as f32, baseline(text, field.y, field.h, PX), PX, DIM_FG, inner as f32);
+        label(canvas, text, placeholder, (field.x + 20) as f32, baseline(text, field.y, field.h, PX), PX, dim_fg(), inner as f32);
         field.x + 14
     } else if secret {
         // One dot per character (drawn: not every font has a bullet).
-        let count = value.chars().count().min((inner / 14).max(0) as usize) as i32;
+        let pitch = g(14);
+        let count = value.chars().count().min((inner / pitch).max(0) as usize) as i32;
+        let r = 5.0 * f64::from(theme::text_scale());
         for i in 0..count {
-            canvas.circle(f64::from(field.x + 20 + i * 14), f64::from(field.y + field.h / 2), 5.0, FG);
+            canvas.circle(f64::from(field.x + 20 + i * pitch), f64::from(field.y + field.h / 2), r, fg());
         }
-        field.x + 14 + count * 14
+        field.x + 14 + count * pitch
     } else {
         // The end of a long answer stays in view.
         let mut shown: &str = value;
@@ -145,7 +199,7 @@ fn field_contents(canvas: &mut Canvas, text: Option<&Text>, field: Rect, value: 
             chars.next();
             shown = chars.as_str();
         }
-        label(canvas, text, shown, (field.x + 16) as f32, baseline(text, field.y, field.h, PX), PX, FG, f32::MAX);
+        label(canvas, text, shown, (field.x + 16) as f32, baseline(text, field.y, field.h, PX), PX, fg(), f32::MAX);
         field.x + 18 + width(text, shown, PX).ceil() as i32
     };
     if focused {
@@ -167,24 +221,14 @@ fn avatar(canvas: &mut Canvas, text: Option<&Text>, name: &str, picture: Option<
     helix_draw::screen::avatar(canvas, text, None, name, picture, f64::from(cx), f64::from(cy), f64::from(r), 1.0);
 }
 
-/// A push button; `strong` for the action of a question.
+/// A push button (`theme::button`); `strong` for the action of a
+/// question.
 #[allow(clippy::too_many_arguments)]
 fn button(canvas: &mut Canvas, text: Option<&Text>, x: i32, y: i32, s: &str, strong: bool, hovered: bool, focused: bool) -> Rect {
-    let w = width(text, s, 15.0).ceil() as i32 + 32;
-    let r = Rect { x, y, w, h: BUTTON_H };
-    let palette = helix_draw::accent::current();
-    let bg = match (strong, hovered) {
-        (true, false) => palette.fill,
-        (true, true) => palette.fill_hover,
-        (false, false) => BUTTON,
-        (false, true) => BUTTON_HOVER,
-    };
-    if focused {
-        focus_ring(canvas, r, if strong { FG } else { accent() });
-    }
-    canvas.rect(r.x, r.y, r.w, r.h, bg);
-    let fg = if strong { palette.on_fill } else { FG };
-    label(canvas, text, s, (r.x + 16) as f32, baseline(text, r.y, r.h, 15.0), 15.0, fg, r.w as f32);
+    let w = width(text, s, theme::size::BODY).ceil() as i32 + 32;
+    let r = Rect { x, y, w, h: g(BUTTON_H) };
+    let kind = if strong { Kind::Suggested } else { Kind::Normal };
+    theme::button(canvas, text, r.tuple(), s, kind, Look { hovered, ..Default::default() }, focused);
     r
 }
 
@@ -194,11 +238,111 @@ fn notes(canvas: &mut Canvas, text: Option<&Text>, view: &View, x: i32, y: i32, 
     for note in &view.notes {
         let lines = text.map(|t| t.wrap(&note.text, 15.0, w as f32, 3)).unwrap_or_else(|| vec![note.text.clone()]);
         for line in lines {
-            label(canvas, text, &line, x as f32, base as f32, 15.0, if note.error { ERROR_FG } else { DIM_FG }, w as f32);
-            base += 21;
+            label(canvas, text, &line, x as f32, base as f32, 15.0, if note.error { ERROR_FG } else { dim_fg() }, w as f32);
+            base += g(21);
         }
     }
     base
+}
+
+/// The accessibility symbol (a person with open arms) centered at
+/// (cx, cy).
+fn a11y_symbol(canvas: &mut Canvas, cx: f64, cy: f64, color: u32) {
+    let s = f64::from(theme::text_scale());
+    let p = |x: f64, y: f64| (cx + x * s, cy + y * s);
+    canvas.circle(cx, cy - 6.5 * s, 2.3 * s, color);
+    canvas.line(p(-7.0, -2.5), p(7.0, -2.5), 1.8 * s, color);
+    canvas.line(p(0.0, -2.5), p(0.0, 2.5), 1.8 * s, color);
+    canvas.line(p(0.0, 2.5), p(-4.5, 8.0), 1.8 * s, color);
+    canvas.line(p(0.0, 2.5), p(4.5, 8.0), 1.8 * s, color);
+}
+
+/// Where the on-screen keyboard goes on a `w`×`h` screen: centered at
+/// the bottom, above the bottom bar.
+pub fn osk_rect(w: i32, h: i32) -> Rect {
+    let oh = 4 * g(KEY_H) + 3 * KEY_GAP + 2 * KEY_PAD;
+    let ow = (w - 2 * MARGIN).min(g(760)).max(0);
+    let bar = h - g(BUTTON_H) - MARGIN;
+    Rect { x: (w - ow) / 2, y: bar - g(OSK_ABOVE_BAR) - oh, w: ow, h: oh }
+}
+
+/// The keys' places in `r`, in [`Osk::keys`]' order.
+pub fn osk_keys(osk: &Osk, r: Rect) -> Vec<Rect> {
+    let kh = g(KEY_H);
+    let unit = (r.w - 2 * KEY_PAD - 9 * KEY_GAP) as f32 / 10.0;
+    let key_w = |width: f32| (width * unit + (width - 1.0) * KEY_GAP as f32).round() as i32;
+    let mut out = Vec::new();
+    for (i, row) in osk.rows().iter().enumerate() {
+        let row_w: i32 = row.iter().map(|k| key_w(k.width)).sum::<i32>() + (row.len() as i32 - 1) * KEY_GAP;
+        let mut x = r.x + (r.w - row_w) / 2;
+        let y = r.y + KEY_PAD + i as i32 * (kh + KEY_GAP);
+        for k in row {
+            let w = key_w(k.width);
+            out.push(Rect { x, y, w, h: kh });
+            x += w + KEY_GAP;
+        }
+    }
+    out
+}
+
+/// The symbol on Shift, Backspace or Return, centered at (cx, cy).
+fn key_symbol(canvas: &mut Canvas, action: Action, cx: f64, cy: f64, color: u32) {
+    let s = f64::from(theme::text_scale());
+    let p = |x: f64, y: f64| (cx + x * s, cy + y * s);
+    let w = 1.8 * s;
+    match action {
+        Action::Shift => {
+            // An up arrow.
+            canvas.line(p(0.0, -7.0), p(-6.0, 0.0), w, color);
+            canvas.line(p(0.0, -7.0), p(6.0, 0.0), w, color);
+            canvas.line(p(0.0, -7.0), p(0.0, 7.0), w, color);
+        }
+        Action::Backspace => {
+            // A left arrow.
+            canvas.line(p(-8.0, 0.0), p(8.0, 0.0), w, color);
+            canvas.line(p(-8.0, 0.0), p(-3.0, -5.0), w, color);
+            canvas.line(p(-8.0, 0.0), p(-3.0, 5.0), w, color);
+        }
+        Action::Return => {
+            // Down, then left.
+            canvas.line(p(7.0, -6.0), p(7.0, 2.0), w, color);
+            canvas.line(p(7.0, 2.0), p(-7.0, 2.0), w, color);
+            canvas.line(p(-7.0, 2.0), p(-3.0, -2.0), w, color);
+            canvas.line(p(-7.0, 2.0), p(-3.0, 6.0), w, color);
+        }
+        _ => {}
+    }
+}
+
+/// The on-screen keyboard in `r`.
+fn paint_osk(canvas: &mut Canvas, text: Option<&Text>, osk: &Osk, r: Rect, hover: Option<Hit>, hits: &mut Hits) {
+    theme::popover(canvas, r.x, r.y, r.w, r.h);
+    for (n, (key, k)) in osk.keys().iter().zip(osk_keys(osk, r)).enumerate() {
+        let look = Look { on: key.action == Action::Shift && osk.shift, hovered: hover == Some(Hit::OskKey(n)), pressed: false };
+        theme::control(canvas, k.x, k.y, k.w, k.h, look);
+        let color = theme::control_text(look);
+        match osk::label(key.action) {
+            Some(s) => {
+                let px = if s.chars().count() > 1 { theme::size::LABEL } else { theme::size::ENTRY };
+                let lw = width(text, &s, px).min((k.w - 4) as f32);
+                label(canvas, text, &s, k.x as f32 + (k.w as f32 - lw) / 2.0, baseline(text, k.y, k.h, px), px, color, (k.w - 4) as f32);
+            }
+            None => key_symbol(canvas, key.action, f64::from(k.x) + f64::from(k.w) / 2.0, f64::from(k.y) + f64::from(k.h) / 2.0, color),
+        }
+        hits.push((k, Hit::OskKey(n)));
+    }
+}
+
+/// A menu of `count` items `item_h` high, `mw` wide, right-aligned at
+/// `right`, above `bottom`: the popover, and its items' places.
+fn menu(canvas: &mut Canvas, right: i32, bottom: i32, mw: i32, count: usize, item_h: i32) -> Vec<Rect> {
+    let mh = count as i32 * item_h + 2 * theme::POPOVER_PAD;
+    let m = Rect { x: right - mw, y: (bottom - 8 - mh).max(MARGIN), w: mw, h: mh };
+    theme::popover(canvas, m.x, m.y, m.w, m.h);
+    (0..count)
+        .map(|i| Rect { x: m.x + theme::POPOVER_PAD, y: m.y + theme::POPOVER_PAD + i as i32 * item_h, w: m.w - 2 * theme::POPOVER_PAD, h: item_h })
+        .take_while(|item| item.y + item.h <= m.y + m.h)
+        .collect()
 }
 
 /// Paint the primary monitor's greeter, `w`×`h` logical; returns where
@@ -216,77 +360,97 @@ pub fn paint_with(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32,
     paint_background(canvas);
     let mut hits = Hits::new();
     let hovered = |hit: Hit| view.hover == Some(hit);
+    let hc = hc();
+    let osk_at = view.osk.map(|_| osk_rect(w, h));
 
-    // Clock, date and banner.
-    let clock_base = (h / 8).max(72) + 20;
-    centered(canvas, text, &view.time, w, clock_base as f32, 64.0, FG);
-    centered(canvas, text, &view.date, w, (clock_base + 36) as f32, 18.0, DIM_FG);
-    let mut header_end = clock_base + 36;
+    // Clock, date and banner (higher up with the keyboard shown).
+    let clock_base = if osk_at.is_some() { g(64) + 12 } else { (h / 8).max(72) + 20 };
+    centered(canvas, text, &view.time, w, clock_base as f32, 64.0, fg());
+    centered(canvas, text, &view.date, w, (clock_base + g(36)) as f32, 18.0, dim_fg());
+    let mut header_end = clock_base + g(36);
     if let Some(banner) = &view.banner {
         let lines = text.map(|t| t.wrap(banner, 15.0, (w - 2 * MARGIN).min(640) as f32, 3)).unwrap_or_default();
         for (i, line) in lines.iter().enumerate() {
-            centered(canvas, text, line, w, (clock_base + 70 + 21 * i as i32) as f32, 15.0, FG);
+            centered(canvas, text, line, w, (clock_base + g(70) + g(21) * i as i32) as f32, 15.0, fg());
         }
-        header_end = clock_base + 70 + 21 * lines.len() as i32;
+        header_end = clock_base + g(70) + g(21) * lines.len() as i32;
     }
 
     // The column.
     let col_w = 360.min(w - 2 * MARGIN).max(0);
     let col_x = (w - col_w) / 2;
-    let top = (h * 34 / 100).max(header_end + 40);
-    let bottom_bar = h - BUTTON_H - MARGIN;
+    let bar_y = h - g(BUTTON_H) - MARGIN;
+    let top = if osk_at.is_some() { header_end + g(16) } else { (h * 34 / 100).max(header_end + 40) };
+    let limit = osk_at.map_or(bar_y, |o| o.y - 12);
     let main_focused = view.focus == Focus::Main;
     let notes_y = match &view.main {
         Main::Loading => top + 20,
         Main::Users { names, logins, selected } => {
-            let room = (bottom_bar - 24 - top).max(ROW_H);
-            let visible = ((room + ROW_GAP) / (ROW_H + ROW_GAP)).max(1) as usize;
+            let row_h = g(ROW_H);
+            let room = (limit - 24 - top).max(row_h);
+            let visible = ((room + ROW_GAP) / (row_h + ROW_GAP)).max(1) as usize;
             let first = (selected + 1).saturating_sub(visible);
             let mut y = top;
+            let r = g(20);
             for (i, name) in names.iter().enumerate().skip(first).take(visible) {
-                let row = Rect { x: col_x, y, w: col_w, h: ROW_H };
+                let row = Rect { x: col_x, y, w: col_w, h: row_h };
                 if i == *selected {
                     if main_focused {
-                        focus_ring(canvas, row, accent());
+                        focus_ring(canvas, row);
                     }
-                    canvas.rect(row.x, row.y, row.w, row.h, ROW_SELECTED);
+                    if hc {
+                        theme::outline(canvas, row.x, row.y, row.w, row.h, 2, WHITE);
+                    } else {
+                        canvas.rect(row.x, row.y, row.w, row.h, ROW_SELECTED);
+                    }
                 } else if hovered(Hit::User(i)) {
-                    canvas.rect(row.x, row.y, row.w, row.h, ROW_HOVER);
+                    if hc {
+                        theme::outline(canvas, row.x, row.y, row.w, row.h, 1, WHITE);
+                    } else {
+                        canvas.rect(row.x, row.y, row.w, row.h, ROW_HOVER);
+                    }
                 }
-                avatar(canvas, text, name, logins.get(i).and_then(|l| pictures.get(l)), col_x + 12 + 20, y + ROW_H / 2, 20);
-                label(canvas, text, name, (col_x + 64) as f32, baseline(text, y, ROW_H, 17.0), 17.0, FG, (col_w - 76) as f32);
+                avatar(canvas, text, name, logins.get(i).and_then(|l| pictures.get(l)), col_x + 12 + r, y + row_h / 2, r);
+                label(canvas, text, name, (col_x + 24 + 2 * r) as f32, baseline(text, y, row_h, 17.0), 17.0, fg(), (col_w - 36 - 2 * r) as f32);
                 hits.push((row, Hit::User(i)));
-                y += ROW_H + ROW_GAP;
+                y += row_h + ROW_GAP;
             }
             // More users than fit: a hint at the cut-off edge.
             if first > 0 {
-                canvas.rect(col_x + col_w / 2 - 12, top - 10, 24, 2, DIM_FG);
+                canvas.rect(col_x + col_w / 2 - 12, top - 10, 24, 2, dim_fg());
             }
             if first + visible < names.len() {
-                canvas.rect(col_x + col_w / 2 - 12, y + 2, 24, 2, DIM_FG);
+                canvas.rect(col_x + col_w / 2 - 12, y + 2, 24, 2, dim_fg());
             }
             y + 24
         }
         Main::Username { text: typed } => {
-            let field = Rect { x: col_x, y: top + 20, w: col_w, h: FIELD_H };
+            let field = Rect { x: col_x, y: top + 20, w: col_w, h: g(FIELD_H) };
             text_field(canvas, field, main_focused);
             field_contents(canvas, text, field, typed, false, tr("Username"), main_focused);
             hits.push((field, Hit::Field));
-            field.y + field.h + 30
+            field.y + field.h + g(30)
         }
         Main::Login { user, login, question, text: typed, busy } => {
-            avatar(canvas, text, user, pictures.get(login), w / 2, top + 36, 36);
-            centered(canvas, text, user, w, (top + 104) as f32, 20.0, FG);
-            let field = Rect { x: col_x, y: top + 150, w: col_w, h: FIELD_H };
+            // With the keyboard shown there is no room for the picture.
+            let field_y = if osk_at.is_some() {
+                centered(canvas, text, user, w, (top + g(22)) as f32, 20.0, fg());
+                top + g(64)
+            } else {
+                avatar(canvas, text, user, pictures.get(login), w / 2, top + g(36), g(36));
+                centered(canvas, text, user, w, (top + g(104)) as f32, 20.0, fg());
+                top + g(150)
+            };
+            let field = Rect { x: col_x, y: field_y, w: col_w, h: g(FIELD_H) };
             if let Some(q) = question {
-                label(canvas, text, &q.prompt, col_x as f32, (field.y - 12) as f32, 15.0, DIM_FG, col_w as f32);
+                label(canvas, text, &q.prompt, col_x as f32, (field.y - 12) as f32, 15.0, dim_fg(), col_w as f32);
                 // Waiting for greetd: no typing, so no ring or caret.
                 let focused = main_focused && !busy;
                 text_field(canvas, field, focused);
                 field_contents(canvas, text, field, typed, q.secret, "", focused);
                 hits.push((field, Hit::Field));
             }
-            field.y + field.h + 30
+            field.y + field.h + g(30)
         }
     };
     let mut below = notes(canvas, text, view, col_x, notes_y, col_w);
@@ -296,8 +460,13 @@ pub fn paint_with(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32,
         hits.push((back, Hit::Back));
     }
 
+    // The on-screen keyboard, above the bottom bar.
+    if let (Some(osk), Some(r)) = (&view.osk, osk_at) {
+        paint_osk(canvas, text, osk, r, view.hover, &mut hits);
+    }
+
     // Power, bottom left.
-    let y = h - BUTTON_H - MARGIN;
+    let y = bar_y;
     let power_hits = view.power.hits();
     let focus_power = |n: usize| view.focus == Focus::Power(n);
     match view.power {
@@ -315,55 +484,76 @@ pub fn paint_with(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32,
                 PowerAction::Restart => (tr("Restart this computer?"), tr("Restart")),
                 PowerAction::PowerOff => (tr("Power off this computer?"), tr("Power Off")),
             };
-            label(canvas, text, question, MARGIN as f32, (y - 14) as f32, 15.0, FG, (w / 2) as f32);
             let cancel = button(canvas, text, MARGIN, y, tr("Cancel"), false, hovered(Hit::PowerCancel), focus_power(0));
             hits.push((cancel, Hit::PowerCancel));
             let confirm = button(canvas, text, cancel.x + cancel.w + 12, y, verb, true, hovered(Hit::PowerConfirm), focus_power(1));
             hits.push((confirm, Hit::PowerConfirm));
+            if osk_at.is_some() {
+                // The keyboard is just above: the question goes beside the buttons.
+                let x = confirm.x + confirm.w + 16;
+                label(canvas, text, question, x as f32, baseline(text, y, g(BUTTON_H), 15.0), 15.0, fg(), (w / 2 - x).max(0) as f32);
+            } else {
+                label(canvas, text, question, MARGIN as f32, (y - g(14)) as f32, 15.0, fg(), (w / 2) as f32);
+            }
         }
     }
 
-    // Session, bottom right.
+    // Session, bottom right; the accessibility button left of it.
+    let bh = g(BUTTON_H);
+    let mut right = w - MARGIN;
+    let mut session_button = None;
     if let Some(name) = view.sessions.get(view.session) {
         let bw = width(text, name, 15.0).ceil() as i32 + 32 + 22;
-        let r = Rect { x: w - MARGIN - bw, y, w: bw, h: BUTTON_H };
-        if view.focus == Focus::Session {
-            focus_ring(canvas, r, accent());
-        }
+        let r = Rect { x: w - MARGIN - bw, y, w: bw, h: bh };
         let open = view.session_menu.is_some();
-        canvas.rect(r.x, r.y, r.w, r.h, if hovered(Hit::SessionButton) || open { BUTTON_HOVER } else { BUTTON });
-        label(canvas, text, name, (r.x + 16) as f32, baseline(text, r.y, r.h, 15.0), 15.0, FG, (bw - 48) as f32);
+        theme::control(canvas, r.x, r.y, r.w, r.h, Look { hovered: hovered(Hit::SessionButton) || open, ..Default::default() });
+        if view.focus == Focus::Session {
+            control_ring(canvas, r);
+        }
+        label(canvas, text, name, (r.x + 16) as f32, baseline(text, r.y, r.h, 15.0), 15.0, fg(), (bw - 48) as f32);
         // A chevron: up while the menu (above) is open.
-        let (cx, cy) = (f64::from(r.x + r.w - 22), f64::from(r.y + r.h / 2));
-        let d = if open { -3.0 } else { 3.0 };
-        canvas.line((cx - 4.5, cy - d / 2.0), (cx, cy + d / 2.0 + 0.5 * d.signum()), 1.6, FG);
-        canvas.line((cx, cy + d / 2.0 + 0.5 * d.signum()), (cx + 4.5, cy - d / 2.0), 1.6, FG);
+        let towards = if open { theme::Towards::Up } else { theme::Towards::Down };
+        theme::chevron(canvas, f64::from(r.x + r.w - 22), f64::from(r.y + r.h / 2), 9.0, towards, fg());
         hits.push((r, Hit::SessionButton));
+        right = r.x - 12;
+        session_button = Some(r);
+    }
+    let a11y = Rect { x: right - bh, y, w: bh, h: bh };
+    let a11y_open = view.a11y_menu.is_some();
+    theme::button(canvas, None, a11y.tuple(), "", Kind::Normal, Look { hovered: hovered(Hit::A11yButton) || a11y_open, ..Default::default() }, view.focus == Focus::A11y);
+    a11y_symbol(canvas, f64::from(a11y.x) + f64::from(a11y.w) / 2.0, f64::from(a11y.y) + f64::from(a11y.h) / 2.0, theme::button_text(Kind::Normal));
+    hits.push((a11y, Hit::A11yButton));
 
-        if let Some(highlighted) = view.session_menu {
-            let widest = view.sessions.iter().map(|s| width(text, s, 15.0).ceil() as i32).max().unwrap_or(0);
-            let mw = (widest + 36 + 24).max(bw).min(w - 2 * MARGIN);
-            let mh = view.sessions.len() as i32 * MENU_ITEM_H + 12;
-            let menu = Rect { x: w - MARGIN - mw, y: (y - 8 - mh).max(MARGIN), w: mw, h: mh };
-            canvas.round_rect(f64::from(menu.x - 1), f64::from(menu.y - 1), f64::from(menu.w + 2), f64::from(menu.h + 2), 9.0, MENU_BORDER);
-            canvas.round_rect(f64::from(menu.x), f64::from(menu.y), f64::from(menu.w), f64::from(menu.h), 8.0, MENU_BG);
-            for (i, s) in view.sessions.iter().enumerate() {
-                let item = Rect { x: menu.x + 6, y: menu.y + 6 + i as i32 * MENU_ITEM_H, w: menu.w - 12, h: MENU_ITEM_H };
-                if item.y + item.h > menu.y + menu.h {
-                    break;
-                }
-                if i == highlighted || hovered(Hit::SessionItem(i)) {
-                    canvas.round_rect(f64::from(item.x), f64::from(item.y), f64::from(item.w), f64::from(item.h), 5.0, BUTTON_HOVER);
-                }
-                if i == view.session {
-                    // A check mark.
-                    let (cx, cy) = (f64::from(item.x + 14), f64::from(item.y + item.h / 2));
-                    canvas.line((cx - 5.0, cy), (cx - 1.5, cy + 4.0), 2.0, accent());
-                    canvas.line((cx - 1.5, cy + 4.0), (cx + 5.0, cy - 4.5), 2.0, accent());
-                }
-                label(canvas, text, s, (item.x + 30) as f32, baseline(text, item.y, item.h, 15.0), 15.0, FG, (item.w - 36) as f32);
-                hits.push((item, Hit::SessionItem(i)));
+    let item_h = g(MENU_ITEM_H);
+    if let (Some(highlighted), Some(button)) = (view.session_menu, session_button) {
+        let widest = view.sessions.iter().map(|s| width(text, s, 15.0).ceil() as i32).max().unwrap_or(0);
+        let mw = (widest + 36 + 24).max(button.w).min(w - 2 * MARGIN);
+        for (i, (item, s)) in menu(canvas, w - MARGIN, y, mw, view.sessions.len(), item_h).into_iter().zip(&view.sessions).enumerate() {
+            theme::row(canvas, item.x, item.y, item.w, item.h, Look { hovered: i == highlighted || hovered(Hit::SessionItem(i)), ..Default::default() });
+            if i == view.session {
+                // A check mark.
+                let (cx, cy) = (f64::from(item.x + 14), f64::from(item.y + item.h / 2));
+                let mark = if hc { WHITE } else { accent() };
+                canvas.line((cx - 5.0, cy), (cx - 1.5, cy + 4.0), 2.0, mark);
+                canvas.line((cx - 1.5, cy + 4.0), (cx + 5.0, cy - 4.5), 2.0, mark);
             }
+            label(canvas, text, s, (item.x + 30) as f32, baseline(text, item.y, item.h, 15.0), 15.0, fg(), (item.w - 36) as f32);
+            hits.push((item, Hit::SessionItem(i)));
+        }
+    }
+    if let Some(highlighted) = view.a11y_menu {
+        let widest = Setting::ALL.iter().map(|s| width(text, s.name(), 15.0).ceil() as i32).max().unwrap_or(0);
+        let mw = (widest + 12 + 24 + theme::SWITCH_W as i32 + 12 + 2 * theme::POPOVER_PAD).max(g(240)).min(w - 2 * MARGIN);
+        let right = (a11y.x + a11y.w).max(mw + MARGIN);
+        for (i, (item, setting)) in menu(canvas, right, y, mw, Setting::ALL.len(), item_h.max(theme::SWITCH_H as i32 + 12)).into_iter().zip(Setting::ALL).enumerate() {
+            let look = Look { hovered: i == highlighted || hovered(Hit::A11yItem(setting)), ..Default::default() };
+            theme::row(canvas, item.x, item.y, item.w, item.h, look);
+            let room = item.w - 12 - 24 - theme::SWITCH_W as i32 - 12;
+            label(canvas, text, setting.name(), (item.x + 12) as f32, baseline(text, item.y, item.h, 15.0), 15.0, fg(), room as f32);
+            let sx = f64::from(item.x + item.w - 12) - theme::SWITCH_W;
+            let sy = f64::from(item.y) + (f64::from(item.h) - theme::SWITCH_H) / 2.0;
+            theme::switch(canvas, sx, sy, setting.get(&view.accessibility), Look::default());
+            hits.push((item, Hit::A11yItem(setting)));
         }
     }
     hits
@@ -375,9 +565,18 @@ mod tests {
     use crate::app::View;
     use crate::login::{Note, Question};
     use crate::power::Offered;
+    use crate::state::Accessibility;
 
     const W: i32 = 1280;
     const H: i32 = 800;
+
+    /// High contrast, the text scale and the accent are the process's:
+    /// painting tests take turns.
+    static PAINTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock() -> std::sync::MutexGuard<'static, ()> {
+        PAINTING.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     fn view(main: Main) -> View {
         View {
@@ -392,6 +591,9 @@ mod tests {
             power: PowerView::Buttons(Offered { restart: true, power_off: true }),
             focus: Focus::Main,
             hover: None,
+            accessibility: Accessibility::default(),
+            a11y_menu: None,
+            osk: None,
         }
     }
 
@@ -422,14 +624,25 @@ mod tests {
         fn rect(&self, hit: Hit) -> Rect {
             self.hits.iter().find(|(_, h)| *h == hit).unwrap_or_else(|| panic!("no {hit:?} in {:?}", self.hits)).0
         }
+
+        fn rects(&self, f: impl Fn(&Hit) -> bool) -> Vec<Rect> {
+            self.hits.iter().filter(|(_, h)| f(h)).map(|(r, _)| *r).collect()
+        }
     }
 
+    /// Paint `view` with its accessibility settings in effect (high
+    /// contrast, the text scale), as the greeter applies them.
     fn render(view: &View, scale: f64, name: &str) -> Painted {
+        let _turn = lock();
+        helix_draw::set_high_contrast(view.accessibility.high_contrast);
+        theme::set_text_scale(view.accessibility.text_scale());
         let text = Text::load();
         let (pw, ph) = (helix_draw::physical(W as usize, scale), helix_draw::physical(H as usize, scale));
         let mut data = vec![0u8; pw * ph * 4];
         let mut canvas = Canvas::scaled(&mut data, W as usize, H as usize, scale).mirrored(helix_draw::rtl());
         let hits = paint(&mut canvas, text.as_ref(), view, W, H);
+        helix_draw::set_high_contrast(false);
+        theme::set_text_scale(1.0);
         if let Some(dir) = std::env::var_os("HELIX_GREETER_PNG_DIR") {
             write_png(&std::path::Path::new(&dir).join(format!("{name}.png")), &data, pw, ph);
         }
@@ -447,6 +660,7 @@ mod tests {
 
     #[test]
     fn background_is_a_vertical_gradient() {
+        let _turn = lock();
         let mut data = vec![0u8; 4 * 100 * 4];
         let mut canvas = Canvas::scaled(&mut data, 4, 100, 1.0);
         paint_background(&mut canvas);
@@ -469,11 +683,14 @@ mod tests {
         assert_eq!(p.px(sel.x + sel.w - 4, sel.y + 4), ROW_SELECTED);
         // Others don't.
         assert_ne!(p.px(rows[0].x - 1, rows[0].y + 30), accent());
-        // Power at the bottom left, the session at the bottom right.
+        // Power at the bottom left, the session at the bottom right, the
+        // accessibility button left of it.
         let restart = p.rect(Hit::Power(PowerAction::Restart));
         let session = p.rect(Hit::SessionButton);
+        let a11y = p.rect(Hit::A11yButton);
         assert_eq!((restart.x, restart.y + restart.h), (MARGIN, H - MARGIN));
         assert_eq!(session.x + session.w, W - MARGIN);
+        assert_eq!((a11y.x + a11y.w + 12, a11y.y, a11y.h), (session.x, session.y, session.h));
         assert_eq!(hit_at(&p.hits, f64::from(sel.x + 5), f64::from(sel.y + 5)), Some(Hit::User(1)));
         assert_eq!(hit_at(&p.hits, 5.0, 5.0), None);
         // Clock text is drawn (light pixels near the top center), if a font exists.
@@ -488,6 +705,7 @@ mod tests {
     /// the others their initials.
     #[test]
     fn pictures_in_the_list() {
+        let _turn = lock();
         let text = Text::load();
         let v = view(Main::Users { names: vec!["Ann Smith".into(), "bob".into()], logins: vec!["ann".into(), "bob".into()], selected: 0 });
         let green = helix_draw::Image { width: 8, height: 8, rgba: [0, 200, 0, 255].repeat(64) };
@@ -574,8 +792,8 @@ mod tests {
         let button = p.rect(Hit::SessionButton);
         let items: Vec<Rect> = (0..3).map(|i| p.rect(Hit::SessionItem(i))).collect();
         assert!(items[2].y + items[2].h < button.y, "the menu opens above the button");
-        assert_eq!(p.px(button.x - 1, button.y + 10), accent(), "focused");
-        assert_eq!(p.px(items[1].x + items[1].w - 3, items[1].y + 18), BUTTON_HOVER, "highlighted item");
+        assert_eq!(p.px(button.x - 3, button.y + 10), accent(), "focused");
+        assert_eq!(p.px(items[1].x + items[1].w - 8, items[1].y + 18), theme::CONTROL_HOVER, "highlighted item");
         // Items are on top of anything under them.
         assert_eq!(hit_at(&p.hits, f64::from(items[0].x + 4), f64::from(items[0].y + 4)), Some(Hit::SessionItem(0)));
     }
@@ -590,10 +808,182 @@ mod tests {
         let cancel = p.rect(Hit::PowerCancel);
         assert!(confirm.x > cancel.x);
         assert_eq!(p.px(confirm.x + 4, confirm.y + 4), helix_draw::accent::current().fill);
-        // Tiny monitors don't panic.
+        // Tiny monitors don't panic, with the keyboard and large text too.
+        let _turn = lock();
         let mut data = vec![0u8; 200 * 150 * 4];
         let mut canvas = Canvas::scaled(&mut data, 200, 150, 1.0);
         paint(&mut canvas, Text::load().as_ref(), &view(password("x", false)), 200, 150);
+        theme::set_text_scale(1.25);
+        let mut v = view(password("x", false));
+        v.osk = Some(Osk::default());
+        v.a11y_menu = Some(0);
+        paint(&mut canvas, Text::load().as_ref(), &v, 200, 150);
+        theme::set_text_scale(1.0);
+    }
+
+    /// The accessibility menu: above its button, a switch per setting,
+    /// on where the setting is.
+    #[test]
+    fn accessibility_menu() {
+        let mut v = view(users());
+        v.a11y_menu = Some(2);
+        v.focus = Focus::A11y;
+        v.accessibility.screen_reader = true;
+        let p = render(&v, 1.0, "a11y-menu");
+        let button = p.rect(Hit::A11yButton);
+        let items: Vec<Rect> = Setting::ALL.iter().map(|s| p.rect(Hit::A11yItem(*s))).collect();
+        assert!(items.windows(2).all(|r| r[1].y == r[0].y + r[0].h));
+        assert!(items[3].y + items[3].h < button.y, "above the button");
+        assert!(items[0].x >= MARGIN && items[0].x + items[0].w <= W - MARGIN);
+        // The switches: on (the accent's fill) for the screen reader only.
+        // The switch's left end: the accent's fill when on (the knob is
+        // at the right), the knob when off.
+        let left_end = |r: Rect| p.px(r.x + r.w - 12 - theme::SWITCH_W as i32 + 6, r.y + r.h / 2);
+        assert_eq!(left_end(items[2]), helix_draw::accent::current().fill, "on");
+        assert_ne!(left_end(items[0]), helix_draw::accent::current().fill, "off");
+        assert_eq!(hit_at(&p.hits, f64::from(items[1].x + 3), f64::from(items[1].y + 3)), Some(Hit::A11yItem(Setting::LargeText)));
+    }
+
+    /// High contrast: a black background, white text, white outlines;
+    /// the focus ring stays visible.
+    #[test]
+    fn high_contrast() {
+        let mut v = view(users());
+        v.accessibility.high_contrast = true;
+        v.hover = Some(Hit::User(0));
+        let p = render(&v, 1.0, "hc-users");
+        assert_eq!(p.px(5, 5), BLACK);
+        assert_eq!(p.px(W / 2, H - 5), BLACK, "no gradient");
+        let rows: Vec<Rect> = (0..3).map(|i| p.rect(Hit::User(i))).collect();
+        let sel = rows[1];
+        assert_eq!(p.px(sel.x + 1, sel.y + 30), WHITE, "the selected row is outlined");
+        assert_eq!(p.px(sel.x + 40, sel.y + 4), BLACK, "not filled");
+        assert_eq!(p.px(sel.x - 2, sel.y + 30), BLACK, "a gap");
+        assert_eq!(p.px(sel.x - 4, sel.y + 30), WHITE, "the focus ring outside it");
+        assert_eq!(p.px(rows[0].x, rows[0].y + 30), WHITE, "the hovered row: a thin outline");
+        assert_eq!(p.px(rows[2].x, rows[2].y + 30), BLACK, "others: none");
+        let restart = p.rect(Hit::Power(PowerAction::Restart));
+        assert!((restart.y..restart.y + 3).any(|y| p.px(restart.x + restart.w / 2, y) == WHITE), "buttons are outlined");
+        assert_eq!(p.px(restart.x + 4, restart.y + restart.h / 2), BLACK);
+        if Text::load().is_some() {
+            let base = (H / 8).max(72) + 20;
+            let white = (W / 2 - 80..W / 2 + 80).any(|x| (base - 40..base).any(|y| p.px(x, y) == WHITE));
+            assert!(white, "white text");
+        }
+
+        let mut v = view(password("abc", false));
+        v.accessibility.high_contrast = true;
+        let p = render(&v, 1.0, "hc-password");
+        let field = p.rect(Hit::Field);
+        assert_eq!(p.px(field.x - 1, field.y + 20), WHITE, "the focused field's ring");
+        assert_eq!(p.px(field.x + 4, field.y + 4), BLACK);
+        assert_eq!(p.px(field.x + 20, field.y + field.h / 2), WHITE, "white dots");
+        let mut v = view(password("abc", true));
+        v.accessibility.high_contrast = true;
+        let p = render(&v, 1.0, "hc-password-checking");
+        let field = p.rect(Hit::Field);
+        assert_eq!(p.px(field.x - 1, field.y + 20), WHITE, "unfocused fields are outlined too");
+        assert_eq!(p.px(field.x - 2, field.y + 20), BLACK, "thinly");
+
+        let mut v = view(users());
+        v.accessibility.high_contrast = true;
+        v.accessibility.large_text = true;
+        v.a11y_menu = Some(0);
+        v.accessibility.screen_keyboard = true;
+        v.osk = Some(Osk::default());
+        v.focus = Focus::A11y;
+        render(&v, 1.0, "hc-large-a11y-menu");
+        let mut v = view(users());
+        v.accessibility.high_contrast = true;
+        v.session_menu = Some(1);
+        v.focus = Focus::Session;
+        render(&v, 1.0, "hc-session-menu");
+    }
+
+    /// Large text: rows, fields and buttons grow with the text, and
+    /// nothing runs into anything else.
+    #[test]
+    fn large_text() {
+        let mut v = view(password("secret", false));
+        v.accessibility.large_text = true;
+        v.notes = vec![Note { text: crate::login::RETRY_MESSAGE.into(), error: true }];
+        let p = render(&v, 1.0, "large-password");
+        let field = p.rect(Hit::Field);
+        let back = p.rect(Hit::Back);
+        assert_eq!(field.h, 55, "44 × 1.25");
+        assert_eq!(back.h, 45, "36 × 1.25");
+        assert!(back.y > field.y + field.h + 20);
+        let restart = p.rect(Hit::Power(PowerAction::Restart));
+        assert_eq!((restart.h, restart.y + restart.h), (45, H - MARGIN));
+        assert!(back.y + back.h < restart.y);
+        let mut v = view(users());
+        v.accessibility.large_text = true;
+        let p = render(&v, 1.0, "large-users");
+        let rows: Vec<Rect> = (0..3).map(|i| p.rect(Hit::User(i))).collect();
+        assert_eq!(rows[0].h, 70, "56 × 1.25");
+        let session = p.rect(Hit::SessionButton);
+        let a11y = p.rect(Hit::A11yButton);
+        assert!(!a11y.overlaps(&session) && a11y.h == session.h);
+        assert!(rows[2].y + rows[2].h < session.y);
+        if Text::load().is_some() {
+            let normal = render(&view(users()), 1.0, "users");
+            assert!(session.w > normal.rect(Hit::SessionButton).w, "wider for the larger name");
+        }
+    }
+
+    /// The on-screen keyboard: every key placed and clickable, between
+    /// the column and the bottom bar, in each layout.
+    #[test]
+    fn screen_keyboard() {
+        for (name, large, hc, main) in [
+            ("osk-users", false, false, users()),
+            ("osk-password", false, false, password("secret", false)),
+            ("osk-large-password", true, false, password("secret", false)),
+            ("osk-hc-large-username", true, true, Main::Username { text: "ann".into() }),
+        ] {
+            let mut v = view(main);
+            v.accessibility = Accessibility { high_contrast: hc, large_text: large, screen_keyboard: true, ..Default::default() };
+            v.notes = vec![Note { text: crate::login::RETRY_MESSAGE.into(), error: true }];
+            let osk = Osk { page: crate::osk::Page::Letters, shift: name == "osk-password" };
+            v.osk = Some(osk);
+            v.hover = Some(Hit::OskKey(3));
+            let p = render(&v, 1.0, name);
+            let keys = p.rects(|h| matches!(h, Hit::OskKey(_)));
+            assert_eq!(keys.len(), osk.keys().len(), "{name}");
+            let bar = p.rect(Hit::A11yButton).y.min(p.rect(Hit::Power(PowerAction::Restart)).y);
+            let column = p.rects(|h| matches!(h, Hit::User(_) | Hit::Field | Hit::Back));
+            assert!(!column.is_empty());
+            for k in &keys {
+                assert!(k.y + k.h < bar - 12, "{name}: {k:?} clear of the bottom bar");
+                assert!(k.x >= MARGIN && k.x + k.w <= W - MARGIN, "{name}: {k:?}");
+                for c in &column {
+                    assert!(!k.overlaps(c), "{name}: key {k:?} on {c:?}");
+                }
+                let hit = hit_at(&p.hits, f64::from(k.x + k.w / 2), f64::from(k.y + k.h / 2));
+                assert!(matches!(hit, Some(Hit::OskKey(_))), "{name}");
+            }
+            // Keys of a row do not overlap.
+            for (i, a) in keys.iter().enumerate() {
+                for b in &keys[i + 1..] {
+                    assert!(!a.overlaps(b), "{name}: {a:?} {b:?}");
+                }
+            }
+        }
+        let mut v = view(users());
+        v.accessibility.screen_keyboard = true;
+        v.osk = Some(Osk { page: crate::osk::Page::Symbols, shift: false });
+        render(&v, 1.0, "osk-symbols");
+        // Confirming a power action: the question beside the buttons, not
+        // under the keyboard.
+        v.power = PowerView::Confirm(PowerAction::Restart);
+        v.focus = Focus::Power(1);
+        v.osk = Some(Osk { page: crate::osk::Page::Symbols, shift: true });
+        let p = render(&v, 1.0, "osk-power-confirm");
+        let confirm = p.rect(Hit::PowerConfirm);
+        if Text::load().is_some() {
+            let lit = (confirm.x + confirm.w + 16..confirm.x + confirm.w + 120).any(|x| (confirm.y..confirm.y + confirm.h).any(|y| p.px(x, y) & 0xFF > 0xC0));
+            assert!(lit, "the question beside the buttons");
+        }
     }
 
     /// The greeter in several accents (`accent` in its configuration):
@@ -654,6 +1044,10 @@ mod tests {
         v.session_menu = Some(0);
         v.focus = Focus::Session;
         render(&v, 1.0, &format!("locale-{tag}-sessions"));
+        let mut v = base(users());
+        v.a11y_menu = Some(0);
+        v.focus = Focus::A11y;
+        render(&v, 1.0, &format!("locale-{tag}-accessibility"));
         render(&base(Main::Username { text: String::new() }), 1.0, &format!("locale-{tag}-username"));
         helix_draw::set_rtl(false);
     }

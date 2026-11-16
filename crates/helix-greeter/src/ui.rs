@@ -33,10 +33,14 @@ use smithay_client_toolkit::shm::slot::SlotPool;
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
 use smithay_client_toolkit::{delegate_registry, registry_handlers};
 
+use helix_a11y::publish::Publisher;
+
 use crate::app::{Effect, Greeter, Key};
 use crate::greetd::{Greetd, Request, Response};
 use crate::paint::{self, Hits};
 use crate::power::{Offered, PowerAction};
+use crate::screen_reader::ScreenReader;
+use crate::state::Accessibility;
 use crate::users::User;
 
 const BTN_LEFT: u32 = 0x110;
@@ -49,6 +53,8 @@ enum Event {
     Power(Offered),
     /// The primary monitor's connector (DisplayConfig), if known.
     Primary(Option<String>),
+    /// From the accessibility bus's adapters.
+    A11y(helix_a11y::publish::Event),
 }
 
 /// One monitor's surface.
@@ -98,7 +104,7 @@ struct Ui {
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
     cursor: Option<WpCursorShapeDeviceV1>,
-    shift: bool,
+    modifiers: Modifiers,
     text: Option<Text>,
     /// Users' pictures by login name.
     pictures: paint::Pictures,
@@ -113,6 +119,10 @@ struct Ui {
     shown_clock: String,
     demo: bool,
     outcome: Option<Outcome>,
+    /// The login screen on the accessibility bus (`None` with
+    /// `HELIX_NO_ATSPI` set).
+    publisher: Option<Publisher<()>>,
+    screen_reader: ScreenReader,
 }
 
 /// greetd's thread: one request at a time, in order.
@@ -213,7 +223,7 @@ fn run_inner(greeter: Greeter, greetd: Box<dyn Greetd>, load_users: bool, demo: 
         keyboard: None,
         pointer: None,
         cursor: None,
-        shift: false,
+        modifiers: Modifiers::default(),
         text,
         pictures: Default::default(),
         primary: None,
@@ -225,7 +235,18 @@ fn run_inner(greeter: Greeter, greetd: Box<dyn Greetd>, load_users: bool, demo: 
         shown_clock: String::new(),
         demo,
         outcome: None,
+        publisher: None,
+        screen_reader: ScreenReader::default(),
     };
+    if std::env::var_os("HELIX_NO_ATSPI").is_some() {
+        tracing::info!("HELIX_NO_ATSPI set; the login screen stays off the accessibility bus");
+    } else {
+        ui.publisher = Some(Publisher::new(crate::atspi::notify(events_tx.clone(), |tx, event| {
+            let _ = tx.send(Event::A11y(event));
+        })));
+    }
+    // The settings remembered from the last time.
+    ui.apply_accessibility(ui.greeter.accessibility());
 
     let mut event_loop: EventLoop<Ui> = EventLoop::try_new()?;
     let handle = event_loop.handle();
@@ -249,9 +270,12 @@ fn run_inner(greeter: Greeter, greetd: Box<dyn Greetd>, load_users: bool, demo: 
     tracing::info!(demo, "greeter running");
     while ui.outcome.is_none() {
         if let Err(err) = event_loop.dispatch(None, &mut ui) {
+            ui.screen_reader.set(false);
             return Ok(Outcome::Failed(format!("lost the compositor: {err}")));
         }
     }
+    // greetd starts the session once the greeter's processes are gone.
+    ui.screen_reader.set(false);
     Ok(ui.outcome.take().unwrap_or(Outcome::Failed("no outcome".into())))
 }
 
@@ -283,6 +307,21 @@ impl Ui {
                 self.primary = primary;
                 Vec::new()
             }
+            Event::A11y(event) => {
+                let Some(publisher) = self.publisher.as_mut() else { return };
+                match publisher.event(event) {
+                    // An action: a click where its node is painted.
+                    Some(((), target, request)) => match crate::atspi::hit_for(&self.hits, &target, &request) {
+                        Some(hit) => self.greeter.click(Some(hit)),
+                        None => {
+                            tracing::debug!(?request, "accessibility action not supported");
+                            return;
+                        }
+                    },
+                    // Activated (draw, which publishes the tree) or not.
+                    None => Vec::new(),
+                }
+            }
         };
         self.apply(effects);
         self.draw();
@@ -299,6 +338,14 @@ impl Ui {
                 Effect::Power(action) => {
                     let _ = self.system.send(action);
                 }
+                Effect::Accessibility(state) => {
+                    self.apply_accessibility(state.accessibility);
+                    if self.demo {
+                        println!("would remember {state:?}");
+                    } else if let Err(err) = state.save() {
+                        tracing::warn!(%err, "cannot save the greeter's state");
+                    }
+                }
                 Effect::Finished(state) => {
                     if self.demo {
                         println!("would remember {state:?}");
@@ -309,6 +356,30 @@ impl Ui {
                 }
             }
         }
+    }
+
+    /// High contrast, the text scale and the screen reader as `a` says
+    /// (helix-desktop-spec `components/greeter.md`, "Accessibility").
+    fn apply_accessibility(&mut self, a: Accessibility) {
+        helix_draw::set_high_contrast(a.high_contrast);
+        helix_draw::theme::set_text_scale(a.text_scale());
+        if self.demo {
+            if a.screen_reader {
+                println!("screen reader on (demo: orca not started)");
+            }
+        } else {
+            self.screen_reader.set(a.screen_reader);
+        }
+    }
+
+    /// Bring the login screen's window on the accessibility bus in line
+    /// with what was painted.
+    fn atspi_sync(&mut self) {
+        let size = self.screens.get(self.primary_index()).filter(|s| s.configured && s.width > 0).map(|s| (s.width as i32, s.height as i32));
+        let Some(publisher) = self.publisher.as_mut() else { return };
+        let shown = if size.is_some() { vec![(crate::atspi::KEY.to_owned(), ())] } else { Vec::new() };
+        let (greeter, hits) = (&self.greeter, &self.hits);
+        publisher.sync(shown, |_| size.map(|size| crate::atspi::window(&greeter.view(crate::clock::now()), hits, size)));
     }
 
     fn add_screen(&mut self, output: wl_output::WlOutput) {
@@ -357,16 +428,19 @@ impl Ui {
                 surface.commit();
             }
         }
+        self.atspi_sync();
     }
 
     fn key(&mut self, event: &KeyEvent) {
+        let screen_reader_key = self.modifiers.alt && self.modifiers.logo && matches!(event.keysym, Keysym::s | Keysym::S);
         let key = match event.keysym {
+            _ if screen_reader_key => Key::ScreenReader,
             Keysym::Up | Keysym::KP_Up => Key::Up,
             Keysym::Down | Keysym::KP_Down => Key::Down,
             Keysym::Return | Keysym::KP_Enter => Key::Return,
             Keysym::Escape => Key::Escape,
             Keysym::ISO_Left_Tab => Key::BackTab,
-            Keysym::Tab if self.shift => Key::BackTab,
+            Keysym::Tab if self.modifiers.shift => Key::BackTab,
             Keysym::Tab => Key::Tab,
             Keysym::BackSpace => Key::Backspace,
             _ => match event.utf8.as_deref().filter(|t| !t.is_empty() && !t.chars().any(char::is_control)) {
@@ -500,7 +574,7 @@ impl KeyboardHandler for Ui {
     }
     fn release_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, _: KeyEvent) {}
     fn update_modifiers(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, modifiers: Modifiers, _: RawModifiers, _: u32) {
-        self.shift = modifiers.shift;
+        self.modifiers = modifiers;
     }
 }
 

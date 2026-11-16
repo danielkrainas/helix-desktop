@@ -1340,6 +1340,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "helix-a11y"
+version = "0.1.0"
+dependencies = [
+ "accesskit",
+ "accesskit_unix",
+]
+
+[[package]]
 name = "helix-comp"
 version = "0.1.0"
 dependencies = [
@@ -1414,6 +1422,7 @@ name = "helix-greeter"
 version = "0.1.0"
 dependencies = [
  "gio",
+ "helix-a11y",
  "helix-draw",
  "helix-i18n",
  "helix-test-support",
@@ -1503,13 +1512,13 @@ version = "0.1.0"
 dependencies = [
  "ab_glyph",
  "accesskit",
- "accesskit_unix",
  "aes",
  "base64",
  "cbc",
  "futures-util",
  "getrandom 0.3.4",
  "gio",
+ "helix-a11y",
  "helix-draw",
  "helix-extension",
  "helix-i18n",

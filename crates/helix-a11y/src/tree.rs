@@ -264,7 +264,7 @@ mod tests {
         assert_eq!(field.text_selection().map(|s| s.focus.character_index), Some(7));
         assert!(run.character_positions().is_none(), "no places given: none published");
         // With the characters' places: each one's position and width.
-        let w2 = window(vec![Node::text_field(Role::TextInput, "Run", "ab", Rect::new(10, 10, 200, 30)).chars(crate::a11y::Chars { x: 20.0, y: 12, h: 26, advances: vec![8.0, 9.5] })]);
+        let w2 = window(vec![Node::text_field(Role::TextInput, "Run", "ab", Rect::new(10, 10, 200, 30)).chars(crate::Chars { x: 20.0, y: 12, h: 26, advances: vec![8.0, 9.5] })]);
         let built2 = build(&w2);
         let (_, field) = by_label(&built2, "Run");
         let run = node(&built2, field.children()[0]);
