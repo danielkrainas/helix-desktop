@@ -1,4 +1,4 @@
-//! What the shell asks of systemd-logind (helix-desktop-spec
+//! What the shell asks of systemd-logind (helixdesktop/spec
 //! `org.freedesktop.login1.md`): which power actions the Power menu may
 //! offer, and locking before the system sleeps
 //! (`org.gnome.ScreenSaver.md`, "Locking before suspend").

@@ -1,5 +1,5 @@
 //! `xdg_toplevel_icon_manager_v1`: icons apps give their windows
-//! (helix-desktop-spec `contracts/wayland/README.md`, "Window icons").
+//! (helixdesktop/spec `contracts/wayland/README.md`, "Window icons").
 //!
 //! An icon's pixels are copied when `add_buffer` arrives (the protocol
 //! forbids changing them afterwards), so the buffer's lifetime does not

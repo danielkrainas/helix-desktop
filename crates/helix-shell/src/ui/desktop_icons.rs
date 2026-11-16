@@ -1,4 +1,4 @@
-//! Desktop icons (helix-desktop-spec `contracts/gsettings/background.md`,
+//! Desktop icons (helixdesktop/spec `contracts/gsettings/background.md`,
 //! "Desktop icons"): a see-through surface just above the primary
 //! monitor's background, with the desktop folder's files.
 
@@ -180,7 +180,7 @@ impl Ui {
     }
 }
 
-/// The desktop icons on the accessibility bus (helix-desktop-spec
+/// The desktop icons on the accessibility bus (helixdesktop/spec
 /// `contracts/dbus/org.a11y.atspi.md`): a `Desktop` list box of the
 /// items in their cells, named by their names, described "Folder" or
 /// "Application" when they are one; the selected one selected.

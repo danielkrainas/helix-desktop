@@ -1,4 +1,4 @@
-//! Game overlays over a full-screen game (helix-desktop-spec
+//! Game overlays over a full-screen game (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Layer shell for other clients"): the
 //! real `helix-comp` headless (HELIX_HEADLESS_INPUT for input, its
 //! snapshot for what is shown), a full-screen client standing in for a

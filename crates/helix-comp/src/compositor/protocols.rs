@@ -1,4 +1,4 @@
-//! Smaller Wayland protocols (helix-desktop-spec `contracts/wayland/README.md`,
+//! Smaller Wayland protocols (helixdesktop/spec `contracts/wayland/README.md`,
 //! "More Wayland protocols"): idle inhibition, pointer constraints and
 //! relative motion, keyboard shortcut inhibition, foreign toplevels,
 //! pointer gestures and Xwayland keyboard grabs.

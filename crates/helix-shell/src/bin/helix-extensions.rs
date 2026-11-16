@@ -1,5 +1,5 @@
 //! `helix-extensions`: list, turn on and off, configure, install and
-//! develop Helix extensions (helix-desktop-spec
+//! develop Helix extensions (helixdesktop/spec
 //! `contracts/extensions/README.md`, "helix-extensions").
 
 use std::collections::HashMap;
@@ -25,8 +25,8 @@ const USAGE: &str = "usage: helix-extensions COMMAND
   run PATH                run a directory as a development extension";
 
 const BUS: &str = "org.gnome.Shell";
-const PATH: &str = "/org/helix/Extensions1";
-const IFACE: &str = "org.helix.Extensions1";
+const PATH: &str = "/org/helixdesktop/Extensions1";
+const IFACE: &str = "org.helixdesktop.Extensions1";
 
 type Entries = HashMap<String, HashMap<String, OwnedValue>>;
 

@@ -1,4 +1,4 @@
-//! The lock screen's picture (helix-desktop-spec
+//! The lock screen's picture (helixdesktop/spec
 //! `contracts/dbus/org.gnome.ScreenSaver.md`, "Lock screen (Helix)").
 //! What one monitor's lock surface shows is a [`LockModel`]; [`paint`]
 //! draws it over the lock screen's background and says where its
@@ -126,7 +126,7 @@ fn caps_sign(canvas: &mut Canvas, cx: f64, cy: f64, color: u32) {
 const ERROR_TEXT: u32 = 0xFFFFB8B0;
 
 /// The lock background of a `w`×`h` (logical) surface at `scale`: the
-/// picture blurred and toned (helix-desktop-spec `background.md`, "Lock
+/// picture blurred and toned (helixdesktop/spec `background.md`, "Lock
 /// screen"), or black in high contrast. Pixels in ARGB8888.
 pub(super) fn backdrop(background: &crate::wallpaper::Background, (w, h): (usize, usize), scale: f64) -> Vec<u8> {
     let (pw, ph) = (physical(w, scale), physical(h, scale));
@@ -914,7 +914,7 @@ pub(super) mod tests {
         helix_draw::set_high_contrast(false);
     }
 
-    /// The lock screen in the environment's locale (helix-desktop-spec
+    /// The lock screen in the environment's locale (helixdesktop/spec
     /// `components/i18n.md`): `HELIX_LOCALEDIR`, `LANGUAGE`, `LANG` (and
     /// `LOCPATH`) pick the catalogue, names and formats; a right-to-left
     /// translation mirrors it. `HELIX_LOCK_RENDER_DIR=dir

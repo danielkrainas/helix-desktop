@@ -1,4 +1,4 @@
-//! The overview (helix-desktop-spec `contracts/wayland/README.md`,
+//! The overview (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Overview"): a search field, workspace thumbnails and the active
 //! workspace's windows as pictures, on the primary monitor.
 
@@ -1026,7 +1026,7 @@ pub(super) struct OverviewShown<'a> {
     pub moved: Option<&'a str>,
 }
 
-/// The overview on the accessibility bus (helix-desktop-spec
+/// The overview on the accessibility bus (helixdesktop/spec
 /// `contracts/dbus/org.a11y.atspi.md`, "Window overview"): the search
 /// field; a `Workspaces` list box (the active workspace selected); a
 /// `Windows` list box of the window pictures, each named by its title
@@ -1052,7 +1052,7 @@ pub(super) fn overview_nodes(s: &OverviewShown) -> Vec<crate::a11y::Node> {
     let pictures = s.windows.iter().map(|(r, id, title, app)| {
         let on = s.selected == Some(*id);
         let node = Node::new(Role::ListBoxOption, title).id(format!("window:{id}")).describe(app.as_str()).at((*r).into()).click().focusable().selected(on).focused(on && keyboard_on(Region::Windows));
-        // "Move to Workspace 2", … (helix-desktop#97): the keyboard's
+        // "Move to Workspace 2", … (helixdesktop/desktop#97): the keyboard's
         // and the drag's moves as actions.
         s.move_to.iter().fold(node, |node, (n, name)| node.action(MOVE_TO_WORKSPACE + *n as i32, helix_i18n::trf!("Move to {workspace}", workspace = name)))
     });

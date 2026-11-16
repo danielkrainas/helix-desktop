@@ -1,4 +1,4 @@
-//! How the shell writes times (helix-desktop-spec
+//! How the shell writes times (helixdesktop/spec
 //! `contracts/gsettings/calendar.md`, "Clock"): the top bar's clock and
 //! the times in the message tray and on the lock screen follow
 //! `org.gnome.desktop.interface` `clock-format`, `clock-show-date`,

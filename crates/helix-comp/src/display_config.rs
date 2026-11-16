@@ -1,6 +1,6 @@
 //! `org.gnome.Mutter.DisplayConfig`.
 //!
-//! Contract: `helix-desktop-spec/contracts/dbus/org.gnome.Mutter.DisplayConfig.xml`
+//! Contract: `helixdesktop/spec/contracts/dbus/org.gnome.Mutter.DisplayConfig.xml`
 //! and `org.gnome.Mutter.DisplayConfig.md`.
 //!
 //! The compositor describes its outputs as [`Monitor`]s; this module turns
@@ -27,10 +27,10 @@ pub const OBJECT_PATH: &str = "/org/gnome/Mutter/DisplayConfig";
 pub const LAYOUT_MODE_LOGICAL: u32 = 1;
 
 /// The shell's "keep these settings?" question
-/// (helix-desktop-spec `org.helix.DisplayChangeDialog.md`).
+/// (helixdesktop/spec `org.helixdesktop.DisplayChangeDialog.md`).
 const DIALOG_BUS_NAME: &str = "org.gnome.Shell";
-const DIALOG_PATH: &str = "/org/helix/DisplayChangeDialog";
-const DIALOG_IFACE: &str = "org.helix.DisplayChangeDialog";
+const DIALOG_PATH: &str = "/org/helixdesktop/DisplayChangeDialog";
+const DIALOG_IFACE: &str = "org.helixdesktop.DisplayChangeDialog";
 /// How long the user has to keep a change.
 pub const CONFIRM_SECONDS: u32 = 20;
 /// Extra time before giving up on a dialog that never answers.
@@ -646,7 +646,7 @@ pub struct ApplyRequest {
     pub reply: oneshot::Sender<Result<Vec<Monitor>, String>>,
 }
 
-/// A file of remembered configurations (helix-desktop-spec
+/// A file of remembered configurations (helixdesktop/spec
 /// `org.gnome.Mutter.DisplayConfig.md`, "Remembered configurations").
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub(crate) struct StoreFile {
@@ -851,14 +851,14 @@ struct Pending {
 }
 
 /// The exported DisplayConfig object.
-/// `org.helix.ScreenEffects` (helix-desktop-spec
+/// `org.helixdesktop.ScreenEffects` (helixdesktop/spec
 /// `contracts/gsettings/wellbeing.md`), next to DisplayConfig.
 pub struct ScreenEffects {
     pub gamma: Option<mpsc::UnboundedSender<ColorRequest>>,
     pub grayscale: bool,
 }
 
-#[zbus::interface(name = "org.helix.ScreenEffects")]
+#[zbus::interface(name = "org.helixdesktop.ScreenEffects")]
 impl ScreenEffects {
     async fn set_grayscale(&mut self, on: bool, #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>) {
         if let Some(compositor) = &self.gamma {
@@ -879,7 +879,7 @@ impl ScreenEffects {
     }
 }
 
-/// `org.helix.ClickType` (helix-desktop-spec `contracts/gsettings/a11y-mouse.md`,
+/// `org.helixdesktop.ClickType` (helixdesktop/spec `contracts/gsettings/a11y-mouse.md`,
 /// "Click type window"): the dwell click's type, chosen in the shell's
 /// click type window.
 pub struct ClickTypeService {
@@ -887,9 +887,9 @@ pub struct ClickTypeService {
     pub current: crate::a11y_mouse::ClickType,
 }
 
-pub const CLICK_TYPE_PATH: &str = "/org/helix/ClickType";
+pub const CLICK_TYPE_PATH: &str = "/org/helixdesktop/ClickType";
 
-#[zbus::interface(name = "org.helix.ClickType")]
+#[zbus::interface(name = "org.helixdesktop.ClickType")]
 impl ClickTypeService {
     /// `single`, `double`, `drag` or `secondary`, for the next dwell click.
     async fn set_click_type(&mut self, click_type: &str, #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>) -> fdo::Result<()> {

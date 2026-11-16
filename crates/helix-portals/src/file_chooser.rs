@@ -1,6 +1,6 @@
-//! `org.freedesktop.impl.portal.FileChooser` (helix-desktop-spec
+//! `org.freedesktop.impl.portal.FileChooser` (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.impl.portal.md`, "FileChooser"): the
-//! shell's file chooser (`org.helix.PortalDialog.ChooseFiles`), which
+//! shell's file chooser (`org.helixdesktop.PortalDialog.ChooseFiles`), which
 //! browses folders itself in one dialog; this backend passes the app's
 //! options and turns the answer into URIs.
 
@@ -20,8 +20,8 @@ use helix_i18n::tr;
 pub use helix_settings::files::Filter;
 
 const SHELL: &str = "org.gnome.Shell";
-const DIALOG_PATH: &str = "/org/helix/PortalDialog";
-const DIALOG: &str = "org.helix.PortalDialog";
+const DIALOG_PATH: &str = "/org/helixdesktop/PortalDialog";
+const DIALOG: &str = "org.helixdesktop.PortalDialog";
 
 /// What is being chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,8 +75,8 @@ fn opt<T: TryFrom<OwnedValue>>(results: &HashMap<String, OwnedValue>, key: &str)
     results.get(key).and_then(|v| T::try_from(v.clone()).ok())
 }
 
-/// The `ChooseFiles` options for `ask` (helix-desktop-spec
-/// `contracts/dbus/org.helix.PortalDialog.xml`).
+/// The `ChooseFiles` options for `ask` (helixdesktop/spec
+/// `contracts/dbus/org.helixdesktop.PortalDialog.xml`).
 pub fn choose_options(ask: &Ask) -> HashMap<String, OwnedValue> {
     let mode = match ask.mode {
         Mode::Open { directory: true, .. } => "folder",

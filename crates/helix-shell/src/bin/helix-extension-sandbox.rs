@@ -1,4 +1,4 @@
-//! Starts bubblewrap for an extension sandbox (helix-desktop-spec
+//! Starts bubblewrap for an extension sandbox (helixdesktop/spec
 //! `contracts/extensions/README.md`, "Sandboxes"): `helix-extension-sandbox
 //! ARGS…` runs `bwrap ARGS…`.
 //!

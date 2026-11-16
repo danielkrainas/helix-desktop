@@ -1,4 +1,4 @@
-//! Window pictures never pile up (helix-desktop#105): a headless Helix
+//! Window pictures never pile up (helixdesktop/desktop#105): a headless Helix
 //! session (helix-comp with helix-shell, scratch home, private bus) with
 //! eight client windows (this test). The headless compositor never answers
 //! the shell's window-picture requests, so every request the shell does

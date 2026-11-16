@@ -2,7 +2,7 @@
 //! go to apps over the tablet protocol (`helix_comp::tablet_v2`) where the
 //! app asks for it, and drive the pointer elsewhere; pads' buttons, rings
 //! and strips go to the focused app or do what their settings say
-//! (helix-desktop-spec `contracts/gsettings/input-settings.md`,
+//! (helixdesktop/spec `contracts/gsettings/input-settings.md`,
 //! "Touchscreens and tablets").
 
 use std::collections::HashMap;

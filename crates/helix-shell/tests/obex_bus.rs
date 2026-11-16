@@ -1,5 +1,5 @@
 //! Bluetooth file transfer against a fake obexd on a private bus
-//! (helix-desktop-spec `contracts/dbus/org.bluez.obex.md`). No real
+//! (helixdesktop/spec `contracts/dbus/org.bluez.obex.md`). No real
 //! Bluetooth device is involved.
 
 use std::collections::HashMap;

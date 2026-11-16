@@ -5,7 +5,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: helix-desktop\n"
-"Report-Msgid-Bugs-To: https://github.com/danielkrainas/helix-desktop/issues\n"
+"Report-Msgid-Bugs-To: https://github.com/helixdesktop/desktop/issues\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2610,7 +2610,7 @@ msgstr ""
 #: crates/helix-shell/src/ui/panel_editor.rs:127
 #: crates/helix-shell/src/ui/panel_editor.rs:197
 msgid ""
-"Changes cannot be saved: the org.helix.shell settings are not installed."
+"Changes cannot be saved: the org.helixdesktop.shell settings are not installed."
 msgstr ""
 
 #: crates/helix-shell/src/ui/panel_editor.rs:173

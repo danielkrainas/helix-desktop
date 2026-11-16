@@ -1,5 +1,5 @@
 //! Remembered answers to "Allow APP to use all keyboard shortcuts?"
-//! (helix-desktop-spec `contracts/wayland/README.md`, "Shortcut
+//! (helixdesktop/spec `contracts/wayland/README.md`, "Shortcut
 //! inhibition"), in the xdg permission store.
 
 use std::collections::HashMap;

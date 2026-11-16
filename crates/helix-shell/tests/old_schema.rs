@@ -1,5 +1,5 @@
 //! The shell's settings layer against an older installed copy of Helix's
-//! own schemas (helix-desktop-spec `contracts/gsettings/org.helix.shell.md`,
+//! own schemas (helixdesktop/spec `contracts/gsettings/org.helixdesktop.shell.md`,
 //! "Older installed schemas"): keys the installed schema lacks read as
 //! their built-in defaults and are not written, and nothing aborts.
 
@@ -29,15 +29,15 @@ fn older_helix_schemas_do_not_abort() {
     let schemas = tmp.join("schemas");
     std::fs::create_dir_all(&schemas).unwrap();
     let data = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/");
-    let shell = std::fs::read_to_string(format!("{data}org.helix.shell.gschema.xml")).unwrap();
-    let exts = std::fs::read_to_string(format!("{data}org.helix.extensions.gschema.xml")).unwrap();
+    let shell = std::fs::read_to_string(format!("{data}org.helixdesktop.shell.gschema.xml")).unwrap();
+    let exts = std::fs::read_to_string(format!("{data}org.helixdesktop.extensions.gschema.xml")).unwrap();
     // As installed by an early package: the panel zones only, and the
     // extension lists without the later keys.
     let old_shell = without_keys(&shell, &["quick-settings", "banner-ignore-timeout", "critical-banner-ignore-timeout", "app-grid-recent"]);
     let old_exts = without_keys(&exts, &["placed", "command-keys", "require-sandbox"]);
     assert!(!old_shell.contains("quick-settings") && old_shell.contains("panel-left"));
-    std::fs::write(schemas.join("org.helix.shell.gschema.xml"), old_shell).unwrap();
-    std::fs::write(schemas.join("org.helix.extensions.gschema.xml"), old_exts).unwrap();
+    std::fs::write(schemas.join("org.helixdesktop.shell.gschema.xml"), old_shell).unwrap();
+    std::fs::write(schemas.join("org.helixdesktop.extensions.gschema.xml"), old_exts).unwrap();
     let Ok(status) = std::process::Command::new("glib-compile-schemas").arg(&schemas).status() else {
         eprintln!("glib-compile-schemas is not installed; skipping");
         return;

@@ -1,6 +1,6 @@
 //! `org.freedesktop.impl.portal.Screenshot` backend.
 //!
-//! Contract: `helix-desktop-spec/contracts/dbus/org.freedesktop.impl.portal.Screenshot.xml`
+//! Contract: `helixdesktop/spec/contracts/dbus/org.freedesktop.impl.portal.Screenshot.xml`
 //! and `org.freedesktop.impl.portal.md` ("Screenshot").
 //!
 //! Captures go through the shell's `org.gnome.Shell.Screenshot`, which
@@ -134,7 +134,7 @@ async fn take(conn: &Connection, plan: Plan) -> (u32, Results) {
         Plan::ActiveWindow => saved(shell(conn, "ScreenshotWindow", &(false, false, false, path().as_str())).await),
         Plan::Window => {
             let reply = conn
-                .call_method(Some(SHELL), SHELL_PATH, Some("org.helix.ScreenshotWindowPicker"), "PickWindow", &(false, false, path().as_str()))
+                .call_method(Some(SHELL), SHELL_PATH, Some("org.helixdesktop.ScreenshotWindowPicker"), "PickWindow", &(false, false, path().as_str()))
                 .await;
             saved(reply.and_then(|r| r.body().deserialize::<(bool, String)>()))
         }

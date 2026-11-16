@@ -1,4 +1,4 @@
-//! Screen recording: `org.gnome.Shell.Screencast` (helix-desktop-spec
+//! Screen recording: `org.gnome.Shell.Screencast` (helixdesktop/spec
 //! `contracts/dbus/org.gnome.Shell.Screencast.md`) and the
 //! `show-screen-recording-ui` key (`contracts/gsettings/shell-keys.md`).
 //!

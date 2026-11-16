@@ -29,7 +29,7 @@ struct Chooser {
     asked: Arc<Mutex<Vec<Asked>>>,
 }
 
-#[zbus::interface(name = "org.helix.ScreenCastChooser")]
+#[zbus::interface(name = "org.helixdesktop.ScreenCastChooser")]
 impl Chooser {
     async fn choose_source(
         &self,
@@ -125,7 +125,7 @@ async fn call(conn: &Connection, method: &str, body: &(impl serde::Serialize + z
 }
 
 async fn sharing(conn: &Connection) -> bool {
-    zbus::Proxy::new(conn, "org.gnome.Mutter.ScreenCast", "/org/gnome/Mutter/ScreenCast", "org.helix.ScreenCastState")
+    zbus::Proxy::new(conn, "org.gnome.Mutter.ScreenCast", "/org/gnome/Mutter/ScreenCast", "org.helixdesktop.ScreenCastState")
         .await
         .unwrap()
         .get_property::<bool>("Active")
@@ -155,7 +155,7 @@ async fn share_a_monitor() {
     let asked = Arc::new(Mutex::new(Vec::new()));
     let _shell = bus
         .builder()
-        .serve_at("/org/helix/ScreenCastChooser", Chooser { answers, asked: asked.clone() })
+        .serve_at("/org/helixdesktop/ScreenCastChooser", Chooser { answers, asked: asked.clone() })
         .unwrap()
         .name("org.gnome.Shell")
         .unwrap()
@@ -317,7 +317,7 @@ async fn share_several() {
     let answers = Arc::new(Mutex::new(vec![(true, 1, "DP-1".to_owned(), 0)]));
     let _shell = bus
         .builder()
-        .serve_at("/org/helix/ScreenCastChooser", Chooser { answers, asked: Arc::default() })
+        .serve_at("/org/helixdesktop/ScreenCastChooser", Chooser { answers, asked: Arc::default() })
         .unwrap()
         .name("org.gnome.Shell")
         .unwrap()

@@ -1,4 +1,4 @@
-//! The login screen's own on-screen keyboard (helix-desktop-spec
+//! The login screen's own on-screen keyboard (helixdesktop/spec
 //! `components/greeter.md`, "Accessibility"). The greeter only types
 //! into its own fields, so its keys are keys of the greeter
 //! ([`crate::app::Key`]), not of a virtual keyboard.

@@ -1,4 +1,4 @@
-//! Switching input sources (helix-desktop-spec
+//! Switching input sources (helixdesktop/spec
 //! `contracts/gsettings/input-settings.md`): the shell binds the
 //! `switch-input-source` keys, lists the sources most recently used first,
 //! and moves the chosen one to the front of `mru-sources`; the compositor

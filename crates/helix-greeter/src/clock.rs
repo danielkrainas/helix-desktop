@@ -20,7 +20,7 @@ pub enum Source {
     Locale,
 }
 
-/// Picks 12- or 24-hour time (helix-desktop-spec `components/greeter.md`,
+/// Picks 12- or 24-hour time (helixdesktop/spec `components/greeter.md`,
 /// "Clock"): `configured` (greeter.toml's `clock-format`), else the
 /// `clock-format` setting `settings` read, else the locale's own time
 /// format. Remembered for [`time`].

@@ -1,4 +1,4 @@
-//! The accent color (helix-desktop-spec `components/README.md`, "Accent
+//! The accent color (helixdesktop/spec `components/README.md`, "Accent
 //! color"): the nine named accents of `org.gnome.desktop.interface
 //! accent-color` and the shades Helix derives from each for its own
 //! surfaces.

@@ -1,5 +1,5 @@
 //! The login screen goes on the primary monitor of the system-wide layout
-//! (helix-desktop-spec `components/greeter.md`, "The monitor"): a headless
+//! (helixdesktop/spec `components/greeter.md`, "The monitor"): a headless
 //! two-monitor helix-comp, with no layout of the greeter user's own and a
 //! system one (`$XDG_CONFIG_DIRS/helix/monitors.toml`) making the second
 //! monitor primary, runs the greeter (`--demo`) as its shell.

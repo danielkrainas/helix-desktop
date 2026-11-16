@@ -1,4 +1,4 @@
-//! Notification banners and the notification list (helix-desktop-spec
+//! Notification banners and the notification list (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.Notifications.md`, "Helix"): icons,
 //! body markup with links, and the list opened from the panel's clock.
 

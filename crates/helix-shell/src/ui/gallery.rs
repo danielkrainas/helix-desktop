@@ -115,7 +115,7 @@ fn panel_over(canvas: &mut Canvas, text: Option<&Text>, w: usize, hover: Option<
     canvas.data[..n].copy_from_slice(&data);
 }
 
-/// Every surface on the shared look (helix-desktop-spec
+/// Every surface on the shared look (helixdesktop/spec
 /// `components/README.md`, "Shell look") in every [`looks`]: `look-…`.
 #[test]
 #[ignore]
@@ -352,7 +352,7 @@ fn launcher_results() {
     });
 }
 
-/// The launcher with more results than fit (helix-desktop#104,
+/// The launcher with more results than fit (helixdesktop/desktop#104,
 /// `launcher-more-…`): at the top (a fade and "N more results" below),
 /// scrolled into the middle (fades at both edges, the footer under the
 /// pointer) and at the end ("N results above"); in every look, and right
@@ -398,7 +398,7 @@ fn launcher_more_results() {
     helix_draw::set_rtl(false);
 }
 
-/// Status icons in the panel (helix-desktop#106, `panel-tray-…`), at
+/// Status icons in the panel (helixdesktop/desktop#106, `panel-tray-…`), at
 /// scale 1 and 2, as a Blueman item naming `blueman-disabled` gets them:
 /// 1. through Yaru (which has fixed-size PNGs only, and hicolor a
 ///    `-symbolic` form): the symbolic form in the panel's color;
@@ -1098,7 +1098,7 @@ fn on_screen_keyboard() {
     helix_draw::accent::set(Accent::Blue);
 }
 
-/// The shell in the environment's locale (helix-desktop-spec
+/// The shell in the environment's locale (helixdesktop/spec
 /// `components/i18n.md`): `HELIX_LOCALEDIR`, `LANGUAGE` and `LANG` (and
 /// `LOCPATH`) pick the catalogue, names and formats, and a right-to-left
 /// translation mirrors the layouts. `HELIX_GALLERY_TAG=he` names the
@@ -1165,7 +1165,7 @@ fn locale() {
     helix_draw::set_rtl(false);
 }
 
-/// The file chooser (`files-…`, helix-desktop#113, #115, #116): Open in a
+/// The file chooser (`files-…`, helixdesktop/desktop#113, #115, #116): Open in a
 /// long path with 200 entries, ten places, five bookmarks and two
 /// drives; Save; an empty folder and one loading; at 1280×720 and
 /// 1920×1080 in every look, right to left, text 1.5 on 1280×800 and
@@ -1253,7 +1253,7 @@ fn file_chooser() {
     scene("files-loading-1280x720", (1280, 720), &open, Vec::new(), &|v| v.loading = Some((1, std::time::Instant::now() - std::time::Duration::from_secs(1))));
     scene("files-menu-1280x720", (1280, 720), &open, entries.clone(), &|v| v.dropdown = true);
     scene("files-replace-1280x720", (1280, 720), &save, entries.clone(), &|v| v.replace = Some("/home/ada/Documents/Client — Contoso Ltd/2026/notes-01.md".into()));
-    // Large text and scaling on small screens (helix-desktop#116).
+    // Large text and scaling on small screens (helixdesktop/desktop#116).
     for (tag, (w, h, s)) in [("1280x800", (1280, 800, 1.0)), ("1280x720", (1280, 720, 1.0)), ("1280x720@1.5", (853, 480, 1.5))] {
         for (mode, options) in [("open", &open), ("save", &save)] {
             helix_draw::theme::set_text_scale(1.5);

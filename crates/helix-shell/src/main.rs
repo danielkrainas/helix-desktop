@@ -17,7 +17,7 @@ fn main() -> ExitCode {
         )
         .with_writer(std::io::stderr)
         .init();
-    // The locale and translations (helix-desktop-spec components/i18n.md),
+    // The locale and translations (helixdesktop/spec components/i18n.md),
     // before any other thread starts.
     helix_i18n::init();
     // Mirrored layouts for a right-to-left language.

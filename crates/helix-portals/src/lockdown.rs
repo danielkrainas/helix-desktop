@@ -1,4 +1,4 @@
-//! `org.freedesktop.impl.portal.Lockdown` (helix-desktop-spec
+//! `org.freedesktop.impl.portal.Lockdown` (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.impl.portal.md`, "Lockdown"): the
 //! administrator's restrictions, from GSettings.
 

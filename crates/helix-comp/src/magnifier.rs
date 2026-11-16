@@ -1,4 +1,4 @@
-//! The magnifier (helix-desktop-spec `contracts/gsettings/a11y-magnifier.md`):
+//! The magnifier (helixdesktop/spec `contracts/gsettings/a11y-magnifier.md`):
 //! settings, and which part of a monitor shows.
 
 pub const MAGNIFIER: &str = "org.gnome.desktop.a11y.magnifier";

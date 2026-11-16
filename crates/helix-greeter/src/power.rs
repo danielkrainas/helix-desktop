@@ -1,4 +1,4 @@
-//! Restart and Power Off through logind (helix-desktop-spec
+//! Restart and Power Off through logind (helixdesktop/spec
 //! `components/greeter.md`, "Power").
 
 

@@ -1,6 +1,6 @@
-//! `org.helix.DisplayChangeDialog`: the compositor asks whether to keep a
-//! display configuration change (helix-desktop-spec
-//! `org.helix.DisplayChangeDialog.md`).
+//! `org.helixdesktop.DisplayChangeDialog`: the compositor asks whether to keep a
+//! display configuration change (helixdesktop/spec
+//! `org.helixdesktop.DisplayChangeDialog.md`).
 
 use std::sync::{Arc, Mutex};
 
@@ -10,7 +10,7 @@ use zbus::object_server::SignalEmitter;
 
 use crate::UiEvent;
 
-pub const OBJECT_PATH: &str = "/org/helix/DisplayChangeDialog";
+pub const OBJECT_PATH: &str = "/org/helixdesktop/DisplayChangeDialog";
 
 pub struct DisplayChangeDialog {
     pub ui: mpsc::UnboundedSender<UiEvent>,
@@ -37,7 +37,7 @@ impl DisplayChangeDialog {
     }
 }
 
-#[interface(name = "org.helix.DisplayChangeDialog")]
+#[interface(name = "org.helixdesktop.DisplayChangeDialog")]
 impl DisplayChangeDialog {
     async fn open(&self, seconds: u32) {
         self.set_open(true);

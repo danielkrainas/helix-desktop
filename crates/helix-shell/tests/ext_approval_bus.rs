@@ -1,4 +1,4 @@
-//! `org.helix.Extensions1` for other programs (helix-desktop-spec
+//! `org.helixdesktop.Extensions1` for other programs (helixdesktop/spec
 //! `contracts/extensions/README.md`, "Session bus" and "Approval prompt"):
 //! `Enable` with approval asks the user, and `GetSettings` describes an
 //! extension's settings.
@@ -28,7 +28,7 @@ step = { type = "int", default = 2, min = 1, max = 9, label = "Step" }
 names = { type = "string-list", default = ["a"], label = "Names" }
 "#;
 
-const IFACE: &str = "org.helix.Extensions1";
+const IFACE: &str = "org.helixdesktop.Extensions1";
 
 /// The next approval question, or `None` within `wait`.
 async fn question(rx: &mut UnboundedReceiver<UiEvent>, wait: Duration) -> Option<ApprovalQuestion> {
@@ -51,8 +51,8 @@ async fn approval_and_settings() {
     let tmp = std::env::temp_dir().join(format!("helix-ext-approval-{}", std::process::id()));
     let schemas = tmp.join("schemas");
     std::fs::create_dir_all(&schemas).unwrap();
-    let data = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/org.helix.extensions.gschema.xml");
-    std::fs::copy(data, schemas.join("org.helix.extensions.gschema.xml")).unwrap();
+    let data = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/org.helixdesktop.extensions.gschema.xml");
+    std::fs::copy(data, schemas.join("org.helixdesktop.extensions.gschema.xml")).unwrap();
     let Ok(status) = std::process::Command::new("glib-compile-schemas").arg(&schemas).status() else {
         eprintln!("glib-compile-schemas is not installed; skipping");
         return;

@@ -1,4 +1,4 @@
-//! Notification icons (helix-desktop-spec
+//! Notification icons (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.Notifications.md`, "Icons"): image
 //! data, files, and icon names looked up in the icon theme (freedesktop
 //! icon theme specification), decoded from PNG or SVG.
@@ -333,7 +333,7 @@ fn theme(name: &str) -> Option<std::sync::Arc<Theme>> {
 }
 
 /// The best file for icon `name` at `px` in `theme_name`, its parents, then
-/// `hicolor`, then `/usr/share/pixmaps` (helix-desktop-spec
+/// `hicolor`, then `/usr/share/pixmaps` (helixdesktop/spec
 /// `contracts/wayland/README.md`, "App and theme icons").
 pub fn find_icon(name: &str, px: u32, theme_name: &str) -> Option<PathBuf> {
     find_in(name, px, theme_name, &theme).or_else(|| {
@@ -402,7 +402,7 @@ fn find_in(name: &str, px: u32, theme_name: &str, theme: &dyn Fn(&str) -> Option
 }
 
 /// Tells `ui` whenever `icon-theme` changes, for the rest of the process
-/// (helix-desktop-spec `contracts/wayland/README.md`, "System status").
+/// (helixdesktop/spec `contracts/wayland/README.md`, "System status").
 pub async fn follow(ui: tokio::sync::mpsc::UnboundedSender<crate::UiEvent>) {
     const SCHEMA: &str = "org.gnome.desktop.interface";
     if !helix_settings::has_schema(SCHEMA) {
@@ -462,7 +462,7 @@ pub enum StatusSource {
 }
 
 /// A status icon (a tray item's icon name) at `px` pixels
-/// (helix-desktop-spec `contracts/dbus/org.kde.StatusNotifierItem.md`,
+/// (helixdesktop/spec `contracts/dbus/org.kde.StatusNotifierItem.md`,
 /// "Icons"): its `-symbolic` form when the item's own theme directory
 /// (`theme_dir`), the icon theme or Adwaita has one, drawn in `rgb`, like
 /// the other status icons; else the full-colour image at least twice
@@ -996,7 +996,7 @@ pub(crate) mod tests {
 
     /// A status icon with only fixed-size PNGs (16, 32 and 48) comes from
     /// the one at least twice the size drawn (else the largest), shrunk;
-    /// a `-symbolic` form wins when there is one (helix-desktop#106).
+    /// a `-symbolic` form wins when there is one (helixdesktop/desktop#106).
     #[test]
     fn status_icons_from_larger_sources() {
         let root = std::env::temp_dir().join(format!("helix-status-icons-{}", std::process::id()));

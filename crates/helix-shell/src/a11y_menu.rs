@@ -1,4 +1,4 @@
-//! The accessibility menu in the panel (helix-desktop-spec
+//! The accessibility menu in the panel (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Accessibility menu"): switches for the
 //! accessibility features, shown when asked for or when one is on.
 

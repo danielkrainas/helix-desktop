@@ -1,4 +1,4 @@
-//! The hot corner (helix-desktop-spec `contracts/wayland/README.md`,
+//! The hot corner (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Overview"): the primary monitor's top-left corner toggles the overview
 //! when the pointer pushes into it (or, for pointers that cannot push,
 //! reaches it).

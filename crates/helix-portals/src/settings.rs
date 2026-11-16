@@ -1,6 +1,6 @@
 //! `org.freedesktop.impl.portal.Settings` backend.
 //!
-//! Contract: `helix-desktop-spec/contracts/dbus/org.freedesktop.impl.portal.Settings.xml`
+//! Contract: `helixdesktop/spec/contracts/dbus/org.freedesktop.impl.portal.Settings.xml`
 //! and `org.freedesktop.impl.portal.md`.
 //!
 //! Values come from a [`SettingsSource`] (in production, GSettings via

@@ -1,4 +1,4 @@
-//! The shell UI on the accessibility bus (helix-desktop-spec
+//! The shell UI on the accessibility bus (helixdesktop/spec
 //! `contracts/dbus/org.a11y.atspi.md`): which surfaces are windows of the
 //! shell's application, and what each shows, from the state the painting
 //! uses. Surfaces whose paint code computes its texts (the lock screen,

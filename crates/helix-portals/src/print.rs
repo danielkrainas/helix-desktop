@@ -1,4 +1,4 @@
-//! `org.freedesktop.impl.portal.Print` (helix-desktop-spec
+//! `org.freedesktop.impl.portal.Print` (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.impl.portal.md`, "Print"): the user
 //! picks a printer (CUPS, through its `lpstat` and `lp` commands) or a
 //! file, and the number of copies.

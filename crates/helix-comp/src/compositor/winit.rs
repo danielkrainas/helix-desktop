@@ -94,7 +94,7 @@ pub fn init(
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
 
     // GPU buffers from clients, with feedback naming the host's GPU when it
-    // can be found (helix-desktop-spec contracts/wayland/README.md, "GPU
+    // can be found (helixdesktop/spec contracts/wayland/README.md, "GPU
     // buffers").
     state.shm_state.update_formats(backend.renderer().shm_formats());
     let formats: Vec<_> = backend.renderer().dmabuf_formats().into_iter().collect();

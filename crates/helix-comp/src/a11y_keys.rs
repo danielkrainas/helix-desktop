@@ -1,4 +1,4 @@
-//! Keyboard accessibility (helix-desktop-spec
+//! Keyboard accessibility (helixdesktop/spec
 //! `contracts/gsettings/a11y-keyboard.md`): sticky, slow, bounce, toggle
 //! and mouse keys, applied to device keys before anything else sees them.
 //!

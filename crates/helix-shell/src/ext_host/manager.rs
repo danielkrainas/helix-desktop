@@ -1,4 +1,4 @@
-//! `org.helix.Extensions1` on the session bus (helix-desktop-spec
+//! `org.helixdesktop.Extensions1` on the session bus (helixdesktop/spec
 //! `contracts/extensions/README.md`, "Session bus"): what tools see and
 //! change.
 
@@ -11,7 +11,7 @@ use zbus::zvariant::{OwnedValue, Value};
 use super::manifest::{SettingDecl, SettingType, SettingValue};
 use super::runner::ExtHost;
 
-pub const OBJECT_PATH: &str = "/org/helix/Extensions1";
+pub const OBJECT_PATH: &str = "/org/helixdesktop/Extensions1";
 
 pub struct Manager {
     pub host: ExtHost,
@@ -56,7 +56,7 @@ fn setting_entry(decl: &SettingDecl, current: &SettingValue) -> SettingEntry {
     (decl.key.clone(), ty.to_owned(), current.to_value(), details)
 }
 
-#[zbus::interface(name = "org.helix.Extensions1")]
+#[zbus::interface(name = "org.helixdesktop.Extensions1")]
 impl Manager {
     fn list_extensions(&self) -> HashMap<String, HashMap<String, OwnedValue>> {
         self.host

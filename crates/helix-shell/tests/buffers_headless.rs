@@ -1,4 +1,4 @@
-//! The shell's shared-memory buffers stay bounded (helix-desktop#100): a
+//! The shell's shared-memory buffers stay bounded (helixdesktop/desktop#100): a
 //! headless Helix session (helix-comp with helix-shell, scratch home,
 //! private bus) with two 1920×1080 monitors has the overview, the
 //! launcher, quick settings and the clock's menu opened and closed 200

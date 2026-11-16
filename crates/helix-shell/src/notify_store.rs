@@ -1,7 +1,7 @@
 //! Notifications, independent of D-Bus: the queue of banners, the list
 //! notifications stay in after their banner, replacement, expiry and close
 //! reasons. Behavior:
-//! `helix-desktop-spec/contracts/dbus/org.freedesktop.Notifications.md` and
+//! `helixdesktop/spec/contracts/dbus/org.freedesktop.Notifications.md` and
 //! `org.gtk.Notifications.md`.
 
 use std::collections::BTreeMap;

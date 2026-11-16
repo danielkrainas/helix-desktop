@@ -1,4 +1,4 @@
-//! Removable media (helix-desktop-spec
+//! Removable media (helixdesktop/spec
 //! `contracts/gsettings/removable-media.md`): automounting, opening new
 //! media, and ejecting them from their notification. GIO's volume monitor
 //! runs on a GLib loop of its own thread.

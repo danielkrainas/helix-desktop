@@ -1,5 +1,5 @@
 //! Every exported D-Bus interface must match its contract XML in
-//! helix-desktop-spec. Members not implemented yet are listed explicitly;
+//! helixdesktop/spec. Members not implemented yet are listed explicitly;
 //! the check fails if a listed member gets implemented, so update the list.
 
 use helix_test_support::conformance::{assert_conformant, check, introspect, load_dbus_contract};
@@ -177,7 +177,7 @@ async fn mutter_screen_cast() {
     ] {
         assert_matches_contract(conn, BUS_NAME, path, iface, "org.gnome.Mutter.ScreenCast.xml", &[]).await;
     }
-    assert_matches_contract(conn, BUS_NAME, OBJECT_PATH, "org.helix.ScreenCastState", "org.helix.ScreenCastState.xml", &[]).await;
+    assert_matches_contract(conn, BUS_NAME, OBJECT_PATH, "org.helixdesktop.ScreenCastState", "org.helixdesktop.ScreenCastState.xml", &[]).await;
 
     // Remote desktop sessions.
     let remote: OwnedObjectPath = portal
@@ -209,8 +209,8 @@ async fn org_gnome_shell() {
         service.connection(),
         helix_shell::BUS_NAME,
         helix_shell::display_change::OBJECT_PATH,
-        "org.helix.DisplayChangeDialog",
-        "org.helix.DisplayChangeDialog.xml",
+        "org.helixdesktop.DisplayChangeDialog",
+        "org.helixdesktop.DisplayChangeDialog.xml",
         &[],
     )
     .await;
@@ -227,8 +227,8 @@ async fn org_gnome_shell() {
         service.connection(),
         helix_shell::BUS_NAME,
         helix_shell::screencast_chooser::OBJECT_PATH,
-        "org.helix.ScreenCastChooser",
-        "org.helix.ScreenCastChooser.xml",
+        "org.helixdesktop.ScreenCastChooser",
+        "org.helixdesktop.ScreenCastChooser.xml",
         &[],
     )
     .await;
@@ -236,8 +236,8 @@ async fn org_gnome_shell() {
         service.connection(),
         helix_shell::BUS_NAME,
         helix_shell::screenshot::OBJECT_PATH,
-        "org.helix.ScreenshotWindowPicker",
-        "org.helix.ScreenshotWindowPicker.xml",
+        "org.helixdesktop.ScreenshotWindowPicker",
+        "org.helixdesktop.ScreenshotWindowPicker.xml",
         &[],
     )
     .await;
@@ -272,8 +272,8 @@ async fn org_gnome_shell() {
         service.connection(),
         helix_shell::BUS_NAME,
         helix_shell::ext_host::manager::OBJECT_PATH,
-        "org.helix.Extensions1",
-        "../extensions/org.helix.Extensions1.xml",
+        "org.helixdesktop.Extensions1",
+        "../extensions/org.helixdesktop.Extensions1.xml",
         &[],
     )
     .await;
@@ -377,14 +377,14 @@ async fn polkit_authentication_agent() {
         .builder()
         .serve_at(helix_shell::polkit::AGENT_PATH, helix_shell::polkit::Agent::new(ui))
         .unwrap()
-        .name("org.helix.TestAgent")
+        .name("org.helixdesktop.TestAgent")
         .unwrap()
         .build()
         .await
         .unwrap();
     assert_matches_contract(
         &agent,
-        "org.helix.TestAgent",
+        "org.helixdesktop.TestAgent",
         helix_shell::polkit::AGENT_PATH,
         "org.freedesktop.PolicyKit1.AuthenticationAgent",
         "org.freedesktop.PolicyKit1.AuthenticationAgent.xml",

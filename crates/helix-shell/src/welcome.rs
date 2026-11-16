@@ -1,4 +1,4 @@
-//! The welcome dialog (helix-desktop-spec `contracts/gsettings/org.gnome.shell.md`,
+//! The welcome dialog (helixdesktop/spec `contracts/gsettings/org.gnome.shell.md`,
 //! "Welcome dialog"): once per shell version, when GNOME Tour is
 //! installed, offer it.
 

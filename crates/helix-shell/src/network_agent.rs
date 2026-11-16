@@ -1,4 +1,4 @@
-//! NetworkManager's secret agent (helix-desktop-spec
+//! NetworkManager's secret agent (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.NetworkManager.SecretAgent.md`): asks
 //! the user for Wi-Fi passwords, 802.1X (enterprise) credentials, mobile
 //! broadband and DSL passwords and VPN secrets (through the VPN plugin's

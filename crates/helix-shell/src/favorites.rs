@@ -1,4 +1,4 @@
-//! Favorites and app folders (helix-desktop-spec `contracts/wayland/README.md`,
+//! Favorites and app folders (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Favorites and app folders").
 
 use std::path::PathBuf;

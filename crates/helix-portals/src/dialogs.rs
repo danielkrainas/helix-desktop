@@ -1,7 +1,7 @@
 //! Portal backends that ask the user through the shell
-//! (helix-desktop-spec `contracts/dbus/org.freedesktop.impl.portal.md`,
+//! (helixdesktop/spec `contracts/dbus/org.freedesktop.impl.portal.md`,
 //! "Access", "Account", "AppChooser", "Background"), over the shell's
-//! `org.helix.PortalDialog`.
+//! `org.helixdesktop.PortalDialog`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,8 +19,8 @@ use helix_i18n::tr;
 use helix_i18n::trf;
 
 const SHELL: &str = "org.gnome.Shell";
-const DIALOG_PATH: &str = "/org/helix/PortalDialog";
-const DIALOG: &str = "org.helix.PortalDialog";
+const DIALOG_PATH: &str = "/org/helixdesktop/PortalDialog";
+const DIALOG: &str = "org.helixdesktop.PortalDialog";
 
 pub(crate) fn value(v: Value<'_>) -> OwnedValue {
     OwnedValue::try_from(v).expect("plain values convert")
@@ -48,7 +48,7 @@ async fn ask(conn: &Connection, title: &str, message: &str, description: &str, g
     }
 }
 
-/// Show the shell's general dialog (`org.helix.PortalDialog.Dialog`);
+/// Show the shell's general dialog (`org.helixdesktop.PortalDialog.Dialog`);
 /// its results when accepted.
 pub(crate) async fn dialog(conn: &Connection, options: HashMap<String, OwnedValue>) -> Option<HashMap<String, OwnedValue>> {
     let reply = conn.call_method(Some(SHELL), DIALOG_PATH, Some(DIALOG), "Dialog", &(options,)).await;

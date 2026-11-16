@@ -1,4 +1,4 @@
-//! The message tray's calendar column (helix-desktop-spec
+//! The message tray's calendar column (helixdesktop/spec
 //! `contracts/gsettings/calendar.md`): date, month grid, the chosen day's
 //! events, world clocks and the media player.
 

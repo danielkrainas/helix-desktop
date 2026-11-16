@@ -1,4 +1,4 @@
-//! What the session manager asks of systemd-logind (helix-desktop-spec
+//! What the session manager asks of systemd-logind (helixdesktop/spec
 //! `org.freedesktop.login1.md`): power off or restart once the session has
 //! ended, suspend, sleep inhibitors, and whether the session is active.
 

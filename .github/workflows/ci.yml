@@ -21,8 +21,8 @@ jobs:
       # Contract tests read the living spec from a sibling checkout.
       - uses: actions/checkout@v4
         with:
-          repository: danielkrainas/helix-desktop-spec
-          path: helix-desktop-spec
+          repository: helixdesktop/spec
+          path: spec
 
       - name: Install system packages
         run: |
@@ -57,5 +57,5 @@ jobs:
       - name: Test
         working-directory: helix-desktop
         env:
-          HELIX_SPEC_DIR: ${{ github.workspace }}/helix-desktop-spec
+          HELIX_SPEC_DIR: ${{ github.workspace }}/spec
         run: cargo test --workspace --locked

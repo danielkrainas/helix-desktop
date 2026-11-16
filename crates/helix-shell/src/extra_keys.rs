@@ -1,5 +1,5 @@
 //! Launching, session, text size, touchpad, keyboard backlight, battery
-//! and custom shortcut keys (helix-desktop-spec
+//! and custom shortcut keys (helixdesktop/spec
 //! `contracts/gsettings/shell-keys.md`).
 
 use gio::prelude::*;

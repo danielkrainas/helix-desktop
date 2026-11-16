@@ -1,4 +1,4 @@
-//! The end-session dialog and offline updates (helix-desktop-spec
+//! The end-session dialog and offline updates (helixdesktop/spec
 //! `org.gnome.SessionManager.EndSessionDialog.md`, "Updates"): a fake
 //! PackageKit on a second test bus standing in for the system bus.
 

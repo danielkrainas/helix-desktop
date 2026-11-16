@@ -45,7 +45,7 @@ pub fn physical(logical: usize, scale: f64) -> usize {
 
 static HIGH_CONTRAST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// High contrast (helix-desktop-spec `a11y-interface.md`): text white,
+/// High contrast (helixdesktop/spec `a11y-interface.md`): text white,
 /// dark shapes black and light ones white, saturated colors kept.
 pub fn set_high_contrast(on: bool) {
     HIGH_CONTRAST.store(on, std::sync::atomic::Ordering::Relaxed);
@@ -57,7 +57,7 @@ pub fn high_contrast() -> bool {
 
 static STATUS_SHAPES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// `show-status-shapes` (helix-desktop-spec `a11y-interface.md`): on/off
+/// `show-status-shapes` (helixdesktop/spec `a11y-interface.md`): on/off
 /// states are shown with shapes as well as color.
 pub fn set_status_shapes(on: bool) {
     STATUS_SHAPES.store(on, std::sync::atomic::Ordering::Relaxed);

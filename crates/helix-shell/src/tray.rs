@@ -1,4 +1,4 @@
-//! Apps' status icons (helix-desktop-spec
+//! Apps' status icons (helixdesktop/spec
 //! `contracts/dbus/org.kde.StatusNotifierItem.md`): the shell is the
 //! StatusNotifierWatcher and the host. Items are followed here; the panel
 //! (`helix:tray`) draws them and sends clicks back.

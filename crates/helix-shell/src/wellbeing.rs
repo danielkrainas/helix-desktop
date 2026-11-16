@@ -1,4 +1,4 @@
-//! Break reminders and screen time limits (helix-desktop-spec
+//! Break reminders and screen time limits (helixdesktop/spec
 //! `contracts/gsettings/wellbeing.md`).
 
 use std::collections::BTreeMap;
@@ -308,7 +308,7 @@ async fn idle_ms(conn: &Connection) -> u64 {
 }
 
 async fn set_grayscale(conn: &Connection, on: bool) {
-    let result = conn.call_method(Some("org.gnome.Mutter.DisplayConfig"), "/org/gnome/Mutter/DisplayConfig", Some("org.helix.ScreenEffects"), "SetGrayscale", &(on,)).await;
+    let result = conn.call_method(Some("org.gnome.Mutter.DisplayConfig"), "/org/gnome/Mutter/DisplayConfig", Some("org.helixdesktop.ScreenEffects"), "SetGrayscale", &(on,)).await;
     if let Err(err) = result {
         tracing::warn!(%err, on, "cannot change grayscale");
     }

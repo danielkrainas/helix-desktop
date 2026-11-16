@@ -1,4 +1,4 @@
-//! USB protection (helix-desktop-spec `contracts/gsettings/org.gnome.desktop.privacy.md`,
+//! USB protection (helixdesktop/spec `contracts/gsettings/org.gnome.desktop.privacy.md`,
 //! "USB protection"): with `usb-protection`, USB devices plugged in while
 //! the screen is locked (`usb-protection-level` `lockscreen`) or at any
 //! time (`always`) are rejected through USBGuard; keyboards are left

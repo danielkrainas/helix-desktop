@@ -1,4 +1,4 @@
-//! The file chooser's search through a file index (helix-desktop-spec
+//! The file chooser's search through a file index (helixdesktop/spec
 //! `org.freedesktop.impl.portal.md`, FileChooser): a private Tracker
 //! endpoint, named as localsearch, on a test bus. Skipped without
 //! `tracker3`.

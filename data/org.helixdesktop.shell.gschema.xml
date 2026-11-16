@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Helix's shell settings (helix-desktop-spec
-     contracts/gsettings/org.helix.shell.md). -->
+<!-- Helix's shell settings (helixdesktop/spec
+     contracts/gsettings/org.helixdesktop.shell.md). -->
 <schemalist>
-  <schema id="org.helix.shell" path="/org/helix/shell/">
+  <schema id="org.helixdesktop.shell" path="/org/helixdesktop/shell/">
     <key name="panel-left" type="as">
       <default>['helix:apps', 'helix:workspaces']</default>
       <summary>Items in the left zone of the panel</summary>

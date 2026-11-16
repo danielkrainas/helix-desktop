@@ -1,4 +1,4 @@
-//! The panel's status icons (`helix:tray`; helix-desktop-spec
+//! The panel's status icons (`helix:tray`; helixdesktop/spec
 //! `contracts/dbus/org.kde.StatusNotifierItem.md`): drawing them, clicks
 //! and scrolls, and their menus.
 

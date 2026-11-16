@@ -1,5 +1,5 @@
 //! Brightness following a fake ambient light sensor, through a fake
-//! DisplayConfig backlight, on a test bus (helix-desktop-spec
+//! DisplayConfig backlight, on a test bus (helixdesktop/spec
 //! `contracts/gsettings/power.md`, "Ambient light").
 
 use std::collections::HashMap;

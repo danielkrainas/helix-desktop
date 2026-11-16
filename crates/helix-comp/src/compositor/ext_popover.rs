@@ -1,4 +1,4 @@
-//! Extensions' popovers (helix-desktop-spec `contracts/extensions/README.md`,
+//! Extensions' popovers (helixdesktop/spec `contracts/extensions/README.md`,
 //! "Popovers"): layer surfaces with the namespace
 //! `helix-extension-popover`. One at a time, at most 480 × 640, closed by
 //! a click outside, and none while the session is locked.

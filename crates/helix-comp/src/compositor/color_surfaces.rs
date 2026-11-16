@@ -1,4 +1,4 @@
-//! Color-managed windows (helix-desktop-spec `contracts/wayland/README.md`,
+//! Color-managed windows (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Color management"): a window with a surface whose image description
 //! needs converting is drawn from its surfaces' textures, those surfaces
 //! through the conversion shader.

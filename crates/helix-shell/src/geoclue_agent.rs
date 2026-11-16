@@ -1,4 +1,4 @@
-//! GeoClue's location agent (helix-desktop-spec
+//! GeoClue's location agent (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.GeoClue2.Agent.md`): asks the user
 //! before an app gets its location, and remembers the answer.
 

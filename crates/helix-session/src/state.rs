@@ -17,7 +17,7 @@ pub const CLIENT_PATH_PREFIX: &str = "/org/gnome/SessionManager/Client";
 pub const INHIBITOR_PATH_PREFIX: &str = "/org/gnome/SessionManager/Inhibitor";
 
 /// Inhibit flag bits, as documented in
-/// `helix-desktop-spec/contracts/dbus/org.gnome.SessionManager.md`.
+/// `helixdesktop/spec/contracts/dbus/org.gnome.SessionManager.md`.
 pub mod inhibit_flags {
     /// Logout, shutdown and reboot.
     pub const LOGOUT: u32 = 1;
@@ -40,7 +40,7 @@ pub enum Phase {
 }
 
 /// `Logout` mode, as documented in
-/// `helix-desktop-spec/contracts/dbus/org.gnome.SessionManager.md`.
+/// `helixdesktop/spec/contracts/dbus/org.gnome.SessionManager.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogoutMode {
     /// 0 — show a confirmation if needed.

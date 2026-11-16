@@ -1,5 +1,5 @@
 # nfpm description of helix-greeter: Helix's login screen under greetd
-# (helix-desktop-spec components/greeter.md). Staged by packaging/stage.sh
+# (helixdesktop/spec components/greeter.md). Staged by packaging/stage.sh
 # with the rest of helix-desktop; the release workflow fills in @VERSION@
 # and @ARCH@. Debian and Ubuntu only for now: greetd's greeter user and
 # path differ elsewhere (see the spec's gaps.md).
@@ -12,7 +12,7 @@ section: x11
 priority: optional
 maintainer: Daniel Krainas
 vendor: Helix
-homepage: https://github.com/danielkrainas/helix-desktop
+homepage: https://helixdesktop.org
 license: CC0-1.0
 description: |-
   Helix login screen for greetd

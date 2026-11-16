@@ -1,11 +1,11 @@
 //! The login screen's monitor layout: `helix-login-monitors`, run as root
-//! through `pkexec` (polkit action `org.helix.login-screen-monitors`),
+//! through `pkexec` (polkit action `org.helixdesktop.login-screen-monitors`),
 //! takes one remembered monitor configuration on standard input, checks
 //! it, and puts it in the system-wide file the greeter's compositor reads
 //! ([`SYSTEM_FILE`]), keeping that file's configurations for other sets of
 //! monitors.
 //!
-//! Spec: helix-desktop-spec `components/greeter.md`, "The monitor", and
+//! Spec: helixdesktop/spec `components/greeter.md`, "The monitor", and
 //! `contracts/dbus/org.gnome.Mutter.DisplayConfig.md`, "Remembered
 //! configurations".
 //!

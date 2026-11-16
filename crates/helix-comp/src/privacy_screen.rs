@@ -1,4 +1,4 @@
-//! Privacy screens (helix-desktop-spec `contracts/gsettings/org.gnome.desktop.privacy.md`,
+//! Privacy screens (helixdesktop/spec `contracts/gsettings/org.gnome.desktop.privacy.md`,
 //! "Privacy screen"): built-in panels that can narrow their viewing angle,
 //! through the kernel's `privacy-screen sw-state` connector property.
 

@@ -19,7 +19,7 @@ pub struct State {
     pub accessibility: Accessibility,
 }
 
-/// The login screen's accessibility settings (helix-desktop-spec
+/// The login screen's accessibility settings (helixdesktop/spec
 /// `components/greeter.md`, "Accessibility").
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]

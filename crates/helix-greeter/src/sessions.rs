@@ -1,4 +1,4 @@
-//! The sessions offered (helix-desktop-spec `components/greeter.md`,
+//! The sessions offered (helixdesktop/spec `components/greeter.md`,
 //! "Session" and "Starting the session"): the desktop entries in
 //! `/usr/share/wayland-sessions`.
 

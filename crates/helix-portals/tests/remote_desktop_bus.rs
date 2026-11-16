@@ -26,7 +26,7 @@ struct Chooser {
     asked: Asked,
 }
 
-#[zbus::interface(name = "org.helix.ScreenCastChooser")]
+#[zbus::interface(name = "org.helixdesktop.ScreenCastChooser")]
 impl Chooser {
     async fn choose_source(&self, _app_id: String, _monitors: Vec<(String, String)>, options: HashMap<String, OwnedValue>) -> (bool, u32, String, u32) {
         let control = options.get("control").and_then(|v| Vec::<String>::try_from(v.clone()).ok()).unwrap_or_default();
@@ -246,7 +246,7 @@ async fn remote_control() {
     let asked: Asked = Arc::default();
     let _shell = bus
         .builder()
-        .serve_at("/org/helix/ScreenCastChooser", Chooser { asked: asked.clone() })
+        .serve_at("/org/helixdesktop/ScreenCastChooser", Chooser { asked: asked.clone() })
         .unwrap()
         .name("org.gnome.Shell")
         .unwrap()

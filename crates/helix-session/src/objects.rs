@@ -1,7 +1,7 @@
 //! Per-client and per-inhibitor D-Bus objects.
 //!
 //! Contracts: `org.gnome.SessionManager.ClientPrivate.xml` and
-//! `org.gnome.SessionManager.Inhibitor.xml` in helix-desktop-spec.
+//! `org.gnome.SessionManager.Inhibitor.xml` in helixdesktop/spec.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

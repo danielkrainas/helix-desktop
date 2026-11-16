@@ -1,4 +1,4 @@
-//! The login flow, driven by greetd's replies (helix-desktop-spec
+//! The login flow, driven by greetd's replies (helixdesktop/spec
 //! `components/greeter.md`, "What the screen shows" and "Starting the
 //! session"). Pure: it says which request to send next; the caller sends
 //! it and feeds the reply back.

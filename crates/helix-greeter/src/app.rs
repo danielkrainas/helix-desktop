@@ -1,6 +1,6 @@
 //! The greeter's state and input handling, apart from Wayland: keys and
 //! clicks in, greetd requests and power actions out, and the view the
-//! painter draws (helix-desktop-spec `components/greeter.md`).
+//! painter draws (helixdesktop/spec `components/greeter.md`).
 
 use crate::config::Config;
 use crate::greetd::{Request, Response};

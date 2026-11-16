@@ -5,7 +5,7 @@
 //! thread, through [`Shared`]) and gets back whether the key is grabbed and
 //! which clients to tell; the D-Bus side changes the clients' watches and
 //! grabs and sends the `KeyEvent` signals ([`Report`]).
-//! Contract: helix-desktop-spec `contracts/dbus/org.freedesktop.a11y.KeyboardMonitor.md`.
+//! Contract: helixdesktop/spec `contracts/dbus/org.freedesktop.a11y.KeyboardMonitor.md`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard};

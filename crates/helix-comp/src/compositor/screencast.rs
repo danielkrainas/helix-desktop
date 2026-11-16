@@ -1,4 +1,4 @@
-//! Recording monitors for screen casts (helix-desktop-spec
+//! Recording monitors for screen casts (helixdesktop/spec
 //! `org.gnome.Mutter.ScreenCast.md`): frames of a monitor, rendered
 //! off-screen at most `MAX_FPS` times a second while a consumer streams,
 //! go to the stream's PipeWire node.

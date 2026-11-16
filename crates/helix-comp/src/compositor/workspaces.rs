@@ -1,4 +1,4 @@
-//! Workspaces in the compositor (helix-desktop-spec
+//! Workspaces in the compositor (helixdesktop/spec
 //! `contracts/gsettings/workspaces.md`): which workspace each window is on,
 //! and hiding ("parking") windows that are not on the active one.
 

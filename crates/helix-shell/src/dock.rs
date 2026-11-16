@@ -1,4 +1,4 @@
-//! The dock (helix-desktop-spec `contracts/wayland/README.md`, "Dock"):
+//! The dock (helixdesktop/spec `contracts/wayland/README.md`, "Dock"):
 //! the dash on the desktop, configured with Ubuntu's Dash to Dock
 //! settings (`org.gnome.shell.extensions.dash-to-dock`) when they are
 //! installed.

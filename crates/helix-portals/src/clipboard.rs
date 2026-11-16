@@ -1,7 +1,7 @@
-//! The Clipboard portal backend (helix-desktop-spec
+//! The Clipboard portal backend (helixdesktop/spec
 //! `org.freedesktop.impl.portal.md`, "Clipboard"): remote desktop sessions
 //! share the clipboard through their `org.gnome.Mutter.RemoteDesktop`
-//! session; input capture sessions through their `org.helix.InputCapture`
+//! session; input capture sessions through their `org.helixdesktop.InputCapture`
 //! session.
 
 use std::collections::HashMap;

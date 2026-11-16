@@ -318,7 +318,7 @@ struct Ui {
     /// The app grid's hover changed in this pointer frame (drawn at its
     /// end).
     grid_pending: bool,
-    /// The app grid shows its "Recent" row (`org.helix.shell
+    /// The app grid shows its "Recent" row (`org.helixdesktop.shell
     /// app-grid-recent` and `remember-app-usage`).
     recent_apps: bool,
     /// "Pair New Device…" started Bluetooth discovery.
@@ -599,7 +599,7 @@ enum DialogKind {
     /// Confirm ending the session (`EndSessionDialog`).
     End(EndDialog),
     /// Keep a display configuration change, or go back
-    /// (`org.helix.DisplayChangeDialog`).
+    /// (`org.helixdesktop.DisplayChangeDialog`).
     DisplayChange,
     /// An app does not answer: wait or force it to quit (window id, title).
     NotResponding { id: u32, title: String },
@@ -610,7 +610,7 @@ enum DialogKind {
     RemoteControl { app: String, devices: Vec<String>, reply: Option<tokio::sync::oneshot::Sender<bool>> },
     /// May an extension have what it asks for? (the approval prompt)
     ApproveExtension { name: String, lines: Vec<String>, reply: Option<tokio::sync::oneshot::Sender<bool>> },
-    /// Which monitor to share with an app (`org.helix.ScreenCastChooser`).
+    /// Which monitor to share with an app (`org.helixdesktop.ScreenCastChooser`).
     ShareScreen {
         app: String,
         /// (what, label, detail)
@@ -625,7 +625,7 @@ enum DialogKind {
     },
     /// A password prompt (polkit, keyring).
     Prompt(Box<prompt::PromptView>),
-    /// The file chooser (`org.helix.PortalDialog.ChooseFiles`).
+    /// The file chooser (`org.helixdesktop.PortalDialog.ChooseFiles`).
     Files(Box<file_chooser::ChooserView>),
 }
 
@@ -843,7 +843,7 @@ fn baseline(text: Option<&Text>, top: i32, height: i32, px: f32) -> f32 {
     top as f32 + (height as f32 + cap) / 2.0
 }
 
-/// A text field's box (helix-desktop-spec `components/README.md`, "Text
+/// A text field's box (helixdesktop/spec `components/README.md`, "Text
 /// fields"): rounded, an accent ring while it takes typing, a faint
 /// outline otherwise.
 fn text_field(canvas: &mut Canvas, r: Rect, focused: bool) {
@@ -862,7 +862,7 @@ const CLEAR_HIT: usize = usize::MAX;
 /// The result list's "more" footer (among the result rows' indexes).
 const FOOTER_HIT: usize = usize::MAX - 1;
 
-/// Paint a search field at `r` (helix-desktop-spec `components/README.md`,
+/// Paint a search field at `r` (helixdesktop/spec `components/README.md`,
 /// "Text fields"): a pill with the search symbol at its start, `query`
 /// (else `placeholder`, dimmed) after it at the Entry size, the caret
 /// while `focused`, and a round clear button at its end while there is a
@@ -1010,7 +1010,7 @@ fn workspace_pills_w(count: u32) -> i32 {
 /// Paint the panel (`m`) on a `w`×`h` canvas; returns where each item went.
 fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), m: &PanelModel) -> Vec<(crate::panel_layout::Slot, i32, i32)> {
     canvas.fill(PANEL_BG);
-    // Measure, place, then draw each item (helix-desktop-spec
+    // Measure, place, then draw each item (helixdesktop/spec
     // `contracts/wayland/README.md`, "Panel layout").
     use crate::panel_layout::{Item, Slot};
     let px = size::LABEL;
@@ -2613,7 +2613,7 @@ impl Ui {
         self.lock_next_frame();
     }
 
-    /// Where the monitor with the prompt is (helix-desktop-spec
+    /// Where the monitor with the prompt is (helixdesktop/spec
     /// `contracts/dbus/org.gnome.ScreenSaver.md`, "Monitors"): the one
     /// last clicked, while it is there, else the primary monitor, else
     /// the first.
@@ -2738,7 +2738,7 @@ impl Ui {
         };
         let fonts = lock::LockFonts { text: self.text.as_ref(), bold: self.bold.as_ref(), display: self.display.as_ref() };
         // The lock screen keeps its own type scale (Large Text there is
-        // not done yet; helix-desktop#16).
+        // not done yet; helixdesktop/desktop#16).
         let text_scale = helix_draw::theme::text_scale();
         helix_draw::theme::set_text_scale(1.0);
         let painted = lock::paint(&mut canvas, &fonts, &model, w, h);
@@ -4428,7 +4428,7 @@ fn touch_as_pointer(surface: &wl_surface::WlSurface, position: (f64, f64), kind:
     PointerEvent { surface: surface.clone(), position, kind }
 }
 
-/// Shell surfaces take a tap as a click (helix-desktop-spec
+/// Shell surfaces take a tap as a click (helixdesktop/spec
 /// `contracts/gsettings/input-settings.md`, "Touchscreens"): the first
 /// touch point acts as the left button, others are ignored.
 impl TouchHandler for Ui {
@@ -5494,7 +5494,7 @@ mod tests {
         assert_eq!(at(&lit, rows[1].0), at(&rest, rows[1].0), "other rows stay");
     }
 
-    /// More results than fit (helix-desktop#104): a footer says how many
+    /// More results than fit (helixdesktop/desktop#104): a footer says how many
     /// more and which way, the wheel's scroll shows later rows (never past
     /// the end), and the keyboard's selection brings the list back to it.
     #[test]

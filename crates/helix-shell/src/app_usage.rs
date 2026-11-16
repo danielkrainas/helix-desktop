@@ -1,4 +1,4 @@
-//! App usage (helix-desktop-spec `contracts/gsettings/org.gnome.desktop.privacy.md`,
+//! App usage (helixdesktop/spec `contracts/gsettings/org.gnome.desktop.privacy.md`,
 //! "App usage"): with `remember-app-usage`, launches from the shell are
 //! counted, and the launcher's search ranks often and recently used apps
 //! first among equal matches. The app grid's "Recent" row shows the apps
@@ -132,13 +132,13 @@ pub fn clear_recent() {
     let _ = std::fs::remove_file(recent_path());
 }
 
-/// Whether the app grid shows its "Recent" row: `org.helix.shell
+/// Whether the app grid shows its "Recent" row: `org.helixdesktop.shell
 /// app-grid-recent` (true without the key) and `remember-app-usage`.
 pub fn recent_row_on() -> bool {
     enabled() && helix_settings::Schema::open(HELIX_SCHEMA).get_or("app-grid-recent", true)
 }
 
-const HELIX_SCHEMA: &str = "org.helix.shell";
+const HELIX_SCHEMA: &str = "org.helixdesktop.shell";
 
 /// Tell the shell UI whether the "Recent" row shows, now and whenever
 /// `app-grid-recent` or `remember-app-usage` changes.

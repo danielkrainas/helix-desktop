@@ -1,4 +1,4 @@
-//! The app grid (helix-desktop-spec `contracts/wayland/README.md`, "App
+//! The app grid (helixdesktop/spec `contracts/wayland/README.md`, "App
 //! grid"): the launcher with an empty search, as pages of icons that can
 //! be rearranged and put into folders by dragging. The first page starts
 //! with a "Recent" row: the apps launched last (a Helix addition).
@@ -1006,7 +1006,7 @@ impl GridView {
 
 /// The launcher's app grid as last painted, so that a hover or feedback
 /// change repaints only the cells whose look changed instead of the whole
-/// full-screen launcher (helix-desktop-spec `contracts/wayland/README.md`,
+/// full-screen launcher (helixdesktop/spec `contracts/wayland/README.md`,
 /// "Item feedback").
 pub(super) struct GridCache {
     /// The buffer's size in pixels and the scale it was painted at.

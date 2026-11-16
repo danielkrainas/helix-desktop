@@ -1,4 +1,4 @@
-//! Picking an area and a point with only the keyboard (helix-desktop#97),
+//! Picking an area and a point with only the keyboard (helixdesktop/desktop#97),
 //! end to end: a headless Helix session (helix-comp with helix-shell,
 //! scratch home, private bus); this test asks for an area
 //! (`SelectArea`) and a color (`PickColor`) as an allowed caller, then

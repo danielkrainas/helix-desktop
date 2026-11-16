@@ -1,4 +1,4 @@
-//! Brightness from the ambient light sensor (helix-desktop-spec
+//! Brightness from the ambient light sensor (helixdesktop/spec
 //! `contracts/gsettings/power.md`, "Ambient light"): with
 //! `org.gnome.settings-daemon.plugins.power ambient-enabled`, the screen
 //! follows the light iio-sensor-proxy measures.

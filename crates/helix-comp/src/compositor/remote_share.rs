@@ -1,4 +1,4 @@
-//! Remote desktop clipboard sharing and session keymaps (helix-desktop-spec
+//! Remote desktop clipboard sharing and session keymaps (helixdesktop/spec
 //! `org.gnome.Mutter.RemoteDesktop.md`, "Clipboard" and "Keymaps").
 
 use std::collections::HashMap;

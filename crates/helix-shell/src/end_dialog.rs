@@ -2,7 +2,7 @@
 //! dialog for logging out, restarting and powering off, and for installing
 //! updates while restarting.
 //!
-//! Contract: helix-desktop-spec `org.gnome.SessionManager.EndSessionDialog.xml`
+//! Contract: helixdesktop/spec `org.gnome.SessionManager.EndSessionDialog.xml`
 //! and `.md`. The session manager calls `Open`; the user's answer goes back
 //! as a signal.
 

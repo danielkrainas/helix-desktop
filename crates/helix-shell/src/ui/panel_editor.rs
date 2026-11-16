@@ -1,4 +1,4 @@
-//! "Customize Panel…" (helix-desktop-spec `contracts/wayland/README.md`,
+//! "Customize Panel…" (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Panel layout", "Editing"): a dialog to arrange the panel's items and
 //! the quick settings switches. Each change is written to the keys at once.
 
@@ -124,7 +124,7 @@ impl Ui {
         label(bold.or(text), &mut canvas, tr("Customize Panel"), (bx + PAD) as f32, (by + 36) as f32, size::TITLE, FG, (bw - 2 * PAD) as f32);
         let mut y = by + 56;
         if !saved {
-            label(text, &mut canvas, tr("Changes cannot be saved: the org.helix.shell settings are not installed."), (bx + PAD) as f32, (y + 16) as f32, size::CAPTION, DIM_FG, (bw - 2 * PAD) as f32);
+            label(text, &mut canvas, tr("Changes cannot be saved: the org.helixdesktop.shell settings are not installed."), (bx + PAD) as f32, (y + 16) as f32, size::CAPTION, DIM_FG, (bw - 2 * PAD) as f32);
             y += note_h;
         }
         let mut hits: Vec<(Rect, EditorHit)> = Vec::new();
@@ -194,7 +194,7 @@ impl Ui {
             let radius = if matches!(hit, EditorHit::Reset | EditorHit::Done) { theme::RADIUS_BUTTON } else { f64::from(BUTTON) / 2.0 };
             theme::focus_ring_round(&mut canvas, f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), radius);
         }
-        let nodes = editor_nodes(&columns, &hidden, &hits, overlay.state.focus, (!saved).then(|| tr("Changes cannot be saved: the org.helix.shell settings are not installed.")));
+        let nodes = editor_nodes(&columns, &hidden, &hits, overlay.state.focus, (!saved).then(|| tr("Changes cannot be saved: the org.helixdesktop.shell settings are not installed.")));
         self.atspi_record(overlay.layer.wl_surface(), nodes);
         overlay.hits = hits.into_iter().map(|(r, hit)| (r, OverlayHit::PanelEditor(hit))).collect();
         let surface = overlay.layer.wl_surface();
@@ -298,7 +298,7 @@ impl Ui {
     }
 }
 
-/// "Customize Panel…" on the accessibility bus (helix-desktop-spec
+/// "Customize Panel…" on the accessibility bus (helixdesktop/spec
 /// `contracts/dbus/org.a11y.atspi.md`): a modal `dialog` with one `list`
 /// per column (named by the column) of its items, each a `list item`
 /// holding its buttons (`Move Up`, `Move Down`, `Move Left`, `Move Right`,

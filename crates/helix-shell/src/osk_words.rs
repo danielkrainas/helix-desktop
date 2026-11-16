@@ -1,4 +1,4 @@
-//! The on-screen keyboard's language data (helix-desktop-spec
+//! The on-screen keyboard's language data (helixdesktop/spec
 //! `contracts/gsettings/screen-keyboard.md`, "Languages" and
 //! "Suggestions"): which language a layout types, its word list, word
 //! suggestions, accented letters and currency sign.

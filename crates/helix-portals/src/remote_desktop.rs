@@ -1,4 +1,4 @@
-//! The RemoteDesktop portal backend (helix-desktop-spec
+//! The RemoteDesktop portal backend (helixdesktop/spec
 //! `org.freedesktop.impl.portal.md`, "RemoteDesktop"): asks the user, then
 //! controls the session through `org.gnome.Mutter.RemoteDesktop`. Sessions
 //! share the ScreenCast backend's table, so an app can also pick what to

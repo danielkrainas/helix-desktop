@@ -1,4 +1,4 @@
-//! Extension manifests (helix-desktop-spec `contracts/extensions/README.md`,
+//! Extension manifests (helixdesktop/spec `contracts/extensions/README.md`,
 //! "Manifest").
 
 use helix_i18n::n_;

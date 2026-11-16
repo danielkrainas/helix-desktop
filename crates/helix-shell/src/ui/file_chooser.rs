@@ -1,6 +1,6 @@
-//! The file chooser dialog (helix-desktop-spec
+//! The file chooser dialog (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.impl.portal.md`, "FileChooser",
-//! "Helix"), shown for `org.helix.PortalDialog.ChooseFiles`.
+//! "Helix"), shown for `org.helixdesktop.PortalDialog.ChooseFiles`.
 //!
 //! One dialog surface stays up for the whole choice: going into a folder
 //! swaps the list in place while the folder is read on a worker thread
@@ -2361,7 +2361,7 @@ mod tests {
     }
 
     /// The dialog's place and buttons depend on the screen, never on the
-    /// folder (helix-desktop#116).
+    /// folder (helixdesktop/desktop#116).
     #[test]
     fn layout_is_stable() {
         let home = Path::new("/home/ada");

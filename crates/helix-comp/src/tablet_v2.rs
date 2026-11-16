@@ -1,5 +1,5 @@
 //! Server side of the tablet protocol, `zwp_tablet_manager_v2` version 1
-//! (helix-desktop-spec `contracts/gsettings/input-settings.md`,
+//! (helixdesktop/spec `contracts/gsettings/input-settings.md`,
 //! "Tablets"): tablets, their tools (pens, erasers…) with pressure, tilt
 //! and the other axes, and pads with their buttons, rings, strips and
 //! mode groups.

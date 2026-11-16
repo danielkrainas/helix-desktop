@@ -1,4 +1,4 @@
-//! Animations (helix-desktop-spec `contracts/wayland/README.md`,
+//! Animations (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Animations"): windows fade and grow in when they open, fade and
 //! shrink when they close, shrink towards the dock when minimized; shell
 //! surfaces (overview, menus, dialogs) fade in and out; workspaces slide;

@@ -1,4 +1,4 @@
-//! Night Light's location from GeoClue (helix-desktop-spec
+//! Night Light's location from GeoClue (helixdesktop/spec
 //! `contracts/gsettings/night-light.md`), against a stand-in GeoClue.
 
 use std::sync::{Arc, Mutex};

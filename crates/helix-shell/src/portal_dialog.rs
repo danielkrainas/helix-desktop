@@ -1,5 +1,5 @@
-//! `org.helix.PortalDialog` (helix-desktop-spec
-//! `contracts/dbus/org.helix.PortalDialog.xml`): dialogs and running apps
+//! `org.helixdesktop.PortalDialog` (helixdesktop/spec
+//! `contracts/dbus/org.helixdesktop.PortalDialog.xml`): dialogs and running apps
 //! for Helix's portal backends.
 
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use crate::prompt::{self, Answer, Prompt};
 use crate::UiEvent;
 use helix_i18n::tr;
 
-pub const PATH: &str = "/org/helix/PortalDialog";
+pub const PATH: &str = "/org/helixdesktop/PortalDialog";
 
 /// The index of `selected` among `items` (0 when absent).
 pub fn initial_index(items: &[(String, String)], selected: &str) -> usize {
@@ -82,7 +82,7 @@ impl PortalDialog {
     }
 }
 
-#[interface(name = "org.helix.PortalDialog")]
+#[interface(name = "org.helixdesktop.PortalDialog")]
 impl PortalDialog {
     #[allow(clippy::too_many_arguments)]
     async fn ask(&self, title: String, message: String, description: String, grant_label: String, deny_label: String, check_label: String, check: bool) -> (bool, bool) {

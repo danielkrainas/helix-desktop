@@ -1,4 +1,4 @@
-//! Helix's own interfaces on the accessibility bus (helix-desktop-spec
+//! Helix's own interfaces on the accessibility bus (helixdesktop/spec
 //! `contracts/dbus/org.a11y.atspi.md`): the shell's, and the greeter's.
 //!
 //! The UI describes what each of its surfaces shows as a [`Window`] of

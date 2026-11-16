@@ -80,7 +80,7 @@
     </request>
     <enum name="action" since="4">
       <description summary="window-management actions">
-        See helix-desktop-spec contracts/wayland/README.md, "Window menu and
+        See helixdesktop/spec contracts/wayland/README.md, "Window menu and
         window keys".
       </description>
       <entry name="close" value="0"/>

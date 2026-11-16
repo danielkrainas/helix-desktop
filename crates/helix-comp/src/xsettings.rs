@@ -1,4 +1,4 @@
-//! What X11 apps learn about the desktop (helix-desktop-spec
+//! What X11 apps learn about the desktop (helixdesktop/spec
 //! `contracts/wayland/README.md`, "X11 apps: scaling and settings"): the
 //! Xwayland scale, and the XSETTINGS and X resources Helix publishes
 //! (the freedesktop XSETTINGS specification).

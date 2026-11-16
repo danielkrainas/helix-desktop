@@ -1,4 +1,4 @@
-//! Autostart follows `AutostartCondition=GSettings …` (helix-desktop-spec
+//! Autostart follows `AutostartCondition=GSettings …` (helixdesktop/spec
 //! `org.gnome.SessionManager.md`, "Autostart").
 
 use std::collections::BTreeMap;

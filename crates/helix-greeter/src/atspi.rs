@@ -1,4 +1,4 @@
-//! The login screen on the accessibility bus (helix-desktop-spec
+//! The login screen on the accessibility bus (helixdesktop/spec
 //! `components/greeter.md`, "Accessibility"; `contracts/dbus/org.a11y.atspi.md`):
 //! one window, "Login screen", described from the same [`View`] the
 //! painter draws and the places its last paint left ([`Hits`]). An action

@@ -1,5 +1,5 @@
 //! Where extensions are, which are enabled and approved, their settings
-//! and logs (helix-desktop-spec `contracts/extensions/README.md`).
+//! and logs (helixdesktop/spec `contracts/extensions/README.md`).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::Write;
@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use super::manifest::{self, Manifest, SettingValue};
 
-pub const SCHEMA: &str = "org.helix.extensions";
+pub const SCHEMA: &str = "org.helixdesktop.extensions";
 /// Log lines kept in memory.
 pub const LOG_LINES: usize = 200;
 /// The log file is cut to its last half beyond this.
@@ -74,7 +74,7 @@ pub fn discover(user: &Path, system: &[PathBuf]) -> BTreeMap<String, Found> {
     found
 }
 
-/// `org.helix.extensions`.
+/// `org.helixdesktop.extensions`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Keys {
     pub enabled: Vec<String>,

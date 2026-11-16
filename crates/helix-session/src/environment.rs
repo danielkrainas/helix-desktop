@@ -1,4 +1,4 @@
-//! Publishing the session's launch environment (helix-desktop-spec
+//! Publishing the session's launch environment (helixdesktop/spec
 //! `org.gnome.SessionManager.md`, `Setenv`): to D-Bus activation and to the
 //! systemd user manager, which forgets it again when the session ends.
 
@@ -15,7 +15,7 @@ const SYSTEMD_MANAGER: &str = "org.freedesktop.systemd1.Manager";
 static SET_IN_SYSTEMD: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 
 /// The variables naming this login, published from the session's own
-/// environment (helix-desktop-spec `org.gnome.SessionManager.md`, "The
+/// environment (helixdesktop/spec `org.gnome.SessionManager.md`, "The
 /// login's identity").
 pub const LOGIN_IDENTITY: [&str; 9] = [
     "XDG_SESSION_TYPE",
@@ -70,7 +70,7 @@ pub async fn publish(conn: &Connection, env: &HashMap<&str, &str>) {
     }
 }
 
-/// Start the session's systemd user target (helix-desktop-spec
+/// Start the session's systemd user target (helixdesktop/spec
 /// `org.gnome.SessionManager.md`, "The graphical session target"); not
 /// waited for.
 pub async fn start_target(conn: &Connection, unit: &str) {

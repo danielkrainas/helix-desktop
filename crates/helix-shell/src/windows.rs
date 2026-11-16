@@ -1,6 +1,6 @@
 //! Open windows as the compositor reports them (`helix_window_list_v1`),
 //! most recently focused first, and the switchers' entries and selection
-//! (helix-desktop-spec `contracts/wayland/README.md`, "Window switching").
+//! (helixdesktop/spec `contracts/wayland/README.md`, "Window switching").
 
 use gio::prelude::*;
 use helix_i18n::tr;

@@ -1,5 +1,5 @@
 //! How the app grid's icons and the dock's items answer hovering,
-//! selection, pressing and launching (helix-desktop-spec
+//! selection, pressing and launching (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Item feedback"). Pure timing: callers
 //! paint what [`Feedback::look`] and [`Feedback::ghosts`] say, and keep
 //! redrawing while [`Feedback::moving`] is true.

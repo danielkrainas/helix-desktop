@@ -1,4 +1,4 @@
-//! `org.freedesktop.impl.portal.DynamicLauncher` (helix-desktop-spec
+//! `org.freedesktop.impl.portal.DynamicLauncher` (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.impl.portal.md`, "DynamicLauncher"):
 //! the user sees a launcher's icon and name (and, for a web app, its
 //! address) before an app adds it. The frontend writes the desktop file.

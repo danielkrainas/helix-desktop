@@ -1,4 +1,4 @@
-//! The display switcher against a fake compositor (helix-desktop-spec
+//! The display switcher against a fake compositor (helixdesktop/spec
 //! `org.gnome.Mutter.DisplayConfig.md`, "Display switcher").
 
 use std::time::Duration;

@@ -1,4 +1,4 @@
-//! Removing old Trash and temporary files (helix-desktop-spec
+//! Removing old Trash and temporary files (helixdesktop/spec
 //! `contracts/gsettings/org.gnome.desktop.privacy.md`, "Old files"), as
 //! `org.gnome.desktop.privacy` `remove-old-trash-files`,
 //! `remove-old-temp-files` and `old-files-age` ask.

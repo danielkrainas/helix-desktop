@@ -1,4 +1,4 @@
-//! Edge tiling (helix-desktop-spec `contracts/wayland/README.md`,
+//! Edge tiling (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Tiling"): while a window is dragged with `edge-tiling` on, touching a
 //! monitor's left, right or top edge previews the half (or the whole work
 //! area) it would fill; releasing there tiles (or maximizes) it.

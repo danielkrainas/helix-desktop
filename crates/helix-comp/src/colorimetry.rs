@@ -1,4 +1,4 @@
-//! Colorimetry for color-managed surfaces (helix-desktop-spec
+//! Colorimetry for color-managed surfaces (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Color management"): named primaries
 //! and transfer functions, and the conversion from a surface's image
 //! description into the compositor's composition space (BT.709 primaries,

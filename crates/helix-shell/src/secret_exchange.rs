@@ -1,4 +1,4 @@
-//! gcr's `sx-aes-1` secret exchange (helix-desktop-spec
+//! gcr's `sx-aes-1` secret exchange (helixdesktop/spec
 //! `org.gnome.keyring.internal.Prompter.md`, "Secret exchange"): DH in the
 //! RFC 3526 1536-bit group, HKDF-SHA256, AES-128-CBC with PKCS#7.
 

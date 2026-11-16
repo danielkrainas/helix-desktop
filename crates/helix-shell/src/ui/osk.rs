@@ -1,4 +1,4 @@
-//! The on-screen keyboard (helix-desktop-spec
+//! The on-screen keyboard (helixdesktop/spec
 //! `contracts/gsettings/screen-keyboard.md`): shown while a text field
 //! has focus and `screen-keyboard-enabled` is on; types through the input
 //! method.
@@ -904,7 +904,7 @@ pub(super) fn key_name(kind: &KeyKind, page: Page, (shift, caps): (bool, bool)) 
     }
 }
 
-/// The on-screen keyboard on the accessibility bus (helix-desktop-spec
+/// The on-screen keyboard on the accessibility bus (helixdesktop/spec
 /// `contracts/dbus/org.a11y.atspi.md`): the suggestion bar (or a
 /// letter's accents) as buttons, then a `Keyboard` group of the keys where
 /// they were painted (`hits`): character keys are buttons named by the

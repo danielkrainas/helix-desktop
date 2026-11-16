@@ -1,4 +1,4 @@
-//! A stylus's eraser button (helix-desktop-spec
+//! A stylus's eraser button (helixdesktop/spec
 //! `contracts/gsettings/input-settings.md`, "Tablets"): libinput 1.29
 //! added a setting that makes the firmware eraser button send a stylus
 //! button instead of turning the pen into an eraser. Helix builds against

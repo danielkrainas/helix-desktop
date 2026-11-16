@@ -1,4 +1,4 @@
-//! Buffer synchronization (helix-desktop-spec `contracts/wayland/README.md`,
+//! Buffer synchronization (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Explicit sync"): commits of GPU buffers wait for their acquire point
 //! (`wp_linux_drm_syncobj_v1`) or implicit dmabuf fences.
 

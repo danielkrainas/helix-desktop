@@ -1,4 +1,4 @@
-//! The scale each surface should draw at (helix-desktop-spec
+//! The scale each surface should draw at (helixdesktop/spec
 //! `org.gnome.Mutter.DisplayConfig.md`, "Supported scales"): the exact
 //! scale of its monitor through the fractional-scale protocol, and the next
 //! whole scale as the `wl_surface` preferred buffer scale.

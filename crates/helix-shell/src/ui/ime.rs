@@ -1,4 +1,4 @@
-//! The session's input method (helix-desktop-spec
+//! The session's input method (helixdesktop/spec
 //! `contracts/gsettings/input-settings.md`, "Input methods"): while an
 //! `ibus` source is active and a text field has focus, keys go to IBus
 //! (`crate::ibus`), its text goes to the app over `zwp_input_method_v2`,

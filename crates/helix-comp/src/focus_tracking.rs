@@ -1,5 +1,5 @@
 //! Keyboard focus and the text caret, for the magnifier
-//! (helix-desktop-spec `contracts/gsettings/a11y-magnifier.md`, "Focus
+//! (helixdesktop/spec `contracts/gsettings/a11y-magnifier.md`, "Focus
 //! and caret"): followed on the accessibility bus (AT-SPI) while the
 //! magnifier wants them.
 

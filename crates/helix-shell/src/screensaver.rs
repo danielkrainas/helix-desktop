@@ -1,6 +1,6 @@
 //! `org.gnome.ScreenSaver`: lock state and locking.
 //!
-//! Contract: `helix-desktop-spec/contracts/dbus/org.gnome.ScreenSaver.xml`
+//! Contract: `helixdesktop/spec/contracts/dbus/org.gnome.ScreenSaver.xml`
 //! and `.md`. The lock itself is drawn by the shell UI on
 //! `ext-session-lock-v1`; this object tracks state and asks the UI to lock.
 

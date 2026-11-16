@@ -1,7 +1,7 @@
 //! Server side of the private `helix_screenshot_v1` protocol: the shell asks
 //! for screen, area or window captures; the compositor renders them
 //! off-screen and writes PNG images to the file descriptors it was given
-//! (helix-desktop-spec `contracts/wayland/README.md`, "Screen capture").
+//! (helixdesktop/spec `contracts/wayland/README.md`, "Screen capture").
 //!
 //! Requests queue up and are rendered when a renderer is at hand (the
 //! nested backend's next frame, or right away on bare hardware). Encoding

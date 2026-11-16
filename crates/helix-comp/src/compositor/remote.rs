@@ -1,4 +1,4 @@
-//! Remote desktop input (helix-desktop-spec
+//! Remote desktop input (helixdesktop/spec
 //! `org.gnome.Mutter.RemoteDesktop.md`): input injected over D-Bus or by
 //! EIS clients, applied as if from a device.
 

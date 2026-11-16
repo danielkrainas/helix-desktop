@@ -1,5 +1,5 @@
-//! The app grid's "Recent" row and its settings (helix-desktop-spec
-//! `contracts/gsettings/org.helix.shell.md`, `app-grid-recent`, and
+//! The app grid's "Recent" row and its settings (helixdesktop/spec
+//! `contracts/gsettings/org.helixdesktop.shell.md`, `app-grid-recent`, and
 //! `contracts/gsettings/org.gnome.desktop.privacy.md`, "App usage"):
 //! launches are kept as recent apps only while `remember-app-usage` is
 //! on, the row shows only while both keys are on, and the shell is told
@@ -24,8 +24,8 @@ fn recent_row_follows_its_settings() {
     let tmp = std::env::temp_dir().join(format!("helix-recent-row-{}", std::process::id()));
     let schemas = tmp.join("schemas");
     std::fs::create_dir_all(&schemas).unwrap();
-    let data = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/org.helix.shell.gschema.xml");
-    std::fs::copy(data, schemas.join("org.helix.shell.gschema.xml")).unwrap();
+    let data = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/org.helixdesktop.shell.gschema.xml");
+    std::fs::copy(data, schemas.join("org.helixdesktop.shell.gschema.xml")).unwrap();
     let Ok(status) = std::process::Command::new("glib-compile-schemas").arg(&schemas).status() else {
         eprintln!("glib-compile-schemas is not installed; skipping");
         return;
@@ -39,7 +39,7 @@ fn recent_row_follows_its_settings() {
     }
     helix_settings::prepare_gio();
     let has_privacy = helix_settings::has_schema(PRIVACY);
-    let shell = helix_settings::Schema::open("org.helix.shell");
+    let shell = helix_settings::Schema::open("org.helixdesktop.shell");
     assert_eq!(shell.get::<bool>("app-grid-recent"), Some(true), "on by default");
     assert!(app_usage::recent_row_on());
 

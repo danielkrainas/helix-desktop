@@ -1,4 +1,4 @@
-//! The app grid's layout (helix-desktop-spec `contracts/wayland/README.md`,
+//! The app grid's layout (helixdesktop/spec `contracts/wayland/README.md`,
 //! "App grid"): pages of apps and folders, kept in
 //! `org.gnome.shell app-picker-layout`.
 

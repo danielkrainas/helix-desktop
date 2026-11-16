@@ -1,4 +1,4 @@
-//! Switching to another user (helix-desktop-spec
+//! Switching to another user (helixdesktop/spec
 //! `contracts/gsettings/org.gnome.desktop.lockdown.md`, "User switching"):
 //! the display manager shows its login screen while this session stays,
 //! locked.

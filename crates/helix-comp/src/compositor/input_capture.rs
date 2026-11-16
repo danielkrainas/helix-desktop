@@ -1,5 +1,5 @@
-//! Input capture in the compositor (helix-desktop-spec
-//! `contracts/dbus/org.helix.InputCapture.xml`): barriers, the capture
+//! Input capture in the compositor (helixdesktop/spec
+//! `contracts/dbus/org.helixdesktop.InputCapture.xml`): barriers, the capture
 //! itself, and the EIS client the captured input goes to.
 
 use std::cell::RefCell;

@@ -1,5 +1,5 @@
 //! Status icons registered with the shell's StatusNotifierWatcher on a
-//! test bus (helix-desktop-spec
+//! test bus (helixdesktop/spec
 //! `contracts/dbus/org.kde.StatusNotifierItem.md`).
 
 use std::time::Duration;

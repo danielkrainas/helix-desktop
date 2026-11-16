@@ -1,4 +1,4 @@
-//! The background of the lock and login screens (helix-desktop-spec
+//! The background of the lock and login screens (helixdesktop/spec
 //! `contracts/gsettings/background.md`, "Lock screen"): the picture
 //! blurred and toned so that text drawn on it stays readable.
 //!

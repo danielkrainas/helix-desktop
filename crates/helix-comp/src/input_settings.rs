@@ -1,5 +1,5 @@
 //! Keyboard and pointing device settings from GSettings, as the compositor
-//! applies them (helix-desktop-spec `contracts/gsettings/input-settings.md`).
+//! applies them (helixdesktop/spec `contracts/gsettings/input-settings.md`).
 
 use gio::prelude::*;
 

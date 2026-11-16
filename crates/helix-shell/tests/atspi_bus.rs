@@ -1,4 +1,4 @@
-//! The shell's windows on a private accessibility bus (helix-desktop-spec
+//! The shell's windows on a private accessibility bus (helixdesktop/spec
 //! `contracts/dbus/org.a11y.atspi.md`): a fake `org.a11y.Bus` on a test
 //! session bus hands out a second test bus as the accessibility bus, with
 //! a fake registry on it; a client there reads the tree over AT-SPI and

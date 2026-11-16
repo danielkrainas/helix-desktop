@@ -1,4 +1,4 @@
-//! Window-management settings in action (helix-desktop-spec
+//! Window-management settings in action (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Window-management settings"): focus
 //! following the pointer, auto-raise, modifier clicks, where new windows
 //! and dialogs go, bells and locating the pointer.

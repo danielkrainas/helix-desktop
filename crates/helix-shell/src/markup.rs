@@ -1,4 +1,4 @@
-//! Notification body markup (helix-desktop-spec
+//! Notification body markup (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.Notifications.md`, "Body markup"):
 //! `<b>`, `<i>`, `<u>`, `<a href>` and entities, into styled spans.
 

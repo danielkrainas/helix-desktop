@@ -1,4 +1,4 @@
-//! The screen reader on the login screen (helix-desktop-spec
+//! The screen reader on the login screen (helixdesktop/spec
 //! `components/greeter.md`, "Accessibility"): Orca, started by the
 //! greeter as its own child with the greeter's environment (so on the
 //! greeter's session bus and accessibility bus), and stopped by its own

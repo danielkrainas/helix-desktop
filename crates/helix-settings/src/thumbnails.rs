@@ -1,4 +1,4 @@
-//! File previews (helix-desktop-spec `contracts/dbus/org.freedesktop.impl.portal.md`,
+//! File previews (helixdesktop/spec `contracts/dbus/org.freedesktop.impl.portal.md`,
 //! "FileChooser"): text files, pictures, and other files through the
 //! freedesktop thumbnail cache and the installed thumbnailers.
 

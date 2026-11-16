@@ -1,4 +1,4 @@
-id = "org.helix.example.Calendar"
+id = "org.helixdesktop.example.Calendar"
 name = "Calendar"
 description = "This month in a popover. An example of a panel item with a popover."
 version = "1.0"

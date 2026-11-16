@@ -19,7 +19,7 @@ struct Dialogs {
     calls: Calls,
 }
 
-#[zbus::interface(name = "org.helix.PortalDialog")]
+#[zbus::interface(name = "org.helixdesktop.PortalDialog")]
 impl Dialogs {
     async fn dialog(&self, options: HashMap<String, OwnedValue>) -> (u32, HashMap<String, OwnedValue>) {
         let rows: Vec<String> = options.get("rows").and_then(|v| Vec::<String>::try_from(v.clone()).ok()).unwrap_or_default();
@@ -81,7 +81,7 @@ async fn shortcuts_flow() {
     let calls: Calls = Arc::default();
     let shell = bus
         .builder()
-        .serve_at("/org/helix/PortalDialog", Dialogs { calls: calls.clone() })
+        .serve_at("/org/helixdesktop/PortalDialog", Dialogs { calls: calls.clone() })
         .unwrap()
         .serve_at("/org/gnome/Shell", Shell { calls: calls.clone(), next: Mutex::new(0) })
         .unwrap()

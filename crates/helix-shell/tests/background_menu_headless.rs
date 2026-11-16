@@ -1,4 +1,4 @@
-//! The desktop background's menu end to end (helix-desktop-spec
+//! The desktop background's menu end to end (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Background menu"): in a headless Helix
 //! session (helix-comp with helix-shell, scratch home, private bus) a
 //! right click on the background opens "Change Background…", "Display

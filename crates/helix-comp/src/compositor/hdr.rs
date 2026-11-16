@@ -1,4 +1,4 @@
-//! HDR monitors (helix-desktop-spec `org.gnome.Mutter.DisplayConfig.md`,
+//! HDR monitors (helixdesktop/spec `org.gnome.Mutter.DisplayConfig.md`,
 //! "Color modes"): a monitor in the BT.2100 color mode is drawn as usual
 //! into an offscreen half-float texture (which keeps what is brighter than
 //! SDR white), then drawn through a shader that converts it to PQ with

@@ -1,4 +1,4 @@
-//! The approval prompt (helix-desktop-spec `contracts/extensions/README.md`,
+//! The approval prompt (helixdesktop/spec `contracts/extensions/README.md`,
 //! "Approval prompt"): `Enable(id, true)` from another program asks the
 //! user before an extension's permissions are approved.
 

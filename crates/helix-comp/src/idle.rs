@@ -1,6 +1,6 @@
 //! IdleMonitor rules, independent of D-Bus and of the compositor.
 //!
-//! Behavior: `helix-desktop-spec/contracts/dbus/org.gnome.Mutter.IdleMonitor.md`.
+//! Behavior: `helixdesktop/spec/contracts/dbus/org.gnome.Mutter.IdleMonitor.md`.
 //! Times are milliseconds on a monotonic clock supplied by the caller.
 
 use std::collections::BTreeMap;

@@ -1,4 +1,4 @@
-//! Unresponsive apps (helix-desktop-spec `contracts/wayland/README.md`,
+//! Unresponsive apps (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Unresponsive apps"): ping an app (Wayland, or X11 with `_NET_WM_PING`)
 //! when its window gets focus,
 //! and have the shell ask whether to wait or force it to quit when it does

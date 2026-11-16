@@ -1,4 +1,4 @@
-//! gcr's system prompter (helix-desktop-spec
+//! gcr's system prompter (helixdesktop/spec
 //! `org.gnome.keyring.internal.Prompter.md`): keyring and other gcr
 //! password prompts, in the shell's prompt dialog.
 

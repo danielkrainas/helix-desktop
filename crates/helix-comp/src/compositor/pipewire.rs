@@ -1,4 +1,4 @@
-//! PipeWire video sources for screen casting (helix-desktop-spec
+//! PipeWire video sources for screen casting (helixdesktop/spec
 //! `org.gnome.Mutter.ScreenCast.md`): one thread runs PipeWire's loop and
 //! the streams; the compositor sends it frames.
 //!

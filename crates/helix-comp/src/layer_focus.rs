@@ -1,5 +1,5 @@
 //! Keyboard focus for layer-shell surfaces (`zwlr_layer_surface_v1`
-//! `keyboard_interactivity`; helix-desktop-spec `contracts/wayland/README.md`,
+//! `keyboard_interactivity`; helixdesktop/spec `contracts/wayland/README.md`,
 //! "Shell surfaces and the keyboard").
 
 /// A layer surface's `keyboard_interactivity`.

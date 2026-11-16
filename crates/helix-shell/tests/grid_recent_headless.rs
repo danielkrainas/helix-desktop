@@ -1,4 +1,4 @@
-//! The app grid's "Recent" row end to end (helix-desktop-spec
+//! The app grid's "Recent" row end to end (helixdesktop/spec
 //! `contracts/wayland/README.md`, "App grid", "Recent row"): in a headless
 //! Helix session (helix-comp with helix-shell, scratch home, private bus)
 //! two apps are launched by clicking them in the grid; the grid opened

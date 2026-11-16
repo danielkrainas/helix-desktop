@@ -1,6 +1,6 @@
 //! `org.freedesktop.impl.portal.Inhibit` backend.
 //!
-//! Contract: `helix-desktop-spec/contracts/dbus/org.freedesktop.impl.portal.Inhibit.xml`
+//! Contract: `helixdesktop/spec/contracts/dbus/org.freedesktop.impl.portal.Inhibit.xml`
 //! (+ `.Request.xml`, `.Session.xml`, `org.freedesktop.impl.portal.md`).
 //!
 //! Each portal inhibition becomes an `org.gnome.SessionManager` inhibitor

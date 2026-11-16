@@ -177,7 +177,7 @@ meant for developers are not translated.
 
 ## Tooling shared with helix-apps
 
-[helix-apps](https://github.com/danielkrainas/helix-apps) has a copy of
+[helixdesktop/apps](https://github.com/helixdesktop/apps) has a copy of
 these tools in its own `tools/i18n/` for the apps' domains. The two copies
 are kept in step by hand:
 

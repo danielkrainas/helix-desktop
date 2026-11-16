@@ -1,4 +1,4 @@
-//! `wp_cursor_shape_manager_v1` (helix-desktop-spec
+//! `wp_cursor_shape_manager_v1` (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Cursor shapes"): apps name a cursor
 //! shape instead of drawing one, for the pointer and for tablet tools
 //! (Helix's own tablet protocol objects, `tablet_v2`).

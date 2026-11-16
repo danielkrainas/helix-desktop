@@ -1,5 +1,5 @@
-//! The panel's layout (helix-desktop-spec `contracts/wayland/README.md`,
-//! "Panel layout"; keys in `contracts/gsettings/org.helix.shell.md`):
+//! The panel's layout (helixdesktop/spec `contracts/wayland/README.md`,
+//! "Panel layout"; keys in `contracts/gsettings/org.helixdesktop.shell.md`):
 //! which items each zone shows, and where they go.
 
 use tokio::sync::mpsc;
@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use crate::UiEvent;
 use helix_i18n::{n_, tr};
 
-pub const SCHEMA: &str = "org.helix.shell";
+pub const SCHEMA: &str = "org.helixdesktop.shell";
 
 /// A built-in panel item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

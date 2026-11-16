@@ -2,7 +2,7 @@
 
 **Helix** is a Rust desktop environment that begins with compatibility against GNOME’s public contracts and is designed to evolve beyond them.
 
-This repository is the implementation. The living specification and contracts live in [helix-desktop-spec](https://github.com/danielkrainas/helix-desktop-spec).
+This repository is the implementation. The living specification and contracts live in [helixdesktop/spec](https://github.com/helixdesktop/spec).
 
 ## Status
 
@@ -41,12 +41,12 @@ What you get:
   screen readers, high contrast, reduced motion and Large Text.
 - **Extensions**: a Helix-native extension API (see "Extensions").
 
-The companion [helix-apps](https://github.com/danielkrainas/helix-apps)
+The companion [helixdesktop/apps](https://github.com/helixdesktop/apps)
 repository provides Helix's own core applications (Files, Terminal,
 Text Editor, Settings, Web and more); stock GNOME applications work too.
 
 Known gaps are tracked as
-[issues](https://github.com/danielkrainas/helix-desktop/issues) (labels
+[issues](https://github.com/helixdesktop/desktop/issues) (labels
 `gap` and `needs-hardware`), and summarised in the spec's
 `gnome-compatibility.md`. The most visible ones today:
 
@@ -89,19 +89,19 @@ data/               # Helix GSettings schemas
 session/            # session file, startup units and scripts
 greeter/            # greetd configuration for the login screen
 packaging/          # nfpm package definitions and staging
-tests/contract/     # conformance tests against helix-desktop-spec
+tests/contract/     # conformance tests against helixdesktop/spec
 ```
 
-Contracts are defined in the companion [helix-desktop-spec](https://github.com/danielkrainas/helix-desktop-spec) repository.
+Contracts are defined in the companion [helixdesktop/spec](https://github.com/helixdesktop/spec) repository.
 
 ## Installing and using Helix
 
 1. Install the packages from a
-   [release](https://github.com/danielkrainas/helix-desktop/releases)
+   [release](https://github.com/helixdesktop/desktop/releases)
    (or build them, see "Releases and packages"): `helix-desktop`, plus
    `helix-desktop-full`, which pulls in Helix's applications
    (`helix-apps`, from its own
-   [releases](https://github.com/danielkrainas/helix-apps/releases)),
+   [releases](https://github.com/helixdesktop/apps/releases)),
    Xwayland, xdg-desktop-portal, the GNOME schemas, dconf and PipeWire.
    The package manager must be able to find `helix-apps`, so install it
    in the same step. On Debian/Ubuntu:
@@ -163,8 +163,8 @@ PipeWire bindings are generated with libclang; without the `clang` package,
 point it at GCC's headers instead, e.g.
 `BINDGEN_EXTRA_CLANG_ARGS=-I/usr/lib/gcc/x86_64-linux-gnu/13/include`.
 
-Helix has its own GSettings schemas in `data/`: `org.helix.shell` (the
-panel layout and quick settings switches) and `org.helix.extensions`
+Helix has its own GSettings schemas in `data/`: `org.helixdesktop.shell` (the
+panel layout and quick settings switches) and `org.helixdesktop.extensions`
 (which extensions are on). Packages install it, and
 the distribution compiles it. To run from the source tree, compile it
 somewhere and point GSettings at it; without it the shell uses the
@@ -213,14 +213,14 @@ by family: `session/pam.d/helix` (Debian/Ubuntu) or
 Helix extensions add panel items (with popovers they draw themselves),
 quick settings toggles and sliders, dock items (that take dropped files),
 commands with keys, and menus. Each runs as its own program, talking to the shell over a
-private D-Bus connection (the API is in helix-desktop-spec
+private D-Bus connection (the API is in helixdesktop/spec
 `contracts/extensions/`). Write one in Rust with the `helix-extension`
 crate (`crates/helix-extension`), or in any language with D-Bus.
 
 ```sh
 cargo build --examples
 # Run an example without installing it (Ctrl+C stops it):
-helix-extensions run crates/helix-extension/examples/extensions/org.helix.example.Counter
+helix-extensions run crates/helix-extension/examples/extensions/org.helixdesktop.example.Counter
 # Install and turn on an extension:
 helix-extensions install ./my-extension
 helix-extensions enable org.example.MyExtension

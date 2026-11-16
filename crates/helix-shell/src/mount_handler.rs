@@ -1,4 +1,4 @@
-//! `org.Gtk.MountOperationHandler` (helix-desktop-spec
+//! `org.Gtk.MountOperationHandler` (helixdesktop/spec
 //! `contracts/dbus/org.gtk.MountOperationHandler.md`): GTK apps' mount
 //! operations (passwords for shares and encrypted disks, questions, apps
 //! keeping a disk busy) ask the user through the shell's dialog.

@@ -12,7 +12,7 @@ section: x11
 priority: optional
 maintainer: Daniel Krainas
 vendor: Helix
-homepage: https://github.com/danielkrainas/helix-desktop
+homepage: https://helixdesktop.org
 license: CC0-1.0
 description: |-
   Helix desktop session
@@ -41,8 +41,8 @@ contents:
   # action.
   - src: ./stage/usr/libexec/helix/helix-login-monitors
     dst: /usr/libexec/helix/helix-login-monitors
-  - src: ./stage/usr/share/polkit-1/actions/org.helix.login-screen-monitors.policy
-    dst: /usr/share/polkit-1/actions/org.helix.login-screen-monitors.policy
+  - src: ./stage/usr/share/polkit-1/actions/org.helixdesktop.login-screen-monitors.policy
+    dst: /usr/share/polkit-1/actions/org.helixdesktop.login-screen-monitors.policy
   # AppArmor (Debian/Ubuntu, Arch): lets extension sandboxes start where
   # unprivileged user namespaces are restricted. Fedora has no AppArmor.
   - src: ./stage/etc/apparmor.d/helix-extension-sandbox
@@ -74,10 +74,10 @@ contents:
     dst: /usr/lib/systemd/user/xdg-document-portal.service.d/50-helix-oomd-avoid.conf
   - src: ./stage/usr/lib/systemd/user/xdg-permission-store.service.d/50-helix-oomd-avoid.conf
     dst: /usr/lib/systemd/user/xdg-permission-store.service.d/50-helix-oomd-avoid.conf
-  - src: ./stage/usr/share/glib-2.0/schemas/org.helix.shell.gschema.xml
-    dst: /usr/share/glib-2.0/schemas/org.helix.shell.gschema.xml
-  - src: ./stage/usr/share/glib-2.0/schemas/org.helix.extensions.gschema.xml
-    dst: /usr/share/glib-2.0/schemas/org.helix.extensions.gschema.xml
+  - src: ./stage/usr/share/glib-2.0/schemas/org.helixdesktop.shell.gschema.xml
+    dst: /usr/share/glib-2.0/schemas/org.helixdesktop.shell.gschema.xml
+  - src: ./stage/usr/share/glib-2.0/schemas/org.helixdesktop.extensions.gschema.xml
+    dst: /usr/share/glib-2.0/schemas/org.helixdesktop.extensions.gschema.xml
   - src: ./stage/usr/share/doc/helix-desktop/README.md
     dst: /usr/share/doc/helix-desktop/README.md
   - src: ./stage/usr/share/licenses/helix-desktop/LICENSE

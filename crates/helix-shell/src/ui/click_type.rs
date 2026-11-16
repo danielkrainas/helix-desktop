@@ -1,4 +1,4 @@
-//! The dwell click type window (helix-desktop-spec
+//! The dwell click type window (helixdesktop/spec
 //! `contracts/gsettings/a11y-mouse.md`, "Click type window"): four
 //! buttons along the right edge choosing what the next dwell does.
 
@@ -124,7 +124,7 @@ impl Ui {
     }
 }
 
-/// The click type window on the accessibility bus (helix-desktop-spec
+/// The click type window on the accessibility bus (helixdesktop/spec
 /// `contracts/dbus/org.a11y.atspi.md`): a `Click Type` radio group of
 /// the four types, the current one checked.
 pub(super) fn click_type_nodes(current: &str, hits: &[(Rect, usize)]) -> Vec<crate::a11y::Node> {

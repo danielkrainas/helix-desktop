@@ -1,4 +1,4 @@
-//! What the file chooser lists (helix-desktop-spec
+//! What the file chooser lists (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.impl.portal.md`, "FileChooser"):
 //! folders, places, recently used files and search results.
 //!

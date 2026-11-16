@@ -1,4 +1,4 @@
-//! Offline updates for the end-session dialog (helix-desktop-spec
+//! Offline updates for the end-session dialog (helixdesktop/spec
 //! `org.gnome.SessionManager.EndSessionDialog.md`, "Updates"): what
 //! PackageKit has prepared, and asking it to install that while the
 //! computer restarts or powers off.

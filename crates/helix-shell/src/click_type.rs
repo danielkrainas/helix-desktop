@@ -1,7 +1,7 @@
-//! The dwell click type window's data (helix-desktop-spec
+//! The dwell click type window's data (helixdesktop/spec
 //! `contracts/gsettings/a11y-mouse.md`, "Click type window"): when the
 //! settings want it, and the compositor's current click type
-//! (`org.helix.ClickType`).
+//! (`org.helixdesktop.ClickType`).
 
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
@@ -11,8 +11,8 @@ use crate::UiEvent;
 
 pub const SCHEMA: &str = "org.gnome.desktop.a11y.mouse";
 const BUS: &str = "org.gnome.Mutter.DisplayConfig";
-const PATH: &str = "/org/helix/ClickType";
-const INTERFACE: &str = "org.helix.ClickType";
+const PATH: &str = "/org/helixdesktop/ClickType";
+const INTERFACE: &str = "org.helixdesktop.ClickType";
 
 /// Whether the window shows: dwell click on, in the `window` mode, with
 /// `click-type-window-visible`.

@@ -1,4 +1,4 @@
-//! Windows wanting attention (helix-desktop-spec
+//! Windows wanting attention (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Windows wanting attention"): an
 //! activation Helix does not grant, an X11 urgency hint or
 //! `_NET_WM_STATE_DEMANDS_ATTENTION` marks the window until it gets focus;

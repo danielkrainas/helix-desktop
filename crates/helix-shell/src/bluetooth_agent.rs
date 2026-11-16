@@ -1,4 +1,4 @@
-//! BlueZ's pairing agent (helix-desktop-spec
+//! BlueZ's pairing agent (helixdesktop/spec
 //! `contracts/dbus/org.bluez.Agent1.md`): shows and asks for pairing codes,
 //! and authorizes devices.
 
@@ -15,7 +15,7 @@ use crate::UiEvent;
 use helix_i18n::tr;
 use helix_i18n::trf;
 
-pub const AGENT_PATH: &str = "/org/helix/BluetoothAgent";
+pub const AGENT_PATH: &str = "/org/helixdesktop/BluetoothAgent";
 const BLUEZ: &str = "org.bluez";
 const CAPABILITY: &str = "KeyboardDisplay";
 

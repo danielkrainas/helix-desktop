@@ -1,4 +1,4 @@
-//! The weather in the message tray (helix-desktop-spec
+//! The weather in the message tray (helixdesktop/spec
 //! `contracts/gsettings/calendar.md`, "Weather"): MET Norway's location
 //! forecast for the first configured location.
 

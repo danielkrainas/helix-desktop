@@ -22,7 +22,7 @@ version = "0.1.0"
 edition = "2021"
 license = "CC0-1.0"
 authors = ["Daniel Krainas"]
-repository = "https://github.com/danielkrainas/helix-desktop"
+repository = "https://github.com/helixdesktop/desktop"
 
 [workspace.dependencies]
 zbus = { version = "5.19", default-features = false, features = ["tokio", "p2p"] }

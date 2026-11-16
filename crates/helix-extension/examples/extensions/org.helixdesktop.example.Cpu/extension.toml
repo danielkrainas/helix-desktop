@@ -1,4 +1,4 @@
-id = "org.helix.example.Cpu"
+id = "org.helixdesktop.example.Cpu"
 name = "Processor"
 description = "A graph of the processor's use. An example of a panel item with a graph."
 version = "1.0"

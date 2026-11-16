@@ -1,4 +1,4 @@
-//! The polkit agent over a private bus, with a fake helper (helix-desktop-spec
+//! The polkit agent over a private bus, with a fake helper (helixdesktop/spec
 //! `org.freedesktop.PolicyKit1.AuthenticationAgent.md`).
 
 use std::collections::HashMap;
@@ -49,7 +49,7 @@ async fn begin_with(conn: &zbus::Connection, cookie: &str, root: bool) -> zbus::
         identities.push(("unix-user", HashMap::from([("uid", Value::from(0u32))])));
     }
     conn.call_method(
-        Some("org.helix.TestAgent"),
+        Some("org.helixdesktop.TestAgent"),
         AGENT_PATH,
         Some("org.freedesktop.PolicyKit1.AuthenticationAgent"),
         "BeginAuthentication",
@@ -77,7 +77,7 @@ async fn authenticates_through_the_helper() {
     unsafe { std::env::set_var("HELIX_POLKIT_HELPER", &helper) };
 
     let (ui_tx, mut ui) = tokio::sync::mpsc::unbounded_channel();
-    let _agent = bus.builder().serve_at(AGENT_PATH, Agent::new(ui_tx)).unwrap().name("org.helix.TestAgent").unwrap().build().await.unwrap();
+    let _agent = bus.builder().serve_at(AGENT_PATH, Agent::new(ui_tx)).unwrap().name("org.helixdesktop.TestAgent").unwrap().build().await.unwrap();
     let polkit = bus.builder().name("org.freedesktop.PolicyKit1").unwrap().build().await.unwrap();
     let stranger = bus.connect().await;
 
@@ -123,7 +123,7 @@ async fn authenticates_through_the_helper() {
     });
     let shown = prompt(&mut ui).await;
     polkit
-        .call_method(Some("org.helix.TestAgent"), AGENT_PATH, Some("org.freedesktop.PolicyKit1.AuthenticationAgent"), "CancelAuthentication", &("c3",))
+        .call_method(Some("org.helixdesktop.TestAgent"), AGENT_PATH, Some("org.freedesktop.PolicyKit1.AuthenticationAgent"), "CancelAuthentication", &("c3",))
         .await
         .unwrap();
     assert_eq!(error_name(call.await.unwrap()), "org.freedesktop.PolicyKit1.Error.Cancelled");

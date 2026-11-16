@@ -202,7 +202,7 @@ pub enum Trailing {
     Busy(Option<f64>),
 }
 
-/// A password entry (helix-desktop-spec `components/README.md`, "Text
+/// A password entry (helixdesktop/spec `components/README.md`, "Text
 /// fields"): rounded, an accent ring while it takes typing, a faint
 /// outline otherwise; dots for the characters, a caret after them.
 #[derive(Debug, Clone, Copy, PartialEq)]

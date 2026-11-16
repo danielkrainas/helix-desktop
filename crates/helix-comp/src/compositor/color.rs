@@ -1,4 +1,4 @@
-//! `wp_color_manager_v1` for Helix (helix-desktop-spec
+//! `wp_color_manager_v1` for Helix (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Color management"): the protocol is
 //! `helix_comp::color_management`; here are the monitors' descriptions.
 

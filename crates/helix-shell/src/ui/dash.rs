@@ -1,4 +1,4 @@
-//! The dash in the overview (helix-desktop-spec `contracts/wayland/README.md`,
+//! The dash in the overview (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Favorites and app folders").
 
 use helix_draw::Image;

@@ -15,7 +15,7 @@
 //! pre-connected socket), which is what lets it bind global keys through
 //! the private `helix_keybindings_v1` protocol. It is restarted when it
 //! exits, except with `--exit-with-shell`: then a shell that exits with
-//! status 0 ends the compositor (the greeter, helix-desktop-spec
+//! status 0 ends the compositor (the greeter, helixdesktop/spec
 //! `components/greeter.md`, exits that way once the login is done).
 //!
 //! Serves `org.gnome.Mutter.IdleMonitor` and `org.gnome.Mutter.DisplayConfig`

@@ -1,4 +1,4 @@
-//! A small client of the freedesktop Secret Service API (helix-desktop-spec
+//! A small client of the freedesktop Secret Service API (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.NetworkManager.SecretAgent.md`,
 //! "Agent-owned secrets"): plain sessions, searching, storing and
 //! deleting items of the default collection.

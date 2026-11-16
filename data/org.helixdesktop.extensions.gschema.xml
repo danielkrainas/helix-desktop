@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Helix's extension settings (helix-desktop-spec
-     contracts/gsettings/org.helix.extensions.md). -->
+<!-- Helix's extension settings (helixdesktop/spec
+     contracts/gsettings/org.helixdesktop.extensions.md). -->
 <schemalist>
-  <schema id="org.helix.extensions" path="/org/helix/extensions/">
+  <schema id="org.helixdesktop.extensions" path="/org/helixdesktop/extensions/">
     <key name="enabled" type="as">
       <default>[]</default>
       <summary>Extensions turned on</summary>

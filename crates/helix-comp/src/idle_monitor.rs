@@ -1,6 +1,6 @@
 //! `org.gnome.Mutter.IdleMonitor` D-Bus interface over [`IdleCore`].
 //!
-//! Contract: `helix-desktop-spec/contracts/dbus/org.gnome.Mutter.IdleMonitor.xml`
+//! Contract: `helixdesktop/spec/contracts/dbus/org.gnome.Mutter.IdleMonitor.xml`
 //! and `org.gnome.Mutter.IdleMonitor.md`.
 
 use std::sync::{Arc, Mutex, MutexGuard};

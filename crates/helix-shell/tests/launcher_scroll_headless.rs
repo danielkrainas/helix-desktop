@@ -1,4 +1,4 @@
-//! The launcher's results scroll with the pointer (helix-desktop#104),
+//! The launcher's results scroll with the pointer (helixdesktop/desktop#104),
 //! end to end: a headless Helix session (helix-comp with helix-shell,
 //! scratch home, private bus) at Large Text (text scale 1.5), with thirty
 //! apps of the test's own that match a search. Touchpad scrolling over

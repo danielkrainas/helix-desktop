@@ -1,5 +1,5 @@
 //! Painting the greeter: a pure function of the [`View`] into a
-//! [`Canvas`] (helix-desktop-spec `components/greeter.md`, "What the
+//! [`Canvas`] (helixdesktop/spec `components/greeter.md`, "What the
 //! screen shows"). The look follows the lock screen's: a centered column,
 //! text fields as in "Text fields" (`components/README.md`); buttons,
 //! menus and keys are `helix_draw::theme`'s.
@@ -1014,7 +1014,7 @@ mod tests {
         helix_draw::accent::set(Accent::Blue);
     }
 
-    /// The greeter in the environment's locale (helix-desktop-spec
+    /// The greeter in the environment's locale (helixdesktop/spec
     /// `components/i18n.md`): `HELIX_LOCALEDIR`, `LANGUAGE`, `LANG` (and
     /// `LOCPATH`) pick the catalogue, the clock's names and the sessions'
     /// `Name[xx]`; a right-to-left translation mirrors the screen.

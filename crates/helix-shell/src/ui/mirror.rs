@@ -1,4 +1,4 @@
-//! Mirrored surfaces for right-to-left languages (helix-desktop-spec
+//! Mirrored surfaces for right-to-left languages (helixdesktop/spec
 //! `components/i18n.md`, "Right-to-left languages").
 //!
 //! A surface the shell lays out itself (the panel, menus, dialogs,

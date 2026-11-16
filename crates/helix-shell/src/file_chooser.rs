@@ -1,6 +1,6 @@
-//! The file chooser (helix-desktop-spec
+//! The file chooser (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.impl.portal.md`, "FileChooser",
-//! "Helix"): what `org.helix.PortalDialog.ChooseFiles` asks for, and the
+//! "Helix"): what `org.helixdesktop.PortalDialog.ChooseFiles` asks for, and the
 //! parts of the dialog that do not draw (rows, type-ahead, the path bar's
 //! folders, the name field's editing, how sizes and dates read). The
 //! dialog itself is `ui/file_chooser.rs`; it browses folders itself, so

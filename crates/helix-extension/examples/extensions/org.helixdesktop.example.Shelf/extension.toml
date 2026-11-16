@@ -1,4 +1,4 @@
-id = "org.helix.example.Shelf"
+id = "org.helixdesktop.example.Shelf"
 name = "Shelf"
 description = "Keeps files dropped on it. An example of a dock item."
 version = "1.0"

@@ -1,5 +1,5 @@
 //! Holding Shift at login turns extensions off for the session
-//! (helix-desktop-spec `contracts/extensions/README.md`, "Enabling,
+//! (helixdesktop/spec `contracts/extensions/README.md`, "Enabling,
 //! approving and placing"): the compositor reads the keyboards' held keys
 //! when it first starts the shell, and tells the shell.
 

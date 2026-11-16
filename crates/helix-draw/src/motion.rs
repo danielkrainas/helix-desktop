@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-/// How much may move (helix-desktop-spec `a11y-interface.md`):
+/// How much may move (helixdesktop/spec `a11y-interface.md`):
 /// `org.gnome.desktop.interface enable-animations` and
 /// `org.gnome.desktop.a11y.interface reduced-motion`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

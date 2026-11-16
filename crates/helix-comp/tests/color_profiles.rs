@@ -1,5 +1,5 @@
 //! Monitors as colord devices, and their profiles' calibration curves
-//! (helix-desktop-spec `org.gnome.Mutter.DisplayConfig.md`, "Color
+//! (helixdesktop/spec `org.gnome.Mutter.DisplayConfig.md`, "Color
 //! profiles"), against a fake colord on a private bus. No real monitor or
 //! profile is involved.
 

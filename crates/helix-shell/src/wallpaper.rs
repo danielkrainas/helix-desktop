@@ -1,4 +1,4 @@
-//! The background picture (helix-desktop-spec
+//! The background picture (helixdesktop/spec
 //! `contracts/gsettings/background.md`): settings, decoding, slideshows and
 //! where the picture goes on a monitor.
 

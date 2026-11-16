@@ -1,4 +1,4 @@
-//! The magnifier on screen (helix-desktop-spec
+//! The magnifier on screen (helixdesktop/spec
 //! `contracts/gsettings/a11y-magnifier.md`): every monitor's elements
 //! scaled up and moved so the part around the pointer shows.
 
@@ -136,7 +136,7 @@ impl RenderElement<GlesRenderer> for Effected {
     }
 }
 
-/// The magnifier's color effects (helix-desktop-spec `a11y-magnifier.md`).
+/// The magnifier's color effects (helixdesktop/spec `a11y-magnifier.md`).
 const EFFECT_SHADER: &str = r#"#version 100
 //_DEFINES_
 #if defined(EXTERNAL)

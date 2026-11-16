@@ -1,4 +1,4 @@
-//! Automatic rotation of the built-in panel (helix-desktop-spec
+//! Automatic rotation of the built-in panel (helixdesktop/spec
 //! `org.gnome.Mutter.DisplayConfig.md`, "Automatic rotation").
 
 use futures_util::StreamExt;

@@ -1,4 +1,4 @@
-//! The dock on the desktop (helix-desktop-spec `contracts/wayland/README.md`,
+//! The dock on the desktop (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Dock"): favorites and running apps, drives, the trash and Show Apps,
 //! on a screen edge, hiding as its settings say.
 

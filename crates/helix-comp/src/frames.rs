@@ -1,4 +1,4 @@
-//! Title bars Helix draws for X11 windows (helix-desktop-spec
+//! Title bars Helix draws for X11 windows (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Window frames"): their settings, layout
 //! and hit testing. The compositor draws them and handles the clicks.
 

@@ -1,4 +1,4 @@
-//! The polkit authentication agent (helix-desktop-spec
+//! The polkit authentication agent (helixdesktop/spec
 //! `org.freedesktop.PolicyKit1.AuthenticationAgent.md`).
 
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ use crate::UiEvent;
 use helix_i18n::{n_, tr};
 use helix_i18n::trf;
 
-pub const AGENT_PATH: &str = "/org/helix/PolicyKit1/AuthenticationAgent";
+pub const AGENT_PATH: &str = "/org/helixdesktop/PolicyKit1/AuthenticationAgent";
 const POLKIT: &str = "org.freedesktop.PolicyKit1";
 const AUTHORITY_PATH: &str = "/org/freedesktop/PolicyKit1/Authority";
 const AUTHORITY: &str = "org.freedesktop.PolicyKit1.Authority";

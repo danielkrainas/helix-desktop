@@ -1,4 +1,4 @@
-//! The window menu (helix-desktop-spec `contracts/wayland/README.md`,
+//! The window menu (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Window menu and window keys"): drawn by the shell where the compositor
 //! says, its choices carried out by the compositor.
 
@@ -216,7 +216,7 @@ impl Ui {
     }
 
     /// The panel's input source menu, below its indicator at `x`
-    /// (helix-desktop-spec `contracts/gsettings/input-settings.md`,
+    /// (helixdesktop/spec `contracts/gsettings/input-settings.md`,
     /// "Input source indicator").
     pub(super) fn show_sources_menu(&mut self, x: i32) {
         let sources = crate::input_sources::current();
@@ -709,7 +709,7 @@ impl WindowMenu {
     }
 }
 
-/// A shell menu on the accessibility bus (helix-desktop-spec
+/// A shell menu on the accessibility bus (helixdesktop/spec
 /// `contracts/dbus/org.a11y.atspi.md`, "Menus"): a `menu` named `title`
 /// of its entries where they were painted (`hits`), separators between.
 /// Check box entries are check menu items, radio entries (input sources,

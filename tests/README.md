@@ -2,19 +2,19 @@
 
 Contract and integration tests for Helix.
 
-## `contract/` — conformance against helix-desktop-spec
+## `contract/` — conformance against helixdesktop/spec
 
 `cargo test -p helix-contract-tests` starts each D-Bus service on a private
 bus, introspects it, and compares the result with the contract XML in
-[helix-desktop-spec](https://github.com/danielkrainas/helix-desktop-spec). It
+[helixdesktop/spec](https://github.com/helixdesktop/spec). It
 fails on:
 
 - contract members that are missing or have a different signature,
 - exported members that are not in the contract,
 - entries in a test's `KNOWN_UNIMPLEMENTED` list that are now implemented.
 
-The spec is found at `../helix-desktop-spec` (a sibling checkout) or at
-`$HELIX_SPEC_DIR`.
+The spec is found at `$HELIX_SPEC_DIR`, or else in a sibling checkout,
+`../spec` (or `../helix-desktop-spec`, its former name).
 
 The GSettings check compares the installed schemas with the spec's key
 tables, which describe GNOME 51. A key with a different type fails; a key

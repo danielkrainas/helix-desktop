@@ -1,4 +1,4 @@
-//! The headless backend ignores tearing hints safely (helix-desktop-spec
+//! The headless backend ignores tearing hints safely (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Tearing"): the real `helix-comp`
 //! headless offers `wp_tearing_control_v1`; a full-screen client asking
 //! for `async` keeps being shown frame after frame (the snapshot follows

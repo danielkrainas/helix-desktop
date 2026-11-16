@@ -1,4 +1,4 @@
-//! X11 apps' scale and settings (helix-desktop-spec
+//! X11 apps' scale and settings (helixdesktop/spec
 //! `contracts/wayland/README.md`, "X11 apps: scaling and settings"):
 //! Xwayland's coordinate space is scaled by Smithay's client scale, and
 //! Helix is the XSETTINGS manager of Xwayland's screen (as

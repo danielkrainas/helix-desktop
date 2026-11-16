@@ -1,5 +1,5 @@
 //! System status from fake NetworkManager, BlueZ, UPower and
-//! power-profiles-daemon services (helix-desktop-spec
+//! power-profiles-daemon services (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Quick settings", "System status").
 
 use std::collections::HashMap;

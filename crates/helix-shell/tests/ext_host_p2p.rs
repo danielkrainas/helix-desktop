@@ -1,4 +1,4 @@
-//! The extension host and the SDK over a socket pair (helix-desktop-spec
+//! The extension host and the SDK over a socket pair (helixdesktop/spec
 //! `contracts/extensions/README.md`): Hello, permissions, settings, items
 //! reaching the panel, and clicks reaching the extension.
 
@@ -127,7 +127,7 @@ async fn host_and_sdk() {
     })
     .await;
     assert_eq!(entries[0].label, "Reset");
-    host.act("org.example.Test/count", Action::MenuChosen { menu: "/org/helix/Extension/menu/m".into(), id: 1 }).await;
+    host.act("org.example.Test/count", Action::MenuChosen { menu: "/org/helixdesktop/Extension/menu/m".into(), id: 1 }).await;
     assert_eq!(ext.next_event().await, Some(Event::MenuActivated { menu: "m".into(), id: 1 }));
     // Setting changes reach it too.
     host.set_setting("org.example.Test", "step", manifest::SettingValue::Int(4)).unwrap();
@@ -156,20 +156,20 @@ async fn host_and_sdk() {
         reply.body().deserialize().unwrap()
     }
     use helix_test_support::conformance::{assert_conformant, check, load_dbus_contract};
-    let host_side = introspect(ext.connection(), "/org/helix/Extension1/Host").await;
-    let iface = "org.helix.Extension1.Host";
-    assert_conformant(iface, &check(iface, &load_dbus_contract("../extensions/org.helix.Extension1.Host.xml"), &host_side, &[]));
+    let host_side = introspect(ext.connection(), "/org/helixdesktop/Extension1/Host").await;
+    let iface = "org.helixdesktop.Extension1.Host";
+    assert_conformant(iface, &check(iface, &load_dbus_contract("../extensions/org.helixdesktop.Extension1.Host.xml"), &host_side, &[]));
     let shell = host.connection_of("org.example.Test").unwrap();
     for (path, iface, file) in [
-        ("/org/helix/Extension/panel_item/count", "org.helix.Extension1.PanelItem", "PanelItem"),
-        ("/org/helix/Extension/toggle/toggle", "org.helix.Extension1.Toggle", "Toggle"),
-        ("/org/helix/Extension/slider/level", "org.helix.Extension1.Slider", "Slider"),
-        ("/org/helix/Extension/menu/m", "org.helix.Extension1.Menu", "Menu"),
-        ("/org/helix/Extension/dock_item/shelf_item", "org.helix.Extension1.DockItem", "DockItem"),
-        ("/org/helix/Extension/commands", "org.helix.Extension1.Commands", "Commands"),
+        ("/org/helixdesktop/Extension/panel_item/count", "org.helixdesktop.Extension1.PanelItem", "PanelItem"),
+        ("/org/helixdesktop/Extension/toggle/toggle", "org.helixdesktop.Extension1.Toggle", "Toggle"),
+        ("/org/helixdesktop/Extension/slider/level", "org.helixdesktop.Extension1.Slider", "Slider"),
+        ("/org/helixdesktop/Extension/menu/m", "org.helixdesktop.Extension1.Menu", "Menu"),
+        ("/org/helixdesktop/Extension/dock_item/shelf_item", "org.helixdesktop.Extension1.DockItem", "DockItem"),
+        ("/org/helixdesktop/Extension/commands", "org.helixdesktop.Extension1.Commands", "Commands"),
     ] {
         let xml = introspect(&shell, path).await;
-        assert_conformant(iface, &check(iface, &load_dbus_contract(&format!("../extensions/org.helix.Extension1.{file}.xml")), &xml, &[]));
+        assert_conformant(iface, &check(iface, &load_dbus_contract(&format!("../extensions/org.helixdesktop.Extension1.{file}.xml")), &xml, &[]));
     }
     let _ = std::fs::remove_dir_all(&tmp);
 }

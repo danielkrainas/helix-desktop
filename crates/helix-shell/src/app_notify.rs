@@ -1,4 +1,4 @@
-//! Per-application notification settings (helix-desktop-spec
+//! Per-application notification settings (helixdesktop/spec
 //! `org.freedesktop.Notifications.md`, "Per-application settings").
 
 use gio::prelude::*;

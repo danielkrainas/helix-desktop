@@ -1,4 +1,4 @@
-//! Mouse accessibility (helix-desktop-spec `contracts/gsettings/a11y-mouse.md`):
+//! Mouse accessibility (helixdesktop/spec `contracts/gsettings/a11y-mouse.md`):
 //! simulated secondary click and dwell click. A pure state machine:
 //! pointer events and clock ticks in, [`Out`]s out.
 

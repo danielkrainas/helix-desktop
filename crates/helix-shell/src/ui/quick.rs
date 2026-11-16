@@ -1,4 +1,4 @@
-//! The quick settings menu (helix-desktop-spec `contracts/wayland/README.md`,
+//! The quick settings menu (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Quick settings"): volume, brightness, switches and the power actions,
 //! under the panel's Power button.
 
@@ -63,7 +63,7 @@ pub(super) enum Switch {
 }
 
 impl Switch {
-    /// Its id in `org.helix.shell` `quick-settings` (built-in ones).
+    /// Its id in `org.helixdesktop.shell` `quick-settings` (built-in ones).
     pub(super) fn id(self) -> &'static str {
         match self {
             Switch::Ext(_) => "",
@@ -421,7 +421,7 @@ impl Ui {
         if !locked {
             available.extend(self.ext.toggles.iter().enumerate().map(|(i, t)| (Switch::Ext(i), t.title.clone(), t.full_id.clone())));
         }
-        // In the order of `org.helix.shell` `quick-settings`; Power Mode
+        // In the order of `org.helixdesktop.shell` `quick-settings`; Power Mode
         // after them.
         let mut switches = ordered_switches(available, &self.panel_keys.quick);
         if !self.status.profiles.is_empty() {

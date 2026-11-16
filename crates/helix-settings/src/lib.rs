@@ -14,7 +14,7 @@
 //!   be older than this build (Helix's own schemas after a partial upgrade):
 //!   a missing key gives the built-in default instead of aborting.
 //!
-//! Key contracts: `helix-desktop-spec/contracts/gsettings/`.
+//! Key contracts: `helixdesktop/spec/contracts/gsettings/`.
 
 pub mod convert;
 pub mod file_index;

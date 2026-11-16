@@ -13,7 +13,7 @@ use tracing_subscriber::EnvFilter;
 
 fn main() -> ExitCode {
     // The locale and translations of the portals' own dialogs
-    // (helix-desktop-spec components/i18n.md), before any thread starts.
+    // (helixdesktop/spec components/i18n.md), before any thread starts.
     helix_i18n::init();
     tracing_subscriber::fmt()
         .with_env_filter(

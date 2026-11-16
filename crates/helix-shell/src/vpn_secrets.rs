@@ -1,4 +1,4 @@
-//! VPN secrets for NetworkManager's secret agent (helix-desktop-spec
+//! VPN secrets for NetworkManager's secret agent (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.NetworkManager.SecretAgent.md`, "VPN
 //! secrets"): each VPN plugin's auth dialog says which secrets to ask
 //! for (external UI mode) or asks itself; the shell asks in its prompt.

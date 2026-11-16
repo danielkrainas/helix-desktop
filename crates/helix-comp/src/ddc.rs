@@ -1,4 +1,4 @@
-//! External monitors' brightness over DDC/CI (helix-desktop-spec
+//! External monitors' brightness over DDC/CI (helixdesktop/spec
 //! `org.gnome.Mutter.DisplayConfig.md`, "Backlight"): the MCCS brightness
 //! control (VCP code 0x10), read and written over the I²C bus the kernel
 //! exposes for each DRM connector.

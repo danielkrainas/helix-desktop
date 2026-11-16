@@ -1,7 +1,7 @@
 //! Helix shell.
 //!
 //! - [`ShellService`] serves `org.gnome.Shell` (contract:
-//!   `helix-desktop-spec/contracts/dbus/org.gnome.Shell.xml` and `.md`).
+//!   `helixdesktop/spec/contracts/dbus/org.gnome.Shell.xml` and `.md`).
 //! - Requests that need UI (OSD, overview) are published as [`UiEvent`]s for
 //!   the shell UI.
 
@@ -113,7 +113,7 @@ pub const ACTION_MODE_LOCK_SCREEN: u32 = 4;
 pub const GRAB_TRIGGER_RELEASE: u32 = 128;
 pub const OBJECT_PATH: &str = "/org/gnome/Shell";
 /// The GNOME version whose surface Helix implements (see
-/// helix-desktop-spec `gnome-compatibility.md`).
+/// helixdesktop/spec `gnome-compatibility.md`).
 pub const SHELL_VERSION: &str = "51.0";
 
 /// An on-screen display request.
@@ -157,7 +157,7 @@ pub enum UiEvent {
     IconTheme,
     /// The accessibility switches changed (or were read at start).
     A11y(a11y_menu::Status),
-    /// The panel layout keys (`org.helix.shell`).
+    /// The panel layout keys (`org.helixdesktop.shell`).
     PanelLayout(panel_layout::Keys),
     /// Apps' status icons, in the order they registered.
     Tray(Vec<tray::Item>),
@@ -213,7 +213,7 @@ pub enum UiEvent {
     Break(Option<wellbeing::BreakView>),
     /// `org.gnome.desktop.notifications show-banners` changed.
     DoNotDisturb(bool),
-    /// Whether the app grid shows its "Recent" row (`org.helix.shell
+    /// Whether the app grid shows its "Recent" row (`org.helixdesktop.shell
     /// app-grid-recent` and `remember-app-usage`; read at start and
     /// whenever either changes).
     RecentApps(bool),
@@ -257,7 +257,7 @@ pub enum UiEvent {
     /// A file's preview for the file chooser (`None`: it cannot be
     /// shown).
     FilePreview(String, Option<Preview>),
-    /// Show the file chooser (`org.helix.PortalDialog.ChooseFiles`).
+    /// Show the file chooser (`org.helixdesktop.PortalDialog.ChooseFiles`).
     ChooseFiles(file_chooser::RequestSlot),
     /// What the file chooser asked to list (`serial` of the request), or
     /// why it cannot be.
@@ -1483,7 +1483,7 @@ pub fn screensaver_flag(key: &str, default: bool) -> bool {
 }
 
 /// Whether the administrator turned `key` of `org.gnome.desktop.lockdown`
-/// on (helix-desktop-spec `contracts/gsettings/org.gnome.desktop.lockdown.md`).
+/// on (helixdesktop/spec `contracts/gsettings/org.gnome.desktop.lockdown.md`).
 pub fn locked_down(key: &str) -> bool {
     const LOCKDOWN: &str = "org.gnome.desktop.lockdown";
     helix_settings::has_schema(LOCKDOWN) && helix_settings::Settings::new(LOCKDOWN).boolean(key)

@@ -1,4 +1,4 @@
-//! The laptop lid (helix-desktop-spec `contracts/gsettings/power.md`,
+//! The laptop lid (helixdesktop/spec `contracts/gsettings/power.md`,
 //! "Power button and lid"): closing it with another monitor on turns the
 //! built-in panel off; opening it brings the configuration back.
 

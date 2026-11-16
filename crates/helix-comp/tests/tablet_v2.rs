@@ -1,4 +1,4 @@
-//! `zwp_tablet_manager_v2` (helix-desktop-spec
+//! `zwp_tablet_manager_v2` (helixdesktop/spec
 //! `contracts/gsettings/input-settings.md`, "Tablets") between Helix's
 //! server side and a real Wayland client, in-process. No tablet hardware
 //! is involved: the test plays the compositor and tells the server about

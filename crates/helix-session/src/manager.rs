@@ -1,6 +1,6 @@
 //! `org.gnome.SessionManager` D-Bus interface.
 //!
-//! Contract: `helix-desktop-spec/contracts/dbus/org.gnome.SessionManager.xml`
+//! Contract: `helixdesktop/spec/contracts/dbus/org.gnome.SessionManager.xml`
 //! (value semantics in `org.gnome.SessionManager.md` next to it).
 //!
 //! This is a thin adapter: rules live in [`crate::state::SessionState`].
@@ -48,7 +48,7 @@ impl Default for SessionInfo {
 /// Errors returned to D-Bus callers.
 ///
 /// GNOME does not document its error names; Helix's are namespaced under
-/// `org.gnome.SessionManager.Error` (helix-desktop-spec
+/// `org.gnome.SessionManager.Error` (helixdesktop/spec
 /// `contracts/dbus/org.gnome.SessionManager.md`).
 #[derive(Debug, DBusError)]
 #[zbus(prefix = "org.gnome.SessionManager.Error")]

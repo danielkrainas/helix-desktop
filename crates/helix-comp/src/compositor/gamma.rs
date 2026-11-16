@@ -1,5 +1,5 @@
 //! Gamma ramps and color transformation matrices per monitor (DisplayConfig
-//! `GetCrtcGamma` / `SetCrtcGamma` / `SetOutputCTM`, helix-desktop-spec
+//! `GetCrtcGamma` / `SetCrtcGamma` / `SetOutputCTM`, helixdesktop/spec
 //! `org.gnome.Mutter.DisplayConfig.md`, "Gamma" and "Color transformation
 //! matrix"): sent to the CRTC on bare hardware, kept (without effect) when
 //! nested.

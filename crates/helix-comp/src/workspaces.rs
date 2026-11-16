@@ -1,4 +1,4 @@
-//! Workspaces (helix-desktop-spec `contracts/gsettings/workspaces.md`):
+//! Workspaces (helixdesktop/spec `contracts/gsettings/workspaces.md`):
 //! how many there are and which is active, given the settings and which
 //! workspace each window is on. The compositor shows and hides windows.
 

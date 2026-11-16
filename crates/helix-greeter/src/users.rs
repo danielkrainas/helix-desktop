@@ -1,4 +1,4 @@
-//! The people who can log in (helix-desktop-spec `components/greeter.md`,
+//! The people who can log in (helixdesktop/spec `components/greeter.md`,
 //! "User list"): AccountsService's cached users that are not system
 //! accounts, else the ordinary accounts in `/etc/passwd`.
 

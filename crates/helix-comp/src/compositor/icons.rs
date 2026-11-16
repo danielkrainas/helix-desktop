@@ -1,5 +1,5 @@
 //! Window icons apps set (`xdg_toplevel_icon_manager_v1`), passed on to the
-//! shell's window list (helix-desktop-spec `contracts/wayland/README.md`,
+//! shell's window list (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Window icons" and "Window switching").
 //! The protocol itself is `helix_comp::toplevel_icon`.
 

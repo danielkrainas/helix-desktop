@@ -1,6 +1,6 @@
-//! Running extensions (helix-desktop-spec `contracts/extensions/README.md`):
+//! Running extensions (helixdesktop/spec `contracts/extensions/README.md`):
 //! starting each in its own process with a private D-Bus connection,
-//! serving it `org.helix.Extension1.Host`, following its items, and
+//! serving it `org.helixdesktop.Extension1.Host`, following its items, and
 //! restarting or stopping it.
 
 use std::collections::{BTreeMap, HashMap};
@@ -19,14 +19,14 @@ use super::manifest::{self, Activation, Manifest, SettingValue, Zone};
 use super::store::{self, Found, Kind, Log};
 use crate::UiEvent;
 
-pub const HOST_PATH: &str = "/org/helix/Extension1/Host";
-const IFACE_PANEL: &str = "org.helix.Extension1.PanelItem";
-const IFACE_TOGGLE: &str = "org.helix.Extension1.Toggle";
-const IFACE_SLIDER: &str = "org.helix.Extension1.Slider";
-const IFACE_MENU: &str = "org.helix.Extension1.Menu";
-const IFACE_DOCK: &str = "org.helix.Extension1.DockItem";
-const IFACE_COMMANDS: &str = "org.helix.Extension1.Commands";
-const COMMANDS_PATH: &str = "/org/helix/Extension/commands";
+pub const HOST_PATH: &str = "/org/helixdesktop/Extension1/Host";
+const IFACE_PANEL: &str = "org.helixdesktop.Extension1.PanelItem";
+const IFACE_TOGGLE: &str = "org.helixdesktop.Extension1.Toggle";
+const IFACE_SLIDER: &str = "org.helixdesktop.Extension1.Slider";
+const IFACE_MENU: &str = "org.helixdesktop.Extension1.Menu";
+const IFACE_DOCK: &str = "org.helixdesktop.Extension1.DockItem";
+const IFACE_COMMANDS: &str = "org.helixdesktop.Extension1.Commands";
+const COMMANDS_PATH: &str = "/org/helixdesktop/Extension/commands";
 /// Calls to items wait this long.
 const CALL_TIMEOUT: Duration = Duration::from_millis(250);
 /// From start to `Hello`.
@@ -168,7 +168,7 @@ pub struct Snapshot {
     pub commands: Vec<CommandView>,
 }
 
-/// A menu entry from `org.helix.Extension1.Menu`.
+/// A menu entry from `org.helixdesktop.Extension1.Menu`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuEntry {
     pub id: i32,
@@ -295,7 +295,7 @@ fn systemd_user() -> bool {
 /// An item's object path: `-` in its id becomes `_` (D-Bus paths have
 /// no `-`).
 fn item_path(kind: &str, id: &str) -> String {
-    format!("/org/helix/Extension/{kind}/{}", id.replace('-', "_"))
+    format!("/org/helixdesktop/Extension/{kind}/{}", id.replace('-', "_"))
 }
 
 impl ExtHost {
@@ -1591,14 +1591,14 @@ async fn uninhibit(session: &Connection, cookie: u32) {
     let _ = session.call_method(Some("org.gnome.SessionManager"), "/org/gnome/SessionManager", Some("org.gnome.SessionManager"), "Uninhibit", &(cookie,)).await;
 }
 
-/// `org.helix.Extension1.Host`, on one extension's connection.
+/// `org.helixdesktop.Extension1.Host`, on one extension's connection.
 pub struct HostIface {
     host: ExtHost,
     id: String,
     generation: u64,
 }
 
-#[zbus::interface(name = "org.helix.Extension1.Host")]
+#[zbus::interface(name = "org.helixdesktop.Extension1.Host")]
 impl HostIface {
     fn hello(&self, api_version: String) -> zbus::fdo::Result<(String, Vec<String>, HashMap<String, OwnedValue>)> {
         let minor = match api_version.split_once('.') {

@@ -1,4 +1,4 @@
-//! Remembered configurations from the system-wide file (helix-desktop-spec
+//! Remembered configurations from the system-wide file (helixdesktop/spec
 //! `org.gnome.Mutter.DisplayConfig.md`, "Remembered configurations"),
 //! against a fake compositor: the greeter's case, where the greeter user
 //! has no layout of its own.

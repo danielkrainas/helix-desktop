@@ -1,5 +1,5 @@
 //! The AppChooser backend's `UpdateChoices` against a fake shell, on a test
-//! bus (helix-desktop-spec `org.freedesktop.impl.portal.md`, "AppChooser").
+//! bus (helixdesktop/spec `org.freedesktop.impl.portal.md`, "AppChooser").
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -23,7 +23,7 @@ struct Shared {
 
 struct Shell(Arc<Shared>);
 
-#[zbus::interface(name = "org.helix.PortalDialog")]
+#[zbus::interface(name = "org.helixdesktop.PortalDialog")]
 impl Shell {
     async fn choose_app(&self, _title: String, _message: String, items: Items, _selected: String) -> String {
         *self.0.shown.lock().unwrap() = Some(items);
@@ -47,7 +47,7 @@ async fn choices_change_while_open() {
         return;
     }
     let shared = Arc::new(Shared::default());
-    let _shell = bus.builder().serve_at("/org/helix/PortalDialog", Shell(shared.clone())).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
+    let _shell = bus.builder().serve_at("/org/helixdesktop/PortalDialog", Shell(shared.clone())).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
     let session = SessionService::start(bus.builder()).await.unwrap();
     let _session = tokio::spawn(session.run(std::future::pending()));
     let settings: Arc<Mutex<Snapshot>> = Arc::new(Mutex::new(BTreeMap::new()));

@@ -1,4 +1,4 @@
-//! The GlobalShortcuts portal backend (helix-desktop-spec
+//! The GlobalShortcuts portal backend (helixdesktop/spec
 //! `org.freedesktop.impl.portal.md`, "GlobalShortcuts"): asks the user,
 //! then binds the app's shortcuts through the shell's `GrabAccelerators`
 //! and passes their presses and releases on.

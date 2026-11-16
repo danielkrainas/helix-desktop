@@ -1,4 +1,4 @@
-//! Input capture (helix-desktop-spec `contracts/dbus/org.helix.InputCapture.xml`):
+//! Input capture (helixdesktop/spec `contracts/dbus/org.helixdesktop.InputCapture.xml`):
 //! the compositor's side of the InputCapture portal. A session's pointer
 //! barriers, on monitor edges, start a capture when the pointer crosses
 //! one; while captured, input goes to the session's EIS client instead of
@@ -16,8 +16,8 @@ use zbus::{fdo, interface, Connection};
 use crate::remote_desktop::{mime_types, ClipboardRequest, RemoteReply, RemoteRequest};
 use crate::screencast::CastRequest;
 
-pub const BUS_NAME: &str = "org.helix.InputCapture";
-pub const OBJECT_PATH: &str = "/org/helix/InputCapture";
+pub const BUS_NAME: &str = "org.helixdesktop.InputCapture";
+pub const OBJECT_PATH: &str = "/org/helixdesktop/InputCapture";
 /// Keyboard and pointer.
 pub const CAPABILITIES: u32 = 1 | 2;
 
@@ -130,7 +130,7 @@ pub struct InputCapture {
     pub compositor: Option<mpsc::UnboundedSender<CastRequest>>,
 }
 
-#[interface(name = "org.helix.InputCapture")]
+#[interface(name = "org.helixdesktop.InputCapture")]
 impl InputCapture {
     async fn create_session(
         &self,
@@ -215,7 +215,7 @@ pub fn sessions_of(shared: &Shared, owner: &str) -> Vec<u32> {
     lock(shared).owners.iter().filter(|(_, o)| o.as_str() == owner).map(|(id, _)| *id).collect()
 }
 
-#[interface(name = "org.helix.InputCapture.Session")]
+#[interface(name = "org.helixdesktop.InputCapture.Session")]
 impl Session {
     async fn get_zones(&self, #[zbus(header)] header: Header<'_>) -> fdo::Result<(u32, Vec<Zone>)> {
         self.check_owner(&header)?;

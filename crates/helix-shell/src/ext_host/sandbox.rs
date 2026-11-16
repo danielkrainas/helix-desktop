@@ -1,4 +1,4 @@
-//! Extension sandboxes (helix-desktop-spec `contracts/extensions/README.md`,
+//! Extension sandboxes (helixdesktop/spec `contracts/extensions/README.md`,
 //! "Sandboxes", API 1.2): the bubblewrap command line for a sandboxed
 //! extension.
 

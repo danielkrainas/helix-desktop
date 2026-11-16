@@ -1,4 +1,4 @@
-//! The workspace switch popup (helix-desktop-spec
+//! The workspace switch popup (helixdesktop/spec
 //! `contracts/gsettings/workspaces.md`, "Indicator"): shown for a moment
 //! when a key switches workspaces.
 
@@ -155,7 +155,7 @@ impl Ui {
     }
 }
 
-/// The workspace popup on the accessibility bus (helix-desktop-spec
+/// The workspace popup on the accessibility bus (helixdesktop/spec
 /// `contracts/dbus/org.a11y.atspi.md`): the workspace switched to as a
 /// live status (announced), and the boxes as a list of the workspaces,
 /// the active one selected; `w` is the surface's width.

@@ -1,9 +1,9 @@
 //! `org.freedesktop.impl.portal.ScreenCast` backend.
 //!
-//! Contract: `helix-desktop-spec/contracts/dbus/org.freedesktop.impl.portal.ScreenCast.xml`
+//! Contract: `helixdesktop/spec/contracts/dbus/org.freedesktop.impl.portal.ScreenCast.xml`
 //! and `org.freedesktop.impl.portal.md` ("ScreenCast").
 //!
-//! The user picks a monitor in the shell (`org.helix.ScreenCastChooser`);
+//! The user picks a monitor in the shell (`org.helixdesktop.ScreenCastChooser`);
 //! the compositor records it (`org.gnome.Mutter.ScreenCast`) into a
 //! PipeWire stream, whose node id goes back to the app.
 
@@ -34,7 +34,7 @@ pub(crate) const REMOTE: &str = "org.gnome.Mutter.RemoteDesktop";
 pub(crate) const REMOTE_PATH: &str = "/org/gnome/Mutter/RemoteDesktop";
 const MUTTER_PATH: &str = "/org/gnome/Mutter/ScreenCast";
 const SHELL: &str = "org.gnome.Shell";
-const CHOOSER_PATH: &str = "/org/helix/ScreenCastChooser";
+const CHOOSER_PATH: &str = "/org/helixdesktop/ScreenCastChooser";
 const DISPLAY_CONFIG: &str = "org.gnome.Mutter.DisplayConfig";
 
 type Results = HashMap<String, OwnedValue>;
@@ -419,7 +419,7 @@ pub(crate) async fn start(conn: &Connection, shared: &Shared, session: &OwnedObj
     }
 }
 
-const CHOOSER: &str = "org.helix.ScreenCastChooser";
+const CHOOSER: &str = "org.helixdesktop.ScreenCastChooser";
 
 /// The open window with `app_id` and `title` (the shell knows them).
 async fn find_window(conn: &Connection, app_id: &str, title: &str) -> Option<u32> {

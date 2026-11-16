@@ -1,5 +1,5 @@
 //! `Setenv` values reach the application launch environment
-//! (helix-desktop-spec `org.gnome.SessionManager.md`, "Setenv").
+//! (helixdesktop/spec `org.gnome.SessionManager.md`, "Setenv").
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -8,7 +8,7 @@ use helix_session::client::SessionManagerProxy;
 use helix_session::SessionService;
 use helix_test_support::TestBus;
 
-const PROBES: [&str; 2] = ["org.helix.EnvProbe1", "org.helix.EnvProbe2"];
+const PROBES: [&str; 2] = ["org.helixdesktop.EnvProbe1", "org.helixdesktop.EnvProbe2"];
 
 /// A bus whose activatable services dump their environment to
 /// `<dir>/<name>.env`.

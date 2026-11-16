@@ -1,5 +1,5 @@
 //! `helix-bluetooth-sendto [--device=ADDRESS] [--name=NAME] [FILE…]`: send
-//! files to a Bluetooth device through the shell (helix-desktop-spec
+//! files to a Bluetooth device through the shell (helixdesktop/spec
 //! `contracts/dbus/org.bluez.obex.md`, "Sending"). The arguments are those
 //! of the usual `bluetooth-sendto`, so file managers can call it.
 
@@ -38,7 +38,7 @@ fn main() {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("a tokio runtime");
     let sent = runtime.block_on(async {
         let conn = zbus::Connection::session().await?;
-        conn.call_method(Some("org.gnome.Shell"), helix_shell::obex::SEND_PATH, Some("org.helix.BluetoothSendTo"), "SendFiles", &(device, files)).await
+        conn.call_method(Some("org.gnome.Shell"), helix_shell::obex::SEND_PATH, Some("org.helixdesktop.BluetoothSendTo"), "SendFiles", &(device, files)).await
     });
     if let Err(err) = sent {
         eprintln!("cannot send files: {err}");

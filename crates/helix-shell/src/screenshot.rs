@@ -1,4 +1,4 @@
-//! `org.gnome.Shell.Screenshot` (helix-desktop-spec
+//! `org.gnome.Shell.Screenshot` (helixdesktop/spec
 //! `contracts/dbus/org.gnome.Shell.Screenshot.md`) and the screenshot keys
 //! (`contracts/gsettings/shell-keys.md`).
 //!
@@ -59,7 +59,7 @@ pub enum PickMode {
     Area,
     /// Click a pixel.
     Point,
-    /// The screenshot UI (helix-desktop-spec `org.gnome.Shell.Screenshot.md`,
+    /// The screenshot UI (helixdesktop/spec `org.gnome.Shell.Screenshot.md`,
     /// "Screenshot UI"): starting with Record chosen or not, and whether
     /// recording may be chosen at all.
     Ui { record: bool, allow_record: bool },
@@ -461,13 +461,13 @@ impl Screenshot {
     }
 }
 
-/// Helix's window pick for the Screenshot portal (helix-desktop-spec
+/// Helix's window pick for the Screenshot portal (helixdesktop/spec
 /// `org.gnome.Shell.Screenshot.md`, "Picking a window"), at the same object.
 pub struct WindowPicker {
     pub screens: Screens,
 }
 
-#[interface(name = "org.helix.ScreenshotWindowPicker")]
+#[interface(name = "org.helixdesktop.ScreenshotWindowPicker")]
 impl WindowPicker {
     /// Let the user click a window and capture it: (success, file used).
     async fn pick_window(

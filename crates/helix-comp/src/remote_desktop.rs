@@ -1,4 +1,4 @@
-//! `org.gnome.Mutter.RemoteDesktop` (helix-desktop-spec
+//! `org.gnome.Mutter.RemoteDesktop` (helixdesktop/spec
 //! `org.gnome.Mutter.RemoteDesktop.md`): remote desktop sessions inject
 //! input into the session (through the compositor), directly or over EIS,
 //! and may own a screen cast session.

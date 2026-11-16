@@ -1,5 +1,5 @@
 //! The installed GNOME schemas that Helix reuses must agree with the
-//! GSettings contracts (helix-desktop-spec/contracts/gsettings/*.md).
+//! GSettings contracts (helixdesktop/spec/contracts/gsettings/*.md).
 //!
 //! A key with a different type always fails. A key missing from the
 //! installed schema only warns, because the contracts describe GNOME 51 and
@@ -67,7 +67,7 @@ fn installed_schemas_match_contracts() {
 /// the same keys, types and defaults.
 #[test]
 fn helix_schemas_match_contracts() {
-    for schema in ["org.helix.shell", "org.helix.extensions"] {
+    for schema in ["org.helixdesktop.shell", "org.helixdesktop.extensions"] {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../data/{schema}.gschema.xml"));
         let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
         let mut ours = Vec::new();

@@ -1,4 +1,4 @@
-//! `_NET_WM_PING` and `_NET_WM_ICON` for X11 apps (helix-desktop-spec
+//! `_NET_WM_PING` and `_NET_WM_ICON` for X11 apps (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Unresponsive apps" and "Window
 //! switching"). Smithay's window manager does not pass these on, so Helix
 //! keeps a connection of its own to Xwayland: it sends the pings, reads

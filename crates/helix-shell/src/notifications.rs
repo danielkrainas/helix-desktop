@@ -1,5 +1,5 @@
 //! Notification servers: `org.freedesktop.Notifications` and
-//! `org.gtk.Notifications` (contracts in helix-desktop-spec), sharing one
+//! `org.gtk.Notifications` (contracts in helixdesktop/spec), sharing one
 //! queue of banners shown by the shell UI.
 
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ pub const GTK_PATH: &str = "/org/gtk/Notifications";
 /// The user counts as active (banner timers run) with input this recent.
 const ACTIVE_WINDOW: Duration = Duration::from_secs(5);
 /// Helix's own settings: the ignore periods.
-const HELIX_SCHEMA: &str = "org.helix.shell";
+const HELIX_SCHEMA: &str = "org.helixdesktop.shell";
 
 /// What the UI draws for the current banner.
 #[derive(Debug, Clone, PartialEq)]
@@ -919,7 +919,7 @@ async fn user_active(conn: &Connection) -> bool {
     }
 }
 
-/// Follow `org.helix.shell banner-ignore-timeout` and
+/// Follow `org.helixdesktop.shell banner-ignore-timeout` and
 /// `critical-banner-ignore-timeout`.
 pub async fn follow_ignore_timeouts(center: Center) {
     center.set_ignore_timeouts(read_ignore_timeouts());
@@ -935,7 +935,7 @@ pub async fn follow_ignore_timeouts(center: Center) {
     }
 }
 
-/// The banner ignore periods from `org.helix.shell`; each one an older
+/// The banner ignore periods from `org.helixdesktop.shell`; each one an older
 /// installed schema lacks keeps its default.
 pub fn read_ignore_timeouts() -> IgnoreTimeouts {
     let s = helix_settings::Schema::open(HELIX_SCHEMA);

@@ -1,4 +1,4 @@
-//! `wp_color_manager_v1`, version 1 (helix-desktop-spec
+//! `wp_color_manager_v1`, version 1 (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Color management"): apps learn the
 //! outputs' image descriptions and tell the compositor theirs; the
 //! compositor converts described surfaces into its composition space

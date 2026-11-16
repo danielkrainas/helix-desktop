@@ -1,5 +1,5 @@
 //! helix-greeter: Helix's login screen, a greeter for greetd
-//! (helix-desktop-spec `components/greeter.md`). It runs as a layer-shell
+//! (helixdesktop/spec `components/greeter.md`). It runs as a layer-shell
 //! client of `helix-comp` (started with `--exit-with-shell`) and exits
 //! with status 0 once greetd has accepted the session to start.
 //!
@@ -37,7 +37,7 @@ fn main() -> ExitCode {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with_writer(std::io::stderr)
         .init();
-    // The system's locale (helix-desktop-spec components/greeter.md,
+    // The system's locale (helixdesktop/spec components/greeter.md,
     // "Language"): the environment's, else /etc/locale.conf or
     // /etc/default/locale; then its translations, month and weekday
     // names. Before any other thread starts.

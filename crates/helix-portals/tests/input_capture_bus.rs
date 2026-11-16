@@ -1,5 +1,5 @@
 //! The InputCapture portal backend against a fake shell (its dialog says
-//! yes) and a fake compositor `org.helix.InputCapture`, on a test bus.
+//! yes) and a fake compositor `org.helixdesktop.InputCapture`, on a test bus.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -13,7 +13,7 @@ use helix_test_support::TestBus;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedFd, OwnedObjectPath, OwnedValue, Value};
 
-const SESSION: &str = "/org/helix/InputCapture/Session/u1";
+const SESSION: &str = "/org/helixdesktop/InputCapture/Session/u1";
 
 type Calls = Arc<Mutex<Vec<String>>>;
 
@@ -21,7 +21,7 @@ struct Dialogs {
     calls: Calls,
 }
 
-#[zbus::interface(name = "org.helix.PortalDialog")]
+#[zbus::interface(name = "org.helixdesktop.PortalDialog")]
 impl Dialogs {
     async fn dialog(&self, options: HashMap<String, OwnedValue>) -> (u32, HashMap<String, OwnedValue>) {
         let title = options.get("title").and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default();
@@ -34,7 +34,7 @@ struct Capture {
     calls: Calls,
 }
 
-#[zbus::interface(name = "org.helix.InputCapture")]
+#[zbus::interface(name = "org.helixdesktop.InputCapture")]
 impl Capture {
     async fn create_session(&self, capabilities: u32) -> OwnedObjectPath {
         self.calls.lock().unwrap().push(format!("CreateSession {capabilities}"));
@@ -46,7 +46,7 @@ struct Session {
     calls: Calls,
 }
 
-#[zbus::interface(name = "org.helix.InputCapture.Session")]
+#[zbus::interface(name = "org.helixdesktop.InputCapture.Session")]
 impl Session {
     async fn get_zones(&self) -> (u32, Vec<(u32, u32, i32, i32)>) {
         (4, vec![(1000, 800, 0, 0)])
@@ -94,14 +94,14 @@ fn o(v: Value<'_>) -> OwnedValue {
 async fn capture_session_flow() {
     let Some(bus) = TestBus::start() else { return };
     let calls: Calls = Arc::default();
-    let _shell = bus.builder().serve_at("/org/helix/PortalDialog", Dialogs { calls: calls.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
+    let _shell = bus.builder().serve_at("/org/helixdesktop/PortalDialog", Dialogs { calls: calls.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
     let compositor = bus
         .builder()
-        .serve_at("/org/helix/InputCapture", Capture { calls: calls.clone() })
+        .serve_at("/org/helixdesktop/InputCapture", Capture { calls: calls.clone() })
         .unwrap()
         .serve_at(SESSION, Session { calls: calls.clone() })
         .unwrap()
-        .name("org.helix.InputCapture")
+        .name("org.helixdesktop.InputCapture")
         .unwrap()
         .build()
         .await
@@ -175,14 +175,14 @@ async fn capture_session_flow() {
 async fn version_two_remembers() {
     let Some(bus) = TestBus::start() else { return };
     let calls: Calls = Arc::default();
-    let _shell = bus.builder().serve_at("/org/helix/PortalDialog", Dialogs { calls: calls.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
+    let _shell = bus.builder().serve_at("/org/helixdesktop/PortalDialog", Dialogs { calls: calls.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
     let _compositor = bus
         .builder()
-        .serve_at("/org/helix/InputCapture", Capture { calls: calls.clone() })
+        .serve_at("/org/helixdesktop/InputCapture", Capture { calls: calls.clone() })
         .unwrap()
         .serve_at(SESSION, Session { calls: calls.clone() })
         .unwrap()
-        .name("org.helix.InputCapture")
+        .name("org.helixdesktop.InputCapture")
         .unwrap()
         .build()
         .await
@@ -223,14 +223,14 @@ async fn version_two_remembers() {
 async fn clipboard_shared() {
     let Some(bus) = TestBus::start() else { return };
     let calls: Calls = Arc::default();
-    let _shell = bus.builder().serve_at("/org/helix/PortalDialog", Dialogs { calls: calls.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
+    let _shell = bus.builder().serve_at("/org/helixdesktop/PortalDialog", Dialogs { calls: calls.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
     let _compositor = bus
         .builder()
-        .serve_at("/org/helix/InputCapture", Capture { calls: calls.clone() })
+        .serve_at("/org/helixdesktop/InputCapture", Capture { calls: calls.clone() })
         .unwrap()
         .serve_at(SESSION, Session { calls: calls.clone() })
         .unwrap()
-        .name("org.helix.InputCapture")
+        .name("org.helixdesktop.InputCapture")
         .unwrap()
         .build()
         .await

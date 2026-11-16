@@ -1,4 +1,4 @@
-//! The prompt dialog (helix-desktop-spec
+//! The prompt dialog (helixdesktop/spec
 //! `org.freedesktop.PolicyKit1.AuthenticationAgent.md`, "Prompt dialog"):
 //! asking the user for a password from the D-Bus side.
 

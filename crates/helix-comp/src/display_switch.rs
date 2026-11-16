@@ -1,4 +1,4 @@
-//! The display switcher (helix-desktop-spec `org.gnome.Mutter.DisplayConfig.md`,
+//! The display switcher (helixdesktop/spec `org.gnome.Mutter.DisplayConfig.md`,
 //! "Display switcher"): `switch-monitor` steps through ways of using the
 //! connected monitors (mirror, join, external only, built-in only); the one
 //! chosen applies once the presses stop.

@@ -417,7 +417,7 @@ impl XwmHandler for Helix {
 }
 
 /// Environment that runs `Xwayland` through a wrapper adding the options of
-/// `org.gnome.mutter.wayland` (helix-desktop-spec `contracts/wayland/README.md`,
+/// `org.gnome.mutter.wayland` (helixdesktop/spec `contracts/wayland/README.md`,
 /// "Xwayland options").
 fn xwayland_wrapper(settings: &helix_comp::wm_settings::WmSettings) -> Option<Vec<(String, String)>> {
     use std::os::unix::fs::PermissionsExt;

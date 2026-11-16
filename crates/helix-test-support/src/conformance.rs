@@ -1,6 +1,6 @@
 //! Contract conformance: does an exported interface match the spec XML?
 //!
-//! The spec (helix-desktop-spec) is the source of truth. A check reports:
+//! The spec (helixdesktop/spec) is the source of truth. A check reports:
 //! - members in the contract that are missing or have a different signature,
 //! - members exported that are not in the contract (drift),
 //! - entries in the "known unimplemented" list that are in fact implemented,
@@ -14,17 +14,23 @@ use zbus::zvariant::ObjectPath;
 use zbus::Connection;
 use zbus_xml::{ArgDirection, Interface, Node, PropertyAccess};
 
-/// Locate the helix-desktop-spec checkout.
+/// Locate the helixdesktop/spec checkout.
 ///
 /// Uses `HELIX_SPEC_DIR` if set, otherwise expects the spec repository to be
-/// a sibling of the helix-desktop repository.
+/// a sibling of this one, checked out as `spec` (its name on GitHub) or
+/// `helix-desktop-spec` (its former name).
 pub fn spec_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("HELIX_SPEC_DIR") {
         return PathBuf::from(dir);
     }
     let here = Path::new(env!("CARGO_MANIFEST_DIR"));
-    // crates/helix-test-support -> helix-desktop -> parent
-    here.join("../../../helix-desktop-spec")
+    // crates/helix-test-support -> this repository -> parent
+    let parent = here.join("../../..");
+    ["spec", "helix-desktop-spec"]
+        .iter()
+        .map(|name| parent.join(name))
+        .find(|dir| dir.is_dir())
+        .unwrap_or_else(|| parent.join("spec"))
 }
 
 /// Read and parse a D-Bus contract, e.g. `"org.gnome.SessionManager.xml"`.
@@ -33,7 +39,7 @@ pub fn load_dbus_contract(file: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
             "cannot read contract {}: {e}\n\
-             Check out helix-desktop-spec next to helix-desktop, or set HELIX_SPEC_DIR.",
+             Check out helixdesktop/spec next to this repository, or set HELIX_SPEC_DIR.",
             path.display()
         )
     })

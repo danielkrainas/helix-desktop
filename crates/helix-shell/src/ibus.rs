@@ -1,4 +1,4 @@
-//! IBus, for `ibus` input sources (helix-desktop-spec
+//! IBus, for `ibus` input sources (helixdesktop/spec
 //! `contracts/gsettings/input-settings.md`, "Input methods", and
 //! `contracts/dbus/org.freedesktop.IBus.md`): one input context on IBus's
 //! own bus. The UI thread (the Wayland input method) sends [`ImRequest`]s

@@ -271,7 +271,7 @@ def main():
             '#, fuzzy\n'
             'msgid ""\nmsgstr ""\n'
             '"Project-Id-Version: helix-desktop\\n"\n'
-            '"Report-Msgid-Bugs-To: https://github.com/danielkrainas/helix-desktop/issues\\n"\n'
+            '"Report-Msgid-Bugs-To: https://github.com/helixdesktop/desktop/issues\\n"\n'
             '"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\\n"\n'
             '"Last-Translator: FULL NAME <EMAIL@ADDRESS>\\n"\n'
             '"Language-Team: LANGUAGE <LL@li.org>\\n"\n'

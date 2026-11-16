@@ -1,4 +1,4 @@
-//! Right-to-left text and layouts (helix-desktop-spec
+//! Right-to-left text and layouts (helixdesktop/spec
 //! `components/i18n.md`, "Right-to-left languages").
 //!
 //! - [`set_rtl`]: the interface reads right to left (the shell and the

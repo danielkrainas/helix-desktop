@@ -1,5 +1,5 @@
 //! Touchscreen and drawing tablet settings, and where their input lands
-//! (helix-desktop-spec `contracts/gsettings/input-settings.md`,
+//! (helixdesktop/spec `contracts/gsettings/input-settings.md`,
 //! "Touchscreens and tablets").
 
 use gio::prelude::*;

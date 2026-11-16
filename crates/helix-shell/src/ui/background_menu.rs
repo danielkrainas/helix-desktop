@@ -1,4 +1,4 @@
-//! The desktop background's menu (helix-desktop-spec
+//! The desktop background's menu (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Background menu"), as GNOME Shell's
 //! `js/ui/backgroundMenu.js`: "Change Background…", "Display Settings"
 //! and "Settings", on a right click or a long press on the background.
@@ -79,7 +79,7 @@ pub(super) fn launch_for(panel: SettingsPanel, app: Option<&str>, gnome_desktop:
         None => program.to_owned(),
     };
     match app {
-        Some("helix-settings-app") => Some(Launch::Command { line: with_arg("helix-settings-app"), desktop_id: "org.helix.Settings.desktop" }),
+        Some("helix-settings-app") => Some(Launch::Command { line: with_arg("helix-settings-app"), desktop_id: "org.helixdesktop.Settings.desktop" }),
         _ if gnome_desktop => Some(Launch::Desktop(panel.gnome_desktop_id())),
         Some(program) => Some(Launch::Command { line: with_arg(program), desktop_id: "org.gnome.Settings.desktop" }),
         None => None,
@@ -219,8 +219,8 @@ mod tests {
     fn settings_app_choice() {
         use SettingsPanel::*;
         // Helix's settings app first, at the panel.
-        assert_eq!(launch_for(Background, Some("helix-settings-app"), true), Some(Launch::Command { line: "helix-settings-app background".into(), desktop_id: "org.helix.Settings.desktop" }));
-        assert_eq!(launch_for(Overview, Some("helix-settings-app"), false), Some(Launch::Command { line: "helix-settings-app".into(), desktop_id: "org.helix.Settings.desktop" }));
+        assert_eq!(launch_for(Background, Some("helix-settings-app"), true), Some(Launch::Command { line: "helix-settings-app background".into(), desktop_id: "org.helixdesktop.Settings.desktop" }));
+        assert_eq!(launch_for(Overview, Some("helix-settings-app"), false), Some(Launch::Command { line: "helix-settings-app".into(), desktop_id: "org.helixdesktop.Settings.desktop" }));
         // GNOME's desktop files, as GNOME Shell starts them.
         assert_eq!(launch_for(Display, Some("gnome-control-center"), true), Some(Launch::Desktop("gnome-display-panel.desktop")));
         assert_eq!(launch_for(Overview, None, true), Some(Launch::Desktop("org.gnome.Settings.desktop")));

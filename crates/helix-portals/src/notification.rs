@@ -1,4 +1,4 @@
-//! `org.freedesktop.impl.portal.Notification` (helix-desktop-spec
+//! `org.freedesktop.impl.portal.Notification` (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.impl.portal.md`, "Notification"): apps'
 //! notifications go to the shell's `org.gtk.Notifications`, and actions the
 //! shell cannot deliver come back as `ActionInvoked`.

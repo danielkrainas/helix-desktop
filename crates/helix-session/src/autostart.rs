@@ -1,4 +1,4 @@
-//! Autostart (helix-desktop-spec `org.gnome.SessionManager.md`,
+//! Autostart (helixdesktop/spec `org.gnome.SessionManager.md`,
 //! "Autostart"): apps from the XDG autostart directories, with GNOME's
 //! `AutostartCondition`.
 

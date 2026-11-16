@@ -1,5 +1,5 @@
 //! The shared-memory buffers shell surfaces are painted into
-//! (helix-desktop#100).
+//! (helixdesktop/desktop#100).
 //!
 //! Each surface has a few buffers of its own, each in its own memory file,
 //! so closing the surface gives its memory back. A buffer the compositor

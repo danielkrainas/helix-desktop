@@ -1,4 +1,4 @@
-//! Pointer images Helix draws (helix-desktop-spec `contracts/wayland/README.md`,
+//! Pointer images Helix draws (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Pointer image"): named cursors from the XCursor theme, with a plain
 //! arrow when there is no usable theme.
 

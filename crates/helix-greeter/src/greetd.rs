@@ -1,4 +1,4 @@
-//! greetd's IPC protocol (helix-desktop-spec `components/greeter.md`, "The
+//! greetd's IPC protocol (helixdesktop/spec `components/greeter.md`, "The
 //! greetd protocol"): each message is a 32-bit length in native byte order
 //! followed by that many bytes of JSON.
 

@@ -78,7 +78,7 @@ struct FakePicker {
     calls: Arc<Mutex<Vec<String>>>,
 }
 
-#[interface(name = "org.helix.ScreenshotWindowPicker")]
+#[interface(name = "org.helixdesktop.ScreenshotWindowPicker")]
 impl FakePicker {
     async fn pick_window(&self, _cursor: bool, _flash: bool, filename: &str) -> fdo::Result<(bool, String)> {
         let mut calls = self.calls.lock().unwrap();

@@ -1,7 +1,7 @@
 //! helix-login-monitors: make a monitor layout the login screen's.
 //!
 //! Installed as `/usr/libexec/helix/helix-login-monitors` and run as root
-//! through `pkexec` (polkit action `org.helix.login-screen-monitors`):
+//! through `pkexec` (polkit action `org.helixdesktop.login-screen-monitors`):
 //! reads one monitor configuration on standard input (the format of
 //! `~/.config/helix/monitors.toml`, one `[[configuration]]` for the
 //! monitors connected now), checks it, and writes it into

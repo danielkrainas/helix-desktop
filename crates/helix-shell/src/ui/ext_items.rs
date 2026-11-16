@@ -1,4 +1,4 @@
-//! Extensions' panel items and their menus (helix-desktop-spec
+//! Extensions' panel items and their menus (helixdesktop/spec
 //! `contracts/extensions/README.md`, "Panel items", "Menus").
 
 use super::window_menu::{Choice, Item as MenuItem};

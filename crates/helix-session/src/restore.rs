@@ -1,4 +1,4 @@
-//! Session save and restore (helix-desktop-spec `org.gnome.SessionManager.md`,
+//! Session save and restore (helixdesktop/spec `org.gnome.SessionManager.md`,
 //! "RestoreSupported and session restore"): which app instances to restore,
 //! with what reason, and which ids apps may clean up. Kept in a TOML file
 //! across sessions.

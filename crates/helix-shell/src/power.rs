@@ -1,4 +1,4 @@
-//! Power management (helix-desktop-spec `contracts/gsettings/power.md`):
+//! Power management (helixdesktop/spec `contracts/gsettings/power.md`):
 //! dimming, blanking, automatic suspend, the power button, the lid while
 //! docked, and battery warnings.
 

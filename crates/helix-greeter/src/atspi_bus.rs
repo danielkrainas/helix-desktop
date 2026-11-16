@@ -1,5 +1,5 @@
 //! The login screen read over AT-SPI on a private accessibility bus
-//! (helix-desktop-spec `components/greeter.md`, "Accessibility"): the
+//! (helixdesktop/spec `components/greeter.md`, "Accessibility"): the
 //! greeter's window is built from its view and painted places, published
 //! with AccessKit as the greeter does, and read back by a client: roles,
 //! names, states, the password field's text (masked); an action clicks.

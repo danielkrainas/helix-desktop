@@ -1,4 +1,4 @@
-//! Copy, cut and paste in the shell's own text fields (helix-desktop-spec
+//! Copy, cut and paste in the shell's own text fields (helixdesktop/spec
 //! `contracts/dbus/org.a11y.atspi.md`, "Text fields", and
 //! `contracts/wayland/README.md`, "Shell text fields and the
 //! clipboard"): the launcher's search, the run dialog and the prompts'

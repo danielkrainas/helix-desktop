@@ -1,4 +1,4 @@
-//! Night Light (helix-desktop-spec `contracts/gsettings/night-light.md`):
+//! Night Light (helixdesktop/spec `contracts/gsettings/night-light.md`):
 //! when it is on, and the gamma ramps that warm the screen, set on every
 //! CRTC through DisplayConfig.
 

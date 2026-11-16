@@ -362,7 +362,7 @@ impl Ui {
     }
 
     /// High contrast, the text scale and the screen reader as `a` says
-    /// (helix-desktop-spec `components/greeter.md`, "Accessibility").
+    /// (helixdesktop/spec `components/greeter.md`, "Accessibility").
     fn apply_accessibility(&mut self, a: Accessibility) {
         helix_draw::set_high_contrast(a.high_contrast);
         helix_draw::theme::set_text_scale(a.text_scale());
@@ -460,7 +460,7 @@ impl Ui {
         self.screens.get(self.primary_index()).is_some_and(|s| s.layer.wl_surface() == surface)
     }
 
-    /// The screen showing the login screen (helix-desktop-spec
+    /// The screen showing the login screen (helixdesktop/spec
     /// `components/greeter.md`, "What the screen shows").
     fn primary_index(&self) -> usize {
         let names: Vec<Option<String>> = self.screens.iter().map(|s| self.output_state.info(&s.output).and_then(|i| i.name)).collect();

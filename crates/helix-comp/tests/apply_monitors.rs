@@ -225,7 +225,7 @@ struct FakeDialog {
     calls: Arc<Mutex<Vec<String>>>,
 }
 
-#[zbus::interface(name = "org.helix.DisplayChangeDialog")]
+#[zbus::interface(name = "org.helixdesktop.DisplayChangeDialog")]
 impl FakeDialog {
     async fn open(&self, seconds: u32) {
         self.calls.lock().unwrap().push(format!("Open {seconds}"));
@@ -239,7 +239,7 @@ impl FakeDialog {
     async fn reverted(emitter: &zbus::object_server::SignalEmitter<'_>) -> zbus::Result<()>;
 }
 
-const DIALOG_PATH: &str = "/org/helix/DisplayChangeDialog";
+const DIALOG_PATH: &str = "/org/helixdesktop/DisplayChangeDialog";
 
 async fn fake_dialog(bus: &TestBus) -> (zbus::Connection, Arc<Mutex<Vec<String>>>) {
     let dialog = FakeDialog::default();

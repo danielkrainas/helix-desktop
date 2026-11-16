@@ -1,4 +1,4 @@
-//! Drawing shell surfaces at their monitor's scale (helix-desktop-spec
+//! Drawing shell surfaces at their monitor's scale (helixdesktop/spec
 //! `org.gnome.Mutter.DisplayConfig.md`, "Supported scales"): the compositor
 //! tells each surface its exact scale (`wp_fractional_scale_v1`); buffers
 //! are drawn at that many pixels per logical unit and shown at their

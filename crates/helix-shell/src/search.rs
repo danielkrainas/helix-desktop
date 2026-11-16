@@ -1,4 +1,4 @@
-//! App search providers (helix-desktop-spec
+//! App search providers (helixdesktop/spec
 //! `org.gnome.Shell.SearchProvider2.md`): finding them and asking them.
 
 use std::collections::HashMap;

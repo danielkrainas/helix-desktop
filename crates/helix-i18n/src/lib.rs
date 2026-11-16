@@ -1,5 +1,5 @@
 //! Translation and locale formats for everything Helix itself shows
-//! (helix-desktop-spec `components/i18n.md`).
+//! (helixdesktop/spec `components/i18n.md`).
 //!
 //! The shell, the portals' dialogs, the session and the greeter share one
 //! gettext domain, [`DOMAIN`] (`helix-desktop`): they are released

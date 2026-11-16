@@ -1,7 +1,7 @@
 //! Helix session manager and D-Bus services.
 //!
 //! Implements the session lifecycle, inhibit, and related contracts
-//! from helix-desktop-spec.
+//! from helixdesktop/spec.
 //!
 //! - [`state`]: transport-independent session rules (unit-tested).
 //! - [`manager`]: the `org.gnome.SessionManager` D-Bus interface.
@@ -259,7 +259,7 @@ async fn spawn_active_watcher(conn: &Connection, logind: &logind::Logind) -> Opt
 }
 
 /// `SessionIsLocked` follows the screensaver's `ActiveChanged` signal
-/// (helix-desktop-spec/contracts/dbus/org.gnome.ScreenSaver.md).
+/// (helixdesktop/spec/contracts/dbus/org.gnome.ScreenSaver.md).
 async fn spawn_lock_watcher(conn: &Connection) -> zbus::Result<JoinHandle<()>> {
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)

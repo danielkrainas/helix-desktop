@@ -1,4 +1,4 @@
-//! Monitors' color profiles (helix-desktop-spec
+//! Monitors' color profiles (helixdesktop/spec
 //! `contracts/dbus/org.gnome.Mutter.DisplayConfig.md`, "Color profiles"):
 //! each monitor is a display device in colord (`org.freedesktop.ColorManager`
 //! on the system bus), and the calibration curves (`vcgt`) of its default

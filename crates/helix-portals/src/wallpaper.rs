@@ -1,4 +1,4 @@
-//! `org.freedesktop.impl.portal.Wallpaper` (helix-desktop-spec
+//! `org.freedesktop.impl.portal.Wallpaper` (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.impl.portal.md`, "Wallpaper"): apps
 //! set the background or lock screen picture, after the user saw it.
 

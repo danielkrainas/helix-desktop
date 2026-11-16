@@ -1,5 +1,5 @@
 //! `wp_tearing_control_v1`: surfaces asking to be presented without
-//! waiting for vblank (helix-desktop-spec `contracts/wayland/README.md`,
+//! waiting for vblank (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Tearing").
 //!
 //! Each surface's presentation hint is double-buffered state, applied by
@@ -132,7 +132,7 @@ impl<D: TearingControlHandler> Dispatch<WpTearingControlV1, ControlData, D> for 
 /// What decides whether one frame of a monitor may tear.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Frame {
-    /// The global setting (`org.helix.shell allow-tearing`).
+    /// The global setting (`org.helixdesktop.shell allow-tearing`).
     pub allowed: bool,
     /// The GPU can flip asynchronously (see [`async_flip_supported`]).
     pub supported: bool,

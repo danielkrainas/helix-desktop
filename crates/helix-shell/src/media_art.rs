@@ -1,4 +1,4 @@
-//! Album art for the lock screen's media card (helix-desktop-spec
+//! Album art for the lock screen's media card (helixdesktop/spec
 //! `contracts/dbus/org.gnome.ScreenSaver.md`, "Lock screen (Helix)"):
 //! the picture an MPRIS player names in `mpris:artUrl`, read off the UI
 //! thread with limits, decoded and shrunk.

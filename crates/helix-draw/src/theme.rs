@@ -1,5 +1,5 @@
 //! The shell's look, shared by its surfaces: colors with names and the
-//! pieces built from them (helix-desktop-spec `components/README.md`,
+//! pieces built from them (helixdesktop/spec `components/README.md`,
 //! "Shell look").
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -595,7 +595,7 @@ pub fn check_box(canvas: &mut Canvas, x: f64, y: f64, size: f64, checked: bool, 
 /// A text field's box at (x, y, w, h) (authentication and secret
 /// prompts, the launcher's and the overview's search): Control filled,
 /// rounded ([`RADIUS_BUTTON`], or a pill when `pill_shaped`), the focus
-/// ring while it takes typing and a faint outline otherwise (helix-desktop-spec
+/// ring while it takes typing and a faint outline otherwise (helixdesktop/spec
 /// `components/README.md`, "Text fields"). High contrast: black with a
 /// white outline.
 pub fn field(canvas: &mut Canvas, (x, y, w, h): (i32, i32, i32, i32), focused: bool, pill_shaped: bool) {

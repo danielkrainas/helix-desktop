@@ -1,4 +1,4 @@
-//! On-screen displays (helix-desktop-spec `contracts/dbus/org.gnome.Shell.md`,
+//! On-screen displays (helixdesktop/spec `contracts/dbus/org.gnome.Shell.md`,
 //! `ShowOSD`, and `contracts/wayland/README.md`, "On-screen displays"): a
 //! floating pill near the bottom of each monitor (or the one `ShowOSD`
 //! names), above full-screen windows, with an icon, a level bar and/or a

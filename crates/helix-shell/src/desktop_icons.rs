@@ -1,4 +1,4 @@
-//! Desktop icons (helix-desktop-spec `contracts/gsettings/background.md`,
+//! Desktop icons (helixdesktop/spec `contracts/gsettings/background.md`,
 //! "Desktop icons"): with `org.gnome.desktop.background
 //! show-desktop-icons`, the files of the desktop folder are shown on the
 //! primary monitor's background.

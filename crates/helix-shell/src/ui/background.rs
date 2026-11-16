@@ -1,5 +1,5 @@
 //! The desktop background on every monitor, and the lock screen's
-//! (helix-desktop-spec `contracts/gsettings/background.md`).
+//! (helixdesktop/spec `contracts/gsettings/background.md`).
 
 use smithay_client_toolkit::reexports::client::protocol::wl_output::WlOutput;
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;

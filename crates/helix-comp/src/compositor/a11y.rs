@@ -1,4 +1,4 @@
-//! Keyboard accessibility in the input path (helix-desktop-spec
+//! Keyboard accessibility in the input path (helixdesktop/spec
 //! `contracts/gsettings/a11y-keyboard.md`); the logic is
 //! [`helix_comp::a11y_keys`].
 
@@ -74,7 +74,7 @@ impl Helix {
         self.run_access(outs, time);
     }
 
-    /// Screen readers' key watches and grabs (helix-desktop-spec
+    /// Screen readers' key watches and grabs (helixdesktop/spec
     /// `contracts/dbus/org.freedesktop.a11y.KeyboardMonitor.md`): reports
     /// the key to the clients it concerns; true if it is grabbed (it goes
     /// nowhere else).

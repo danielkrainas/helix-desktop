@@ -1,4 +1,4 @@
-//! Who the lock screen shows (helix-desktop-spec
+//! Who the lock screen shows (helixdesktop/spec
 //! `contracts/gsettings/org.gnome.desktop.screensaver.md`, "Helix"): the
 //! user's real name and picture from AccountsService
 //! (`org.freedesktop.Accounts.User` `RealName`, `IconFile`, read only),

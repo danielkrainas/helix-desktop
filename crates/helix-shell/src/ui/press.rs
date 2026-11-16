@@ -1,4 +1,4 @@
-//! Hover and press for a surface's clickable parts (helix-desktop-spec
+//! Hover and press for a surface's clickable parts (helixdesktop/spec
 //! `components/README.md`, "Shell look"): the part under the pointer is
 //! lit, the part pressed looks pressed, and a click happens on release
 //! over the part that was pressed, so moving away while pressed cancels

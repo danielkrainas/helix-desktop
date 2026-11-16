@@ -1,5 +1,5 @@
-//! `org.helix.PortalDialog` on a test bus (helix-desktop-spec
-//! `contracts/dbus/org.helix.PortalDialog.xml`): the exported interface
+//! `org.helixdesktop.PortalDialog` on a test bus (helixdesktop/spec
+//! `contracts/dbus/org.helixdesktop.PortalDialog.xml`): the exported interface
 //! matches the contract, and `ChooseFiles` hands the UI the portal's
 //! options and the UI's answer back as results.
 
@@ -14,7 +14,7 @@ use helix_test_support::conformance::{assert_conformant, check, load_dbus_contra
 use helix_test_support::TestBus;
 use zbus::zvariant::{OwnedValue, Value};
 
-const IFACE: &str = "org.helix.PortalDialog";
+const IFACE: &str = "org.helixdesktop.PortalDialog";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn choose_files_round_trip() {
@@ -29,7 +29,7 @@ async fn choose_files_round_trip() {
     let _shell = bus.builder().serve_at(PATH, PortalDialog::new(ui)).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
     let client = bus.connect().await;
     let xml: String = client.call_method(Some("org.gnome.Shell"), PATH, Some("org.freedesktop.DBus.Introspectable"), "Introspect", &()).await.unwrap().body().deserialize().unwrap();
-    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("org.helix.PortalDialog.xml"), &xml, &[]));
+    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("org.helixdesktop.PortalDialog.xml"), &xml, &[]));
 
     let v = |x: Value<'_>| OwnedValue::try_from(x).unwrap();
     let options: HashMap<String, OwnedValue> = HashMap::from([

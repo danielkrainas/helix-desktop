@@ -1,7 +1,7 @@
-//! `org.helix.ScreenCastChooser` (helix-desktop-spec
-//! `org.helix.ScreenCastChooser.md`): the portal backend asks which monitor
+//! `org.helixdesktop.ScreenCastChooser` (helixdesktop/spec
+//! `org.helixdesktop.ScreenCastChooser.md`): the portal backend asks which monitor
 //! to share; the shell asks the user. Also follows the compositor's
-//! `org.helix.ScreenCastState` for the panel's "Sharing" indicator.
+//! `org.helixdesktop.ScreenCastState` for the panel's "Sharing" indicator.
 
 use std::sync::{Arc, Mutex};
 
@@ -14,7 +14,7 @@ use zbus::{interface, Connection};
 use crate::UiEvent;
 use helix_i18n::tr;
 
-pub const OBJECT_PATH: &str = "/org/helix/ScreenCastChooser";
+pub const OBJECT_PATH: &str = "/org/helixdesktop/ScreenCastChooser";
 const ALLOWED_CALLER: &str = "org.freedesktop.impl.portal.desktop.helix";
 
 /// What the user chose to share.
@@ -230,7 +230,7 @@ impl ScreenCastChooser {
     }
 }
 
-#[interface(name = "org.helix.ScreenCastChooser")]
+#[interface(name = "org.helixdesktop.ScreenCastChooser")]
 impl ScreenCastChooser {
     async fn describe_window(&self, window: u32, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<(String, String)> {
         self.check_caller(&header, conn).await?;
@@ -301,7 +301,7 @@ impl ScreenCastChooser {
 
 /// Tell the UI whenever the compositor starts or stops sharing.
 pub async fn follow_sharing(conn: Connection, ui: mpsc::UnboundedSender<UiEvent>) {
-    let proxy = match zbus::Proxy::new(&conn, "org.gnome.Mutter.ScreenCast", "/org/gnome/Mutter/ScreenCast", "org.helix.ScreenCastState").await {
+    let proxy = match zbus::Proxy::new(&conn, "org.gnome.Mutter.ScreenCast", "/org/gnome/Mutter/ScreenCast", "org.helixdesktop.ScreenCastState").await {
         Ok(p) => p,
         Err(_) => return,
     };

@@ -1,4 +1,4 @@
-//! `/etc/helix/greeter.toml` (helix-desktop-spec `components/greeter.md`,
+//! `/etc/helix/greeter.toml` (helixdesktop/spec `components/greeter.md`,
 //! "Configuration"). `HELIX_GREETER_CONFIG` names another file (tests).
 
 use serde::Deserialize;

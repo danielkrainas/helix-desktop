@@ -1,4 +1,4 @@
-//! Helix's own touch and touchpad gestures (helix-desktop-spec
+//! Helix's own touch and touchpad gestures (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Gestures"): swipes with three or more
 //! fingers and swipes in from a screen edge switch workspaces and open or
 //! close the overview.

@@ -15,7 +15,7 @@ section: metapackages
 priority: optional
 maintainer: Daniel Krainas
 vendor: Helix
-homepage: https://github.com/danielkrainas/helix-desktop
+homepage: https://helixdesktop.org
 license: CC0-1.0
 description: |-
   Helix desktop session with everything it works with

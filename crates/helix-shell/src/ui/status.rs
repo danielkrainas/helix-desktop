@@ -1,4 +1,4 @@
-//! The panel's system status icons (helix-desktop-spec
+//! The panel's system status icons (helixdesktop/spec
 //! `contracts/wayland/README.md`, "System status").
 
 use helix_draw::Image;

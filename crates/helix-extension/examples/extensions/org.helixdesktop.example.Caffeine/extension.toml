@@ -1,4 +1,4 @@
-id = "org.helix.example.Caffeine"
+id = "org.helixdesktop.example.Caffeine"
 name = "Caffeine"
 description = "Keeps the screen on. An example of a quick settings toggle."
 version = "1.0"

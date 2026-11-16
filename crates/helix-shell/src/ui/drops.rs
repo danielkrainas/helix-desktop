@@ -1,4 +1,4 @@
-//! Files dropped on the dock (helix-desktop-spec
+//! Files dropped on the dock (helixdesktop/spec
 //! `contracts/extensions/README.md`, "Dock items"): extensions' dock
 //! items with `accepts-drops` take `text/uri-list`.
 

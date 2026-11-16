@@ -4,7 +4,7 @@
 //! - [`logind`]: a fake systemd-logind.
 //! - [`headless`]: a whole headless Helix session (compositor and shell).
 //! - [`conformance`]: compare an exported D-Bus interface against the
-//!   contract XML in helix-desktop-spec.
+//!   contract XML in helixdesktop/spec.
 
 pub mod conformance;
 pub mod headless;

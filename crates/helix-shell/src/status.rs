@@ -1,4 +1,4 @@
-//! System status for the panel and quick settings (helix-desktop-spec
+//! System status for the panel and quick settings (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Quick settings", "System status"):
 //! network, battery, volume, Wi-Fi, Bluetooth, airplane mode and power
 //! profiles, from the system bus.

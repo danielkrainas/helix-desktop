@@ -1,4 +1,4 @@
-//! The end-of-session sequence (helix-desktop-spec
+//! The end-of-session sequence (helixdesktop/spec
 //! `org.gnome.SessionManager.md`, "Ending the session"):
 //! confirm with the shell's dialog, query clients, end, stop, then
 //! `SessionOver`.

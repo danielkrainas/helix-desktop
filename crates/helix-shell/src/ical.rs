@@ -1,5 +1,5 @@
 //! Just enough iCalendar (RFC 5545) for the message tray's events
-//! (helix-desktop-spec `contracts/gsettings/calendar.md`, "Events"):
+//! (helixdesktop/spec `contracts/gsettings/calendar.md`, "Events"):
 //! events, their times, and the recurrences Helix expands.
 
 use std::collections::HashSet;

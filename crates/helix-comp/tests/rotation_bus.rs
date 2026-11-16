@@ -1,4 +1,4 @@
-//! Automatic rotation from a fake iio-sensor-proxy (helix-desktop-spec
+//! Automatic rotation from a fake iio-sensor-proxy (helixdesktop/spec
 //! `org.gnome.Mutter.DisplayConfig.md`, "Automatic rotation").
 
 use std::sync::{Arc, Mutex};

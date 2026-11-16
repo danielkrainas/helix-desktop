@@ -1,6 +1,6 @@
 //! Window-management settings from `org.gnome.mutter`,
 //! `org.gnome.desktop.wm.preferences` and `org.gnome.desktop.interface`
-//! (helix-desktop-spec `contracts/wayland/README.md`, "Window-management
+//! (helixdesktop/spec `contracts/wayland/README.md`, "Window-management
 //! settings" and "Tiling") the compositor follows.
 
 use gio::prelude::*;
@@ -13,7 +13,7 @@ pub const MUTTER_KEYS: &str = "org.gnome.mutter.keybindings";
 pub const MUTTER_WAYLAND_KEYS: &str = "org.gnome.mutter.wayland.keybindings";
 const A11Y_INTERFACE: &str = "org.gnome.desktop.a11y.interface";
 /// Helix's own (`allow-tearing`); missing when not installed (defaults).
-pub const HELIX_SHELL: &str = "org.helix.shell";
+pub const HELIX_SHELL: &str = "org.helixdesktop.shell";
 pub const SCHEMAS: [&str; 7] = [MUTTER, WM_PREFERENCES, INTERFACE, MUTTER_WAYLAND, MUTTER_WAYLAND_KEYS, A11Y_INTERFACE, HELIX_SHELL];
 
 /// `focus-mode`.
@@ -217,7 +217,7 @@ pub struct WmSettings {
     pub output_luminance: Vec<(String, String, String, String, u32, f64)>,
     /// `enable-animations` and `reduced-motion`.
     pub motion: crate::animation::Motion,
-    /// `org.helix.shell allow-tearing`: full-screen windows that ask
+    /// `org.helixdesktop.shell allow-tearing`: full-screen windows that ask
     /// (`wp_tearing_control_v1` `async`) may be shown without waiting
     /// for vblank.
     pub allow_tearing: bool,

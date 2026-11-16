@@ -1,5 +1,5 @@
 //! Window-management actions the shell asks for (window menu entries and
-//! `org.gnome.desktop.wm.keybindings` keys; helix-desktop-spec
+//! `org.gnome.desktop.wm.keybindings` keys; helixdesktop/spec
 //! `contracts/wayland/README.md`, "Window menu and window keys"), and the
 //! window menu event.
 

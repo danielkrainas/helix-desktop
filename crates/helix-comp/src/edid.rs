@@ -1,4 +1,4 @@
-//! A monitor's identity from its EDID base block (helix-desktop-spec
+//! A monitor's identity from its EDID base block (helixdesktop/spec
 //! `contracts/dbus/org.gnome.Mutter.DisplayConfig.md`, "Monitor identity").
 
 /// What tells monitors apart: vendor, product, serial.

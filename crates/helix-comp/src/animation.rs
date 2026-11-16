@@ -1,4 +1,4 @@
-//! Animation timing and shapes (helix-desktop-spec
+//! Animation timing and shapes (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Animations"): what windows, shell
 //! surfaces and workspaces look like part way through opening, closing,
 //! minimizing and switching.

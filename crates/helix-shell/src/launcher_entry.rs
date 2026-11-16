@@ -1,4 +1,4 @@
-//! Counts, progress and urgency apps put on their dock icon (helix-desktop-spec
+//! Counts, progress and urgency apps put on their dock icon (helixdesktop/spec
 //! `contracts/dbus/com.canonical.Unity.LauncherEntry.md`): the
 //! `com.canonical.Unity.LauncherEntry` `Update` signal, which apps send on
 //! the session bus.

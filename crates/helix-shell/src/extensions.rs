@@ -1,4 +1,4 @@
-//! `org.gnome.Shell.Extensions` (helix-desktop-spec
+//! `org.gnome.Shell.Extensions` (helixdesktop/spec
 //! `contracts/dbus/org.gnome.Shell.Extensions.md`): Helix lists the
 //! installed GNOME Shell extensions and keeps the `org.gnome.shell`
 //! extension keys, so the extension tools work and a GNOME session of the

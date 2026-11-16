@@ -1,6 +1,6 @@
-//! The InputCapture portal backend (helix-desktop-spec
+//! The InputCapture portal backend (helixdesktop/spec
 //! `org.freedesktop.impl.portal.md`, "InputCapture"): asks the user, then
-//! runs the session through the compositor's `org.helix.InputCapture`.
+//! runs the session through the compositor's `org.helixdesktop.InputCapture`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -16,9 +16,9 @@ use crate::screenshot::{response, with_request, Results};
 use helix_i18n::tr;
 use helix_i18n::trf;
 
-const COMPOSITOR: &str = "org.helix.InputCapture";
-const COMPOSITOR_PATH: &str = "/org/helix/InputCapture";
-const SESSION_IFACE: &str = "org.helix.InputCapture.Session";
+const COMPOSITOR: &str = "org.helixdesktop.InputCapture";
+const COMPOSITOR_PATH: &str = "/org/helixdesktop/InputCapture";
+const SESSION_IFACE: &str = "org.helixdesktop.InputCapture.Session";
 /// Keyboard and pointer (touchscreens are not captured).
 pub const CAPABILITIES: u32 = 1 | 2;
 

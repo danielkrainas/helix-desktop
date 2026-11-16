@@ -1,4 +1,4 @@
-//! Tooltips for panel items (helix-desktop-spec
+//! Tooltips for panel items (helixdesktop/spec
 //! `contracts/dbus/org.kde.StatusNotifierItem.md`, "Tooltip"): a box
 //! below the panel, under the item, shown after the pointer rests on it.
 //! Pointer input passes through it.
@@ -166,7 +166,7 @@ impl Ui {
     }
 }
 
-/// A panel tooltip on the accessibility bus (helix-desktop-spec
+/// A panel tooltip on the accessibility bus (helixdesktop/spec
 /// `contracts/dbus/org.a11y.atspi.md`): a `tool tip` named by its first
 /// line (bold) and described by the others, on its `w`×`h` box.
 pub(super) fn tooltip_nodes(lines: &[String], w: i32, h: i32) -> Vec<crate::a11y::Node> {

@@ -1,4 +1,4 @@
-//! Notification sounds (helix-desktop-spec
+//! Notification sounds (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.Notifications.md`, "Sounds"): a file,
 //! or a name from the freedesktop sound theme, played with PipeWire's
 //! `pw-play` (or `paplay`).

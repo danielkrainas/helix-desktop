@@ -1,5 +1,5 @@
 //! Switching users through fake display managers and AccountsService on a
-//! test bus (helix-desktop-spec `org.gnome.desktop.lockdown.md`, "User
+//! test bus (helixdesktop/spec `org.gnome.desktop.lockdown.md`, "User
 //! switching").
 
 use std::sync::atomic::{AtomicUsize, Ordering};

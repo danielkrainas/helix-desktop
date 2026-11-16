@@ -1,4 +1,4 @@
-//! Color for HDR monitors and ICC profiles (helix-desktop-spec
+//! Color for HDR monitors and ICC profiles (helixdesktop/spec
 //! `contracts/dbus/org.gnome.Mutter.DisplayConfig.md`, "Color modes" and
 //! "Color profiles"): what a monitor's EDID says about HDR, the BT.2100
 //! (PQ, BT.2020) encoding SDR content is converted to, the kernel's HDR

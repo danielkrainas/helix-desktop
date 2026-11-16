@@ -1,5 +1,5 @@
 //! Drawing X11 windows' title bars and handling clicks on them
-//! (helix-desktop-spec `contracts/wayland/README.md`, "Window frames"),
+//! (helixdesktop/spec `contracts/wayland/README.md`, "Window frames"),
 //! and the scene every output shows: shell layers, windows with their
 //! frames, in stacking order.
 

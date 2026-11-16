@@ -1,4 +1,4 @@
-//! `org.freedesktop.impl.portal.Email` (helix-desktop-spec
+//! `org.freedesktop.impl.portal.Email` (helixdesktop/spec
 //! `contracts/dbus/org.freedesktop.impl.portal.md`, "Email"): opens a new
 //! message in the user's mail app, filled in with what the app asked for.
 

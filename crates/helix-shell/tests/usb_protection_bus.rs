@@ -1,4 +1,4 @@
-//! USB protection against a fake USBGuard on a test bus (helix-desktop-spec
+//! USB protection against a fake USBGuard on a test bus (helixdesktop/spec
 //! `org.gnome.desktop.privacy.md`, "USB protection").
 
 use std::collections::HashMap;

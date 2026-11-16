@@ -1,5 +1,5 @@
 //! A fake `org.freedesktop.login1` for tests (contract:
-//! helix-desktop-spec `org.freedesktop.login1.xml`). Never talk to the real
+//! helixdesktop/spec `org.freedesktop.login1.xml`). Never talk to the real
 //! logind from tests: it would power off the machine.
 
 use std::collections::HashMap;

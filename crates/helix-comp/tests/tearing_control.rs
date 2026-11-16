@@ -1,4 +1,4 @@
-//! `wp_tearing_control_v1` (helix-desktop-spec `contracts/wayland/README.md`,
+//! `wp_tearing_control_v1` (helixdesktop/spec `contracts/wayland/README.md`,
 //! "Tearing") between Helix's server side and a real Wayland client,
 //! in-process: the hint is per surface, applied by the surface's commit,
 //! back to `vsync` when the control object is destroyed, a second control

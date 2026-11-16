@@ -1,4 +1,4 @@
-//! Tearing for full-screen games (`wp_tearing_control_v1`; helix-desktop-spec
+//! Tearing for full-screen games (`wp_tearing_control_v1`; helixdesktop/spec
 //! `contracts/wayland/README.md`, "Tearing"): the facts about a monitor's
 //! next frame that `helix_comp::tearing_control::may_tear` decides on.
 //! Only the DRM backend acts on them; the headless and nested backends

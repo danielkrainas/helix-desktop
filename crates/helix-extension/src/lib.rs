@@ -1,4 +1,4 @@
-//! Write Helix extensions (helix-desktop-spec `contracts/extensions/`,
+//! Write Helix extensions (helixdesktop/spec `contracts/extensions/`,
 //! API 1.0).
 //!
 //! An extension is started by the Helix shell with a private D-Bus
@@ -31,8 +31,8 @@ use zbus::Connection;
 
 /// The API version this crate speaks.
 pub const API_VERSION: &str = "1.1";
-const HOST_PATH: &str = "/org/helix/Extension1/Host";
-const HOST: &str = "org.helix.Extension1.Host";
+const HOST_PATH: &str = "/org/helixdesktop/Extension1/Host";
+const HOST: &str = "org.helixdesktop.Extension1.Host";
 
 /// Something the user (or the shell) did.
 #[derive(Debug, Clone, PartialEq)]
@@ -68,7 +68,7 @@ pub const POPOVER_NAMESPACE: &str = "helix-extension-popover";
 /// (1.1) A popover's largest size.
 pub const POPOVER_MAX: (u32, u32) = (480, 640);
 
-/// A panel item's state (`org.helix.Extension1.PanelItem`).
+/// A panel item's state (`org.helixdesktop.Extension1.PanelItem`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PanelItemState {
     /// An icon theme name, or a file in the extension's directory.
@@ -109,7 +109,7 @@ impl Default for PanelItemState {
     }
 }
 
-/// A quick settings toggle's state (`org.helix.Extension1.Toggle`).
+/// A quick settings toggle's state (`org.helixdesktop.Extension1.Toggle`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToggleState {
     pub title: String,
@@ -127,7 +127,7 @@ impl Default for ToggleState {
     }
 }
 
-/// A quick settings slider's state (`org.helix.Extension1.Slider`).
+/// A quick settings slider's state (`org.helixdesktop.Extension1.Slider`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SliderState {
     pub title: String,
@@ -196,12 +196,12 @@ impl MenuEntry {
 
 fn menu_path(name: &str) -> OwnedObjectPath {
     let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
-    OwnedObjectPath::try_from(format!("/org/helix/Extension/menu/{safe}")).expect("a valid path")
+    OwnedObjectPath::try_from(format!("/org/helixdesktop/Extension/menu/{safe}")).expect("a valid path")
 }
 
 /// An item's object path: `-` in its id becomes `_`.
 fn item_path(kind: &str, id: &str) -> zbus::Result<OwnedObjectPath> {
-    Ok(OwnedObjectPath::try_from(format!("/org/helix/Extension/{kind}/{}", id.replace('-', "_")))?)
+    Ok(OwnedObjectPath::try_from(format!("/org/helixdesktop/Extension/{kind}/{}", id.replace('-', "_")))?)
 }
 
 fn optional_path(name: &Option<String>) -> OwnedObjectPath {
@@ -216,7 +216,7 @@ struct PanelItemIface {
     events: Events,
 }
 
-#[zbus::interface(name = "org.helix.Extension1.PanelItem")]
+#[zbus::interface(name = "org.helixdesktop.Extension1.PanelItem")]
 impl PanelItemIface {
     #[zbus(property)]
     fn icon(&self) -> String {
@@ -276,7 +276,7 @@ impl PanelItemIface {
     }
 }
 
-/// (1.1) A dock item's state (`org.helix.Extension1.DockItem`).
+/// (1.1) A dock item's state (`org.helixdesktop.Extension1.DockItem`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DockItemState {
     pub icon: String,
@@ -303,7 +303,7 @@ struct DockItemIface {
     events: Events,
 }
 
-#[zbus::interface(name = "org.helix.Extension1.DockItem")]
+#[zbus::interface(name = "org.helixdesktop.Extension1.DockItem")]
 impl DockItemIface {
     #[zbus(property)]
     fn icon(&self) -> String {
@@ -349,7 +349,7 @@ struct CommandsIface {
     events: Events,
 }
 
-#[zbus::interface(name = "org.helix.Extension1.Commands")]
+#[zbus::interface(name = "org.helixdesktop.Extension1.Commands")]
 impl CommandsIface {
     fn run(&self, id: String) {
         let _ = self.events.send(Event::Command { id });
@@ -405,7 +405,7 @@ struct ToggleIface {
     events: Events,
 }
 
-#[zbus::interface(name = "org.helix.Extension1.Toggle")]
+#[zbus::interface(name = "org.helixdesktop.Extension1.Toggle")]
 impl ToggleIface {
     #[zbus(property)]
     fn title(&self) -> String {
@@ -442,7 +442,7 @@ struct SliderIface {
     events: Events,
 }
 
-#[zbus::interface(name = "org.helix.Extension1.Slider")]
+#[zbus::interface(name = "org.helixdesktop.Extension1.Slider")]
 impl SliderIface {
     #[zbus(property)]
     fn title(&self) -> String {
@@ -471,7 +471,7 @@ struct MenuIface {
     events: Events,
 }
 
-#[zbus::interface(name = "org.helix.Extension1.Menu")]
+#[zbus::interface(name = "org.helixdesktop.Extension1.Menu")]
 impl MenuIface {
     #[zbus(property)]
     fn layout(&self) -> Vec<(i32, i32, String, String, bool, bool)> {
@@ -672,7 +672,7 @@ impl Extension {
             }
         });
         // Commands (1.1) come to one object.
-        conn.object_server().at("/org/helix/Extension/commands", CommandsIface { events: events_tx.clone() }).await?;
+        conn.object_server().at("/org/helixdesktop/Extension/commands", CommandsIface { events: events_tx.clone() }).await?;
         Ok(Self { conn, id, events_tx, events, granted: Default::default() })
     }
 

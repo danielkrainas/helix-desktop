@@ -1,5 +1,5 @@
 //! Agent-owned network secrets kept in a fake Secret Service on a test bus
-//! (helix-desktop-spec `org.freedesktop.NetworkManager.SecretAgent.md`,
+//! (helixdesktop/spec `org.freedesktop.NetworkManager.SecretAgent.md`,
 //! "Agent-owned secrets").
 
 use std::collections::HashMap;

@@ -1,4 +1,4 @@
-//! The shell's `org.helix.DisplayChangeDialog`.
+//! The shell's `org.helixdesktop.DisplayChangeDialog`.
 
 use std::time::Duration;
 
@@ -15,14 +15,14 @@ async fn asks_the_ui_and_reports_the_answer() {
     let conn = bus.connect().await;
     let rule = MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-        .interface("org.helix.DisplayChangeDialog")
+        .interface("org.helixdesktop.DisplayChangeDialog")
         .unwrap()
         .build();
     let mut signals = MessageStream::for_match_rule(rule, &conn, None).await.unwrap();
     let call = |method: &'static str, seconds: Option<u32>| {
         let conn = conn.clone();
         async move {
-            let (path, iface) = ("/org/helix/DisplayChangeDialog", "org.helix.DisplayChangeDialog");
+            let (path, iface) = ("/org/helixdesktop/DisplayChangeDialog", "org.helixdesktop.DisplayChangeDialog");
             match seconds {
                 Some(s) => conn.call_method(Some("org.gnome.Shell"), path, Some(iface), method, &(s,)).await,
                 None => conn.call_method(Some("org.gnome.Shell"), path, Some(iface), method, &()).await,

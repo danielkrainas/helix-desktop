@@ -1,4 +1,4 @@
-//! The run dialog (helix-desktop-spec `contracts/wayland/README.md`, "Run
+//! The run dialog (helixdesktop/spec `contracts/wayland/README.md`, "Run
 //! a command"): `panel-run-dialog` (Alt+F2) asks for a command and runs
 //! it; `org.gnome.shell command-history` keeps what was run.
 

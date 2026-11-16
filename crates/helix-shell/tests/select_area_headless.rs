@@ -1,5 +1,5 @@
 //! `SelectArea` as the Screenshot app (helix-apps `apps/screenshot`) calls
-//! it, answered with the pointer, end to end (danielkrainas/helix-apps#146):
+//! it, answered with the pointer, end to end (helixdesktop/apps#146):
 //! a headless Helix session (helix-comp with helix-shell, scratch home,
 //! private bus); this test claims `org.gnome.Screenshot` without queueing,
 //! asks for an area, sees the picker dim the screen, drags out a rectangle

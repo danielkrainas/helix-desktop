@@ -1,4 +1,4 @@
-//! `xdg_toplevel_icon_manager_v1` (helix-desktop-spec
+//! `xdg_toplevel_icon_manager_v1` (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Window icons") between Helix's server
 //! side and a real Wayland client, in-process.
 

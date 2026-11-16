@@ -1,4 +1,4 @@
-//! Enter answers a prompt dialog (helix-desktop#71: the run dialog, like
+//! Enter answers a prompt dialog (helixdesktop/desktop#71: the run dialog, like
 //! every prompt, never took Enter: the time it was first shown was not
 //! noted for prompts, so Enter always came "too soon"). A headless Helix
 //! session (helix-comp with helix-shell, scratch home, private bus):

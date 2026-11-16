@@ -1,4 +1,4 @@
-//! Microphone and camera indicators (helix-desktop-spec
+//! Microphone and camera indicators (helixdesktop/spec
 //! `contracts/wayland/README.md`, "System status"): which PipeWire nodes
 //! are running, watched on a thread of their own.
 

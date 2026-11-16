@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installed as /usr/libexec/helix/helix-greeter-session. greetd runs it as
-# its greeter user (helix-desktop-spec components/greeter.md): the
+# its greeter user (helixdesktop/spec components/greeter.md): the
 # compositor on the bare hardware with the greeter as its shell, on a
 # private session bus. When the greeter has handed greetd the session to
 # start it exits with status 0, the compositor exits with it, and greetd

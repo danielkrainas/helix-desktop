@@ -5,7 +5,7 @@
 # with its own target.
 [Unit]
 Description=Helix session
-Documentation=https://github.com/danielkrainas/helix-desktop
+Documentation=https://helixdesktop.org
 BindsTo=graphical-session.target
 Wants=graphical-session-pre.target
 After=graphical-session-pre.target

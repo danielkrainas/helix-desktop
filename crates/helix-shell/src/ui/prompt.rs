@@ -1,4 +1,4 @@
-//! The prompt dialog (helix-desktop-spec
+//! The prompt dialog (helixdesktop/spec
 //! `org.freedesktop.PolicyKit1.AuthenticationAgent.md`, "Prompt dialog").
 
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;

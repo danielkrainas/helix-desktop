@@ -1,4 +1,4 @@
-//! The break screen (helix-desktop-spec `contracts/gsettings/wellbeing.md`,
+//! The break screen (helixdesktop/spec `contracts/gsettings/wellbeing.md`,
 //! "Break reminders"): a darkened layer over everything with the break's
 //! title, the time left, and "Delay" / "Skip".
 
@@ -106,7 +106,7 @@ theme::control(&mut canvas, r.x, r.y, r.w, r.h, theme::Look::default());
     }
 }
 
-/// The break screen on the accessibility bus (helix-desktop-spec
+/// The break screen on the accessibility bus (helixdesktop/spec
 /// `contracts/dbus/org.a11y.atspi.md`): a modal `dialog` named by the
 /// break's title, its message (announced), the time left as a `timer`
 /// ("4:59") and the `Delay` and `Skip` buttons.

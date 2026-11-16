@@ -1,4 +1,4 @@
-//! Screenshot, brightness and volume keys (helix-desktop-spec
+//! Screenshot, brightness and volume keys (helixdesktop/spec
 //! `contracts/gsettings/shell-keys.md`): which accelerators to bind, and
 //! what the brightness and volume keys do.
 //!
@@ -19,7 +19,7 @@ const SHELL_KEYS: &str = "org.gnome.shell.keybindings";
 const MEDIA_KEYS: &str = "org.gnome.settings-daemon.plugins.media-keys";
 const SOUND: &str = "org.gnome.desktop.sound";
 
-/// Schemas read here (key tables in helix-desktop-spec).
+/// Schemas read here (key tables in helixdesktop/spec).
 pub const SCHEMAS: &[&str] = &[SHELL_KEYS, MEDIA_KEYS, SOUND];
 /// Schemas whose changes rebind the shell's keys.
 pub const KEY_SCHEMAS: &[&str] = &[SHELL_KEYS, MEDIA_KEYS, "org.gnome.desktop.wm.keybindings", "org.gnome.mutter.keybindings", "org.gnome.desktop.input-sources"];
@@ -41,7 +41,7 @@ pub enum Volume {
     MicMute,
 }
 
-/// Accessibility keys (helix-desktop-spec
+/// Accessibility keys (helixdesktop/spec
 /// `contracts/gsettings/a11y-magnifier.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum A11yKey {
@@ -165,7 +165,7 @@ pub enum KeyAction {
 }
 
 impl KeyAction {
-    /// Which keys work while locked (helix-desktop-spec `shell-keys.md`).
+    /// Which keys work while locked (helixdesktop/spec `shell-keys.md`).
     pub fn works_when_locked(self) -> bool {
         match self {
             KeyAction::Brightness(_) | KeyAction::Volume(_) | KeyAction::Playback(_) | KeyAction::A11y(_) | KeyAction::KbdBacklight(_) | KeyAction::Battery => true,

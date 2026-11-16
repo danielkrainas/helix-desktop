@@ -1,5 +1,5 @@
 //! The built-in panel's backlight, for DisplayConfig's `Backlight` and
-//! `SetBacklight` (helix-desktop-spec `org.gnome.Mutter.DisplayConfig.md`,
+//! `SetBacklight` (helixdesktop/spec `org.gnome.Mutter.DisplayConfig.md`,
 //! "Backlight"): a kernel backlight device, written through logind.
 
 use std::path::{Path, PathBuf};

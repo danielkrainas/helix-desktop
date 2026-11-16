@@ -1,4 +1,4 @@
-//! ICC profiles for image descriptions (helix-desktop-spec
+//! ICC profiles for image descriptions (helixdesktop/spec
 //! `contracts/wayland/README.md`, "Color management", "ICC profiles"): RGB
 //! profiles to primaries and per-channel curves. Matrix/curve profiles are
 //! read as they are; LUT-based ones (`A2B0`: `mft1`, `mft2`, `mAB `) are

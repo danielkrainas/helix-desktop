@@ -1,5 +1,5 @@
-//! The surfaces published by helix-desktop#73 read over AT-SPI on a
-//! private accessibility bus (helix-desktop-spec
+//! The surfaces published by helixdesktop/desktop#73 read over AT-SPI on a
+//! private accessibility bus (helixdesktop/spec
 //! `contracts/dbus/org.a11y.atspi.md`): their windows are built by the
 //! same code the shell uses (from painted places where the surface paints
 //! them), published with AccessKit, and read back by a client: roles,
@@ -449,7 +449,7 @@ async fn child() {
     assert!(w.named("~/src").has(SELECTED) && !w.named("~/src").has(FOCUSED), "the window stays chosen");
     shell.show("overview", overview(super::overview::Region::Dash, Some(0)));
     client.window("Window Overview", |w| w.focused() == ["Files"]).await;
-    // Moving a window to another workspace (helix-desktop#97): an action
+    // Moving a window to another workspace (helixdesktop/desktop#97): an action
     // on its picture, after "click", for each other workspace.
     let w = client.window("Window Overview", |w| !w.children.is_empty()).await;
     let action = proxy(&conn, &w.named("~/src").at, "org.a11y.atspi.Action").await;
@@ -463,7 +463,7 @@ async fn child() {
     shell.show("overview", overview_said(super::overview::Region::Windows, None, Some("~/src moved to Mail")));
     assert!(announced(&mut stream, "~/src moved to Mail").await, "the move is announced");
 
-    // ----- The launcher has a name of its own (helix-desktop#98).
+    // ----- The launcher has a name of its own (helixdesktop/desktop#98).
     let search = Node::text_field(Role::SearchInput, "Search", "", crate::a11y::Rect::new(440, 24, 400, 48)).id("search");
     shell.show("launcher", window(super::atspi::launcher_title(), true, vec![search.focused(true)]));
     let w = client.window("Launcher", |w| !w.focused().is_empty()).await;
@@ -502,7 +502,7 @@ async fn child() {
     // No recent apps (turned off, cleared, another page): no such group.
     let plain = super::atspi::grid_nodes(&model, (&cells[2..], &[], None, &[], 0, 0));
     assert_eq!(plain.iter().map(|n| n.name.as_str()).collect::<Vec<_>>(), ["Applications"]);
-    // ----- Its results, scrolled (helix-desktop#104): only the rows in
+    // ----- Its results, scrolled (helixdesktop/desktop#104): only the rows in
     // sight are objects, and they say how many results there are and
     // where each is among them.
     let apps: Vec<crate::launcher::App> =
@@ -575,7 +575,7 @@ async fn child() {
     let shown: Vec<(&str, &str, &str, bool)> = w.children[0].children.iter().map(|c| (c.role.as_str(), c.name.as_str(), c.description.as_str(), c.has(SELECTED))).collect();
     assert_eq!(shown, [("list item", "Projects", "Folder", false), ("list item", "notes.txt", "", true), ("list item", "Editor", "Application", false)]);
 
-    // ----- Picking an area or a point with the keyboard (helix-desktop#97):
+    // ----- Picking an area or a point with the keyboard (helixdesktop/desktop#97):
     // what the arrow keys picked is a live label, announced as it changes.
     let picked = |said: String| window("Screenshot", true, vec![Node::label(said).id("keyboard").live()]);
     shell.show("picker", picked(super::capture::keyboard_said((320, 180), Some((640, 360)))));
@@ -661,7 +661,7 @@ async fn child() {
     assert_eq!(w.named("Done").role, "push button");
 
     // ----- The OSD: a live status whose changes reach clients.
-    // A new window's live words are announced (helix-desktop#71: a
+    // A new window's live words are announced (helixdesktop/desktop#71: a
     // tree's first publication announces nothing, so Orca said nothing
     // for an OSD, the workspace switched to or a notification).
     let osd = |words: &str| window("On-screen display", false, vec![Node::new(Role::Status, words).id("osd").live()]);
@@ -750,7 +750,7 @@ async fn child() {
     let (target, request) = shell.action();
     assert_eq!((target.id.as_str(), request.data), ("password:0", Some(accesskit::ActionData::Value("hunter2".into()))));
 
-    // The clipboard (helix-desktop#96): CopyText, CutText and PasteText
+    // The clipboard (helixdesktop/desktop#96): CopyText, CutText and PasteText
     // select their range, then ask the shell to copy, cut or paste there.
     use super::clipboard::{plan, Op, Plan};
     let clip = |request: &accesskit::ActionRequest| match request.data {
@@ -786,7 +786,7 @@ async fn child() {
     assert_eq!((target.id.as_str(), clip(&request)), ("password:0", Some(Op::Copy)));
     assert_eq!(plan(Op::Copy, secret, true, Some((0, 3))), Plan { refused: true, ..Plan::default() });
 
-    // ----- The file chooser (helix-desktop#117): the list is named after
+    // ----- The file chooser (helixdesktop/desktop#117): the list is named after
     // the folder shown and has every row (190), each folder described as
     // one (no trailing "/"); the focused row follows the keys; going into
     // another folder keeps the same dialog object.

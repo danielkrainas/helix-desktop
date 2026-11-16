@@ -1,4 +1,4 @@
-//! `org.gnome.Mutter.ScreenCast` (helix-desktop-spec
+//! `org.gnome.Mutter.ScreenCast` (helixdesktop/spec
 //! `org.gnome.Mutter.ScreenCast.md`): sessions and streams on D-Bus; the
 //! compositor records monitors into PipeWire streams when asked with
 //! [`CastRequest`]s.
@@ -223,12 +223,12 @@ impl ScreenCast {
     }
 }
 
-/// `org.helix.ScreenCastState` on the root object.
+/// `org.helixdesktop.ScreenCastState` on the root object.
 pub struct ScreenCastState {
     pub shared: Shared,
 }
 
-#[interface(name = "org.helix.ScreenCastState")]
+#[interface(name = "org.helixdesktop.ScreenCastState")]
 impl ScreenCastState {
     #[zbus(property)]
     async fn active(&self) -> bool {

@@ -1,5 +1,5 @@
 //! The location from GeoClue, while location services are on, for Night
-//! Light's automatic schedule (helix-desktop-spec
+//! Light's automatic schedule (helixdesktop/spec
 //! `contracts/gsettings/night-light.md`: into
 //! `night-light-last-coordinates`) and the weather's automatic location
 //! (`contracts/gsettings/calendar.md`, "Weather").

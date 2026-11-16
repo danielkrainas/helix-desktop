@@ -1,6 +1,6 @@
 //! `helix-login-monitors` as pkexec runs it, in a scratch root
 //! (`HELIX_LOGIN_MONITORS_TEST_ROOT`, honoured only when not root), and
-//! its polkit policy (helix-desktop-spec `components/greeter.md`, "The
+//! its polkit policy (helixdesktop/spec `components/greeter.md`, "The
 //! monitor").
 
 use std::io::Write;
@@ -63,7 +63,7 @@ fn helper_writes_into_the_scratch_root() {
 /// Like `pkaction --verbose` would show it, without installing it.
 #[test]
 fn polkit_policy() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/org.helix.login-screen-monitors.policy");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/org.helixdesktop.login-screen-monitors.policy");
     let text = std::fs::read_to_string(&path).unwrap();
     let doc = roxmltree::Document::parse_with_options(&text, roxmltree::ParsingOptions { allow_dtd: true, ..Default::default() }).expect("well-formed XML");
     let root = doc.root_element();
@@ -71,7 +71,7 @@ fn polkit_policy() {
     let actions: Vec<_> = root.children().filter(|n| n.has_tag_name("action")).collect();
     assert_eq!(actions.len(), 1);
     let action = actions[0];
-    assert_eq!(action.attribute("id"), Some("org.helix.login-screen-monitors"));
+    assert_eq!(action.attribute("id"), Some("org.helixdesktop.login-screen-monitors"));
     let child = |node: roxmltree::Node<'_, '_>, name: &str| node.children().find(|n| n.has_tag_name(name)).and_then(|n| n.text()).map(str::to_owned);
     assert!(child(action, "description").is_some_and(|d| !d.is_empty()));
     assert!(child(action, "message").is_some_and(|m| !m.is_empty()));
@@ -87,9 +87,9 @@ fn polkit_policy() {
 
     // Packaged where pkexec looks, from where the build puts it.
     let stage = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/stage.sh")).unwrap();
-    assert!(stage.contains("/usr/share/polkit-1/actions/org.helix.login-screen-monitors.policy"));
+    assert!(stage.contains("/usr/share/polkit-1/actions/org.helixdesktop.login-screen-monitors.policy"));
     assert!(stage.contains("/usr/libexec/helix/helix-login-monitors"));
     let nfpm = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/nfpm.yaml")).unwrap();
-    assert!(nfpm.contains("dst: /usr/share/polkit-1/actions/org.helix.login-screen-monitors.policy"));
+    assert!(nfpm.contains("dst: /usr/share/polkit-1/actions/org.helixdesktop.login-screen-monitors.policy"));
     assert!(nfpm.contains("dst: /usr/libexec/helix/helix-login-monitors"));
 }

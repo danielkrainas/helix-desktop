@@ -1,4 +1,4 @@
-//! What the message tray's calendar column shows (helix-desktop-spec
+//! What the message tray's calendar column shows (helixdesktop/spec
 //! `contracts/gsettings/calendar.md`): events from Evolution Data Server,
 //! world clocks, and the media player.
 

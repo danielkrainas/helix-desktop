@@ -1,4 +1,4 @@
-//! What the lock screen shows besides the password (helix-desktop-spec
+//! What the lock screen shows besides the password (helixdesktop/spec
 //! `contracts/dbus/org.gnome.ScreenSaver.md`, "Lock screen"): the media
 //! player and counts of notifications that arrived while locked.
 

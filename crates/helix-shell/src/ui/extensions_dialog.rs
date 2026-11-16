@@ -1,4 +1,4 @@
-//! "Extensions…" (helix-desktop-spec `contracts/extensions/README.md`,
+//! "Extensions…" (helixdesktop/spec `contracts/extensions/README.md`,
 //! "The Extensions dialog"): the extensions, turning them on and off,
 //! and their settings. The fallback for when the Settings app (whose
 //! Extensions panel does more) is not installed.
@@ -93,7 +93,7 @@ fn can_text(info: &Info) -> String {
     }
 }
 
-/// The Extensions dialog on the accessibility bus (helix-desktop-spec
+/// The Extensions dialog on the accessibility bus (helixdesktop/spec
 /// `contracts/dbus/org.a11y.atspi.md`): a modal `dialog` with a list of
 /// the extensions shown (`shown`, indexes into `list`), each a `list item`
 /// named by the extension and described by its description, state and

@@ -1,6 +1,6 @@
-//! The file chooser end to end (helix-desktop#112–#117): a headless Helix
+//! The file chooser end to end (helixdesktop/desktop#112–#117): a headless Helix
 //! session (helix-comp with helix-shell, a scratch home with its own
-//! folders, a private bus) is asked `org.helix.PortalDialog.ChooseFiles`
+//! folders, a private bus) is asked `org.helixdesktop.PortalDialog.ChooseFiles`
 //! as helix-portals asks it, and driven through the compositor's test
 //! input. Where to click comes from the shell's own log of the dialog's
 //! parts (at debug level).
@@ -91,7 +91,7 @@ fn choose(session: &HeadlessSession, mode: &str, folder: &Path, name: &str) -> s
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         rt.block_on(async move {
             let conn = zbus::connection::Builder::address(address.as_str()).unwrap().build().await.unwrap();
-            let reply = conn.call_method(Some("org.gnome.Shell"), "/org/helix/PortalDialog", Some("org.helix.PortalDialog"), "ChooseFiles", &(options,)).await.expect("ChooseFiles answered");
+            let reply = conn.call_method(Some("org.gnome.Shell"), "/org/helixdesktop/PortalDialog", Some("org.helixdesktop.PortalDialog"), "ChooseFiles", &(options,)).await.expect("ChooseFiles answered");
             reply.body().deserialize::<(u32, HashMap<String, OwnedValue>)>().unwrap()
         })
     })
@@ -178,7 +178,7 @@ fn click_part(session: &mut HeadlessSession, name: &str) {
 }
 
 /// Folder changes, keys, places and the file type menu: one dialog
-/// surface throughout (helix-desktop#112), the keyboard (#114), a click
+/// surface throughout (helixdesktop/desktop#112), the keyboard (#114), a click
 /// where a place was before a folder change (#116), the file type in one
 /// step (#115).
 #[test]
@@ -236,7 +236,7 @@ fn browsing_keeps_one_dialog() {
 }
 
 /// A folder that takes two seconds to read: the dialog stays, says it is
-/// loading, and its places and Cancel work meanwhile (helix-desktop#112).
+/// loading, and its places and Cancel work meanwhile (helixdesktop/desktop#112).
 #[test]
 fn slow_folder_keeps_the_dialog() {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
@@ -260,7 +260,7 @@ fn slow_folder_keeps_the_dialog() {
 
 /// The wheel and Page Down scroll; the 6,000-file folder goes to its end
 /// drawing only the rows that show, as fast as a small one
-/// (helix-desktop#113, #114).
+/// (helixdesktop/desktop#113, #114).
 #[test]
 fn large_folder_scrolls() {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
@@ -317,7 +317,7 @@ fn paint_times(s: &HeadlessSession) -> Vec<(u64, u64)> {
 }
 
 /// A second click after the double-click time selects but does not
-/// open; a quick one opens (helix-desktop#114).
+/// open; a quick one opens (helixdesktop/desktop#114).
 #[test]
 fn double_click_timing() {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
@@ -342,7 +342,7 @@ fn double_click_timing() {
 
 /// Save: typing replaces the base name and keeps ".odt"; with a folder
 /// selected in the list, Enter still saves under the name typed
-/// (helix-desktop#114, #115).
+/// (helixdesktop/desktop#114, #115).
 #[test]
 fn save_name_and_enter() {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
@@ -361,7 +361,7 @@ fn save_name_and_enter() {
 }
 
 /// The path bar takes you up the branch; New Folder makes a folder and
-/// goes into it (helix-desktop#115).
+/// goes into it (helixdesktop/desktop#115).
 #[test]
 fn path_bar_and_new_folder() {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
@@ -387,7 +387,7 @@ fn path_bar_and_new_folder() {
 }
 
 /// Large Text on a 1280×800 screen: the title, the path bar and both
-/// buttons are on screen and work (helix-desktop#116).
+/// buttons are on screen and work (helixdesktop/desktop#116).
 #[test]
 fn large_text_fits() {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());

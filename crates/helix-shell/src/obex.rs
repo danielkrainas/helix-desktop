@@ -1,7 +1,7 @@
-//! Bluetooth file transfer through BlueZ's OBEX daemon (helix-desktop-spec
+//! Bluetooth file transfer through BlueZ's OBEX daemon (helixdesktop/spec
 //! `contracts/dbus/org.bluez.obex.md`): an `org.bluez.obex.Agent1` that
 //! asks before accepting pushed files and moves them to Downloads, and
-//! `org.helix.BluetoothSendTo`, which sends files to a paired device.
+//! `org.helixdesktop.BluetoothSendTo`, which sends files to a paired device.
 //!
 //! Not yet tried with a real Bluetooth device: the tests use a fake obexd.
 
@@ -23,8 +23,8 @@ use helix_i18n::trf;
 
 pub const OBEX: &str = "org.bluez.obex";
 pub const OBEX_PATH: &str = "/org/bluez/obex";
-pub const AGENT_PATH: &str = "/org/helix/ObexAgent";
-pub const SEND_PATH: &str = "/org/helix/BluetoothSendTo";
+pub const AGENT_PATH: &str = "/org/helixdesktop/ObexAgent";
+pub const SEND_PATH: &str = "/org/helixdesktop/BluetoothSendTo";
 const BLUEZ: &str = "org.bluez";
 const TRANSFER: &str = "org.bluez.obex.Transfer1";
 /// Progress notifications are updated in steps of this many percent.
@@ -586,10 +586,10 @@ pub fn start_sending(device: String, files: Vec<String>) {
     }
 }
 
-/// `org.helix.BluetoothSendTo`.
+/// `org.helixdesktop.BluetoothSendTo`.
 pub struct SendTo;
 
-#[interface(name = "org.helix.BluetoothSendTo")]
+#[interface(name = "org.helixdesktop.BluetoothSendTo")]
 impl SendTo {
     /// Send `files` (paths or `file://` URIs) to `device` (an address);
     /// either may be empty, and is then asked for.
