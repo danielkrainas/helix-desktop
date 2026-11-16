@@ -116,13 +116,52 @@ pub struct Apps {
 }
 
 /// The installed apps (read again when older than [`APPS_FRESH`]).
+///
+/// Reading them parses every desktop file, which can take a second when
+/// the disk is busy or GIO reloads its app directories; the UI thread
+/// must not wait for that (helix-desktop: a 1 s "draw overview" stall).
+/// So a stale reading is returned as it is while a worker thread reads
+/// them again; only the very first reading (normally done by
+/// [`read_apps_soon`] at start) is made where it is asked for.
 pub fn apps() -> std::sync::Arc<Apps> {
-    use gio::prelude::*;
-    static APPS: Mutex<Option<(std::time::Instant, std::sync::Arc<Apps>)>> = Mutex::new(None);
-    let mut cached = APPS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((_, apps)) = cached.as_ref().filter(|(read, _)| read.elapsed() < APPS_FRESH) {
-        return apps.clone();
+    let cached = APPS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    match cached {
+        Some((read, apps)) => {
+            if read.elapsed() >= APPS_FRESH {
+                read_apps_soon();
+            }
+            apps
+        }
+        None => {
+            let apps = std::sync::Arc::new(read_apps());
+            *APPS.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), apps.clone()));
+            apps
+        }
     }
+}
+
+static APPS: Mutex<Option<(std::time::Instant, std::sync::Arc<Apps>)>> = Mutex::new(None);
+
+/// Read the installed apps again on a worker thread (once at a time);
+/// [`apps`] gives the new reading when it is done.
+pub fn read_apps_soon() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static READING: AtomicBool = AtomicBool::new(false);
+    if READING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let spawned = std::thread::Builder::new().name("read-apps".into()).spawn(|| {
+        let apps = std::sync::Arc::new(read_apps());
+        *APPS.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), apps));
+        READING.store(false, Ordering::Release);
+    });
+    if spawned.is_err() {
+        READING.store(false, Ordering::Release);
+    }
+}
+
+fn read_apps() -> Apps {
+    use gio::prelude::*;
     let mut apps = Apps::default();
     for info in gio::AppInfo::all() {
         let Some(id) = info.id().map(|i| i.to_string()) else { continue };
@@ -138,8 +177,6 @@ pub fn apps() -> std::sync::Arc<Apps> {
         apps.ids.push(id.clone());
         apps.icons.insert(id, icon);
     }
-    let apps = std::sync::Arc::new(apps);
-    *cached = Some((std::time::Instant::now(), apps.clone()));
     apps
 }
 

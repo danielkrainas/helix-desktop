@@ -24,6 +24,8 @@ fn main() -> ExitCode {
     helix_draw::set_rtl(helix_i18n::is_rtl());
     // Before any other thread touches GIO.
     helix_settings::prepare_gio();
+    // The installed apps, read before the dock or overview needs them.
+    helix_shell::icons::read_apps_soon();
 
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,

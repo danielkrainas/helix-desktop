@@ -333,6 +333,8 @@ struct Ui {
     /// The wallpaper shrunk for the overview's workspace thumbnails: (the
     /// image's address and the height, the picture).
     overview_wall: Option<((usize, u32), Arc<helix_draw::Image>)>,
+    /// The overview's wallpaper thumbnail being made (on a worker).
+    overview_wall_wanted: Option<(usize, u32)>,
     lock_background: crate::wallpaper::Background,
     /// Bumped when the lock background changes (its blurred copies are
     /// made again).
@@ -3810,6 +3812,7 @@ pub fn run(
         background_pool: None,
         desktop_background: Default::default(),
         overview_wall: None,
+        overview_wall_wanted: None,
         lock_background: Default::default(),
         lock_background_serial: 0,
         window_geometry: HashMap::new(),

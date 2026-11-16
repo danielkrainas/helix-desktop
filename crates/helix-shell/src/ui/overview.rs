@@ -410,6 +410,7 @@ impl Ui {
 
     pub(super) fn draw_overview(&mut self) {
         let _busy = crate::watchdog::scope("draw overview");
+        let started = std::time::Instant::now();
         let Some(mut overlay) = self.overview.take() else { return };
         if overlay.configured && overlay.width > 0 {
             self.paint_overview(&mut overlay);
@@ -420,6 +421,7 @@ impl Ui {
             self.paint_overview(overlay);
         }
         self.overview_others = others;
+        tracing::debug!(ms = started.elapsed().as_secs_f64() * 1000.0, "overview drawn");
     }
 
     fn paint_overview(&mut self, overlay: &mut Overlay<OverviewState>) {
@@ -430,7 +432,10 @@ impl Ui {
         };
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
-        let dash = if overlay.state.primary { self.dash_entries(scale) } else { Vec::new() };
+        let dash = {
+            let _step = crate::watchdog::scope("overview dash");
+            if overlay.state.primary { self.dash_entries(scale) } else { Vec::new() }
+        };
         let icons = self.overview_icons(&ids, (f64::from(TILE_ICON) * scale).ceil() as u32);
         let wallpaper = self.overview_wallpaper(scale);
         let wall_color = {
@@ -616,9 +621,28 @@ impl Ui {
                 return Some(thumb.clone());
             }
         }
-        let thumb = std::sync::Arc::new(crate::wallpaper::thumbnail(&image, key.1 * 2, key.1));
-        self.overview_wall = Some((key, thumb.clone()));
-        Some(thumb)
+        // Shrinking a large wallpaper takes long (a second for a big
+        // picture): on a worker, the overview drawn again when it is done.
+        if self.overview_wall_wanted != Some(key) {
+            self.overview_wall_wanted = Some(key);
+            let height = key.1;
+            self.offload(
+                move || std::sync::Arc::new(crate::wallpaper::thumbnail(&image, height * 2, height)),
+                move |ui, thumb| {
+                    if ui.overview_wall_wanted != Some(key) {
+                        return;
+                    }
+                    ui.overview_wall_wanted = None;
+                    ui.overview_wall = Some((key, thumb));
+                    if ui.overview.is_some() {
+                        ui.draw_overview();
+                    }
+                },
+            );
+        }
+        // Meanwhile: the same picture at another scale, else none (the
+        // wallpaper's colour).
+        self.overview_wall.as_ref().filter(|(k, _)| k.0 == key.0).map(|(_, thumb)| thumb.clone())
     }
 
     /// The overview's window icons, `px` large.
