@@ -29,6 +29,32 @@ pub async fn primary_connector(conn: &zbus::Connection) -> Option<String> {
     primary_of(&logical)
 }
 
+/// Report the primary monitor's connector now and after every
+/// `MonitorsChanged` (the compositor restoring a remembered layout after
+/// the greeter started, monitors coming and going), until `report`
+/// returns false or the bus goes away.
+pub async fn watch_primary(conn: &zbus::Connection, mut report: impl FnMut(Option<String>) -> bool) {
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.gnome.Mutter.DisplayConfig")
+        .and_then(|b| b.path("/org/gnome/Mutter/DisplayConfig"))
+        .and_then(|b| b.member("MonitorsChanged"))
+        .map(|b| b.build());
+    let stream = match rule {
+        Ok(rule) => zbus::MessageStream::for_match_rule(rule, conn, None).await.ok(),
+        Err(_) => None,
+    };
+    if !report(primary_connector(conn).await) {
+        return;
+    }
+    let Some(mut stream) = stream else { return };
+    while futures_util::StreamExt::next(&mut stream).await.is_some() {
+        if !report(primary_connector(conn).await) {
+            return;
+        }
+    }
+}
+
 /// Of the screens (their outputs' names, in the order announced), the one
 /// that shows the login screen: the primary's, else the first.
 pub fn primary_index(names: &[Option<String>], primary: Option<&str>) -> usize {
@@ -63,6 +89,21 @@ mod tests {
         }
     }
 
+    /// Its primary monitor changes.
+    struct Moving {
+        second: bool,
+    }
+
+    #[zbus::interface(name = "org.gnome.Mutter.DisplayConfig")]
+    impl Moving {
+        fn get_current_state(&self) -> (u32, Vec<Monitor>, Vec<Logical>, HashMap<String, OwnedValue>) {
+            (1, Vec::new(), vec![logical(!self.second, "eDP-1"), logical(self.second, "HDMI-A-1")], HashMap::new())
+        }
+
+        #[zbus(signal)]
+        async fn monitors_changed(emitter: &zbus::object_server::SignalEmitter<'_>) -> zbus::Result<()>;
+    }
+
     /// Against a fake DisplayConfig on a private bus.
     #[test]
     fn asks_display_config() {
@@ -72,6 +113,25 @@ mod tests {
             let _service = bus.builder().name("org.gnome.Mutter.DisplayConfig").unwrap().serve_at("/org/gnome/Mutter/DisplayConfig", FakeDisplayConfig).unwrap().build().await.unwrap();
             let conn = bus.connect().await;
             assert_eq!(primary_connector(&conn).await.as_deref(), Some("HDMI-A-1"));
+        });
+        // Following changes: the primary moves, then MonitorsChanged.
+        let Some(bus) = helix_test_support::TestBus::start() else { return };
+        rt.block_on(async {
+            let service = bus.builder().name("org.gnome.Mutter.DisplayConfig").unwrap().serve_at("/org/gnome/Mutter/DisplayConfig", Moving { second: false }).unwrap().build().await.unwrap();
+            let conn = bus.connect().await;
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            let watch = tokio::spawn(async move { watch_primary(&conn, |p| tx.send(p).is_ok()).await });
+            async fn next(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Option<String>>) -> Option<String> {
+                tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await.expect("an answer").expect("still watching")
+            }
+            assert_eq!(next(&mut rx).await.as_deref(), Some("eDP-1"));
+            let iface = service.object_server().interface::<_, Moving>("/org/gnome/Mutter/DisplayConfig").await.unwrap();
+            iface.get_mut().await.second = true;
+            Moving::monitors_changed(iface.signal_emitter()).await.unwrap();
+            assert_eq!(next(&mut rx).await.as_deref(), Some("HDMI-A-1"), "asked again after MonitorsChanged");
+            drop(rx);
+            Moving::monitors_changed(iface.signal_emitter()).await.unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(5), watch).await.expect("stops when nobody listens").unwrap();
         });
         let Some(empty) = helix_test_support::TestBus::start() else { return };
         rt.block_on(async {

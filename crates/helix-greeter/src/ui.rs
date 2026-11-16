@@ -247,6 +247,9 @@ fn run_inner(greeter: Greeter, greetd: Box<dyn Greetd>, load_users: bool, demo: 
     }
     // The settings remembered from the last time.
     ui.apply_accessibility(ui.greeter.accessibility());
+    // The compositor may restore a remembered layout (a new primary
+    // monitor) after the greeter asked.
+    ui.watch_primary();
 
     let mut event_loop: EventLoop<Ui> = EventLoop::try_new()?;
     let handle = event_loop.handle();
@@ -462,6 +465,19 @@ impl Ui {
     fn primary_index(&self) -> usize {
         let names: Vec<Option<String>> = self.screens.iter().map(|s| self.output_state.info(&s.output).and_then(|i| i.name)).collect();
         crate::monitors::primary_index(&names, self.primary.as_deref())
+    }
+
+    /// Follow the compositor's primary monitor as it changes (on a thread;
+    /// the answers come as events).
+    fn watch_primary(&self) {
+        let events = self.events.clone();
+        let _ = std::thread::Builder::new().name("display-config-watch".into()).spawn(move || {
+            let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
+            rt.block_on(async {
+                let Ok(conn) = zbus::Connection::session().await else { return };
+                crate::monitors::watch_primary(&conn, |primary| events.send(Event::Primary(primary)).is_ok()).await;
+            });
+        });
     }
 
     /// Ask the compositor which monitor is primary (on a thread; the

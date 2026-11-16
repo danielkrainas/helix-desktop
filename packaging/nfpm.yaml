@@ -37,6 +37,12 @@ contents:
     dst: /usr/bin/helix-extensions
   - src: ./stage/usr/libexec/helix/helix-extension-sandbox
     dst: /usr/libexec/helix/helix-extension-sandbox
+  # The login screen's monitor layout (run through pkexec) and its polkit
+  # action.
+  - src: ./stage/usr/libexec/helix/helix-login-monitors
+    dst: /usr/libexec/helix/helix-login-monitors
+  - src: ./stage/usr/share/polkit-1/actions/org.helix.login-screen-monitors.policy
+    dst: /usr/share/polkit-1/actions/org.helix.login-screen-monitors.policy
   # AppArmor (Debian/Ubuntu, Arch): lets extension sandboxes start where
   # unprivileged user namespaces are restricted. Fedora has no AppArmor.
   - src: ./stage/etc/apparmor.d/helix-extension-sandbox
@@ -114,6 +120,8 @@ overrides:
       - pipewire
       # Extension sandboxes.
       - bubblewrap
+      # The login screen's monitor layout (helix-login-monitors).
+      - pkexec
   rpm:
     depends:
       - glibc
@@ -137,6 +145,8 @@ overrides:
       - pipewire
       # Extension sandboxes.
       - bubblewrap
+      # The login screen's monitor layout (helix-login-monitors).
+      - polkit
   archlinux:
     scripts:
       postinstall: ./packaging/postinstall.sh
@@ -162,5 +172,7 @@ overrides:
       - pipewire
       # Extension sandboxes.
       - bubblewrap
+      # The login screen's monitor layout (helix-login-monitors).
+      - polkit
 archlinux:
   packager: Helix release workflow

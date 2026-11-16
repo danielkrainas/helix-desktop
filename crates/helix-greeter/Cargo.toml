@@ -13,6 +13,7 @@ helix-i18n.workspace = true
 helix-a11y.workspace = true
 gio.workspace = true
 zbus.workspace = true
+futures-util.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -49,6 +49,8 @@ impl Helix {
     pub fn apply_monitors(&mut self, config: &MonitorsConfig) -> Result<Vec<Monitor>, String> {
         let result = if self.udev.is_some() {
             self.apply_drm(config)
+        } else if self.headless {
+            self.apply_headless(config)
         } else {
             self.apply_nested(config)
         };

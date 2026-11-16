@@ -182,6 +182,8 @@ pub struct Helix {
     pub pending_dmabufs: Vec<(smithay::backend::allocator::dmabuf::Dmabuf, smithay::wayland::dmabuf::ImportNotifier)>,
     /// Set when running on bare hardware (DRM/KMS).
     pub udev: Option<udev::UdevData>,
+    /// Set by the headless backend (tests).
+    pub headless: bool,
     /// The X11 window manager for Xwayland, once it is running.
     pub xwm: Option<X11Wm>,
     /// Xwayland's display number (`DISPLAY=:N`), once it is running.
@@ -347,6 +349,7 @@ impl Helix {
             dmabuf_state: DmabufState::new(),
             pending_dmabufs: Vec::new(),
             udev: None,
+            headless: false,
             xwm: None,
             xdisplay: None,
             xwayland_client: None,

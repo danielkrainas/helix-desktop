@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Helix: setting the login screen's monitor layout
+     (helix-desktop-spec components/greeter.md, "The monitor"). -->
+<policyconfig>
+  <vendor>Helix</vendor>
+  <vendor_url>https://github.com/danielkrainas/helix-desktop</vendor_url>
+
+  <action id="org.helix.login-screen-monitors">
+    <description>Set the login screen's monitor layout</description>
+    <message>Authentication is required to use this monitor layout for the login screen</message>
+    <icon_name>video-display</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/helix/helix-login-monitors</annotate>
+  </action>
+</policyconfig>

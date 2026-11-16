@@ -1365,6 +1365,7 @@ dependencies = [
  "pipewire",
  "png",
  "reis",
+ "roxmltree",
  "serde",
  "smithay",
  "smithay-drm-extras",
@@ -1421,6 +1422,7 @@ dependencies = [
 name = "helix-greeter"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "gio",
  "helix-a11y",
  "helix-draw",

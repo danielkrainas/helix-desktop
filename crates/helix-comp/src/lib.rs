@@ -23,6 +23,7 @@ pub mod tablet_v2;
 pub mod toplevel_icon;
 pub mod display_config;
 pub mod display_switch;
+pub mod login_monitors;
 pub mod eraser_button;
 pub mod color_management;
 pub mod colorimetry;

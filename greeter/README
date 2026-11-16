@@ -26,3 +26,14 @@ switch back as above. Its log is in `journalctl -u greetd`
 
 Settings: copy /usr/share/doc/helix-greeter/greeter.toml.example to
 /etc/helix/greeter.toml.
+
+Monitors: the login screen goes on the primary monitor of the layout in
+/etc/xdg/helix/monitors.toml (else the first monitor). To use your own
+layout, choose Settings > Displays > "Use This Layout for the Login
+Screen" in your Helix session (an administrator's password is asked),
+or copy all your remembered layouts by hand:
+
+    sudo install -D -m 644 ~/.config/helix/monitors.toml /etc/xdg/helix/monitors.toml
+
+Layouts are kept per set of monitors, so the copy only matters for the
+monitors connected at the login screen.

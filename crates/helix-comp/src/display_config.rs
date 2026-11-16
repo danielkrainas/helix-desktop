@@ -646,43 +646,24 @@ pub struct ApplyRequest {
     pub reply: oneshot::Sender<Result<Vec<Monitor>, String>>,
 }
 
+/// A file of remembered configurations (helix-desktop-spec
+/// `org.gnome.Mutter.DisplayConfig.md`, "Remembered configurations").
 #[derive(Debug, Default, Serialize, Deserialize)]
-struct StoreFile {
+pub(crate) struct StoreFile {
     #[serde(default)]
-    configuration: Vec<StoredConfig>,
+    pub(crate) configuration: Vec<StoredConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct StoredConfig {
+pub(crate) struct StoredConfig {
     /// [`Layout::key`] of the monitors it is for.
-    monitors: String,
-    logical: Vec<LogicalConfig>,
+    pub(crate) monitors: String,
+    pub(crate) logical: Vec<LogicalConfig>,
 }
 
-/// Remembered (persistent) configurations, one per set of monitors.
-#[derive(Debug, Clone, Default)]
-pub struct Store {
-    path: Option<PathBuf>,
-}
-
-impl Store {
-    pub fn at(path: PathBuf) -> Self {
-        Self { path: Some(path) }
-    }
-
-    /// `$XDG_CONFIG_HOME/helix/monitors.toml`.
-    pub fn user() -> Self {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
-        Self {
-            path: base.map(|b| b.join("helix").join("monitors.toml")),
-        }
-    }
-
-    fn read(&self) -> StoreFile {
-        let Some(path) = &self.path else { return StoreFile::default() };
+impl StoreFile {
+    /// The file at `path`: empty when it is missing or unreadable.
+    fn read(path: &std::path::Path) -> Self {
         match std::fs::read_to_string(path) {
             Ok(text) => toml::from_str(&text).unwrap_or_else(|err| {
                 tracing::warn!(%err, path = %path.display(), "ignoring unreadable monitor configurations");
@@ -692,17 +673,65 @@ impl Store {
         }
     }
 
-    pub fn load(&self, key: &str) -> Option<MonitorsConfig> {
-        self.read()
-            .configuration
+    fn find(self, key: &str) -> Option<MonitorsConfig> {
+        self.configuration
             .into_iter()
             .find(|c| c.monitors == key)
             .map(|c| MonitorsConfig { logical: c.logical })
     }
+}
 
+/// Remembered (persistent) configurations, one per set of monitors: the
+/// user's own file first, then system-wide ones, which are only read.
+#[derive(Debug, Clone, Default)]
+pub struct Store {
+    /// Read first; the only file written.
+    path: Option<PathBuf>,
+    /// Looked in, in order, for sets of monitors the user's file lacks.
+    system: Vec<PathBuf>,
+}
+
+impl Store {
+    /// Only the file at `path`.
+    pub fn at(path: PathBuf) -> Self {
+        Self { path: Some(path), system: Vec::new() }
+    }
+
+    /// The file at `path`, then the `system` files (read only).
+    pub fn with_system(path: PathBuf, system: Vec<PathBuf>) -> Self {
+        Self { path: Some(path), system }
+    }
+
+    /// `$XDG_CONFIG_HOME/helix/monitors.toml`, then `helix/monitors.toml`
+    /// in each `$XDG_CONFIG_DIRS` directory ([`system_files`]).
+    pub fn user() -> Self {
+        let base = std::env::var_os("XDG_CONFIG_HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
+        Self {
+            path: base.map(|b| b.join("helix").join("monitors.toml")),
+            system: system_files(std::env::var_os("XDG_CONFIG_DIRS").as_deref()),
+        }
+    }
+
+    /// The configuration for the monitors of `key`: the user's, else the
+    /// first system-wide one.
+    pub fn load(&self, key: &str) -> Option<MonitorsConfig> {
+        if let Some(config) = self.path.as_deref().and_then(|p| StoreFile::read(p).find(key)) {
+            return Some(config);
+        }
+        self.system.iter().find_map(|p| {
+            let config = StoreFile::read(p).find(key)?;
+            tracing::info!(path = %p.display(), "using the system-wide monitor configuration");
+            Some(config)
+        })
+    }
+
+    /// Remember `config` in the user's file (never a system-wide one).
     pub fn save(&self, key: &str, config: &MonitorsConfig) -> Result<(), String> {
         let Some(path) = &self.path else { return Ok(()) };
-        let mut file = self.read();
+        let mut file = StoreFile::read(path);
         file.configuration.retain(|c| c.monitors != key);
         file.configuration.push(StoredConfig {
             monitors: key.to_owned(),
@@ -716,6 +745,17 @@ impl Store {
         std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, path).map_err(|e| e.to_string())
     }
+}
+
+/// `helix/monitors.toml` in each directory of `$XDG_CONFIG_DIRS` (`dirs`;
+/// unset or empty: `/etc/xdg`), in order. Relative entries are ignored, as
+/// the XDG base directory specification says.
+pub fn system_files(dirs: Option<&std::ffi::OsStr>) -> Vec<PathBuf> {
+    let dirs = dirs.filter(|d| !d.is_empty()).unwrap_or(std::ffi::OsStr::new("/etc/xdg"));
+    std::env::split_paths(dirs)
+        .filter(|d| d.is_absolute())
+        .map(|d| d.join("helix").join("monitors.toml"))
+        .collect()
 }
 
 /// Gamma ramps: red, green, blue.
@@ -1640,6 +1680,48 @@ mod tests {
         let reversed = Layout::new(layout.monitors.iter().rev().cloned().collect());
         assert_eq!(reversed.key(), layout.key(), "order doesn't matter");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The user's file first, then the system-wide ones in order, per set
+    /// of monitors; only the user's file is written.
+    #[test]
+    fn store_falls_back_to_system_files() {
+        let dir = std::env::temp_dir().join(format!("helix-monitors-system-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let user = dir.join("user/helix/monitors.toml");
+        let first = dir.join("first/helix/monitors.toml");
+        let second = dir.join("second/helix/monitors.toml");
+        Store::at(second.clone()).save("set", &side_by_side(0, 1080)).unwrap();
+        Store::at(second.clone()).save("other", &side_by_side(1920, 0)).unwrap();
+        let store = Store::with_system(user.clone(), vec![first.clone(), second.clone()]);
+        assert_eq!(store.load("set"), Some(side_by_side(0, 1080)), "from the second system file");
+        Store::at(first.clone()).save("set", &side_by_side(1920, 500)).unwrap();
+        assert_eq!(store.load("set"), Some(side_by_side(1920, 500)), "the first system file wins");
+        assert_eq!(store.load("none"), None);
+
+        let system_before = (std::fs::read(&first).unwrap(), std::fs::read(&second).unwrap());
+        store.save("set", &side_by_side(1920, 0)).unwrap();
+        assert_eq!(store.load("set"), Some(side_by_side(1920, 0)), "the user's own wins");
+        assert_eq!(store.load("other"), Some(side_by_side(1920, 0)), "other sets still come from the system");
+        assert_eq!((std::fs::read(&first).unwrap(), std::fs::read(&second).unwrap()), system_before, "system files untouched");
+        assert!(user.exists());
+
+        // An unreadable user file doesn't hide the system one.
+        std::fs::write(&user, "not = [toml").unwrap();
+        assert_eq!(store.load("set"), Some(side_by_side(1920, 500)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn system_files_from_xdg_config_dirs() {
+        let files = |dirs: Option<&str>| system_files(dirs.map(std::ffi::OsStr::new));
+        assert_eq!(files(None), [PathBuf::from("/etc/xdg/helix/monitors.toml")]);
+        assert_eq!(files(Some("")), [PathBuf::from("/etc/xdg/helix/monitors.toml")]);
+        assert_eq!(
+            files(Some("/etc/xdg/xdg-helix:relative/dir::/etc/xdg")),
+            [PathBuf::from("/etc/xdg/xdg-helix/helix/monitors.toml"), PathBuf::from("/etc/xdg/helix/monitors.toml")],
+            "in order, relative and empty entries left out"
+        );
     }
 
     #[test]

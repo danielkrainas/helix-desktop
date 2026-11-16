@@ -40,9 +40,17 @@ wayland-server = { version = "0.31", features = ["libwayland_1_23"] }
 name = "helix-comp"
 path = "src/main.rs"
 
+# Run as root through pkexec: the login screen's monitor layout
+# (src/login_monitors.rs).
+[[bin]]
+name = "helix-login-monitors"
+path = "src/bin/helix-login-monitors.rs"
+
 [dev-dependencies]
 helix-test-support.workspace = true
 # A Wayland client for protocol tests.
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+# Checking the polkit policy.
+roxmltree = "0.20"

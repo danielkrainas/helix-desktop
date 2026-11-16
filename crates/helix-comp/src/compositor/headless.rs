@@ -11,7 +11,7 @@
 
 use std::time::Duration;
 
-use helix_comp::display_config::{Mode as MonitorMode, Monitor};
+use helix_comp::display_config::{Mode as MonitorMode, Monitor, MonitorsConfig};
 use smithay::backend::renderer::utils::RendererSurfaceStateUserData;
 use smithay::desktop::{layer_map_for_output, Window};
 use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
@@ -129,10 +129,40 @@ pub fn init(event_loop: &mut EventLoop<'static, Helix>, state: &mut Helix) -> Re
             TimeoutAction::ToDuration(Duration::from_secs(1))
         })?;
     }
+    state.headless = true;
     Ok(describe(size, count))
 }
 
 impl Helix {
+    /// Apply a monitor configuration (checked beforehand): each virtual
+    /// monitor moves and scales; one mode, no rotation, none can be
+    /// turned off.
+    pub(super) fn apply_headless(&mut self, config: &MonitorsConfig) -> Result<Vec<Monitor>, String> {
+        let mut outputs: Vec<Output> = self.space.outputs().cloned().collect();
+        outputs.sort_by_key(|o| o.name());
+        let mut placed = Vec::new();
+        for output in &outputs {
+            let name = output.name();
+            let logical = config
+                .logical
+                .iter()
+                .find(|l| l.monitors.iter().any(|c| c.connector == name))
+                .ok_or_else(|| format!("the headless monitor {name} cannot be turned off"))?;
+            placed.push(logical);
+        }
+        for (output, l) in outputs.iter().zip(&placed) {
+            output.change_current_state(None, None, Some(super::monitors::to_scale(l.scale)), Some((l.x, l.y).into()));
+            self.space.map_output(output, (l.x, l.y));
+        }
+        let size = outputs.first().and_then(|o| o.current_mode()).map(|m| m.size).unwrap_or_default();
+        let mut monitors = describe((size.w, size.h).into(), outputs.len());
+        for (m, l) in monitors.iter_mut().zip(&placed) {
+            (m.x, m.y, m.scale, m.primary) = (l.x, l.y, l.scale, l.primary);
+            tracing::info!(connector = %m.connector, x = l.x, y = l.y, scale = l.scale, primary = l.primary, "headless monitor configured");
+        }
+        Ok(monitors)
+    }
+
     /// A frame went by: what waited for it may go on.
     fn headless_frame(&mut self, output: &Output) {
         let now = self.start_time.elapsed();

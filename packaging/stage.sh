@@ -27,6 +27,10 @@ done
 # The extension sandbox's launcher and its AppArmor profile.
 install -Dm755 "$bin/helix-extension-sandbox" "$dest/usr/libexec/helix/helix-extension-sandbox"
 install -Dm644 "$root/packaging/apparmor/helix-extension-sandbox" "$dest/etc/apparmor.d/helix-extension-sandbox"
+# The login screen's monitor layout: the helper pkexec runs, and its polkit
+# action (org.helix.login-screen-monitors).
+install -Dm755 "$bin/helix-login-monitors" "$dest/usr/libexec/helix/helix-login-monitors"
+install -Dm644 "$root/data/org.helix.login-screen-monitors.policy" "$dest/usr/share/polkit-1/actions/org.helix.login-screen-monitors.policy"
 # The session's name and comment in every language of po/LINGUAS
 # (Name[de]=…), for login screens.
 install -d "$dest/usr/share/wayland-sessions"
