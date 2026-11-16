@@ -559,7 +559,11 @@ fn nodes(m: &LockModel, hits: &[(Rect, LockHit)], field: Rect, reveal_at: Rect, 
     if let Some(&(r, _)) = hits.iter().find(|(_, h)| *h == LockHit::Unlock) {
         out.push(Node::button(tr("Unlock"), r.into()).id("unlock").disabled(m.typed == 0 || m.checking));
     }
-    if m.caps_lock && !m.checking {
+    // Kept while the password is checked (only the painting leaves it
+    // out): coming back with the answer, it would be announced again
+    // instead of the answer ("Incorrect password"), as screen readers
+    // drop a second announcement that comes at once.
+    if m.caps_lock {
         out.push(Node::label(tr(CAPS_ON)).id("caps-lock").live());
     }
     if let (Some(name), Some(&(r, _))) = (m.layout, hits.iter().find(|(_, h)| *h == LockHit::Layout)) {

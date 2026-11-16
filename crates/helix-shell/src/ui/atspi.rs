@@ -400,7 +400,7 @@ impl Ui {
                 let view = self.banner.as_ref()?;
                 let (x, y, w, _) = self.primary_area;
                 let bounds = crate::a11y::Rect::new(x + (w - view.width as i32) / 2, y + 8, view.width as i32, view.height as i32);
-                (tr("Notification").to_owned(), bounds, vec![self.banner_node(view)])
+                (tr("Notification").to_owned(), bounds, vec![self.banner_node(view), banner_said(&view.data)])
             }
             NOTIFICATIONS => {
                 let (_, (w, h), hits, focus) = self.notification_list_a11y()?;
@@ -687,9 +687,14 @@ impl Ui {
         let d = &view.data;
         let body = if d.markup { crate::markup::plain(&d.body) } else { d.body.clone() };
         let body_r = view.hits.iter().find(|(_, h)| *h == BannerHit::Body).map(|(r, _)| (*r).into()).unwrap_or_default();
-        let mut note = Node::new(Role::Alert, &d.summary).id(format!("note:{}", d.id)).describe(body).at(body_r).click().live().focused(view.focused);
+        // The body is a line of its own (as a description, Orca read it
+        // twice when the banner had the focus).
+        let mut note = Node::new(Role::Alert, &d.summary).id(format!("note:{}", d.id)).at(body_r).click().focused(view.focused);
         if !d.app_name.is_empty() {
             note = note.child(Node::label(&d.app_name).id("app"));
+        }
+        if !body.is_empty() {
+            note = note.child(Node::label(body).id("body"));
         }
         for (r, hit) in &view.hits {
             let r = crate::a11y::Rect::from(*r);
@@ -705,6 +710,24 @@ impl Ui {
         note
     }
 
+}
+
+/// What a notification banner announces, as a live line beside it: the
+/// app, the summary and the body in one announcement (screen readers
+/// drop a second one that comes at once).
+pub(super) fn banner_said(d: &crate::notifications::Banner) -> Node {
+    let body = if d.markup { crate::markup::plain(&d.body) } else { d.body.clone() };
+    let mut said = d.summary.clone();
+    if !d.app_name.is_empty() {
+        said = trf!("{app}: {summary}", app = d.app_name, summary = d.summary);
+    }
+    if !body.is_empty() {
+        said = trf!("{summary}. {body}", summary = said, body = body);
+    }
+    Node::label(said).id("said").live()
+}
+
+impl Ui {
     fn notification_list_nodes(&self, hits: &[(Rect, ListHit)], focus: Option<&ListHit>) -> Vec<Node> {
         let entries = &self.notify.list.entries;
         let summary = |id: u32| entries.iter().find(|e| e.id == id);

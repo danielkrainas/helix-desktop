@@ -261,6 +261,22 @@ fn window(title: &str, active: bool, children: Vec<Node>) -> Window {
     Window { title: title.into(), bounds: crate::a11y::Rect::new(0, 0, 1280, 800), active, children }
 }
 
+/// Waits for an `object:announcement` event saying `words`.
+async fn announced(stream: &mut zbus::MessageStream, words: &str) -> bool {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        let Ok(Some(Ok(msg))) = tokio::time::timeout(Duration::from_millis(300), futures_util::StreamExt::next(stream)).await else { continue };
+        if msg.header().member().is_none_or(|m| m.as_str() != "Announcement") {
+            continue;
+        }
+        let Ok((_, _, _, said, _)) = msg.body().deserialize::<(String, i32, i32, zbus::zvariant::OwnedValue, HashMap<String, zbus::zvariant::OwnedValue>)>() else { continue };
+        if String::try_from(said).is_ok_and(|said| said == words) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Waits for an `object:state-changed:focused` (gained) event from `path`.
 async fn focus_event(stream: &mut zbus::MessageStream, path: &str) -> bool {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
@@ -390,6 +406,7 @@ async fn child() {
 
     // ----- The workspace popup: the workspace announced, the active one selected.
     shell.show("workspace-popup", window("Workspace Switcher", false, super::workspace_popup::popup_nodes(&["Mail".into()], 3, 1, 260)));
+    assert!(announced(&mut stream, "Workspace 2").await, "the workspace switched to is announced");
     let w = client.window("Workspace Switcher", |w| !w.children.is_empty()).await;
     assert_eq!((w.children[0].role.as_str(), w.children[0].name.as_str()), ("status bar", "Workspace 2"));
     let list = &w.children[1];
@@ -508,7 +525,18 @@ async fn child() {
     assert_eq!(w.named("Done").role, "push button");
 
     // ----- The OSD: a live status whose changes reach clients.
+    // A new window's live words are announced (helix-desktop#71: a
+    // tree's first publication announces nothing, so Orca said nothing
+    // for an OSD, the workspace switched to or a notification).
     let osd = |words: &str| window("On-screen display", false, vec![Node::new(Role::Status, words).id("osd").live()]);
+    shell.show("osd", osd("Volume 40%"));
+    assert!(announced(&mut stream, "Volume 40%").await, "the new OSD is announced");
+    // A notification banner: one announcement with all of it.
+    let banner = crate::notifications::Banner { id: 3, app_name: "Backups".into(), app_id: String::new(), summary: "Backup finished".into(), body: "All <b>12</b> files were copied.".into(), buttons: Vec::new(), icon: None, markup: true, expanded: false, arrived: 0, critical: false };
+    shell.show("banner", window("Notification", false, vec![Node::new(Role::Alert, &banner.summary).id("note:3"), super::atspi::banner_said(&banner)]));
+    assert!(announced(&mut stream, "Backups: Backup finished. All 12 files were copied.").await, "the banner is announced");
+    let w = client.window("Notification", |w| !w.children.is_empty()).await;
+    assert_eq!(w.children[0].role, "notification");
     shell.show("osd", osd("Volume 40%"));
     let w = client.window("On-screen display", |w| !w.children.is_empty()).await;
     assert_eq!((w.children[0].role.as_str(), w.children[0].name.as_str()), ("status bar", "Volume 40%"));

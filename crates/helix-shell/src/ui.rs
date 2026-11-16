@@ -3011,6 +3011,9 @@ impl Ui {
         let Some(mut overlay) = self.dialog.take() else { return };
         if overlay.configured && overlay.width > 0 {
             self.paint_dialog(&mut overlay);
+            // Every kind (prompts and the share dialog too): Enter is
+            // taken once the dialog has been up for a moment.
+            overlay.state.shown.get_or_insert_with(Instant::now);
         }
         self.dialog = Some(overlay);
     }

@@ -646,7 +646,13 @@ pub(super) fn paint_prompt_view(canvas: &mut Canvas, (text, bold): (Option<&crat
         hits.push((r, OverlayHit::Check(i)));
         y += grow(34);
     }
-    let status = if view.busy { tr("Authenticating…") } else { p.warning.as_str() };
+    // Busy: a password being checked says so; other answers (a command
+    // to run, a choice) are quick and say nothing.
+    let status = match (view.busy, p.password.is_some()) {
+        (true, true) => tr("Authenticating…"),
+        (true, false) => "",
+        (false, _) => p.warning.as_str(),
+    };
     if !status.is_empty() {
         let color = if view.busy { DIM_FG } else { ERROR_TEXT };
         label(text, canvas, status, center(status, size::CAPTION), (y + grow(14)) as f32, size::CAPTION, color, inner);

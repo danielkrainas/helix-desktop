@@ -60,6 +60,9 @@ struct Published<H> {
     active: bool,
     /// What the adapter has (`None`: nothing yet, or it must be sent again).
     last: Option<Window>,
+    /// Nothing published yet: the first tree comes with its live nodes'
+    /// words announced.
+    fresh: bool,
     focused: Option<bool>,
     bounds: Option<Rect>,
     targets: HashMap<NodeId, Target>,
@@ -90,7 +93,7 @@ impl<H: Clone> Publisher<H> {
                     self.next += 1;
                     let handler = || Handler { serial, notify: self.notify.clone() };
                     let adapter = Adapter::new(handler(), handler(), handler());
-                    self.windows.push((key.clone(), Published { serial, adapter, handle: handle.clone(), active: false, last: None, focused: None, bounds: None, targets: HashMap::new() }));
+                    self.windows.push((key.clone(), Published { serial, adapter, handle: handle.clone(), active: false, last: None, fresh: true, focused: None, bounds: None, targets: HashMap::new() }));
                     self.windows.len() - 1
                 }
             };
@@ -107,6 +110,14 @@ impl<H: Clone> Publisher<H> {
                 published.bounds = Some(b);
             }
             if published.last.as_ref() != Some(&window) {
+                // A new window's messages (a notification, an on-screen
+                // display, the workspace switched to) are announced: the
+                // window without their words first, then with them.
+                if let Some(quiet) = published.fresh.then(|| tree::quiet(&window)).flatten() {
+                    let update = tree::build(&quiet).update;
+                    published.adapter.update_if_active(move || update);
+                }
+                published.fresh = false;
                 let built = tree::build(&window);
                 published.targets = built.targets;
                 let update = built.update;

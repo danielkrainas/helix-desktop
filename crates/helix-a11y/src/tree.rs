@@ -66,8 +66,7 @@ struct Builder {
 
 impl Builder {
     fn add(&mut self, parent: NodeId, node: &Node) -> NodeId {
-        let key = if node.id.is_empty() { format!("{:?}:{}{}", node.role, node.name, node.text.as_deref().unwrap_or("")) } else { node.id.clone() };
-        let id = self.ids.next(parent, &key);
+        let id = self.ids.next(parent, &key(node));
         let mut out = accesskit::Node::new(node.role);
         if node.role == Role::Label {
             // A label's name is its text.
@@ -174,6 +173,43 @@ impl Builder {
         self.nodes.push((id, out));
         id
     }
+}
+
+/// What tells `node` from its siblings: its id, or else its role, name
+/// and text.
+fn key(node: &Node) -> String {
+    if node.id.is_empty() {
+        format!("{:?}:{}{}", node.role, node.name, node.text.as_deref().unwrap_or(""))
+    } else {
+        node.id.clone()
+    }
+}
+
+/// `window` with its live nodes silent and wordless (their objects
+/// kept), or `None` without live nodes: published first for a new
+/// window, so that the live nodes' words then arrive as changes, which
+/// clients announce (a tree's first publication announces nothing).
+pub fn quiet(window: &Window) -> Option<Window> {
+    fn walk(node: &mut Node, any: &mut bool) {
+        if node.live {
+            *any = true;
+            node.id = key(node);
+            node.live = false;
+            node.name.clear();
+            if node.text.is_some() {
+                node.text = Some(String::new());
+            }
+        }
+        for c in &mut node.children {
+            walk(c, any);
+        }
+    }
+    let mut out = window.clone();
+    let mut any = false;
+    for c in &mut out.children {
+        walk(c, &mut any);
+    }
+    any.then_some(out)
 }
 
 /// The tree of `window`: its node (a window named by its title) and
@@ -296,6 +332,22 @@ mod tests {
         assert_eq!(ids.len(), 2);
         assert_ne!(ids[0], ids[1]);
         assert_eq!(twice.update.focus, ROOT, "nothing focused: the window");
+    }
+
+    #[test]
+    fn quiet_first_then_the_words() {
+        assert!(quiet(&window(vec![Node::button("OK", Rect::default())])).is_none(), "nothing live: nothing to hold back");
+        let full = window(vec![Node::new(Role::Status, "Volume 40%").live(), Node::label("Caps Lock is on").live(), Node::button("OK", Rect::default())]);
+        let silent = quiet(&full).expect("live nodes");
+        let (a, b) = (build(&silent), build(&full));
+        // The same objects, silent and wordless, then live with their words.
+        assert_eq!(node(&a, ROOT).children(), node(&b, ROOT).children(), "the objects are kept");
+        let ids = node(&a, ROOT).children().to_vec();
+        assert_eq!((node(&a, ids[0]).label(), node(&a, ids[0]).live()), (None, None));
+        assert_eq!((node(&a, ids[1]).value(), node(&a, ids[1]).live()), (Some(""), None));
+        assert_eq!((node(&b, ids[0]).label(), node(&b, ids[0]).live()), (Some("Volume 40%"), Some(Live::Polite)));
+        assert_eq!(node(&b, ids[1]).value(), Some("Caps Lock is on"));
+        assert_eq!(node(&a, ids[2]).label(), Some("OK"), "the rest as it is");
     }
 
     #[test]
