@@ -322,6 +322,25 @@ pub fn row_highlight(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32) {
     row(canvas, x, y, w, h, Look { hovered: true, ..Default::default() });
 }
 
+/// The keyboard's selection in a list (a menu, the launcher's results,
+/// the switcher's list): the [`row`] highlight it shares with the
+/// pointer's hover (Pressed while pressed), and with `ring` (the keyboard
+/// put it there) the focus ring inside it ([`row_focus_ring`]), which is
+/// what tells the selection from the hover.
+pub fn row_selected(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, pressed: bool, ring: bool) {
+    row(canvas, x, y, w, h, Look { hovered: true, pressed, on: false });
+    if ring {
+        row_focus_ring(canvas, x, y, w, h);
+    }
+}
+
+/// The focus ring of a row: inside it, as rows reach their popover's
+/// edges, where a ring outside would merge with the edge (and inside the
+/// high-contrast highlight's outline, so both show).
+pub fn row_focus_ring(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32) {
+    focus_ring(canvas, x + 7, y + 7, w - 14, h - 14);
+}
+
 /// A list's well at (x, y, w, h), rounded (outlined in high contrast).
 pub fn well(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32) {
     let rect = (f64::from(x), f64::from(y), f64::from(w), f64::from(h));

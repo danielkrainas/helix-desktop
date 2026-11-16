@@ -258,6 +258,24 @@ fn app_switcher() {
     }
 }
 
+/// The switcher as a list (`switcher-list-…`): four windows with icons,
+/// the second chosen from the keyboard, the third under the pointer; in
+/// every look.
+#[test]
+#[ignore]
+fn switcher_list() {
+    let Some(dir) = dir() else { return };
+    let text = Text::load();
+    let apps = [("org.gnome.Nautilus", "Files — Home"), ("firefox", "Mozilla Firefox"), ("org.gnome.TextEditor", "notes.txt — Text Editor"), ("org.gnome.Terminal", "Terminal")];
+    let entries: Vec<SwitchEntry> = apps.iter().enumerate().map(|(i, (_, title))| SwitchEntry { id: i as u32 + 1, label: (*title).into(), detail: if i == 3 { "Workspace 2".into() } else { String::new() }, count: 1 }).collect();
+    let switcher = Switcher { entries, selected: 1 };
+    in_looks(&dir, "switcher-list", (1280, 720), &mut |canvas, (w, h)| {
+        let px = (f64::from(ICON_PX) * canvas.scale).ceil() as u32;
+        let icons: Vec<Option<helix_draw::Image>> = apps.iter().map(|(id, _)| crate::icons::app_icon(id, px)).collect();
+        paint_switcher_list(canvas, text.as_ref(), (w as i32, h as i32), &switcher, &icons, (Some(OverlayHit::Window(3)), None));
+    });
+}
+
 /// The overview's look (`overview-…`): the panel above it, the search
 /// field, three windows (rounded pictures with their app icons, one under
 /// the pointer, one chosen from the keyboard with its close button).

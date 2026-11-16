@@ -449,7 +449,8 @@ pub(super) fn paint(canvas: &mut Canvas, fonts: &LockFonts, m: &LockModel, w: us
             let fill = if st.pressed { 0x59FFFFFF } else if st.hovered { 0x40FFFFFF } else { 0x26FFFFFF };
             canvas.round_rect(px, cy - 12.0, pw, 24.0, 12.0, fade(fill, pa));
             if st.focused {
-                canvas.round_outline(px - 2.0, cy - 14.0, pw + 4.0, 28.0, 14.0, 2.0, fade(accent(), pa));
+                // The focus ring (`theme::focus_ring_round`'s place), faded in with the rest.
+                canvas.round_outline(px - 2.0, cy - 14.0, pw + 4.0, 28.0, 14.0, 2.0, fade(theme::focus(), pa));
             }
             let tw = text.map_or(0.0, |t| t.width(name, CAPTION));
             label(text, canvas, name, (px + (pw - f64::from(tw)) / 2.0) as f32, (cy + 4.5) as f32, CAPTION, fade(FG, pa), pw as f32);

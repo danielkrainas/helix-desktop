@@ -570,12 +570,8 @@ pub(super) fn paint_menu(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32,
         };
         let r = Rect { x: mx + 4, y, w: menu_w - 8, h: item_h };
         if selected == Some(i) {
-            theme::row_highlight(canvas, r.x, r.y, r.w, r.h);
-            // Selected from the keyboard: the focus ring too (inside the
-            // row, which reaches the menu's edges).
-            if ring {
-                theme::focus_ring(canvas, r.x + 7, r.y + 7, r.w - 14, r.h - 14);
-            }
+            // Selected from the keyboard: the focus ring too.
+            theme::row_selected(canvas, r.x, r.y, r.w, r.h, false, ring);
         }
         let base = baseline(text, r.y, r.h, size::LABEL);
         let mut x = r.x + 12;

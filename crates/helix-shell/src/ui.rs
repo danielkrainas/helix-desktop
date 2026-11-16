@@ -1980,39 +1980,8 @@ impl Ui {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
-        canvas.fill(0x00000000);
-        let switcher = &overlay.state.switcher;
-        let shown = switcher.entries.len().clamp(1, SWITCHER_ROWS);
-        let first = switcher.selected.saturating_sub(shown - 1);
-        let text = self.text.as_ref();
-        let switcher = &overlay.state.switcher;
-        let bw = helix_draw::theme::grow(480).min(w as i32 - 40);
-        let row_h = helix_draw::theme::grow(ROW_H);
-        let bh = shown as i32 * row_h + 16;
-        let bx = (w as i32 - bw) / 2;
-        let by = (h as i32 - bh) / 2;
-        theme::popover(&mut canvas, bx, by, bw, bh);
-        overlay.hits.clear();
-        for (row, index) in (first..switcher.entries.len()).take(shown).enumerate() {
-            let entry = &switcher.entries[index];
-            let r = Rect { x: bx + 8, y: by + 8 + row as i32 * row_h, w: bw - 16, h: row_h };
-            let hit = OverlayHit::Window(entry.id);
-            let look = theme::Look { on: index == switcher.selected, hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit) };
-            theme::row(&mut canvas, r.x, r.y, r.w, r.h, look);
-            let base = baseline(text, r.y, r.h, size::BODY);
-            let detail_w = text.map_or(0.0, |t| t.width(&entry.detail, size::CAPTION).min(160.0));
-            let mut label_x = r.x + 12;
-            if let Some(icon) = icons.get(index).and_then(|i| i.as_ref()) {
-                let y = f64::from(r.y + (r.h - ICON_PX) / 2);
-                canvas.image(f64::from(r.x + 10), y, f64::from(ICON_PX), f64::from(ICON_PX), icon);
-                label_x = r.x + 18 + ICON_PX;
-            }
-            let fg = if index == switcher.selected { on_accent() } else { FG };
-            label(text, &mut canvas, &entry.label, label_x as f32, base, size::BODY, fg, (r.x + r.w - label_x) as f32 - 24.0 - detail_w);
-            let detail_color = if index == switcher.selected { fg } else { DIM_FG };
-            label(text, &mut canvas, &entry.detail, r.x as f32 + r.w as f32 - 12.0 - detail_w, base, size::CAPTION, detail_color, 160.0);
-            overlay.hits.push((r, OverlayHit::Window(entry.id)));
-        }
+        let state = &overlay.state;
+        overlay.hits = paint_switcher_list(&mut canvas, self.text.as_ref(), (w as i32, h as i32), &state.switcher, &icons, (state.hover, state.pressed));
         let surface = overlay.layer.wl_surface();
         self.scales.prepare(&self.qh, surface, w as i32, h as i32);
         if buffer.attach_to(surface).is_ok() {
@@ -2064,11 +2033,14 @@ impl Ui {
             let entry = &switcher.entries[index];
             let tile = Rect { x: bx + THUMB_GAP + slot as i32 * (THUMB_W + THUMB_GAP), y: by + THUMB_GAP, w: THUMB_W, h: THUMB_H + THUMB_TITLE_H };
             let hit = OverlayHit::Window(entry.id);
-            if index == switcher.selected {
-                canvas.round_rect(f64::from(tile.x - 4), f64::from(tile.y - 4), f64::from(tile.w + 8), f64::from(tile.h + 4), theme::RADIUS_BUTTON, accent());
-            } else {
-                let look = theme::Look { hovered: overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
-                theme::flat(&mut canvas, (f64::from(tile.x - 4), f64::from(tile.y - 4), f64::from(tile.w + 8), f64::from(tile.h + 4)), theme::RADIUS_BUTTON, look);
+            // The selection: the highlight (which the pointer's hover
+            // shares) with the focus ring around it.
+            let selected = index == switcher.selected;
+            let lit = (f64::from(tile.x - 4), f64::from(tile.y - 4), f64::from(tile.w + 8), f64::from(tile.h + 4));
+            let look = theme::Look { hovered: selected || overlay.state.hover == Some(hit), pressed: overlay.state.pressed == Some(hit), ..Default::default() };
+            theme::flat(&mut canvas, lit, theme::RADIUS_BUTTON, look);
+            if selected {
+                theme::focus_ring_round(&mut canvas, lit.0, lit.1, lit.2, lit.3, theme::RADIUS_BUTTON);
             }
             let pic = Rect { x: tile.x + 4, y: tile.y + 4, w: tile.w - 8, h: THUMB_H - 8 };
             match self.overview_shots.picture(entry.id) {
@@ -4773,10 +4745,20 @@ fn paint_results(
         let rect = Rect { x: bx + 4, y, w: bw - 8, h: ih };
         y += ih;
         let hit = model.results[result];
-        let look = theme::Look { on: result == model.selected, hovered: hover == Some(result), pressed: pressed == Some(result) };
-        theme::row(canvas, rect.x, rect.y, rect.w, rect.h, look);
+        // The keyboard's selection: the highlight with the focus ring
+        // (it never follows the pointer); under the pointer the highlight
+        // alone.
+        let selected = result == model.selected;
+        let look = theme::Look { on: false, hovered: selected || hover == Some(result), pressed: pressed == Some(result) };
+        if selected {
+            theme::row_selected(canvas, rect.x, rect.y, rect.w, rect.h, look.pressed, true);
+        } else {
+            theme::row(canvas, rect.x, rect.y, rect.w, rect.h, look);
+        }
+        let lit = look.hovered || look.pressed;
         let fg = theme::control_text(look);
-        let dim = if look.on { fg } else { DIM_FG };
+        // (Secondary text keeps its contrast on a lit row by being Text.)
+        let dim = if lit { fg } else { DIM_FG };
         let (name, _) = model.row_label(hit);
         let more = matches!(hit, launcher::Hit::More(_));
         let more_label;
@@ -4807,7 +4789,7 @@ fn paint_results(
         }
         let text_x = rect.x + 10 + icon + 12;
         let name_max = (rect.x + rect.w - text_x - 12) as f32;
-        label(text, canvas, name, text_x as f32, base, size::BODY, if more && !look.on { DIM_FG } else { fg }, name_max);
+        label(text, canvas, name, text_x as f32, base, size::BODY, if more && !lit { DIM_FG } else { fg }, name_max);
         // A search result's description after its name, dimmer.
         if let Some(found) = model.search_hit(hit).filter(|h| !more && !h.description.is_empty()) {
             let nw = text.map_or(0.0, |t| t.width(name, size::BODY)) + 12.0;
@@ -4838,6 +4820,52 @@ const APP_ITEM_PAD: i32 = 12;
 const APP_ROW_PAD: i32 = 12;
 const APP_ROW_MARGIN: i32 = 24;
 
+/// The switcher as a list (input sources, or windows when their pictures
+/// are not shown) in a popover centred on a `w`×`h` surface: up to
+/// [`SWITCHER_ROWS`] rows scrolled to keep the selection in sight, window
+/// entries with their `icons`. The selection is the keyboard's (the
+/// highlight with the focus ring); the entry under the pointer is lit
+/// alone. Returns each row's place.
+fn paint_switcher_list(canvas: &mut Canvas, text: Option<&Text>, (w, h): (i32, i32), switcher: &Switcher, icons: &[Option<helix_draw::Image>], (hover, pressed): (Option<OverlayHit>, Option<OverlayHit>)) -> Vec<(Rect, OverlayHit)> {
+    canvas.fill(0x00000000);
+    let shown = switcher.entries.len().clamp(1, SWITCHER_ROWS);
+    let first = switcher.selected.saturating_sub(shown - 1);
+    let bw = helix_draw::theme::grow(480).min(w - 40);
+    let row_h = helix_draw::theme::grow(ROW_H);
+    let bh = shown as i32 * row_h + 16;
+    let bx = (w - bw) / 2;
+    let by = (h - bh) / 2;
+    theme::popover(canvas, bx, by, bw, bh);
+    let mut hits = Vec::new();
+    for (row, index) in (first..switcher.entries.len()).take(shown).enumerate() {
+        let entry = &switcher.entries[index];
+        let r = Rect { x: bx + 8, y: by + 8 + row as i32 * row_h, w: bw - 16, h: row_h };
+        let hit = OverlayHit::Window(entry.id);
+        let selected = index == switcher.selected;
+        let look = theme::Look { on: false, hovered: selected || hover == Some(hit), pressed: pressed == Some(hit) };
+        if selected {
+            theme::row_selected(canvas, r.x, r.y, r.w, r.h, look.pressed, true);
+        } else {
+            theme::row(canvas, r.x, r.y, r.w, r.h, look);
+        }
+        let lit = look.hovered || look.pressed;
+        let base = baseline(text, r.y, r.h, size::BODY);
+        let detail_w = text.map_or(0.0, |t| t.width(&entry.detail, size::CAPTION).min(160.0));
+        let mut label_x = r.x + 12;
+        if let Some(icon) = icons.get(index).and_then(|i| i.as_ref()) {
+            let y = f64::from(r.y + (r.h - ICON_PX) / 2);
+            canvas.image(f64::from(r.x + 10), y, f64::from(ICON_PX), f64::from(ICON_PX), icon);
+            label_x = r.x + 18 + ICON_PX;
+        }
+        let fg = theme::control_text(look);
+        label(text, canvas, &entry.label, label_x as f32, base, size::BODY, fg, (r.x + r.w - label_x) as f32 - 24.0 - detail_w);
+        let detail_color = if lit { fg } else { DIM_FG };
+        label(text, canvas, &entry.detail, r.x as f32 + r.w as f32 - 12.0 - detail_w, base, size::CAPTION, detail_color, 160.0);
+        hits.push((r, hit));
+    }
+    hits
+}
+
 /// Paint the application switcher on a `w`×`h` surface: a rounded box
 /// with a row of `icon`-sized app icons, the selected one in a rounded
 /// highlight, small dots under apps with several windows, the selected
@@ -4856,17 +4884,18 @@ fn paint_app_row(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
         let r = Rect { x: bx + APP_ROW_PAD + i as i32 * item, y: by + APP_ROW_PAD, w: item, h: item };
         let hit = OverlayHit::Window(entry.id);
         let selected = i == switcher.selected;
-        // The selection: a light rounded square (Hovered); under the
-        // pointer a fainter one (Control), pressed Pressed.
+        // The selection: a light rounded square (Hovered) with the focus
+        // ring; under the pointer a fainter one (Control), pressed
+        // Pressed.
         let rect = (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h));
         let (hovered, held) = (hover == Some(hit), pressed == Some(hit));
         if selected || held {
             theme::control_round(canvas, rect, theme::RADIUS_CARD, theme::Look { hovered: selected, pressed: held, on: false });
-            if helix_draw::high_contrast() && selected {
-                theme::inner_outline(canvas, rect, theme::RADIUS_CARD, 2.0, 0xFFFF_FFFF);
-            }
         } else if hovered {
             theme::control_round(canvas, rect, theme::RADIUS_CARD, theme::Look::default());
+        }
+        if selected {
+            theme::focus_ring_round(canvas, rect.0, rect.1, rect.2, rect.3, theme::RADIUS_CARD);
         }
         let (ix, iy) = (f64::from(r.x + APP_ITEM_PAD), f64::from(r.y + APP_ITEM_PAD));
         match icons.get(i).and_then(Option::as_ref) {
@@ -5128,11 +5157,36 @@ mod tests {
         assert!(hits.windows(2).all(|p| p[0].0.x + p[0].0.w <= p[1].0.x), "left to right");
         assert!(hits.iter().all(|(r, _)| r.x >= 0 && r.x + r.w <= 1280), "on the screen");
         assert_eq!(hits[3].1, OverlayHit::Window(103));
+        // The selection has the focus ring around it; the others none.
+        let at = |x: i32, y: i32| -> u32 { u32::from_le_bytes(data[((y * 1280 + x) * 4) as usize..][..4].try_into().unwrap()) };
+        let (sel, other) = (hits[3].0, hits[5].0);
+        assert_eq!(at(sel.x - 3, sel.y + sel.h / 2), theme::focus(), "the ring");
+        assert_ne!(at(other.x - 3, other.y + other.h / 2), theme::focus(), "no ring");
+    }
+
+    /// The switcher's list: the keyboard's selection is lit with the focus
+    /// ring inside it; the entry under the pointer is lit alone; the
+    /// others not at all.
+    #[test]
+    fn switcher_list_focus() {
+        let entries: Vec<SwitchEntry> = (0..4).map(|i| SwitchEntry { id: 100 + i, label: format!("Source {i}"), detail: String::new(), count: 1 }).collect();
+        let switcher = Switcher { entries, selected: 1 };
+        let mut data = vec![0u8; 800 * 600 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 800, 600, 1.0);
+        let hits = paint_switcher_list(&mut canvas, None, (800, 600), &switcher, &[], (Some(OverlayHit::Window(102)), None));
+        assert_eq!(hits.len(), 4);
+        let at = |x: i32, y: i32| -> u32 { u32::from_le_bytes(data[((y * 800 + x) * 4) as usize..][..4].try_into().unwrap()) };
+        let mid = |r: Rect| (r.x + r.w - 20, r.y + r.h / 2);
+        let (sel, hovered, rest) = (hits[1].0, hits[2].0, hits[3].0);
+        assert_eq!(at(mid(sel).0, mid(sel).1), at(mid(hovered).0, mid(hovered).1), "one highlight for both");
+        assert_ne!(at(mid(sel).0, mid(sel).1), at(mid(rest).0, mid(rest).1), "lit");
+        assert_eq!(at(sel.x + 4, sel.y + sel.h / 2), theme::focus(), "the selection's ring");
+        assert_ne!(at(hovered.x + 4, hovered.y + hovered.h / 2), theme::focus(), "the hover has none");
     }
 
     /// The result row under the pointer is lit apart from the keyboard's
-    /// selection (which keeps the accent fill), and only while the pointer
-    /// is on it.
+    /// selection (lit with the focus ring), and only while the pointer is
+    /// on it.
     #[test]
     fn result_hover() {
         let app = |name: &str| launcher::App { id: format!("{name}.desktop"), name: name.into(), search: String::new(), categories: Vec::new() };
@@ -5150,7 +5204,10 @@ mod tests {
         let at = |data: &[u8], r: Rect| -> [u8; 4] { data[(((r.y + r.h / 2) * 800 + r.x + r.w - 20) * 4) as usize..][..4].try_into().unwrap() };
         assert_ne!(at(&lit, rows[2].0), at(&rest, rows[2].0), "the hovered row is lit");
         assert_eq!(at(&lit, rows[0].0), at(&rest, rows[0].0), "the selection keeps its look");
-        assert_ne!(at(&lit, rows[2].0), at(&lit, rows[0].0), "and differs from the hover");
+        assert_eq!(at(&lit, rows[2].0), at(&lit, rows[0].0), "one highlight for both");
+        let ring = |data: &[u8], r: Rect| -> u32 { u32::from_le_bytes(data[(((r.y + r.h / 2) * 800 + r.x + 4) * 4) as usize..][..4].try_into().unwrap()) };
+        assert_eq!(ring(&lit, rows[0].0), theme::focus(), "the selection has the focus ring");
+        assert_ne!(ring(&lit, rows[2].0), theme::focus(), "the hover has none");
         assert_eq!(at(&lit, rows[1].0), at(&rest, rows[1].0), "other rows stay");
     }
 
