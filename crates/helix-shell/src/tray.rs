@@ -493,6 +493,8 @@ mod tests {
         let set = vec![(16, 16, vec![]), (32, 32, vec![]), (64, 64, vec![])];
         assert_eq!(best_pixmap(&set, 24).map(|p| p.0), Some(32));
         assert_eq!(best_pixmap(&set, 128).map(|p| p.0), Some(64));
+        // Drawn at 16, the tray asks for twice that (then shrinks it).
+        assert_eq!(best_pixmap(&set, 2 * 16).map(|p| p.0), Some(32));
         assert_eq!(split_key(":1.42/org/x"), Some((":1.42", "/org/x")));
         let mut item = Item {
             key: String::new(),

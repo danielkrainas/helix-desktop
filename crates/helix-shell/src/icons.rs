@@ -452,6 +452,164 @@ pub fn symbolic(name: &str, px: u32, rgb: [u8; 3]) -> Option<Image> {
     Some(image)
 }
 
+/// Where a status icon's picture came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatusSource {
+    /// The `-symbolic` form, drawn in the panel's color.
+    Symbolic(PathBuf),
+    /// A full-colour image.
+    Image(PathBuf),
+}
+
+/// A status icon (a tray item's icon name) at `px` pixels
+/// (helix-desktop-spec `contracts/dbus/org.kde.StatusNotifierItem.md`,
+/// "Icons"): its `-symbolic` form when the item's own theme directory
+/// (`theme_dir`), the icon theme or Adwaita has one, drawn in `rgb`, like
+/// the other status icons; else the full-colour image at least twice
+/// `px` (an SVG, or a larger PNG; the largest there is, if none is),
+/// shrunk to `px` by averaging. A larger image is never scaled up from
+/// a small one when the theme has it.
+pub fn status_icon(name: &str, theme_dir: Option<&Path>, px: u32, rgb: [u8; 3]) -> Option<Image> {
+    let pixmaps = |name: &str| ["png", "svg"].iter().map(|ext| Path::new("/usr/share/pixmaps").join(format!("{name}.{ext}"))).find(|p| p.is_file());
+    status_icon_with(name, theme_dir, px, rgb, &current_theme(), &theme, &pixmaps).map(|(image, _)| image)
+}
+
+/// [`status_icon`] with `theme_name` for the icon theme.
+pub fn status_icon_in(name: &str, theme_dir: Option<&Path>, px: u32, rgb: [u8; 3], theme_name: &str) -> Option<Image> {
+    status_icon_with(name, theme_dir, px, rgb, theme_name, &theme, &|_| None).map(|(image, _)| image)
+}
+
+/// [`status_icon`] through the themes `themes` gives, then `pixmaps`
+/// (the last place to look for a full-colour image); with where it came
+/// from.
+fn status_icon_with(
+    name: &str,
+    theme_dir: Option<&Path>,
+    px: u32,
+    rgb: [u8; 3],
+    theme_name: &str,
+    themes: &dyn Fn(&str) -> Option<std::sync::Arc<Theme>>,
+    pixmaps: &dyn Fn(&str) -> Option<PathBuf>,
+) -> Option<(Image, StatusSource)> {
+    let px = px.max(1);
+    let base = name.strip_suffix("-symbolic").unwrap_or(name);
+    let symbolic_name = format!("{base}-symbolic");
+    let symbolic = theme_dir
+        .and_then(|d| best_in_dir(d, &symbolic_name, px, 4))
+        .or_else(|| find_in(&symbolic_name, px, theme_name, themes))
+        .or_else(|| find_in(&symbolic_name, px, "Adwaita", themes));
+    if let Some(path) = symbolic {
+        if let Some(image) = decode_file(&path, px) {
+            let mut image = shrink(image, px);
+            recolor(&mut image, rgb);
+            return Some((image, StatusSource::Symbolic(path)));
+        }
+    }
+    if base != name {
+        return None;
+    }
+    let want = px.saturating_mul(2);
+    let path = theme_dir.and_then(|d| best_in_dir(d, name, want, 4)).or_else(|| find_in(name, want, theme_name, themes)).or_else(|| pixmaps(name))?;
+    let image = shrink(decode_file(&path, px)?, px);
+    Some((image, StatusSource::Image(path)))
+}
+
+/// The best file for `name` in `dir` or (up to `depth` levels) below it
+/// for `want` pixels: an SVG, else the smallest PNG at least `want`, else
+/// the largest.
+fn best_in_dir(dir: &Path, name: &str, want: u32, depth: usize) -> Option<PathBuf> {
+    fn collect(dir: &Path, name: &str, depth: usize, out: &mut Vec<(PathBuf, Option<u32>)>) {
+        let svg = dir.join(format!("{name}.svg"));
+        if svg.is_file() {
+            out.push((svg, None));
+        }
+        let png = dir.join(format!("{name}.png"));
+        if let Some(size) = png_size(&png) {
+            out.push((png, Some(size)));
+        }
+        if depth == 0 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        dirs.sort();
+        for d in dirs {
+            collect(&d, name, depth - 1, out);
+        }
+    }
+    let mut found = Vec::new();
+    collect(dir, name, depth, &mut found);
+    pick_source(&found, want)
+}
+
+/// Of images (path, size; `None`: scalable), the one to draw at `want`
+/// pixels: an SVG, else the smallest at least `want`, else the largest.
+fn pick_source(found: &[(PathBuf, Option<u32>)], want: u32) -> Option<PathBuf> {
+    if let Some((path, _)) = found.iter().find(|(_, size)| size.is_none()) {
+        return Some(path.clone());
+    }
+    let sized = found.iter().filter_map(|(p, s)| Some((p, (*s)?)));
+    let large = sized.clone().filter(|(_, s)| *s >= want).min_by_key(|(_, s)| *s);
+    large.or_else(|| sized.max_by_key(|(_, s)| *s)).map(|(p, _)| p.clone())
+}
+
+/// A PNG file's larger side, from its header.
+fn png_size(path: &Path) -> Option<u32> {
+    use std::io::Read;
+    let mut head = [0u8; 24];
+    std::fs::File::open(path).ok()?.read_exact(&mut head).ok()?;
+    if !head.starts_with(b"\x89PNG") || &head[12..16] != b"IHDR" {
+        return None;
+    }
+    let w = u32::from_be_bytes(head[16..20].try_into().ok()?);
+    let h = u32::from_be_bytes(head[20..24].try_into().ok()?);
+    Some(w.max(h))
+}
+
+/// `image` shrunk to fit `px` pixels (keeping its proportions), each
+/// pixel the average of the source pixels it covers (premultiplied, so
+/// edges keep their color); one that fits already is returned as it is.
+pub fn shrink(image: Image, px: u32) -> Image {
+    let (w, h) = (image.width, image.height);
+    let px = px.max(1) as usize;
+    if w.max(h) <= px || w == 0 || h == 0 {
+        return image;
+    }
+    let (tw, th) = if w >= h { (px, (h * px).div_ceil(w).max(1)) } else { ((w * px).div_ceil(h).max(1), px) };
+    let (sx, sy) = (w as f64 / tw as f64, h as f64 / th as f64);
+    // How much of source cell `i` the span [a, b) covers.
+    let spans = |n: usize, out: usize, step: f64| -> Vec<Vec<(usize, f64)>> {
+        (0..out)
+            .map(|o| {
+                let (a, b) = (o as f64 * step, (o as f64 + 1.0) * step);
+                (a.floor() as usize..(b.ceil() as usize).min(n)).map(|i| (i, (b.min(i as f64 + 1.0) - a.max(i as f64)).max(0.0))).filter(|(_, c)| *c > 0.0).collect()
+            })
+            .collect()
+    };
+    let (xs, ys) = (spans(w, tw, sx), spans(h, th, sy));
+    let mut rgba = Vec::with_capacity(tw * th * 4);
+    for row in &ys {
+        for col in &xs {
+            let mut sum = [0.0f64; 4];
+            let mut total = 0.0;
+            for &(y, cy) in row {
+                for &(x, cx) in col {
+                    let c = cx * cy;
+                    let p = &image.rgba[(y * w + x) * 4..][..4];
+                    for k in 0..4 {
+                        sum[k] += f64::from(p[k]) * c;
+                    }
+                    total += c;
+                }
+            }
+            for v in sum {
+                rgba.push((v / total).round().clamp(0.0, 255.0) as u8);
+            }
+        }
+    }
+    Image { width: tw, height: th, rgba }
+}
+
 /// Paint every pixel of `image` in `rgb`, keeping its coverage. Pixels
 /// are premultiplied: a half-covered edge pixel gets half the color, or
 /// edges come out too bright and the icon looks jagged.
@@ -670,7 +828,7 @@ impl DiskCache {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -821,6 +979,98 @@ mod tests {
         assert_eq!(source_key(&a), source_key(&IconSource::Names(vec!["a".into()])));
         assert_ne!(source_key(&a), source_key(&IconSource::Names(vec!["b".into()])));
         assert_ne!(source_key(&IconSource::Bytes(vec![1])), source_key(&IconSource::Bytes(vec![2])));
+    }
+
+    /// A `size`² PNG of one color (RGBA) at `path`.
+    pub(crate) fn write_png(path: &Path, size: u32, rgba: [u8; 4]) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut png = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png, size, size);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.write_header().unwrap().write_image_data(&rgba.repeat((size * size) as usize)).unwrap();
+        }
+        std::fs::write(path, png).unwrap();
+    }
+
+    /// A status icon with only fixed-size PNGs (16, 32 and 48) comes from
+    /// the one at least twice the size drawn (else the largest), shrunk;
+    /// a `-symbolic` form wins when there is one (helix-desktop#106).
+    #[test]
+    fn status_icons_from_larger_sources() {
+        let root = std::env::temp_dir().join(format!("helix-status-icons-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dirs: Vec<(PathBuf, u32)> = [16, 32, 48].iter().map(|s| (root.join(format!("Test/{s}x{s}/status")), *s)).collect();
+        for (dir, size) in &dirs {
+            // Each size its own shade, to tell them apart.
+            write_png(&dir.join("blueman-disabled.png"), *size, [*size as u8, 0, 0, 255]);
+        }
+        let symbolic_dir = root.join("Test/symbolic/status");
+        std::fs::create_dir_all(&symbolic_dir).unwrap();
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="rgb(18,52,86)"/></svg>"#;
+        std::fs::write(symbolic_dir.join("bluetooth-active-symbolic.svg"), svg).unwrap();
+        for (dir, size) in &dirs {
+            write_png(&dir.join("bluetooth-active.png"), *size, [9, 9, 9, 255]);
+        }
+        let mut all = dirs.clone();
+        all.push((symbolic_dir.clone(), 16));
+        let themes = move |name: &str| -> Option<std::sync::Arc<Theme>> { (name == "Test").then(|| std::sync::Arc::new(Theme { dirs: all.clone(), inherits: vec![] })) };
+        let no_pixmaps = |_: &str| None;
+        let rgb = [0xEE, 0xEE, 0xEC];
+        let icon = |name: &str, dir: Option<&Path>, px| status_icon_with(name, dir, px, rgb, "Test", &themes, &no_pixmaps).unwrap();
+
+        // Drawn at 16 (scale 1): from the 32 px PNG, shrunk to 16.
+        let (image, source) = icon("blueman-disabled", None, 16);
+        assert_eq!(source, StatusSource::Image(dirs[1].0.join("blueman-disabled.png")));
+        assert_eq!((image.width, image.height, &image.rgba[..4]), (16, 16, &[32u8, 0, 0, 255][..]));
+        // At 32 (scale 2): nothing of 64, so the largest (48), shrunk.
+        let (image, source) = icon("blueman-disabled", None, 32);
+        assert_eq!(source, StatusSource::Image(dirs[2].0.join("blueman-disabled.png")));
+        assert_eq!((image.width, image.height, &image.rgba[..4]), (32, 32, &[48u8, 0, 0, 255][..]));
+        // At 24: never the 16 scaled up; the 48 (at least 48).
+        let (image, source) = icon("blueman-disabled", None, 24);
+        assert_eq!(source, StatusSource::Image(dirs[2].0.join("blueman-disabled.png")));
+        assert_eq!(image.width, 24);
+
+        // A symbolic form: preferred, drawn in the panel's color.
+        let (image, source) = icon("bluetooth-active", None, 16);
+        assert_eq!(source, StatusSource::Symbolic(symbolic_dir.join("bluetooth-active-symbolic.svg")));
+        assert_eq!((image.width, &image.rgba[..4]), (16, &[0xEE, 0xEE, 0xEC, 0xFF][..]));
+
+        // The item's own theme directory, the same way.
+        let own = root.join("own");
+        for size in [16, 32, 48] {
+            write_png(&own.join(format!("hicolor/{size}x{size}/apps/app-tray.png")), size, [size as u8, 1, 1, 255]);
+        }
+        let (image, source) = icon("app-tray", Some(&own), 16);
+        assert_eq!(source, StatusSource::Image(own.join("hicolor/32x32/apps/app-tray.png")));
+        assert_eq!(&image.rgba[..4], &[32, 1, 1, 255]);
+        std::fs::create_dir_all(own.join("hicolor/scalable/apps")).unwrap();
+        std::fs::write(own.join("hicolor/scalable/apps/app-tray-symbolic.svg"), svg).unwrap();
+        let (_, source) = icon("app-tray", Some(&own), 16);
+        assert_eq!(source, StatusSource::Symbolic(own.join("hicolor/scalable/apps/app-tray-symbolic.svg")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn shrink_averages() {
+        // A 4×4 checkerboard of black and white (opaque): 2×2 of mid grey.
+        let rgba: Vec<u8> = (0..16).flat_map(|i| if (i % 4 + i / 4) % 2 == 0 { [255, 255, 255, 255] } else { [0, 0, 0, 255] }).collect();
+        let small = shrink(Image { width: 4, height: 4, rgba }, 2);
+        assert_eq!((small.width, small.height), (2, 2));
+        assert!(small.rgba.as_chunks::<4>().0.iter().all(|p| *p == [128, 128, 128, 255]), "{:?}", small.rgba);
+        // 48 to 16: each pixel the average of a 3×3 block.
+        let rgba: Vec<u8> = (0..48 * 48).flat_map(|i| if i % 48 < 3 { [0, 0, 0, 0] } else { [90, 90, 90, 255] }).collect();
+        let small = shrink(Image { width: 48, height: 48, rgba }, 16);
+        assert_eq!((small.width, &small.rgba[..8]), (16, &[0, 0, 0, 0, 90, 90, 90, 255][..]));
+        // Fits already: as it is; not square: proportions kept.
+        assert_eq!(shrink(Image { width: 8, height: 8, rgba: vec![1; 256] }, 16).width, 8);
+        let wide = shrink(Image { width: 64, height: 32, rgba: vec![255; 64 * 32 * 4] }, 16);
+        assert_eq!((wide.width, wide.height), (16, 8));
+        // Thirds: 3 → 2 spreads the middle pixel.
+        let row = shrink(Image { width: 3, height: 3, rgba: [[0u8, 0, 0, 255], [255, 255, 255, 255], [0, 0, 0, 255]].repeat(3).concat() }, 2);
+        assert_eq!(&row.rgba[..4], &[85, 85, 85, 255]);
     }
 
     #[test]

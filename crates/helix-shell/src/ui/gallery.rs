@@ -398,6 +398,46 @@ fn launcher_more_results() {
     helix_draw::set_rtl(false);
 }
 
+/// Status icons in the panel (helix-desktop#106, `panel-tray-…`), at
+/// scale 1 and 2, as a Blueman item naming `blueman-disabled` gets them:
+/// 1. through Yaru (which has fixed-size PNGs only, and hicolor a
+///    `-symbolic` form): the symbolic form in the panel's color;
+/// 2. as it was drawn before: Yaru's 16 px PNG 1:1 (stretched at scale 2);
+/// 3. from an item theme directory holding only Yaru's 16, 32 and 48 px
+///    PNGs: the 32 shrunk to 16 at scale 1, the 48 to 32 at scale 2;
+/// 4. a test theme's icon with only 16 (red), 32 (green) and 48 (blue) px
+///    PNGs: green at scale 1, blue at scale 2;
+/// 5. `bluetooth-active` through Yaru: its symbolic form.
+#[test]
+#[ignore]
+fn panel_tray_icons() {
+    let Some(dir) = dir() else { return };
+    let text = Text::load();
+    let theme = std::env::temp_dir().join(format!("helix-gallery-tray-{}", std::process::id()));
+    for (size, color) in [(16, [200, 40, 40, 255]), (32, [40, 160, 60, 255]), (48, [40, 90, 210, 255])] {
+        crate::icons::tests::write_png(&theme.join(format!("test/{size}x{size}/status/test-tray.png")), size, color);
+        let yaru = std::path::PathBuf::from(format!("/usr/share/icons/Yaru/{size}x{size}/status/blueman-disabled.png"));
+        let copy = theme.join(format!("yaru/{size}x{size}/status/test-yaru-tray.png"));
+        std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+        let _ = std::fs::copy(&yaru, &copy);
+    }
+    let rgb = [(FG >> 16) as u8, (FG >> 8) as u8, FG as u8];
+    for scale in [1.0, 2.0] {
+        let px = (f64::from(status::ICON) * scale).round() as u32;
+        let yaru = |name: &str| crate::icons::status_icon_in(name, None, px, rgb, "Yaru");
+        let old = crate::icons::find_icon("blueman-disabled", 16, "Yaru").and_then(|p| crate::icons::decode_file(&p, 16));
+        // (Renamed, so that no theme has a symbolic form of it.)
+        let copies = crate::icons::status_icon_in("test-yaru-tray", Some(&theme.join("yaru")), px, rgb, "none");
+        let test = crate::icons::status_icon_in("test-tray", Some(&theme.join("test")), px, rgb, "none");
+        let tray = [(yaru("blueman-disabled"), None, false), (old, None, false), (copies, None, false), (test, None, false), (yaru("bluetooth-active"), None, false)];
+        let (w, ph) = (1280, panel_height() as usize);
+        render(&dir, &format!("panel-tray-scale{scale}"), DARK, (w, ph, scale), |canvas| {
+            panel_tray(canvas, text.as_ref(), (w, ph), scale, (None, false, None, None), &tray);
+        });
+    }
+    let _ = std::fs::remove_dir_all(&theme);
+}
+
 /// The screenshot UI (`shot-…`): an area with handles and its size, the
 /// icon toolbar with a tooltip, recording with the capture button under
 /// the pointer; in every look.
@@ -604,6 +644,25 @@ fn panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), scale
 /// [`panel`], with `hover` under the pointer and `menu_open`'s menu open.
 #[allow(clippy::too_many_arguments)]
 fn panel_with(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), scale: f64, focus: Option<usize>, power_open: bool, hover: Option<crate::panel_layout::Slot>, menu_open: Option<crate::panel_layout::Item>) {
+    panel_tray(canvas, text, (w, h), scale, (focus, power_open, hover, menu_open), &[]);
+}
+
+/// Tray icons: (image, overlay, needs attention).
+type TrayImages = [(Option<helix_draw::Image>, Option<helix_draw::Image>, bool)];
+
+/// [`panel_with`], with status icons in the tray.
+fn panel_tray(
+    canvas: &mut Canvas,
+    text: Option<&Text>,
+    (w, h): (usize, usize),
+    scale: f64,
+    (focus, power_open, hover, menu_open): (Option<usize>, bool, Option<crate::panel_layout::Slot>, Option<crate::panel_layout::Item>),
+    tray: &TrayImages,
+) {
+    let tray_w = match tray.len() as i32 {
+        0 => 0,
+        n => n * status::ICON + (n - 1) * tray::TRAY_GAP,
+    };
     let bold = Text::load_matching("sans-serif:bold");
     let power_icon = symbolic("system-shutdown-symbolic", 16.0, scale);
     let status_items: Vec<status::StatusItem> =
@@ -613,8 +672,8 @@ fn panel_with(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize), 
         layout: &layout,
         clock: &crate::clock::top_bar(crate::clock::ClockFormat { weekday: true, ..Default::default() }, &gio::glib::DateTime::new(&gio::glib::TimeZone::local(), 2026, 11, 14, 14, 5, 0.0).unwrap()),
         status_items: &status_items,
-        tray_images: &[],
-        tray_w: 0,
+        tray_images: tray,
+        tray_w,
         ext_items: &[],
         ext_icons: &[],
         ext_widths: &[],

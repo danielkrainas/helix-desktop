@@ -51,9 +51,10 @@ impl Ui {
             let (name, theme_path) = (icon.name.clone(), icon.theme_path.clone());
             self.icon_cache.get(key, move || tray_named(&name, &theme_path, px, rgb))
         });
+        // A pixmap at least twice the size, shrunk.
         named.flatten().or_else(|| {
-            let (w, h, rgba) = crate::tray::best_pixmap(&icon.pixmaps, px)?;
-            Some(Image { width: *w as usize, height: *h as usize, rgba: rgba.clone() })
+            let (w, h, rgba) = crate::tray::best_pixmap(&icon.pixmaps, px.saturating_mul(2))?;
+            Some(crate::icons::shrink(Image { width: *w as usize, height: *h as usize, rgba: rgba.clone() }, px))
         })
     }
 
@@ -184,29 +185,10 @@ fn menu_items(entries: &[MenuEntry], ids: &mut Vec<i32>) -> Vec<Option<MenuItem>
         .collect()
 }
 
-/// A status icon's named picture at `px`: from the item's own theme
-/// directory, else the icon theme.
+/// A status icon's named picture at `px`: its symbolic form, else a
+/// larger image shrunk (see [`crate::icons::status_icon`]), from the
+/// item's own theme directory or the icon theme.
 fn tray_named(name: &str, theme_path: &str, px: u32, rgb: [u8; 3]) -> Option<Image> {
-    let from_dir = (!theme_path.is_empty()).then(|| find_in_dir(std::path::Path::new(theme_path), name, 4)).flatten();
-    match from_dir {
-        Some(path) => crate::icons::decode_file(&path, px),
-        None if name.ends_with("-symbolic") => crate::icons::symbolic(name, px, rgb),
-        None => crate::icons::load(&crate::icons::IconSource::Names(vec![name.to_owned()]), px),
-    }
-}
-
-/// `name.png` or `name.svg` in `dir` or (up to `depth` levels) below it.
-fn find_in_dir(dir: &std::path::Path, name: &str, depth: usize) -> Option<std::path::PathBuf> {
-    for ext in ["png", "svg"] {
-        let path = dir.join(format!("{name}.{ext}"));
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-    if depth == 0 {
-        return None;
-    }
-    let mut dirs: Vec<_> = std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
-    dirs.sort();
-    dirs.iter().find_map(|d| find_in_dir(d, name, depth - 1))
+    let dir = (!theme_path.is_empty()).then(|| std::path::Path::new(theme_path));
+    crate::icons::status_icon(name, dir, px, rgb)
 }
