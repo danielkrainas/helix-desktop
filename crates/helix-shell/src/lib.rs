@@ -22,6 +22,7 @@ pub mod end_dialog;
 pub mod offline_updates;
 pub mod extra_keys;
 pub mod favorites;
+pub mod file_chooser;
 pub mod font;
 pub mod geoclue_agent;
 pub mod housekeeping;
@@ -253,8 +254,16 @@ pub enum UiEvent {
     /// Replace the rows of the prompt shown (its selection follows the
     /// selected row's text); no rows cancel it.
     PromptRows(Vec<String>),
-    /// A file's preview for the prompt (`None`: it cannot be shown).
-    PromptPreview(String, Option<Preview>),
+    /// A file's preview for the file chooser (`None`: it cannot be
+    /// shown).
+    FilePreview(String, Option<Preview>),
+    /// Show the file chooser (`org.helix.PortalDialog.ChooseFiles`).
+    ChooseFiles(file_chooser::RequestSlot),
+    /// What the file chooser asked to list (`serial` of the request), or
+    /// why it cannot be.
+    FilesListed { serial: u64, entries: Result<Vec<helix_settings::files::Entry>, String> },
+    /// A folder the file chooser asked for was made (or why not).
+    FolderMade { serial: u64, result: Result<std::path::PathBuf, String> },
     /// A search provider answered: its results for search `serial`.
     SearchResults { serial: u64, provider: usize, hits: Vec<launcher::SearchHit> },
     /// `org.gnome.desktop.a11y.interface` `high-contrast`.
@@ -322,8 +331,13 @@ pub enum UiRequest {
     QuickSettingsOpened,
     /// (1.1) Run an extension command.
     ExtCommand(String),
-    /// Decode a picture for the prompt's preview.
+    /// Decode a file's preview for the file chooser.
     Preview(String),
+    /// List a folder, the recent files or a search for the file chooser,
+    /// off the UI thread; the answer comes back as `FilesListed`.
+    ListFiles { serial: u64, listing: file_chooser::Listing },
+    /// Make a new folder for the file chooser (`FolderMade`).
+    MakeFolder { serial: u64, path: std::path::PathBuf },
     /// The UI opened/closed the launcher itself.
     Overview(bool),
     /// The dock's "Empty Trash": ask, then empty it.
@@ -872,7 +886,7 @@ pub enum Preview {
 /// Largest file previewed.
 const PREVIEW_MAX_BYTES: u64 = 32 << 20;
 
-/// A file's preview (pictures at most 392 × 160), if it can be shown: a
+/// A file's preview (pictures at most 480 × 480), if it can be shown: a
 /// picture as it is, text as its first lines, anything else by its
 /// thumbnail (`helix_settings::thumbnails`).
 fn preview_image(path: &str) -> Option<Preview> {
@@ -887,11 +901,11 @@ fn preview_image(path: &str) -> Option<Preview> {
     }
     let source = if thumbnails::is_picture(&mime) { path.to_path_buf() } else { thumbnails::thumbnail(path)? };
     let image = wallpaper::decode(&source).ok()?;
-    Some(Preview::Image(std::sync::Arc::new(wallpaper::thumbnail(&image, 392, 160))))
+    Some(Preview::Image(std::sync::Arc::new(wallpaper::thumbnail(&image, 480, 480))))
 }
 
 /// Lines of a text preview.
-const PREVIEW_LINES: usize = 9;
+const PREVIEW_LINES: usize = 24;
 
 impl UiBridge {
     pub async fn handle(&self, request: UiRequest) -> zbus::Result<()> {
@@ -908,7 +922,34 @@ impl UiBridge {
                 let ui = self.ui.clone();
                 tokio::task::spawn_blocking(move || {
                     let image = preview_image(&path);
-                    let _ = ui.send(UiEvent::PromptPreview(path, image));
+                    let _ = ui.send(UiEvent::FilePreview(path, image));
+                });
+                Ok(())
+            }
+            UiRequest::ListFiles { serial, listing } => {
+                let ui = self.ui.clone();
+                let conn = self.conn.clone();
+                tokio::spawn(async move {
+                    let entries = match listing {
+                        file_chooser::Listing::Search { dir, query, filter } => {
+                            let found = helix_settings::files::find(&conn, &dir, &query, filter.as_ref()).await;
+                            let entries = tokio::task::spawn_blocking(move || found.into_iter().filter_map(helix_settings::files::Entry::at).collect::<Vec<_>>()).await;
+                            entries.map_err(|e| e.to_string())
+                        }
+                        listing => {
+                            let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(|| "/".into());
+                            tokio::task::spawn_blocking(move || file_chooser::list_blocking(&listing, &home)).await.map_err(|e| e.to_string()).and_then(|r| r)
+                        }
+                    };
+                    let _ = ui.send(UiEvent::FilesListed { serial, entries });
+                });
+                Ok(())
+            }
+            UiRequest::MakeFolder { serial, path } => {
+                let ui = self.ui.clone();
+                tokio::task::spawn_blocking(move || {
+                    let result = std::fs::create_dir(&path).map(|()| path).map_err(|e| e.to_string());
+                    let _ = ui.send(UiEvent::FolderMade { serial, result });
                 });
                 Ok(())
             }

@@ -1,9 +1,11 @@
 //! `org.freedesktop.impl.portal.FileChooser` (helix-desktop-spec
-//! `contracts/dbus/org.freedesktop.impl.portal.md`, "FileChooser"): a
-//! folder at a time in the shell's dialog.
+//! `contracts/dbus/org.freedesktop.impl.portal.md`, "FileChooser"): the
+//! shell's file chooser (`org.helix.PortalDialog.ChooseFiles`), which
+//! browses folders itself in one dialog; this backend passes the app's
+//! options and turns the answer into URIs.
 
 use std::collections::HashMap;
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -11,325 +13,15 @@ use gio::prelude::*;
 use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 use zbus::{fdo, interface, Connection, ObjectServer};
 
-use crate::dialogs::{answered_choices, check_box, dialog, value, Choice};
+use crate::dialogs::{answered_choices, check_box, value, Choice};
 use crate::screenshot::{response, with_request, Results};
 use helix_i18n::tr;
-use helix_i18n::trf;
 
-/// A filter: its name and patterns, (0, glob) or (1, MIME type).
-pub type Filter = (String, Vec<(u32, String)>);
+pub use helix_settings::files::Filter;
 
-/// `*` and `?` glob matching, ignoring case.
-pub fn glob(pattern: &str, name: &str) -> bool {
-    fn go(p: &[char], n: &[char]) -> bool {
-        match p.split_first() {
-            None => n.is_empty(),
-            Some(('*', rest)) => (0..=n.len()).any(|i| go(rest, &n[i..])),
-            Some(('?', rest)) => !n.is_empty() && go(rest, &n[1..]),
-            Some((c, rest)) => n.first().is_some_and(|m| m == c) && go(rest, &n[1..]),
-        }
-    }
-    let p: Vec<char> = pattern.to_lowercase().chars().collect();
-    let n: Vec<char> = name.to_lowercase().chars().collect();
-    go(&p, &n)
-}
-
-/// Whether file `name` passes `filter`.
-pub fn passes(filter: &Filter, name: &str) -> bool {
-    filter.1.iter().any(|(kind, pattern)| match kind {
-        0 => glob(pattern, name),
-        _ => {
-            let (guess, _) = gio::content_type_guess(Some(name), None);
-            gio::content_type_is_mime_type(&guess, pattern)
-        }
-    })
-}
-
-/// A row of the chooser.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Row {
-    Parent,
-    /// Change the file type shown.
-    FilterRow,
-    SelectHere,
-    SaveHere,
-    Folder(String),
-    File(String),
-    /// A recently used file (the Recent view).
-    Recent(PathBuf),
-}
-
-/// A place in the dialog's column of places.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Place {
-    Recent,
-    Folder(String, PathBuf),
-}
-
-impl Place {
-    pub fn label(&self) -> &str {
-        match self {
-            Place::Recent => tr("Recent"),
-            Place::Folder(label, _) => label,
-        }
-    }
-}
-
-/// GTK bookmarks (`~/.config/gtk-3.0/bookmarks`: `file:` URI, then an
-/// optional label) that are local folders.
-pub fn bookmarks(text: &str) -> Vec<(String, PathBuf)> {
-    text.lines()
-        .filter_map(|line| {
-            let (uri, label) = line.trim().split_once(' ').map_or((line.trim(), None), |(u, l)| (u, Some(l.trim())));
-            let path = gio::File::for_uri(uri).path().filter(|_| uri.starts_with("file://"))?;
-            let label = label.filter(|l| !l.is_empty()).map(str::to_owned).or_else(|| path.file_name().map(|n| n.to_string_lossy().into_owned()))?;
-            Some((label, path))
-        })
-        .collect()
-}
-
-/// The places: Recent (when files are being opened), Home, the user's
-/// standard folders, bookmarks, drives and the whole computer; folders
-/// that do not exist are left out, and none twice.
-pub fn places(home: &Path, standard: &[PathBuf], bookmarks: &[(String, PathBuf)], drives: &[(String, PathBuf)], recent: bool) -> Vec<Place> {
-    let mut out = Vec::new();
-    if recent {
-        out.push(Place::Recent);
-    }
-    out.push(Place::Folder(tr("Home").into(), home.to_path_buf()));
-    let named = |p: &PathBuf| (p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned()), p.clone());
-    let candidates = standard.iter().map(named).chain(bookmarks.iter().cloned()).chain(drives.iter().cloned()).chain([(tr("Computer").to_owned(), PathBuf::from("/"))]);
-    for (label, path) in candidates {
-        let seen = out.iter().any(|p| matches!(p, Place::Folder(_, q) if *q == path));
-        if !seen && path.is_dir() {
-            out.push(Place::Folder(label, path));
-        }
-    }
-    out
-}
-
-/// The standard folders (Desktop, Documents, Downloads, Music, Pictures,
-/// Videos) that are not the home folder itself.
-fn standard_folders(home: &Path) -> Vec<PathBuf> {
-    use gio::glib::UserDirectory as D;
-    [D::Desktop, D::Documents, D::Downloads, D::Music, D::Pictures, D::Videos]
-        .into_iter()
-        .filter_map(gio::glib::user_special_dir)
-        .filter(|p| p != home)
-        .collect()
-}
-
-/// Drives mounted where udisks mounts them for the user.
-fn drives() -> Vec<(String, PathBuf)> {
-    let user = std::env::var("USER").unwrap_or_default();
-    let mut out: Vec<(String, PathBuf)> = [format!("/media/{user}"), format!("/run/media/{user}")]
-        .iter()
-        .filter(|_| !user.is_empty())
-        .flat_map(|d| std::fs::read_dir(d).into_iter().flatten().flatten())
-        .filter(|e| e.path().is_dir())
-        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
-        .collect();
-    out.sort();
-    out
-}
-
-/// A readable name for a GVfs FUSE folder (`smb-share:server=nas,share=docs`
-/// is "docs on nas"; `sftp:host=box,user=me` "me on box"); else the name.
-pub fn gvfs_label(name: &str) -> String {
-    let Some((kind, args)) = name.split_once(':') else { return name.to_owned() };
-    let get = |k: &str| args.split(',').find_map(|kv| kv.strip_prefix(k).and_then(|v| v.strip_prefix('='))).map(str::to_owned);
-    match kind {
-        "smb-share" => match (get("share"), get("server")) {
-            (Some(share), Some(server)) => format!("{share} on {server}"),
-            _ => name.to_owned(),
-        },
-        _ => match (get("host"), get("user")) {
-            (Some(host), Some(user)) => format!("{user} on {host}"),
-            (Some(host), None) => host,
-            _ => name.to_owned(),
-        },
-    }
-}
-
-/// Network places the user connected to: GVfs's FUSE folders under
-/// `$XDG_RUNTIME_DIR/gvfs`.
-fn network_places() -> Vec<(String, PathBuf)> {
-    let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") else { return Vec::new() };
-    let mut out: Vec<(String, PathBuf)> = std::fs::read_dir(Path::new(&runtime).join("gvfs"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| (gvfs_label(&e.file_name().to_string_lossy()), e.path()))
-        .collect();
-    out.sort();
-    out
-}
-
-fn user_places(home: &Path, recent: bool) -> Vec<Place> {
-    let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
-    let marks = std::fs::read_to_string(config.join("gtk-3.0/bookmarks")).map(|t| bookmarks(&t)).unwrap_or_default();
-    let mut drives = drives();
-    drives.extend(network_places());
-    places(home, &standard_folders(home), &marks, &drives, recent)
-}
-
-/// The most search results shown, and the most entries looked at.
-pub const SEARCH_SHOWN: usize = 200;
-const SEARCH_LOOKED: usize = 20_000;
-
-/// Text files whose content a search reads, at most, and how big one may
-/// be.
-const CONTENT_READS: usize = 500;
-const CONTENT_MAX: u64 = 256 * 1024;
-
-/// Files under `dir` (its folders too, hidden ones skipped) whose names
-/// hold `query` (ignoring case) and pass `filter`, nearest first, then by
-/// name; then text files (at most 256 KiB, the first 500 looked into)
-/// whose content holds it.
-pub fn search(dir: &Path, query: &str, filter: Option<&Filter>) -> Vec<PathBuf> {
-    let q = query.trim().to_lowercase();
-    if q.is_empty() {
-        return Vec::new();
-    }
-    let mut found = Vec::new();
-    let mut by_content = Vec::new();
-    let mut reads = 0;
-    let mut queue = std::collections::VecDeque::from([dir.to_path_buf()]);
-    let mut looked = 0;
-    'walk: while let Some(folder) = queue.pop_front() {
-        let Ok(read) = std::fs::read_dir(&folder) else { continue };
-        let mut names: Vec<(String, PathBuf, bool)> = read
-            .flatten()
-            .filter_map(|e| {
-                let name = e.file_name().into_string().ok()?;
-                (!name.starts_with('.')).then(|| (name, e.path(), e.file_type().is_ok_and(|t| t.is_dir())))
-            })
-            .collect();
-        names.sort_by_key(|(n, _, _)| n.to_lowercase());
-        for (name, path, is_dir) in names {
-            looked += 1;
-            if looked > SEARCH_LOOKED || found.len() >= SEARCH_SHOWN {
-                break 'walk;
-            }
-            if is_dir {
-                queue.push_back(path);
-            } else if filter.is_some_and(|f| !passes(f, &name)) {
-                continue;
-            } else if name.to_lowercase().contains(&q) {
-                found.push(path);
-            } else if reads < CONTENT_READS && std::fs::metadata(&path).is_ok_and(|m| m.len() <= CONTENT_MAX) && helix_settings::thumbnails::is_text(&helix_settings::thumbnails::mime_of(&path)) {
-                reads += 1;
-                if std::fs::read(&path).is_ok_and(|b| String::from_utf8_lossy(&b).to_lowercase().contains(&q)) {
-                    by_content.push(path);
-                }
-            }
-        }
-    }
-    found.extend(by_content);
-    found.truncate(SEARCH_SHOWN);
-    found
-}
-
-/// Search results from the file index, ordered as `search` orders its
-/// own: files that are still there, not in hidden folders below `dir`,
-/// passing `filter`; those whose names hold `query` first, nearest
-/// first, then by name.
-pub fn rank(dir: &Path, query: &str, found: Vec<PathBuf>, filter: Option<&Filter>) -> Vec<PathBuf> {
-    let q = query.trim().to_lowercase();
-    let mut kept: Vec<(bool, usize, String, PathBuf)> = found
-        .into_iter()
-        .filter_map(|path| {
-            let below = path.strip_prefix(dir).ok()?;
-            if below.iter().any(|part| part.to_string_lossy().starts_with('.')) || !path.is_file() {
-                return None;
-            }
-            let name = path.file_name()?.to_string_lossy().into_owned();
-            if filter.is_some_and(|f| !passes(f, &name)) {
-                return None;
-            }
-            let lower = name.to_lowercase();
-            Some((!lower.contains(&q), below.components().count(), lower, path))
-        })
-        .collect();
-    kept.sort();
-    kept.dedup_by(|a, b| a.3 == b.3);
-    kept.into_iter().map(|k| k.3).take(SEARCH_SHOWN).collect()
-}
-
-/// Search below `dir`: the file index when one runs and finds something,
-/// else `search`.
-pub async fn find(conn: &Connection, dir: &Path, query: &str, filter: Option<&Filter>) -> Vec<PathBuf> {
-    if let Some(found) = crate::file_index::search(conn, dir, query).await {
-        let found = rank(dir, query, found, filter);
-        if !found.is_empty() {
-            return found;
-        }
-    }
-    search(dir, query, filter)
-}
-
-/// The most recently used files shown.
-pub const RECENT_SHOWN: usize = 100;
-
-/// The `<bookmark>` entries of an XBEL file: (URI, when last modified or
-/// added, Unix seconds).
-pub fn xbel_entries(text: &str) -> Vec<(String, i64)> {
-    let attr = |tag: &str, name: &str| -> Option<String> {
-        let at = tag.find(&format!(" {name}=\""))? + name.len() + 3;
-        let end = tag[at..].find('"')? + at;
-        Some(tag[at..end].replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'"))
-    };
-    let when = |stamp: Option<String>| stamp.and_then(|s| gio::glib::DateTime::from_iso8601(&s, None).ok()).map_or(0, |d| d.to_unix());
-    text.split("<bookmark")
-        .skip(1)
-        .filter_map(|chunk| {
-            let tag = &chunk[..chunk.find('>')?];
-            let href = attr(tag, "href")?;
-            let time = when(attr(tag, "modified")).max(when(attr(tag, "added")));
-            Some((href, time))
-        })
-        .collect()
-}
-
-/// Recently used local files that still exist and pass `filter`, newest
-/// first (`recently-used.xbel` under the data folder).
-/// The oldest recent file to list (Unix seconds), or `None` to list none,
-/// from `org.gnome.desktop.privacy` `remember-recent-files` and
-/// `recent-files-max-age` (days; -1: no limit).
-pub fn recent_cutoff(remember: bool, max_age_days: i32, now: i64) -> Option<i64> {
-    match (remember, max_age_days) {
-        (false, _) | (_, 0) => None,
-        (true, days) if days < 0 => Some(i64::MIN),
-        (true, days) => Some(now - i64::from(days) * 86_400),
-    }
-}
-
-fn privacy_cutoff() -> Option<i64> {
-    use gio::prelude::*;
-    const PRIVACY: &str = "org.gnome.desktop.privacy";
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
-    let Some(schema) = gio::SettingsSchemaSource::default().and_then(|src| src.lookup(PRIVACY, true)) else { return recent_cutoff(true, -1, now) };
-    let s = gio::Settings::new(PRIVACY);
-    let remember = !schema.has_key("remember-recent-files") || s.boolean("remember-recent-files");
-    let age = if schema.has_key("recent-files-max-age") { s.int("recent-files-max-age") } else { -1 };
-    recent_cutoff(remember, age, now)
-}
-
-fn recent_files(home: &Path, filter: Option<&Filter>) -> Vec<PathBuf> {
-    let Some(cutoff) = privacy_cutoff() else { return Vec::new() };
-    let data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"));
-    let Ok(text) = std::fs::read_to_string(data.join("recently-used.xbel")) else { return Vec::new() };
-    let mut found: Vec<(i64, PathBuf)> = xbel_entries(&text)
-        .into_iter()
-        .filter_map(|(uri, when)| {
-            let path = gio::File::for_uri(&uri).path().filter(|_| uri.starts_with("file://"))?;
-            let name = path.file_name()?.to_string_lossy().into_owned();
-            (when >= cutoff && path.is_file() && filter.is_none_or(|f| passes(f, &name))).then_some((when, path))
-        })
-        .collect();
-    found.sort_by_key(|f| std::cmp::Reverse(f.0));
-    found.into_iter().map(|(_, p)| p).take(RECENT_SHOWN).collect()
-}
+const SHELL: &str = "org.gnome.Shell";
+const DIALOG_PATH: &str = "/org/helix/PortalDialog";
+const DIALOG: &str = "org.helix.PortalDialog";
 
 /// What is being chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -339,79 +31,15 @@ pub enum Mode {
     SaveFiles,
 }
 
-/// The rows for folder `dir` with these folder entries (name, is folder).
-pub fn rows(dir: &Path, entries: &[(String, bool)], mode: Mode, filter: Option<&Filter>, filter_row: bool) -> Vec<Row> {
-    let mut out = Vec::new();
-    match mode {
-        Mode::Save | Mode::SaveFiles => out.push(Row::SaveHere),
-        Mode::Open { directory: true, .. } => out.push(Row::SelectHere),
-        Mode::Open { .. } => {}
-    }
-    if dir.parent().is_some() {
-        out.push(Row::Parent);
-    }
-    if filter_row && mode != Mode::SaveFiles && !matches!(mode, Mode::Open { directory: true, .. }) {
-        out.push(Row::FilterRow);
-    }
-    let mut folders: Vec<&String> = entries.iter().filter(|(n, d)| *d && !n.starts_with('.')).map(|(n, _)| n).collect();
-    folders.sort_by_key(|n| n.to_lowercase());
-    out.extend(folders.into_iter().map(|n| Row::Folder(n.clone())));
-    let files_shown = !matches!(mode, Mode::SaveFiles | Mode::Open { directory: true, .. });
-    if files_shown {
-        let mut files: Vec<&String> = entries.iter().filter(|(n, d)| !*d && !n.starts_with('.') && filter.is_none_or(|f| passes(f, n))).map(|(n, _)| n).collect();
-        files.sort_by_key(|n| n.to_lowercase());
-        out.extend(files.into_iter().map(|n| Row::File(n.clone())));
-    }
-    out
-}
-
-pub fn label(row: &Row, filter_name: &str) -> String {
-    match row {
-        Row::Parent => tr("Parent Folder").into(),
-        Row::FilterRow => trf!("File type: {filter_name} (choose to change)", filter_name = filter_name),
-        Row::SelectHere => tr("Select This Folder").into(),
-        Row::SaveHere => tr("Save Here").into(),
-        Row::Folder(n) => format!("{n}/"),
-        Row::File(n) => n.clone(),
-        Row::Recent(p) => {
-            let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-            let folder = p.parent().and_then(Path::file_name).map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-            format!("{name} — {folder}")
-        }
-    }
-}
-
-/// A typed location, relative to `dir` unless absolute or starting `~`.
-pub fn resolve(dir: &Path, typed: &str, home: &Path) -> PathBuf {
-    let typed = typed.trim();
-    if typed == "~" {
-        home.to_path_buf()
-    } else if let Some(rest) = typed.strip_prefix("~/") {
-        home.join(rest)
-    } else {
-        dir.join(typed)
-    }
-}
-
-/// A folder for the message: `~` for the home folder.
-pub fn shown_path(dir: &Path, home: &Path) -> String {
-    match dir.strip_prefix(home) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => dir.display().to_string(),
-    }
-}
-
 /// A path from a portal byte string (ends with a NUL).
 pub fn path_of(bytes: &[u8]) -> PathBuf {
     let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
     PathBuf::from(std::ffi::OsString::from_vec(bytes[..end].to_vec()))
 }
 
-fn entries(dir: &Path) -> Vec<(String, bool)> {
-    std::fs::read_dir(dir)
-        .map(|it| it.flatten().filter_map(|e| Some((e.file_name().into_string().ok()?, e.path().is_dir()))).collect())
-        .unwrap_or_default()
+/// A path as the byte string the shell's dialog takes.
+fn path_bytes(path: &Path) -> Vec<u8> {
+    path.as_os_str().as_bytes().to_vec()
 }
 
 fn home() -> PathBuf {
@@ -428,23 +56,14 @@ pub struct Outcome {
     pub check: bool,
 }
 
-/// The file of row `row` (in folder `dir`) to preview: a picture, text,
-/// or a file a thumbnailer handles.
-pub fn preview_path(dir: &Path, row: &Row) -> Option<PathBuf> {
-    let path = match row {
-        Row::File(name) => dir.join(name),
-        Row::Recent(path) => path.clone(),
-        _ => return None,
-    };
-    helix_settings::thumbnails::can_preview(&path).then_some(path)
-}
-
 /// What the dialog asks.
 pub struct Ask {
     pub title: String,
     pub accept: String,
     pub mode: Mode,
-    pub folder: PathBuf,
+    /// The folder to start in; `None`: the shell decides (Recent when
+    /// opening files and GTK's `startup-mode` says so, else Home).
+    pub folder: Option<PathBuf>,
     pub name: String,
     pub filters: Vec<Filter>,
     pub filter: Option<usize>,
@@ -456,17 +75,60 @@ fn opt<T: TryFrom<OwnedValue>>(results: &HashMap<String, OwnedValue>, key: &str)
     results.get(key).and_then(|v| T::try_from(v.clone()).ok())
 }
 
+/// The `ChooseFiles` options for `ask` (helix-desktop-spec
+/// `contracts/dbus/org.helix.PortalDialog.xml`).
+pub fn choose_options(ask: &Ask) -> HashMap<String, OwnedValue> {
+    let mode = match ask.mode {
+        Mode::Open { directory: true, .. } => "folder",
+        Mode::Open { .. } => "open",
+        Mode::Save => "save",
+        Mode::SaveFiles => "save-files",
+    };
+    let mut options = HashMap::from([
+        ("title".to_owned(), value(Value::from(ask.title.clone()))),
+        ("accept".to_owned(), value(Value::from(ask.accept.clone()))),
+        ("mode".to_owned(), value(Value::from(mode))),
+        ("multiple".to_owned(), value(Value::from(matches!(ask.mode, Mode::Open { multiple: true, directory: false })))),
+        ("filters".to_owned(), value(Value::from(ask.filters.clone()))),
+        ("filter".to_owned(), value(Value::from(ask.filter.map_or(-1, |i| i as i32)))),
+    ]);
+    if let Some(folder) = &ask.folder {
+        options.insert("folder".into(), value(Value::from(path_bytes(folder))));
+    }
+    if ask.mode == Mode::Save {
+        options.insert("name".into(), value(Value::from(ask.name.clone())));
+    }
+    if let Some((label, state)) = &ask.check {
+        options.insert("check-label".into(), value(Value::from(label.clone())));
+        options.insert("check".into(), value(Value::from(*state)));
+    }
+    options
+}
+
+/// The answer `ChooseFiles` gave (`None`: canceled).
+pub fn outcome(response: u32, results: &HashMap<String, OwnedValue>) -> Option<Outcome> {
+    if response != 0 {
+        return None;
+    }
+    let paths: Vec<PathBuf> = opt::<Vec<Vec<u8>>>(results, "paths").unwrap_or_default().iter().map(|b| path_of(b)).filter(|p| !p.as_os_str().is_empty()).collect();
+    if paths.is_empty() {
+        return None;
+    }
+    let folder = opt::<Vec<u8>>(results, "folder").map(|b| path_of(&b)).filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| paths[0].parent().map_or_else(home, Path::to_path_buf));
+    let filter = opt::<i32>(results, "filter").and_then(|i| usize::try_from(i).ok());
+    Some(Outcome { paths, folder, filter, check: opt::<bool>(results, "check").unwrap_or(false) })
+}
+
 /// Ask for one image file (PNG, JPEG or SVG), starting in the pictures
 /// folder; for other backends (DynamicLauncher's icon).
 pub(crate) async fn pick_image(conn: &Connection, title: &str) -> Option<PathBuf> {
-    let home = home();
-    let folder = gio::glib::user_special_dir(gio::glib::UserDirectory::Pictures).filter(|d| d.is_dir()).unwrap_or(home);
+    let folder = gio::glib::user_special_dir(gio::glib::UserDirectory::Pictures).filter(|d| d.is_dir()).unwrap_or_else(home);
     let images: Filter = (tr("Images").into(), ["image/png", "image/jpeg", "image/svg+xml"].iter().map(|m| (1, (*m).to_owned())).collect());
     let ask = Ask {
         title: title.into(),
         accept: tr("Choose").into(),
         mode: Mode::Open { multiple: false, directory: false },
-        folder,
+        folder: Some(folder),
         name: String::new(),
         filters: vec![images],
         filter: Some(0),
@@ -475,203 +137,16 @@ pub(crate) async fn pick_image(conn: &Connection, title: &str) -> Option<PathBuf
     choose(conn, ask).await.and_then(|o| o.paths.into_iter().next())
 }
 
-async fn choose(conn: &Connection, mut ask: Ask) -> Option<Outcome> {
-    let home = home();
-    let mut warning = String::new();
-    // The row to start on (after going up: the folder left).
-    let mut prefer: Option<Row> = None;
-    // Recent files are offered when choosing files to open.
-    let offer_recent = matches!(ask.mode, Mode::Open { directory: false, .. });
-    let mut recent = false;
-    // A search being shown (opening files).
-    let mut searching: Option<String> = None;
-    loop {
-        if !ask.folder.is_dir() {
-            ask.folder = home.clone();
-        }
-        let filter = ask.filter.and_then(|i| ask.filters.get(i));
-        let places = user_places(&home, offer_recent);
-        let list = if let Some(query) = &searching {
-            let mut list = Vec::new();
-            if ask.filters.len() > 1 {
-                list.push(Row::FilterRow);
-            }
-            list.extend(find(conn, &ask.folder, query, filter).await.into_iter().map(Row::Recent));
-            list
-        } else if recent {
-            let mut list = Vec::new();
-            if ask.filters.len() > 1 {
-                list.push(Row::FilterRow);
-            }
-            list.extend(recent_files(&home, filter).into_iter().map(Row::Recent));
-            list
-        } else {
-            rows(&ask.folder, &entries(&ask.folder), ask.mode, filter, ask.filters.len() > 1)
-        };
-        let place_current = places.iter().position(|p| match p {
-            Place::Recent => recent && searching.is_none(),
-            Place::Folder(_, path) => !recent && searching.is_none() && *path == ask.folder,
-        });
-        let filter_name = filter.map_or(tr("All Files"), |f| f.0.as_str());
-        let labels: Vec<String> = list.iter().map(|r| label(r, filter_name)).collect();
-        let selected = prefer
-            .take()
-            .and_then(|p| list.iter().position(|r| *r == p))
-            .or_else(|| match ask.mode {
-                Mode::Open { .. } => list.iter().position(|r| matches!(r, Row::File(_) | Row::Folder(_) | Row::SelectHere | Row::Recent(_))),
-                _ => Some(0),
-            })
-            .unwrap_or(0);
-        let (entry_label, entry) = match ask.mode {
-            Mode::Save => (tr("Name"), ask.name.clone()),
-            _ => (tr("Location"), String::new()),
-        };
-        let multiple = matches!(ask.mode, Mode::Open { multiple: true, directory: false });
-        let mut options = HashMap::from([
-            ("title".to_owned(), value(Value::from(ask.title.clone()))),
-            ("message".to_owned(), value(Value::from(match (&searching, recent) {
-                (Some(q), _) => trf!("Search for “{query}” in {folder}", query = q, folder = shown_path(&ask.folder, &home)),
-                (None, true) => tr("Recent").to_owned(),
-                (None, false) => shown_path(&ask.folder, &home),
-            }))),
-            ("places".to_owned(), value(Value::from(places.iter().map(|p| p.label().to_owned()).collect::<Vec<String>>()))),
-            ("place-current".to_owned(), value(Value::from(place_current.map_or(-1, |i| i as i32)))),
-            ("rows".to_owned(), value(Value::from(labels))),
-            ("selected".to_owned(), value(Value::from(selected as i32))),
-            ("multiple".to_owned(), value(Value::from(multiple))),
-            ("unpickable".to_owned(), value(Value::from(list.iter().enumerate().filter(|(_, r)| !matches!(r, Row::File(_) | Row::Recent(_))).map(|(i, _)| i as i32).collect::<Vec<i32>>()))),
-            ("activate-rows".to_owned(), value(Value::from(true))),
-            ("entry-label".to_owned(), value(Value::from(entry_label))),
-            ("entry".to_owned(), value(Value::from(entry))),
-            ("warning".to_owned(), value(Value::from(std::mem::take(&mut warning)))),
-            ("accept".to_owned(), value(Value::from(ask.accept.clone()))),
-            ("cancel".to_owned(), value(Value::from(tr("Cancel")))),
-        ]);
-        // Image files can be previewed: their paths, by row.
-        let previews: Vec<String> = list.iter().map(|r| preview_path(&ask.folder, r).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()).collect();
-        if previews.iter().any(|p| !p.is_empty()) {
-            options.insert("previews".into(), value(Value::from(previews)));
-        }
-        if let Some((label, state)) = &ask.check {
-            options.insert("check-label".into(), value(Value::from(label.clone())));
-            options.insert("check".into(), value(Value::from(*state)));
-        }
-        let results = dialog(conn, options).await?;
-        if let (Some(check), Some((_, state))) = (opt::<bool>(&results, "check"), ask.check.as_mut()) {
-            *state = check;
-        }
-        // A place was clicked: show it.
-        if let Some(place) = opt::<i32>(&results, "place").and_then(|i| usize::try_from(i).ok()).and_then(|i| places.get(i)) {
-            searching = None;
-            match place {
-                Place::Recent => recent = true,
-                Place::Folder(_, path) => {
-                    recent = false;
-                    ask.folder = path.clone();
-                }
-            }
-            if ask.mode == Mode::Save {
-                ask.name = opt::<String>(&results, "entry").unwrap_or_default().trim().to_owned();
-            }
-            continue;
-        }
-        let row = opt::<i32>(&results, "selected").and_then(|i| usize::try_from(i).ok()).and_then(|i| list.get(i).cloned());
-        let typed = opt::<String>(&results, "entry").unwrap_or_default();
-        let picked: Vec<Row> = opt::<Vec<i32>>(&results, "picked").unwrap_or_default().into_iter().filter_map(|i| list.get(usize::try_from(i).ok()?).cloned()).collect();
-        let done = |paths: Vec<PathBuf>, ask: &Ask| Some(Outcome { paths, folder: ask.folder.clone(), filter: ask.filter, check: ask.check.as_ref().is_some_and(|c| c.1) });
-        if ask.mode == Mode::Save {
-            ask.name = typed.trim().to_owned();
-        } else if !typed.trim().is_empty() {
-            // A typed location: go there, or choose it.
-            let path = resolve(&ask.folder, &typed, &home);
-            if path.is_dir() {
-                recent = false;
-                searching = None;
-                ask.folder = path;
-            } else if path.is_file() && matches!(ask.mode, Mode::Open { directory: false, .. }) {
-                return done(vec![path], &ask);
-            } else if matches!(ask.mode, Mode::Open { directory: false, .. }) && !typed.contains('/') {
-                // Not a place: look for files by that name.
-                let filter = ask.filter.and_then(|i| ask.filters.get(i));
-                if find(conn, &ask.folder, &typed, filter).await.is_empty() {
-                    warning = trf!("No files named like “{}”.", typed.trim());
-                } else {
-                    recent = false;
-                    searching = Some(typed.trim().to_owned());
-                }
-            } else {
-                warning = trf!("“{}” was not found.", typed.trim());
-            }
-            continue;
-        }
-        let files: Vec<PathBuf> = picked
-            .iter()
-            .filter_map(|r| match r {
-                Row::File(n) => Some(ask.folder.join(n)),
-                Row::Recent(p) => Some(p.clone()),
-                _ => None,
-            })
-            .collect();
-        if !files.is_empty() {
-            return done(files, &ask);
-        }
-        match row {
-            Some(Row::Parent) => {
-                let from = ask.folder.file_name().map(|n| Row::Folder(n.to_string_lossy().into_owned()));
-                if let Some(parent) = ask.folder.parent() {
-                    ask.folder = parent.to_path_buf();
-                }
-                prefer = from;
-            }
-            Some(Row::FilterRow) => {
-                ask.filter = Some(ask.filter.map_or(0, |i| (i + 1) % ask.filters.len().max(1)));
-                prefer = Some(Row::FilterRow);
-            }
-            Some(Row::Folder(n)) => ask.folder = ask.folder.join(n),
-            Some(Row::Recent(p)) => return done(vec![p], &ask),
-            Some(Row::SelectHere) => return done(vec![ask.folder.clone()], &ask),
-            Some(Row::File(n)) if ask.mode == Mode::Save => {
-                ask.name = n;
-                prefer = Some(Row::SaveHere);
-            }
-            Some(Row::File(n)) => return done(vec![ask.folder.join(n)], &ask),
-            Some(Row::SaveHere) if ask.mode == Mode::SaveFiles => return done(vec![ask.folder.clone()], &ask),
-            Some(Row::SaveHere) => {
-                if ask.name.is_empty() {
-                    warning = tr("Type a name for the file.").into();
-                    continue;
-                }
-                let target = resolve(&ask.folder, &ask.name, &home);
-                if target.is_dir() {
-                    ask.folder = target;
-                    ask.name.clear();
-                    continue;
-                }
-                if !target.parent().is_some_and(Path::is_dir) {
-                    warning = tr("That folder does not exist.").into();
-                    continue;
-                }
-                if target.exists() && !replace(conn, &target).await {
-                    continue;
-                }
-                return done(vec![target], &ask);
-            }
-            None => return None,
+/// Show the shell's file chooser for `ask`.
+async fn choose(conn: &Connection, ask: Ask) -> Option<Outcome> {
+    let reply = conn.call_method(Some(SHELL), DIALOG_PATH, Some(DIALOG), "ChooseFiles", &(choose_options(&ask),)).await;
+    match reply.and_then(|r| r.body().deserialize::<(u32, HashMap<String, OwnedValue>)>()) {
+        Ok((code, results)) => outcome(code, &results),
+        Err(err) => {
+            tracing::warn!(%err, "the shell cannot show the file chooser");
+            None
         }
     }
-}
-
-/// Ask before replacing `path`.
-async fn replace(conn: &Connection, path: &Path) -> bool {
-    let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    let folder = path.parent().and_then(Path::file_name).map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    let options = HashMap::from([
-        ("title".to_owned(), value(Value::from(tr("Replace File?")))),
-        ("message".to_owned(), value(Value::from(trf!("A file named “{name}” already exists in “{folder}”. Replacing it overwrites its contents.", name = name, folder = folder)))),
-        ("accept".to_owned(), value(Value::from(tr("Replace")))),
-        ("cancel".to_owned(), value(Value::from(tr("Cancel")))),
-    ]);
-    dialog(conn, options).await.is_some()
 }
 
 fn opt_str(options: &HashMap<String, OwnedValue>, key: &str) -> Option<String> {
@@ -720,10 +195,7 @@ impl FileChooserBackend {
         let check = check_at.map(|i| (choices[i].1.clone(), choices[i].3 == "true"));
         let current_file = opt_path(&options, "current_file");
         let remembered = self.folders.lock().unwrap_or_else(|e| e.into_inner()).get(&app_id).cloned();
-        let folder = opt_path(&options, "current_folder")
-            .or_else(|| current_file.as_ref().and_then(|f| f.parent().map(Path::to_path_buf)))
-            .or(remembered)
-            .unwrap_or_else(home);
+        let folder = opt_path(&options, "current_folder").or_else(|| current_file.as_ref().and_then(|f| f.parent().map(Path::to_path_buf))).or(remembered);
         let name = opt_str(&options, "current_name").or_else(|| current_file.as_ref().and_then(|f| f.file_name()).map(|n| n.to_string_lossy().into_owned())).unwrap_or_default();
         let accept = opt_str(&options, "accept_label").unwrap_or_else(|| match mode {
             Mode::Open { directory: true, .. } => tr("Select").into(),
@@ -782,120 +254,31 @@ impl FileChooserBackend {
 
 #[cfg(test)]
 mod tests {
-
-    #[test]
-    fn recent_privacy() {
-        assert_eq!(recent_cutoff(false, -1, 1000), None);
-        assert_eq!(recent_cutoff(true, 0, 1000), None);
-        assert_eq!(recent_cutoff(true, -1, 1000), Some(i64::MIN));
-        assert_eq!(recent_cutoff(true, 2, 200_000), Some(200_000 - 172_800));
-    }
-
     use super::*;
 
     #[test]
-    fn previews() {
-        let dir = std::env::temp_dir().join(format!("helix-previews-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("Pictures")).unwrap();
-        std::fs::write(dir.join("cat.PNG"), b"").unwrap();
-        std::fs::write(dir.join("notes.txt"), b"some text").unwrap();
-        std::fs::write(dir.join("blob.bin"), (0u8..=255).cycle().take(2048).collect::<Vec<u8>>()).unwrap();
-        assert_eq!(preview_path(&dir, &Row::File("cat.PNG".into())), Some(dir.join("cat.PNG")));
-        assert_eq!(preview_path(&dir, &Row::File("notes.txt".into())), Some(dir.join("notes.txt")), "text");
-        assert_eq!(preview_path(&dir, &Row::File("blob.bin".into())), None);
-        assert_eq!(preview_path(&dir, &Row::File("gone.png".into())), None);
-        assert_eq!(preview_path(&dir, &Row::Folder("Pictures".into())), None);
-        assert_eq!(preview_path(&dir, &Row::Parent), None);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn places_list() {
-        let tmp = std::env::temp_dir().join(format!("helix-places-{}", std::process::id()));
-        let (docs, mark, drive) = (tmp.join("Documents"), tmp.join("Projects"), tmp.join("usb"));
-        for d in [&docs, &mark, &drive] {
-            std::fs::create_dir_all(d).unwrap();
-        }
-        let marks = bookmarks(&format!("file://{} Work\nsftp://host/x Remote\nfile://{}\n", mark.display(), docs.display()));
-        assert_eq!(marks, [("Work".to_owned(), mark.clone()), ("Documents".to_owned(), docs.clone())]);
-        let list = places(&tmp, &[docs.clone(), tmp.join("Missing")], &marks, &[("USB".into(), drive.clone())], true);
-        let labels: Vec<&str> = list.iter().map(Place::label).collect();
-        assert_eq!(labels, ["Recent", "Home", "Documents", "Work", "USB", "Computer"]);
-        assert!(!places(&tmp, &[], &[], &[], false).contains(&Place::Recent));
-        assert_eq!(label(&Row::Recent(PathBuf::from("/home/a/Documents/report.pdf")), ""), "report.pdf — Documents");
-        assert_eq!(gvfs_label("smb-share:server=nas,share=docs"), "docs on nas");
-        assert_eq!(gvfs_label("sftp:host=box,user=me"), "me on box");
-        assert_eq!(gvfs_label("dav:host=cloud,ssl=true"), "cloud");
-        assert_eq!(gvfs_label("plain"), "plain");
-        // Search: below the folder, hidden folders skipped, filtered.
-        std::fs::create_dir_all(docs.join("2026/.cache")).unwrap();
-        std::fs::write(docs.join("Report.pdf"), "").unwrap();
-        std::fs::write(docs.join("2026/report-final.txt"), "").unwrap();
-        std::fs::write(docs.join("2026/.cache/report.tmp"), "").unwrap();
-        let found: Vec<String> = search(&tmp, "REPORT", None).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
-        assert_eq!(found, ["Report.pdf", "report-final.txt"]);
-        let pdf = ("PDF".to_owned(), vec![(0u32, "*.pdf".to_owned())]);
-        assert_eq!(search(&tmp, "report", Some(&pdf)).len(), 1);
-        assert!(search(&tmp, "  ", None).is_empty());
-        // Text files holding the words come after names that do.
-        std::fs::write(docs.join("minutes.txt"), "Quarterly REPORT due Friday").unwrap();
-        std::fs::write(docs.join("photo.png"), "report").unwrap();
-        let found: Vec<String> = search(&tmp, "report", None).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
-        assert_eq!(found, ["Report.pdf", "report-final.txt", "minutes.txt"]);
-        // The index's answers, ordered alike; gone, hidden and filtered
-        // files left out.
-        let index = vec![docs.join("minutes.txt"), docs.join("2026/report-final.txt"), docs.join("gone-report.txt"), docs.join("2026/.cache/report.tmp"), docs.join("Report.pdf"), docs.join("Report.pdf")];
-        let names = |v: Vec<PathBuf>| v.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
-        assert_eq!(names(rank(&tmp, "report", index.clone(), None)), ["Report.pdf", "report-final.txt", "minutes.txt"]);
-        assert_eq!(names(rank(&tmp, "report", index, Some(&pdf))), ["Report.pdf"]);
-        let _ = std::fs::remove_dir_all(&tmp);
-        let xbel = r#"<xbel><bookmark href="file:///a/b%20c.txt" added="2026-01-01T10:00:00Z" modified="2026-03-01T10:00:00.5Z" visited="x"><info/></bookmark>
-<bookmark href="file:///x?a&amp;b" added="2026-02-01T00:00:00Z"></bookmark></xbel>"#;
-        let e = xbel_entries(xbel);
-        assert_eq!(e.len(), 2);
-        assert_eq!(e[0].0, "file:///a/b%20c.txt");
-        assert!(e[0].1 > e[1].1, "modified counts");
-        assert_eq!(e[1].0, "file:///x?a&b");
-    }
-
-    #[test]
-    fn globs_and_filters() {
-        assert!(glob("*.png", "Photo.PNG"));
-        assert!(glob("img-??.jpg", "img-01.jpg"));
-        assert!(!glob("*.png", "notes.txt"));
-        let images: Filter = ("Images".into(), vec![(0, "*.jpg".into()), (1, "image/png".into())]);
-        assert!(passes(&images, "a.jpg"));
-        assert!(passes(&images, "b.png"));
-        assert!(!passes(&images, "c.txt"));
-    }
-
-    #[test]
-    fn listings() {
-        let entries: Vec<(String, bool)> = [("b.txt", false), ("Docs", true), (".hidden", true), ("a.png", false), ("apps", true)].iter().map(|(n, d)| (n.to_string(), *d)).collect();
-        let dir = Path::new("/home/ada");
-        let open = rows(dir, &entries, Mode::Open { multiple: false, directory: false }, None, false);
-        assert_eq!(open, [Row::Parent, Row::Folder("apps".into()), Row::Folder("Docs".into()), Row::File("a.png".into()), Row::File("b.txt".into())]);
-        let images: Filter = ("Images".into(), vec![(0, "*.png".into())]);
-        let filtered = rows(dir, &entries, Mode::Open { multiple: true, directory: false }, Some(&images), true);
-        assert_eq!(filtered[1], Row::FilterRow);
-        assert_eq!(filtered.last(), Some(&Row::File("a.png".into())));
-        let folders = rows(Path::new("/"), &entries, Mode::Open { multiple: false, directory: true }, Some(&images), true);
-        assert_eq!(folders, [Row::SelectHere, Row::Folder("apps".into()), Row::Folder("Docs".into())]);
-        let save = rows(dir, &entries, Mode::Save, None, false);
-        assert_eq!(save[0], Row::SaveHere);
-        assert_eq!(rows(dir, &entries, Mode::SaveFiles, None, true).len(), 4);
-        assert_eq!(label(&Row::FilterRow, "Images"), "File type: Images (choose to change)");
-    }
-
-    #[test]
-    fn paths() {
-        let home = Path::new("/home/ada");
-        assert_eq!(resolve(Path::new("/tmp"), "~/Pictures", home), Path::new("/home/ada/Pictures"));
-        assert_eq!(resolve(Path::new("/tmp"), "/etc", home), Path::new("/etc"));
-        assert_eq!(resolve(Path::new("/tmp"), "x/y.txt", home), Path::new("/tmp/x/y.txt"));
-        assert_eq!(shown_path(Path::new("/home/ada/Pictures"), home), "~/Pictures");
-        assert_eq!(shown_path(home, home), "~");
-        assert_eq!(shown_path(Path::new("/srv"), home), "/srv");
+    fn options_and_answers() {
+        let pdf: Filter = ("PDF".into(), vec![(0, "*.pdf".into())]);
+        let ask = Ask { title: "Save Report".into(), accept: "Save".into(), mode: Mode::Save, folder: Some(PathBuf::from("/home/ada/Documents")), name: "Untitled.odt".into(), filters: vec![pdf.clone()], filter: Some(0), check: Some(("Compress".into(), true)) };
+        let o = choose_options(&ask);
+        assert_eq!(String::try_from(o["mode"].clone()).unwrap(), "save");
+        assert_eq!(Vec::<u8>::try_from(o["folder"].clone()).unwrap(), b"/home/ada/Documents");
+        assert_eq!(String::try_from(o["name"].clone()).unwrap(), "Untitled.odt");
+        assert_eq!(Vec::<Filter>::try_from(o["filters"].clone()).unwrap(), [pdf]);
+        assert_eq!((i32::try_from(o["filter"].clone()).unwrap(), bool::try_from(o["check"].clone()).unwrap()), (0, true));
+        let open = choose_options(&Ask { mode: Mode::Open { multiple: true, directory: false }, folder: None, ..ask });
+        assert!(!open.contains_key("folder") && !open.contains_key("name"));
+        assert_eq!((String::try_from(open["mode"].clone()).unwrap().as_str(), bool::try_from(open["multiple"].clone()).unwrap()), ("open", true));
+        let results = HashMap::from([
+            ("paths".to_owned(), value(Value::from(vec![b"/home/ada/a b.txt".to_vec(), b"/home/ada/c.txt".to_vec()]))),
+            ("folder".to_owned(), value(Value::from(b"/home/ada".to_vec()))),
+            ("filter".to_owned(), value(Value::from(0i32))),
+            ("check".to_owned(), value(Value::from(true))),
+        ]);
+        let out = outcome(0, &results).unwrap();
+        assert_eq!(out, Outcome { paths: vec!["/home/ada/a b.txt".into(), "/home/ada/c.txt".into()], folder: "/home/ada".into(), filter: Some(0), check: true });
+        assert_eq!(outcome(1, &results), None);
+        assert_eq!(outcome(0, &HashMap::new()), None, "no paths: canceled");
         assert_eq!(path_of(b"/home/ada/a b.txt\0"), Path::new("/home/ada/a b.txt"));
     }
 }

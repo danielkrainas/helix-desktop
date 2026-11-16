@@ -444,7 +444,7 @@ mod tests {
     }
 
     fn cont(selected: usize) -> Answer {
-        Answer::Continue { entry: None, password: None, confirm: None, choice: false, checks: Vec::new(), selected, picked: Vec::new(), place: None }
+        Answer::Continue { entry: None, password: None, confirm: None, choice: false, checks: Vec::new(), selected, picked: Vec::new() }
     }
 
     #[test]

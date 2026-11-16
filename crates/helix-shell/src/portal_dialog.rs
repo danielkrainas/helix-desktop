@@ -46,9 +46,6 @@ pub fn dialog_prompt(options: &HashMap<String, OwnedValue>) -> Prompt {
         cancel_label: text("cancel"),
         entry: (!entry_label.is_empty()).then(|| (entry_label, text("entry"))),
         warning: text("warning"),
-        places: get(options, "places").unwrap_or_default(),
-        previews: get(options, "previews").unwrap_or_default(),
-        place_current: get::<i32>(options, "place-current").and_then(|i| usize::try_from(i).ok()),
         ..Prompt::default()
     }
 }
@@ -160,11 +157,8 @@ impl PortalDialog {
         let answer = prompt::ask(&self.ui, prompt).await;
         prompt::done(&self.ui);
         match answer {
-            Answer::Continue { choice, selected, entry, picked, place, .. } => {
+            Answer::Continue { choice, selected, entry, picked, .. } => {
                 let mut results = HashMap::from([("check".to_owned(), owned(Value::from(choice))), ("selected".to_owned(), owned(Value::from(selected as i32)))]);
-                if let Some(place) = place {
-                    results.insert("place".to_owned(), owned(Value::from(place as i32)));
-                }
                 if let Some(entry) = entry {
                     results.insert("entry".to_owned(), owned(Value::from(entry)));
                 }
@@ -175,6 +169,33 @@ impl PortalDialog {
                 (0, results)
             }
             Answer::Cancel => (1, HashMap::new()),
+        }
+    }
+
+    /// The file chooser (see the interface notes): one dialog that
+    /// browses folders itself until the user chooses or cancels; response
+    /// 0 chosen, 1 canceled.
+    async fn choose_files(&self, options: HashMap<String, OwnedValue>) -> (u32, HashMap<String, OwnedValue>) {
+        let mut options = crate::file_chooser::options_from(&options);
+        // Polkit and keyring prompts wait until the choice is made.
+        let _turn = prompt::turn().await;
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(|| "/".into());
+        let recent = matches!(options.mode, crate::file_chooser::Mode::Open | crate::file_chooser::Mode::Save);
+        options.places = tokio::task::spawn_blocking(move || helix_settings::files::user_places(&home, recent)).await.unwrap_or_default();
+        match crate::file_chooser::ask(&self.ui, options).await {
+            Some(chosen) => {
+                use std::os::unix::ffi::OsStrExt;
+                let bytes = |p: &std::path::Path| p.as_os_str().as_bytes().to_vec();
+                let paths: Vec<Vec<u8>> = chosen.paths.iter().map(|p| bytes(p)).collect();
+                let results = HashMap::from([
+                    ("paths".to_owned(), owned(Value::from(paths))),
+                    ("folder".to_owned(), owned(Value::from(bytes(&chosen.folder)))),
+                    ("filter".to_owned(), owned(Value::from(chosen.filter.map_or(-1, |i| i as i32)))),
+                    ("check".to_owned(), owned(Value::from(chosen.check))),
+                ]);
+                (0, results)
+            }
+            None => (1, HashMap::new()),
         }
     }
 

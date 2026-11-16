@@ -68,6 +68,11 @@ fn thumbnailer_for(mime: &str) -> Option<&'static Thumbnailer> {
     thumbnailers().iter().find(|t| t.mimes.iter().any(|m| m == mime))
 }
 
+/// Whether an installed thumbnailer handles MIME type `mime`.
+pub fn has_thumbnailer(mime: &str) -> bool {
+    thumbnailer_for(mime).is_some()
+}
+
 /// Whether `path` can be previewed: a picture, text, or a type a
 /// thumbnailer handles.
 pub fn can_preview(path: &Path) -> bool {

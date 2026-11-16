@@ -8,8 +8,8 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use gio::prelude::*;
-use helix_portals::file_chooser;
-use helix_portals::file_index;
+use helix_settings::files as file_chooser;
+use helix_settings::file_index;
 use helix_test_support::TestBus;
 
 fn installed(program: &str) -> bool {

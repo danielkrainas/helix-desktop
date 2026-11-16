@@ -12,7 +12,6 @@ pub mod dialogs;
 pub mod dynamic_launcher;
 pub mod email;
 pub mod file_chooser;
-pub mod file_index;
 pub mod global_shortcuts;
 pub mod inhibit;
 pub mod input_capture;

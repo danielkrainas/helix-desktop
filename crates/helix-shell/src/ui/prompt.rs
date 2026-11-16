@@ -6,16 +6,15 @@ use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym};
 use smithay_client_toolkit::shell::WaylandSurface;
 use tokio::sync::oneshot;
 
-use super::{accent, baseline, caret, label, text_field, physical, size, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, DIM_FG, FG, SCRIM, ERROR_TEXT};
+use super::{baseline, caret, label, text_field, physical, size, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, DIM_FG, FG, SCRIM, ERROR_TEXT};
 use crate::auth::Secret;
 use crate::prompt::{Answer, Prompt, Request};
 use helix_i18n::tr;
 
 const LIST_ROW: i32 = 32;
 const LIST_SHOWN: usize = 10;
-/// The places column's width, and the most places shown.
-const SIDEBAR_W: i32 = 180;
-const PLACES_SHOWN: usize = 14;
+/// The least room kept between a prompt and the screen's edges.
+const PROMPT_MARGIN: i32 = 16;
 
 /// A prompt on screen.
 pub(super) struct PromptView {
@@ -34,11 +33,10 @@ pub(super) struct PromptView {
     picked: Vec<bool>,
     /// Answered; waiting for the next prompt or the end.
     busy: bool,
-    /// The place clicked.
-    place: Option<usize>,
-    /// Previews by file: asked for (`None` until decoded, or when it
-    /// cannot be shown).
-    previews: std::collections::HashMap<String, Option<crate::Preview>>,
+    /// Where the dialog's top edge was first drawn, on a screen of which
+    /// size: it stays there (a dialog that changes height grows
+    /// downwards rather than moving what is under the pointer).
+    top: std::cell::Cell<Option<(i32, (usize, usize))>>,
     /// The password fields shown as text ("Show").
     shown: [bool; 2],
     /// Whether "Show" is offered (`disable-show-password` off).
@@ -62,9 +60,6 @@ const CONFIRM_FOCUS: usize = 41;
 /// The width of a password field's "Show" button.
 const SHOW_W: i32 = 56;
 
-/// The preview area's height.
-const PREVIEW_H: i32 = 160;
-
 impl PromptView {
     fn new(request: Request) -> Self {
         let choice = request.prompt.choice.as_ref().is_some_and(|c| c.1);
@@ -78,7 +73,7 @@ impl PromptView {
         let selected = request.prompt.selected.min(request.prompt.list.len().saturating_sub(1));
         let picked = vec![false; request.prompt.list.len()];
         let checks = request.prompt.checks.iter().map(|(_, on)| *on).collect();
-        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, place: None, previews: Default::default(), shown: [false; 2], can_show: !crate::locked_down("disable-show-password"), history_at: None, commands: None, checks }
+        Self { prompt: request.prompt, reply: Some(request.reply), fields: Default::default(), entry, focus, choice, selected, picked, busy: false, top: Default::default(), shown: [false; 2], can_show: !crate::locked_down("disable-show-password"), history_at: None, commands: None, checks }
     }
 
     /// Answer "cancel" if nobody answered yet.
@@ -146,16 +141,6 @@ impl Ui {
         }
     }
 
-    /// A preview was decoded (or cannot be shown).
-    pub(super) fn prompt_preview(&mut self, path: String, image: Option<crate::Preview>) {
-        let Some(view) = self.prompt_view() else { return };
-        if !view.previews.contains_key(&path) {
-            return;
-        }
-        view.previews.insert(path, image);
-        self.draw_dialog();
-    }
-
     /// New rows for the prompt shown (the app chooser's choices changed).
     pub(super) fn prompt_rows(&mut self, rows: Vec<String>) {
         let Some(view) = self.prompt_view() else { return };
@@ -196,22 +181,12 @@ impl Ui {
         let confirm = view.prompt.confirm.is_some().then(|| take(&mut view.fields[1]));
         let entry = view.prompt.entry.is_some().then(|| view.entry.clone());
         let picked = view.picked.iter().enumerate().filter(|(_, p)| **p).map(|(i, _)| i).collect();
-        let answer = Answer::Continue { entry, password, confirm, choice: view.choice, checks: view.checks.clone(), selected: view.selected, picked, place: view.place };
+        let answer = Answer::Continue { entry, password, confirm, choice: view.choice, checks: view.checks.clone(), selected: view.selected, picked };
         if let Some(reply) = view.reply.take() {
             let _ = reply.send(answer);
         }
         view.busy = true;
         self.draw_dialog();
-    }
-
-    /// A place was clicked: answer with it.
-    pub(super) fn prompt_place(&mut self, place: usize) {
-        let Some(view) = self.prompt_view() else { return };
-        if view.busy || place >= view.prompt.places.len() {
-            return;
-        }
-        view.place = Some(place);
-        self.prompt_answer(true);
     }
 
     /// A list row was clicked.
@@ -412,14 +387,7 @@ impl Ui {
     }
 
     pub(super) fn paint_prompt(&mut self, overlay: &mut Overlay<DialogState>) {
-        let DialogKind::Prompt(view) = &mut overlay.state.kind else { return };
-        // The selected file's preview, decoded once (off this thread).
-        if let Some(path) = view.prompt.previews.get(view.selected).filter(|p| !p.is_empty()) {
-            if !view.previews.contains_key(path) {
-                view.previews.insert(path.clone(), None);
-                let _ = self.requests.send(crate::UiRequest::Preview(path.clone()));
-            }
-        }
+        let DialogKind::Prompt(view) = &overlay.state.kind else { return };
         let view = &**view;
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
@@ -448,10 +416,9 @@ impl Ui {
 pub(super) fn paint_prompt_view(canvas: &mut Canvas, (text, bold): (Option<&crate::text::Text>, Option<&crate::text::Text>), (w, h): (usize, usize), view: &PromptView, (hover, pressed): (Option<OverlayHit>, Option<OverlayHit>)) -> (Vec<(Rect, OverlayHit)>, String, (String, String)) {
     canvas.fill(SCRIM);
     let p = &view.prompt;
-    let side = if p.places.is_empty() { 0 } else { SIDEBAR_W };
     // Lengths that hold text grow with the text scale.
     let grow = helix_draw::theme::grow;
-    let bw = (grow(440) + side).min(w as i32 - 40);
+    let bw = grow(440).min(w as i32 - 40);
     let inner = (bw - 48) as f32;
     let wrap = |s: &str, px: f32| -> Vec<String> {
         if s.is_empty() {
@@ -469,21 +436,31 @@ pub(super) fn paint_prompt_view(canvas: &mut Canvas, (text, bold): (Option<&crat
         (i, (i.width as f64 * k).round(), (i.height as f64 * k).round())
     });
     let picture_h = picture.map_or(0, |(_, _, ph)| ph as i32 + 12);
-    // At most LIST_SHOWN rows, scrolled to keep the selection in view.
-    let shown = p.list.len().min(LIST_SHOWN);
-    let first = view.selected.saturating_sub(LIST_SHOWN - 1).min(p.list.len().saturating_sub(shown));
-    let places_shown = p.places.len().min(PLACES_SHOWN);
-    let list_rows = shown.max(places_shown);
-    let list_h = if list_rows > 0 { list_rows as i32 * grow(LIST_ROW) + 8 } else { 0 };
     // An icon above the title.
     let icon = p.icon.as_deref().filter(|i| i.width > 0 && i.height > 0);
     let top = if icon.is_some() { 60 } else { 0 };
-    let preview_h = if p.previews.iter().any(|f| !f.is_empty()) { PREVIEW_H + 12 } else { 0 };
     // Who authenticates: an avatar with the name under it.
     let identity_h = if p.identity.is_some() { grow(IDENTITY_H) } else { 0 };
-    let bh = identity_h + preview_h + top + grow(70) + message.len() as i32 * grow(19) + description.len() as i32 * grow(17) + 8 + picture_h + list_h + fields as i32 * grow(62) + if p.choice.is_some() { grow(34) } else { 0 } + p.checks.len() as i32 * grow(34) + grow(26) + grow(64);
+    let list_h = |rows: usize| if rows > 0 { rows as i32 * grow(LIST_ROW) + 8 } else { 0 };
+    let rest_h = identity_h + top + grow(70) + message.len() as i32 * grow(19) + description.len() as i32 * grow(17) + 8 + picture_h + fields as i32 * grow(62) + if p.choice.is_some() { grow(34) } else { 0 } + p.checks.len() as i32 * grow(34) + grow(26) + grow(64);
+    // At most LIST_SHOWN rows, fewer when the dialog would not fit on
+    // the screen (large text), scrolled to keep the selection in view.
+    let room = h as i32 - 2 * PROMPT_MARGIN;
+    let fit = usize::try_from((room - rest_h - 8) / grow(LIST_ROW)).unwrap_or(0).max(1);
+    let shown = p.list.len().min(LIST_SHOWN).min(fit);
+    let first = view.selected.saturating_sub(shown.saturating_sub(1)).min(p.list.len().saturating_sub(shown));
+    let list_h = list_h(shown);
+    let bh = (rest_h + list_h).min(room.max(0));
     let bx = (w as i32 - bw) / 2;
-    let by = (h as i32 - bh) / 3;
+    // A third of the way down, then kept there; never off the screen.
+    let by = match view.top.get() {
+        Some((by, size)) if size == (w, h) && by + bh <= h as i32 - PROMPT_MARGIN => by,
+        _ => {
+            let by = ((h as i32 - bh) / 3).max(PROMPT_MARGIN.min((h as i32 - bh) / 2));
+            view.top.set(Some((by, (w, h))));
+            by
+        }
+    };
     theme::popover(canvas, bx, by, bw, bh);
     let center = |s: &str, px: f32| bx as f32 + (bw as f32 - text.map_or(0.0, |t| t.width(s, px).min(inner))) / 2.0;
     if let Some(icon) = icon {
@@ -509,24 +486,10 @@ pub(super) fn paint_prompt_view(canvas: &mut Canvas, (text, bold): (Option<&crat
         y += picture_h;
     }
     let mut hits = Vec::new();
-    // The places, left of the list.
-    for (i, name) in p.places.iter().enumerate().take(places_shown) {
-        let r = Rect { x: bx + 24, y: y + i as i32 * grow(LIST_ROW), w: side - 12, h: grow(LIST_ROW) };
-        let hit = OverlayHit::Place(i);
-        let look = theme::Look { hovered: hover == Some(hit), pressed: pressed == Some(hit), ..Default::default() };
-        if p.place_current == Some(i) {
-            theme::control_round(canvas, (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h)), theme::RADIUS_ROW, look);
-            canvas.round_rect(f64::from(r.x + 3), f64::from(r.y + 8), 3.0, f64::from(r.h - 16), 1.5, accent());
-        } else {
-            theme::row(canvas, r.x, r.y, r.w, r.h, look);
-        }
-        label(text, canvas, name, (r.x + 12) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, (r.w - 16) as f32);
-        hits.push((r, OverlayHit::Place(i)));
-    }
     if shown > 0 {
-        theme::well(canvas, bx + 24 + side, y, bw - 48 - side, shown as i32 * grow(LIST_ROW));
+        theme::well(canvas, bx + 24, y, bw - 48, shown as i32 * grow(LIST_ROW));
         for (i, name) in p.list.iter().enumerate().skip(first).take(shown) {
-            let r = Rect { x: bx + 24 + side, y: y + (i - first) as i32 * grow(LIST_ROW), w: bw - 48 - side, h: grow(LIST_ROW) };
+            let r = Rect { x: bx + 24, y: y + (i - first) as i32 * grow(LIST_ROW), w: bw - 48, h: grow(LIST_ROW) };
             let lit = if p.multiple { view.picked[i] } else { i == view.selected };
             let hit = OverlayHit::Row(i);
             let look = theme::Look { on: lit, hovered: hover == Some(hit), pressed: pressed == Some(hit) };
@@ -540,30 +503,6 @@ pub(super) fn paint_prompt_view(canvas: &mut Canvas, (text, bold): (Option<&crat
         }
     }
     y += list_h;
-    if preview_h > 0 {
-        let area = Rect { x: bx + 24, y: y + 4, w: bw - 48, h: PREVIEW_H };
-        theme::well(canvas, area.x, area.y, area.w, area.h);
-        let preview = p.previews.get(view.selected).and_then(|f| view.previews.get(f)).and_then(|i| i.as_ref());
-        let image = match preview {
-            Some(crate::Preview::Image(image)) => Some(&**image),
-            _ => None,
-        };
-        if let Some(crate::Preview::Text(lines)) = preview {
-            // A text file's first lines, small.
-            for (i, line) in lines.iter().enumerate() {
-                label(text, canvas, line, (area.x + 10) as f32, (area.y + 18 + i as i32 * 16) as f32, size::CAPTION, FG, (area.w - 20) as f32);
-            }
-        } else if let Some(image) = image.filter(|i| i.width > 0 && i.height > 0) {
-            let k = (f64::from(area.w) / image.width as f64).min(f64::from(area.h) / image.height as f64).min(1.0);
-            let (iw, ih) = (image.width as f64 * k, image.height as f64 * k);
-            canvas.image_rounded(f64::from(area.x) + (f64::from(area.w) - iw) / 2.0, f64::from(area.y) + (f64::from(area.h) - ih) / 2.0, iw, ih, theme::RADIUS_ROW, image, 1.0);
-        } else {
-            let none = tr("No preview");
-            let tw = text.map_or(0.0, |t| t.width(none, size::CAPTION));
-            label(text, canvas, none, area.x as f32 + (area.w as f32 - tw) / 2.0, baseline(text, area.y, area.h, size::CAPTION), size::CAPTION, DIM_FG, inner);
-        }
-        y += preview_h;
-    }
     if let Some((name, picture)) = &p.identity {
         let r = f64::from(AVATAR_R);
         let (cx, cy) = (f64::from(bx) + f64::from(bw) / 2.0, f64::from(y) + 4.0 + r);
@@ -715,10 +654,6 @@ fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, c
     }
     if let Some((name, _)) = &p.identity {
         out = out.child(Node::label(name).id("identity"));
-    }
-    if !p.places.is_empty() {
-        let places = p.places.iter().enumerate().take(PLACES_SHOWN).map(|(i, name)| Node::button(name, at(OverlayHit::Place(i))).selected(p.place_current == Some(i)));
-        out = out.child(Node::new(Role::List, tr("Places")).children(places));
     }
     if !p.list.is_empty() {
         let list_focused = view.focus == 2 && p.choice.is_none() && !view.busy;

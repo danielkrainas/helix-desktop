@@ -1,5 +1,5 @@
 //! Searching the desktop's file index (helix-desktop-spec
-//! `contracts/dbus/org.freedesktop.impl.portal.md`, FileChooser, "Search"):
+//! `contracts/dbus/org.freedesktop.impl.portal.md`, FileChooser, "Searching files"):
 //! localsearch (Tracker) answers SPARQL queries on its D-Bus endpoint;
 //! results come back through a pipe.
 

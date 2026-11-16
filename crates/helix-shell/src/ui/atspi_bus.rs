@@ -257,6 +257,59 @@ impl Shell {
     }
 }
 
+/// Read the events that came (a stream left unread fills up and then
+/// holds up the connection's replies).
+async fn drain(stream: &mut zbus::MessageStream) {
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(300), futures_util::StreamExt::next(stream)).await {}
+}
+
+/// (role, name, description, states, children, itself) of an
+/// accessible, without reading its children.
+async fn shallow(conn: &zbus::Connection, at: ObjectRef) -> (String, String, String, u64, Vec<ObjectRef>, ObjectRef) {
+    let p = proxy(conn, &at, "org.a11y.atspi.Accessible").await;
+    let role = role_name(p.call("GetRole", &()).await.unwrap());
+    let name: String = p.get_property("Name").await.unwrap();
+    let description: String = p.get_property("Description").await.unwrap();
+    let words: Vec<u32> = p.call("GetState", &()).await.unwrap();
+    let states = u64::from(words.first().copied().unwrap_or(0)) | u64::from(words.get(1).copied().unwrap_or(0)) << 32;
+    let children: Vec<ObjectRef> = p.call("GetChildren", &()).await.unwrap();
+    (role, name, description, states, children, at)
+}
+
+/// The file chooser's dialog object in window `title`.
+async fn files_dialog(client: &Client, title: &str) -> ObjectRef {
+    let root = ObjectRef(client.app.clone(), OwnedObjectPath::try_from(ROOT).unwrap());
+    for _ in 0..100 {
+        for w in shallow(&client.conn, root.clone()).await.4 {
+            let w = shallow(&client.conn, w).await;
+            if w.1 == title {
+                if let Some(d) = w.4.first() {
+                    return d.clone();
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("no window {title:?}");
+}
+
+/// The dialog's file list once it is named `name`.
+async fn wait_files(conn: &zbus::Connection, dialog: &ObjectRef, name: &str) -> (String, String, String, u64, Vec<ObjectRef>, ObjectRef) {
+    let mut seen = Vec::new();
+    for _ in 0..100 {
+        seen.clear();
+        for c in shallow(conn, dialog.clone()).await.4 {
+            let c = shallow(conn, c).await;
+            if c.0 == "list box" && c.1 == name {
+                return c;
+            }
+            seen.push((c.0, c.1));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("no list {name:?} among {seen:?}");
+}
+
 fn window(title: &str, active: bool, children: Vec<Node>) -> Window {
     Window { title: title.into(), bounds: crate::a11y::Rect::new(0, 0, 1280, 800), active, children }
 }
@@ -732,6 +785,74 @@ async fn child() {
     let (_, request) = shell.action();
     assert_eq!((target.id.as_str(), clip(&request)), ("password:0", Some(Op::Copy)));
     assert_eq!(plan(Op::Copy, secret, true, Some((0, 3))), Plan { refused: true, ..Plan::default() });
+
+    // ----- The file chooser (helix-desktop#117): the list is named after
+    // the folder shown and has every row (190), each folder described as
+    // one (no trailing "/"); the focused row follows the keys; going into
+    // another folder keeps the same dialog object.
+    {
+        use super::file_chooser::{files_node, paint_files, sample_view, ChooserView, Paint, Shown};
+        use helix_settings::files::Entry;
+        let home = std::path::Path::new("/home/ada");
+        let docs = home.join("Documents");
+        let mut entries: Vec<Entry> = ["Archive", "Invoices", "Taxes"].iter().map(|n| Entry { name: (*n).into(), path: docs.join(n), dir: true, size: 0, modified: 1_700_000_000, content_type: "inode/directory".into() }).collect();
+        entries.extend((1..=187).map(|i| {
+            let name = format!("Invoice-{i:03}.pdf");
+            Entry { path: docs.join(&name), name, dir: false, size: 1000, modified: 1_700_000_000, content_type: "application/pdf".into() }
+        }));
+        let options = crate::file_chooser::Options { title: "Open Document".into(), accept: "Open".into(), mode: crate::file_chooser::Mode::Open, multiple: false, folder: Some(docs.clone()), name: String::new(), filters: Vec::new(), filter: None, check: None, places: Vec::new() };
+        let mut view = sample_view(options, Shown::Folder(docs.clone()), entries, home);
+        let chooser = |view: &ChooserView| {
+            let (w, h) = (1280, 800);
+            let mut data = canvas_data(w, h);
+            let mut canvas = crate::text::Canvas::scaled(&mut data, w as usize, h as usize, 1.0);
+            let mut icon = |_: &str, _: u32| None;
+            let now = std::time::Instant::now();
+            let mut p = Paint { text: None, bold: None, icon: &mut icon, now, now_unix: 1_700_000_000 };
+            let painted = paint_files(&mut canvas, &mut p, (w as usize, h as usize), view, (None, None));
+            window("Open Document", true, vec![files_node(view, &painted, now)])
+        };
+        // (The tree is read shallowly: a whole read of 190 rows per poll
+        // is slow.)
+        shell.show("files", chooser(&view));
+        drain(&mut stream).await;
+        let dialog = files_dialog(&client, "Open Document").await;
+        let list = wait_files(&conn, &dialog, "Files in Documents").await;
+        let rows = list.4.clone();
+        assert_eq!(rows.len(), 190, "every row is published");
+        let mut named = HashMap::new();
+        for r in &rows {
+            let o = shallow(&conn, r.clone()).await;
+            assert!(o.0 == "list item" && !o.1.ends_with('/'), "{o:?}");
+            named.insert(o.1.clone(), o);
+        }
+        assert!(named["Archive"].3 & FOCUSED != 0 && named["Archive"].3 & SELECTED != 0, "the current row has the focus");
+        assert!(named["Archive"].2.starts_with("Folder"), "{:?}", named["Archive"].2);
+        assert!(named["Invoice-001.pdf"].2.contains("Modified"), "{:?}", named["Invoice-001.pdf"].2);
+        // Down twice: Taxes, with a focus event.
+        let taxes = named["Taxes"].5 .1.to_string();
+        view.select(2, false, false);
+        shell.show("files", chooser(&view));
+        assert!(focus_event(&mut stream, &taxes).await, "focus event for the row moved to");
+        let now = shallow(&conn, named["Taxes"].5.clone()).await;
+        assert!(now.3 & FOCUSED != 0, "Taxes has the focus now");
+        // Into an empty folder: the same dialog object, the list renamed,
+        // the folder said.
+        view.shown = Shown::Folder(docs.join("Archive"));
+        view.entries.clear();
+        view.refresh_rows();
+        shell.show("files", chooser(&view));
+        drain(&mut stream).await;
+        let again = files_dialog(&client, "Open Document").await;
+        assert_eq!(again.1.to_string(), dialog.1.to_string(), "the dialog is not made again");
+        let list = wait_files(&conn, &again, "Files in Archive").await;
+        assert!(list.4.is_empty());
+        let mut said = false;
+        for c in shallow(&conn, again.clone()).await.4 {
+            said |= shallow(&conn, c).await.1 == "Archive, 0 items";
+        }
+        assert!(said, "the new folder is said");
+    }
 
     // The windows leave with their surfaces.
     shell.shown.clear();

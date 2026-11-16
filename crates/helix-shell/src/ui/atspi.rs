@@ -249,7 +249,11 @@ impl Ui {
             return;
         }
         if self.dialog.as_ref().is_some_and(|d| d.layer.wl_surface() == surface) {
-            self.prompt_set_text(id, value, range);
+            if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::Files(_))) {
+                self.files_set_text(id, value, range);
+            } else {
+                self.prompt_set_text(id, value, range);
+            }
         }
     }
 

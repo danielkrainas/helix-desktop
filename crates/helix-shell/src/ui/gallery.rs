@@ -1164,3 +1164,106 @@ fn locale() {
     });
     helix_draw::set_rtl(false);
 }
+
+/// The file chooser (`files-…`, helix-desktop#113, #115, #116): Open in a
+/// long path with 200 entries, ten places, five bookmarks and two
+/// drives; Save; an empty folder and one loading; at 1280×720 and
+/// 1920×1080 in every look, right to left, text 1.5 on 1280×800 and
+/// scale 1.5 on a 1280×720 screen.
+#[test]
+#[ignore]
+fn file_chooser() {
+    use crate::file_chooser::{Mode, Options};
+    use file_chooser::{paint_files, sample_view, Paint, Shown};
+    use helix_settings::files::{Entry, Place, PlaceKind};
+    let Some(dir) = dir() else { return };
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    let home = std::path::PathBuf::from("/home/ada");
+    let folder = home.join("Documents/Client — Contoso Ltd/2026");
+    let now = 1_763_300_000i64;
+    let mut entries = Vec::new();
+    let mut add = |name: String, dir: bool, size: u64, age: i64| {
+        let content_type = if dir { "inode/directory".to_owned() } else { helix_settings::files::fast_content_type(&name) };
+        entries.push(Entry { path: folder.join(&name), name, dir, size, modified: now - age, content_type });
+    };
+    for (i, f) in ["Archive", "Contracts", "Invoices", "Meeting notes", "Photos", "Receipts", "Scans", "Tax 2025", "Tax 2026", "Templates"].iter().enumerate() {
+        add((*f).into(), true, 0, 86_400 * (i as i64 * 9 + 1));
+    }
+    add("Quarterly financial report for the board of directors — final revised version after legal review (3) copy.pdf".into(), false, 2_400_000, 600);
+    add("Quarterly financial report for the board of directors — final revised version after legal review (4).pdf".into(), false, 2_500_000, 3_600);
+    add("Résumé – Zoë Ångström (español, 日本語).odt".into(), false, 48_000, 86_400 + 600);
+    for i in 1..=60 {
+        add(format!("Invoice-{:05}.pdf", 20_240 + i), false, i * 3_000, i as i64 * 40_000);
+    }
+    for i in 1..=40 {
+        add(format!("IMG_2026{:04}.jpg", 1_100 + i), false, 800_000 + i * 1_000, i as i64 * 70_000);
+    }
+    for i in 1..=40 {
+        add(format!("notes-{i:02}.md"), false, 120 + i, i as i64 * 90_000);
+    }
+    for i in 1..=27 {
+        add(format!("slides-{i}.odp"), false, 1_000_000 + i * 10_000, i as i64 * 400_000);
+    }
+    for i in 1..=20 {
+        add(format!("Budget {}.xlsx", 2005 + i), false, 30_000 + i * 100, 31_000_000 + i as i64 * 1_000_000);
+    }
+    assert_eq!(entries.len(), 200);
+    let place = |kind, label: &str, path: &str| Place { kind, label: label.into(), path: (!path.is_empty()).then(|| path.into()) };
+    let mut places = vec![place(PlaceKind::Recent, "", ""), place(PlaceKind::Home, "", "/home/ada")];
+    for d in ["Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos"] {
+        places.push(place(PlaceKind::Standard, d, &format!("/home/ada/{d}")));
+    }
+    for b in ["Northwind", "Contoso", "Thesis", "Photos 2026", "Invoices"] {
+        places.push(place(PlaceKind::Bookmark, b, &format!("/home/ada/Documents/{b}")));
+    }
+    places.push(place(PlaceKind::Drive, "SANDISK", "/media/ada/SANDISK"));
+    places.push(place(PlaceKind::Drive, "Backup Disk", "/media/ada/Backup Disk"));
+    places.push(place(PlaceKind::Computer, "", "/"));
+    let filters = vec![("Images".into(), vec![(1, "image/png".into()), (1, "image/jpeg".into())]), ("PDF documents".into(), vec![(0, "*.pdf".into())]), ("All Files".into(), vec![(0, "*".into())])];
+    let open = Options { title: "Open Document".into(), accept: "Open".into(), mode: Mode::Open, multiple: false, folder: Some(folder.clone()), name: String::new(), filters: filters.clone(), filter: Some(2), check: None, places: places.clone() };
+    let save = Options { title: "Save Document".into(), accept: "Save".into(), mode: Mode::Save, name: "Untitled document.odt".into(), check: Some(("Compress".into(), false)), ..open.clone() };
+    let mut cache: HashMap<String, Option<helix_draw::Image>> = HashMap::new();
+    let mut scene = |name: &str, (w, h): (usize, usize), options: &Options, entries: Vec<Entry>, tune: &dyn Fn(&mut file_chooser::ChooserView)| {
+        let mut paint_one = |canvas: &mut Canvas, (w, h): (usize, usize)| {
+            let mut view = sample_view(options.clone(), Shown::Folder(folder.clone()), entries.clone(), &home);
+            tune(&mut view);
+            let scale = canvas.scale;
+            let mut icon = |n: &str, color: u32| {
+                let px = (16.0 * scale).round() as u32;
+                cache.entry(format!("{n}@{px}#{color:x}")).or_insert_with(|| crate::icons::symbolic(n, px, [(color >> 16) as u8, (color >> 8) as u8, color as u8])).clone()
+            };
+            let mut p = Paint { text: text.as_ref(), bold: bold.as_ref(), icon: &mut icon, now: std::time::Instant::now(), now_unix: now };
+            paint_files(canvas, &mut p, (w, h), &view, (None, None));
+        };
+        in_looks(&dir, name, (w, h), &mut paint_one);
+        helix_draw::set_rtl(true);
+        render(&dir, &format!("{name}-rtl"), DARK, (w, h, 1.0), |canvas| paint_one(canvas, (w, h)));
+        helix_draw::set_rtl(false);
+    };
+    let pick_invoice = |v: &mut file_chooser::ChooserView| {
+        let at = v.rows.iter().position(|&i| v.entries[i].name == "Invoice-20245.pdf");
+        if let Some(r) = at {
+            v.select(r, false, false);
+        }
+    };
+    scene("files-open-1280x720", (1280, 720), &open, entries.clone(), &pick_invoice);
+    scene("files-open-1920x1080", (1920, 1080), &open, entries.clone(), &pick_invoice);
+    scene("files-save-1280x720", (1280, 720), &save, entries.clone(), &|_| {});
+    scene("files-empty-1280x720", (1280, 720), &open, Vec::new(), &|_| {});
+    scene("files-loading-1280x720", (1280, 720), &open, Vec::new(), &|v| v.loading = Some((1, std::time::Instant::now() - std::time::Duration::from_secs(1))));
+    scene("files-menu-1280x720", (1280, 720), &open, entries.clone(), &|v| v.dropdown = true);
+    scene("files-replace-1280x720", (1280, 720), &save, entries.clone(), &|v| v.replace = Some("/home/ada/Documents/Client — Contoso Ltd/2026/notes-01.md".into()));
+    // Large text and scaling on small screens (helix-desktop#116).
+    for (tag, (w, h, s)) in [("1280x800", (1280, 800, 1.0)), ("1280x720", (1280, 720, 1.0)), ("1280x720@1.5", (853, 480, 1.5))] {
+        for (mode, options) in [("open", &open), ("save", &save)] {
+            helix_draw::theme::set_text_scale(1.5);
+            render(&dir, &format!("files-{mode}-{tag}-text1.5"), DARK, (w, h, s), |canvas| {
+                let view = sample_view(options.clone(), Shown::Folder(folder.clone()), entries.clone(), &home);
+                let mut icon = |n: &str, color: u32| crate::icons::symbolic(n, (16.0 * s).round() as u32, [(color >> 16) as u8, (color >> 8) as u8, color as u8]);
+                let mut p = Paint { text: text.as_ref(), bold: bold.as_ref(), icon: &mut icon, now: std::time::Instant::now(), now_unix: now };
+                paint_files(canvas, &mut p, (w, h), &view, (None, None));
+            });
+            helix_draw::theme::set_text_scale(1.0);
+        }
+    }
+}

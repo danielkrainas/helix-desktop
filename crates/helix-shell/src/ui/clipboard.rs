@@ -149,7 +149,7 @@ impl Ui {
             return None;
         }
         if let Some(dialog) = self.dialog.as_ref() {
-            return self.prompt_focused_field().map(|id| (dialog.layer.wl_surface().clone(), id));
+            return self.prompt_focused_field().or_else(|| self.files_focused_field()).map(|id| (dialog.layer.wl_surface().clone(), id));
         }
         let elsewhere = self.switcher.is_some()
             || self.banner.as_ref().is_some_and(|b| b.focused)
@@ -177,7 +177,7 @@ impl Ui {
             return (id == "search").then(|| (view.model.query.clone(), false));
         }
         if self.dialog.as_ref().is_some_and(|d| d.layer.wl_surface() == surface) {
-            return self.prompt_field_text(id);
+            return self.prompt_field_text(id).or_else(|| self.files_field_text(id));
         }
         None
     }

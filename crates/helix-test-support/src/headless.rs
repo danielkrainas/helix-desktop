@@ -53,6 +53,13 @@ impl HeadlessSession {
     /// Start the session, or `None` (after a notice) without
     /// `dbus-daemon` or Xwayland.
     pub fn start(options: Options<'_>) -> Option<Self> {
+        Self::start_prepared(options, |_| {})
+    }
+
+    /// [`Self::start`], with `prepare` filling the scratch home first
+    /// (files the session reads when it starts, such as
+    /// `.config/user-dirs.dirs`).
+    pub fn start_prepared(options: Options<'_>, prepare: impl FnOnce(&Path)) -> Option<Self> {
         let home = std::env::temp_dir().join(format!("helix-headless-{}-{}", std::process::id(), unique()));
         // No activatable services: nothing starts on the bus by itself.
         let bus_services = home.join("services");
@@ -63,6 +70,7 @@ impl HeadlessSession {
         }
         std::fs::set_permissions(home.join("run"), std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
         std::fs::write(home.join(".config/glib-2.0/settings/keyfile"), options.settings).unwrap();
+        prepare(&home);
         let input_path = home.join("run/input");
         let announce = home.join("announce.sh");
         let displays = home.join("displays");

@@ -23,6 +23,7 @@ crates/helix-shell/src/ext_host/manifest.rs
 crates/helix-shell/src/ext_host/runner.rs
 crates/helix-shell/src/extra_keys.rs
 crates/helix-shell/src/favorites.rs
+crates/helix-shell/src/file_chooser.rs
 crates/helix-shell/src/geoclue_agent.rs
 crates/helix-shell/src/keyring_prompt.rs
 crates/helix-shell/src/launcher_entry.rs
@@ -53,6 +54,7 @@ crates/helix-shell/src/ui/click_type.rs
 crates/helix-shell/src/ui/desktop_icons.rs
 crates/helix-shell/src/ui/dock.rs
 crates/helix-shell/src/ui/extensions_dialog.rs
+crates/helix-shell/src/ui/file_chooser.rs
 crates/helix-shell/src/ui/gallery.rs
 crates/helix-shell/src/ui/lock.rs
 crates/helix-shell/src/ui/lock_extras.rs

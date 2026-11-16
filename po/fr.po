@@ -65,24 +65,25 @@ msgid "Username"
 msgstr "Nom d’utilisateur"
 
 #: crates/helix-greeter/src/atspi.rs:79 crates/helix-greeter/src/paint.rs:459
+#: crates/helix-shell/src/ui/file_chooser.rs:1251
 #: crates/helix-shell/src/ui/window_menu.rs:405
 msgid "Back"
 msgstr "Retour"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:476
-#: crates/helix-shell/src/ui.rs:5226 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5258 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:587
 msgid "Power Off…"
 msgstr "Éteindre…"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:476
-#: crates/helix-shell/src/ui.rs:5223 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5255 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:586
 msgid "Restart…"
 msgstr "Redémarrer…"
 
 #: crates/helix-greeter/src/atspi.rs:97 crates/helix-greeter/src/paint.rs:484
-#: crates/helix-shell/src/ui.rs:1196 crates/helix-shell/src/ui/lock.rs:185
+#: crates/helix-shell/src/ui.rs:1199 crates/helix-shell/src/ui/lock.rs:185
 #: crates/helix-shell/src/ui/lock.rs:186 crates/helix-shell/src/ui/lock.rs:589
 msgid "Restart"
 msgstr "Redémarrer"
@@ -93,7 +94,7 @@ msgid "Restart this computer?"
 msgstr "Redémarrer cet ordinateur ?"
 
 #: crates/helix-greeter/src/atspi.rs:98 crates/helix-greeter/src/paint.rs:485
-#: crates/helix-shell/src/ui.rs:1195 crates/helix-shell/src/ui/lock.rs:187
+#: crates/helix-shell/src/ui.rs:1198 crates/helix-shell/src/ui/lock.rs:187
 #: crates/helix-shell/src/ui/lock.rs:188 crates/helix-shell/src/ui/lock.rs:590
 msgid "Power Off"
 msgstr "Éteindre"
@@ -106,14 +107,12 @@ msgstr "Éteindre cet ordinateur ?"
 #: crates/helix-greeter/src/atspi.rs:101 crates/helix-greeter/src/paint.rs:487
 #: crates/helix-portals/src/dialogs.rs:181
 #: crates/helix-portals/src/dynamic_launcher.rs:146
-#: crates/helix-portals/src/file_chooser.rs:548
-#: crates/helix-portals/src/file_chooser.rs:672
 #: crates/helix-portals/src/print.rs:146
 #: crates/helix-portals/src/wallpaper.rs:118
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 #: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1275 crates/helix-shell/src/lib.rs:1363
+#: crates/helix-shell/src/lib.rs:1316 crates/helix-shell/src/lib.rs:1404
 #: crates/helix-shell/src/mount_handler.rs:125
 #: crates/helix-shell/src/mount_handler.rs:139
 #: crates/helix-shell/src/mount_handler.rs:174
@@ -122,12 +121,16 @@ msgstr "Éteindre cet ordinateur ?"
 #: crates/helix-shell/src/notifications.rs:505
 #: crates/helix-shell/src/obex.rs:498 crates/helix-shell/src/polkit.rs:231
 #: crates/helix-shell/src/polkit.rs:314
-#: crates/helix-shell/src/portal_dialog.rs:121
-#: crates/helix-shell/src/run_dialog.rs:181 crates/helix-shell/src/ui.rs:1229
-#: crates/helix-shell/src/ui.rs:1232 crates/helix-shell/src/ui.rs:3164
-#: crates/helix-shell/src/ui/atspi.rs:908 crates/helix-shell/src/ui/lock.rs:220
-#: crates/helix-shell/src/ui/lock.rs:588
-#: crates/helix-shell/src/ui/prompt.rs:664
+#: crates/helix-shell/src/portal_dialog.rs:118
+#: crates/helix-shell/src/run_dialog.rs:181 crates/helix-shell/src/ui.rs:1232
+#: crates/helix-shell/src/ui.rs:1235 crates/helix-shell/src/ui.rs:3185
+#: crates/helix-shell/src/ui/atspi.rs:912
+#: crates/helix-shell/src/ui/file_chooser.rs:1166
+#: crates/helix-shell/src/ui/file_chooser.rs:1219
+#: crates/helix-shell/src/ui/file_chooser.rs:1245
+#: crates/helix-shell/src/ui/file_chooser.rs:1327
+#: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:588
+#: crates/helix-shell/src/ui/prompt.rs:603
 #: crates/helix-shell/src/vpn_secrets.rs:195
 msgid "Cancel"
 msgstr "Annuler"
@@ -138,18 +141,22 @@ msgstr "Session"
 
 #: crates/helix-greeter/src/atspi.rs:113 crates/helix-greeter/src/atspi.rs:116
 #: crates/helix-shell/src/panel_layout.rs:52
-#: crates/helix-shell/src/ui/atspi.rs:568
-#: crates/helix-shell/src/ui/atspi.rs:625
+#: crates/helix-shell/src/ui/atspi.rs:572
+#: crates/helix-shell/src/ui/atspi.rs:629
 msgid "Accessibility"
 msgstr "Accessibilité"
 
 #. Translators: the login screen's clock in 12-hour time (strftime).
+#. Translators: a time of day for today, 24-hour and 12-hour (see GLib's g_date_time_format for the codes).
 #: crates/helix-greeter/src/clock.rs:98
+#: crates/helix-shell/src/file_chooser.rs:263
 msgid "%l:%M %p"
 msgstr "%l:%M %p"
 
 #. Translators: the login screen's clock in 24-hour time (strftime).
+#. Translators: a time of day for today, 24-hour and 12-hour (see GLib's g_date_time_format for the codes).
 #: crates/helix-greeter/src/clock.rs:101
+#: crates/helix-shell/src/file_chooser.rs:263
 msgid "%H:%M"
 msgstr "%H:%M"
 
@@ -207,7 +214,7 @@ msgstr "{} %"
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
 #: crates/helix-shell/src/geoclue_agent.rs:115
-#: crates/helix-shell/src/ui.rs:1237 crates/helix-shell/src/ui.rs:1244
+#: crates/helix-shell/src/ui.rs:1240 crates/helix-shell/src/ui.rs:1247
 msgid "Allow"
 msgstr "Autoriser"
 
@@ -217,7 +224,7 @@ msgstr "Autoriser"
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
 #: crates/helix-shell/src/geoclue_agent.rs:116
-#: crates/helix-shell/src/ui.rs:1236 crates/helix-shell/src/ui.rs:1243
+#: crates/helix-shell/src/ui.rs:1239 crates/helix-shell/src/ui.rs:1246
 msgid "Deny"
 msgstr "Refuser"
 
@@ -229,9 +236,9 @@ msgstr "{} souhaite connaître votre nom."
 msgid "Name: {real} ({user})"
 msgstr "Nom : {real} ({user})"
 
-#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3171
-#: crates/helix-shell/src/ui.rs:3172 crates/helix-shell/src/ui.rs:3174
-#: crates/helix-shell/src/ui/atspi.rs:909
+#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3192
+#: crates/helix-shell/src/ui.rs:3193 crates/helix-shell/src/ui.rs:3195
+#: crates/helix-shell/src/ui/atspi.rs:913
 msgid "Share"
 msgstr "Partager"
 
@@ -303,7 +310,9 @@ msgid "Add"
 msgstr "Ajouter"
 
 #: crates/helix-portals/src/dynamic_launcher.rs:154
-#: crates/helix-portals/src/file_chooser.rs:526
+#: crates/helix-shell/src/ui/file_chooser.rs:910
+#: crates/helix-shell/src/ui/file_chooser.rs:955
+#: crates/helix-shell/src/ui/file_chooser.rs:1277
 msgid "Name"
 msgstr "Nom"
 
@@ -315,104 +324,34 @@ msgstr "Choisir une autre icône"
 msgid "Choose an Icon"
 msgstr "Choisir une icône"
 
-#: crates/helix-portals/src/file_chooser.rs:72
-#: crates/helix-portals/src/file_chooser.rs:534
-msgid "Recent"
-msgstr "Récents"
-
-#: crates/helix-portals/src/file_chooser.rs:99
-msgid "Home"
-msgstr "Dossier personnel"
-
-#: crates/helix-portals/src/file_chooser.rs:101
-msgid "Computer"
-msgstr "Ordinateur"
-
-#: crates/helix-portals/src/file_chooser.rs:370
-msgid "Parent Folder"
-msgstr "Dossier parent"
-
-#: crates/helix-portals/src/file_chooser.rs:371
-msgid "File type: {filter_name} (choose to change)"
-msgstr "Type de fichier : {filter_name} (choisir pour modifier)"
-
-#: crates/helix-portals/src/file_chooser.rs:372
-msgid "Select This Folder"
-msgstr "Sélectionner ce dossier"
-
-#: crates/helix-portals/src/file_chooser.rs:373
-msgid "Save Here"
-msgstr "Enregistrer ici"
-
-#: crates/helix-portals/src/file_chooser.rs:464
+#: crates/helix-portals/src/file_chooser.rs:126
 msgid "Images"
 msgstr "Images"
 
-#: crates/helix-portals/src/file_chooser.rs:467
+#: crates/helix-portals/src/file_chooser.rs:129
 #: crates/helix-shell/src/mount_handler.rs:138
 #: crates/helix-shell/src/obex.rs:497
 msgid "Choose"
 msgstr "Choisir"
 
-#: crates/helix-portals/src/file_chooser.rs:515
-msgid "All Files"
-msgstr "Tous les fichiers"
-
-#: crates/helix-portals/src/file_chooser.rs:527
-msgid "Location"
-msgstr "Emplacement"
-
-#: crates/helix-portals/src/file_chooser.rs:533
-msgid "Search for “{query}” in {folder}"
-msgstr "Rechercher « {query} » dans {folder}"
-
-#: crates/helix-portals/src/file_chooser.rs:597
-msgid "No files named like “{}”."
-msgstr "Aucun fichier dont le nom ressemble à « {} »."
-
-#: crates/helix-portals/src/file_chooser.rs:603
-msgid "“{}” was not found."
-msgstr "« {} » est introuvable."
-
-#: crates/helix-portals/src/file_chooser.rs:641
-msgid "Type a name for the file."
-msgstr "Saisissez un nom pour le fichier."
-
-#: crates/helix-portals/src/file_chooser.rs:651
-msgid "That folder does not exist."
-msgstr "Ce dossier n’existe pas."
-
-#: crates/helix-portals/src/file_chooser.rs:669
-msgid "Replace File?"
-msgstr "Remplacer le fichier ?"
-
-#: crates/helix-portals/src/file_chooser.rs:670
-msgid ""
-"A file named “{name}” already exists in “{folder}”. Replacing it overwrites "
-"its contents."
-msgstr ""
-"Un fichier nommé « {name} » existe déjà dans « {folder} ». Le remplacer "
-"écrase son contenu."
-
-#: crates/helix-portals/src/file_chooser.rs:671
-msgid "Replace"
-msgstr "Remplacer"
-
-#: crates/helix-portals/src/file_chooser.rs:729
+#: crates/helix-portals/src/file_chooser.rs:201
+#: crates/helix-shell/src/file_chooser.rs:91
 msgid "Select"
 msgstr "Sélectionner"
 
-#: crates/helix-portals/src/file_chooser.rs:730
+#: crates/helix-portals/src/file_chooser.rs:202
+#: crates/helix-shell/src/file_chooser.rs:90
 #: crates/helix-shell/src/notifications.rs:233
 #: crates/helix-shell/src/notifications.rs:348
-#: crates/helix-shell/src/portal_dialog.rs:120
+#: crates/helix-shell/src/portal_dialog.rs:117
 #: crates/helix-shell/src/ui/dock.rs:1467
 #: crates/helix-shell/src/ui/dock.rs:1482
 #: crates/helix-shell/src/ui/dock.rs:1510
 msgid "Open"
 msgstr "Ouvrir"
 
-#: crates/helix-portals/src/file_chooser.rs:731
+#: crates/helix-portals/src/file_chooser.rs:203
+#: crates/helix-shell/src/file_chooser.rs:92
 msgid "Save"
 msgstr "Enregistrer"
 
@@ -560,7 +499,7 @@ msgid "This code is not valid."
 msgstr "Ce code n’est pas valide."
 
 #: crates/helix-shell/src/bluetooth_agent.rs:124
-#: crates/helix-shell/src/lib.rs:1089 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/lib.rs:1130 crates/helix-shell/src/obex.rs:478
 #: crates/helix-shell/src/panel_layout.rs:219
 #: crates/helix-shell/src/ui/quick.rs:409
 msgid "Bluetooth"
@@ -735,7 +674,7 @@ msgstr "communiquer avec les services du système"
 #: crates/helix-shell/src/ext_host/runner.rs:325
 #: crates/helix-shell/src/ext_host/runner.rs:549
 #: crates/helix-shell/src/ext_host/runner.rs:870
-#: crates/helix-shell/src/ui/atspi.rs:493
+#: crates/helix-shell/src/ui/atspi.rs:497
 #: crates/helix-shell/src/ui/extensions_dialog.rs:111
 #: crates/helix-shell/src/ui/extensions_dialog.rs:216
 msgid "Extensions"
@@ -794,14 +733,30 @@ msgid "Bluetooth Off"
 msgstr "Bluetooth désactivé"
 
 #: crates/helix-shell/src/favorites.rs:147
-#: crates/helix-shell/src/ui/atspi.rs:748
+#: crates/helix-shell/src/ui/atspi.rs:752
 #: crates/helix-shell/src/ui/desktop_icons.rs:191
+#: crates/helix-shell/src/ui/file_chooser.rs:1292
 msgid "Folder"
 msgstr "Dossier"
 
 #: crates/helix-shell/src/favorites.rs:233
 msgid "Unnamed Folder"
 msgstr "Dossier sans nom"
+
+#: crates/helix-shell/src/file_chooser.rs:267
+#: crates/helix-shell/src/notifications.rs:98
+msgid "Yesterday"
+msgstr "Hier"
+
+#. Translators: a date this year (day and abbreviated month).
+#: crates/helix-shell/src/file_chooser.rs:271
+msgid "%-e %b"
+msgstr "%-e %b"
+
+#. Translators: a date in another year.
+#: crates/helix-shell/src/file_chooser.rs:274
+msgid "%-e %b %Y"
+msgstr "%-e %b %Y"
 
 #: crates/helix-shell/src/geoclue_agent.rs:112
 msgid "Location Access"
@@ -843,7 +798,7 @@ msgid "Confirm"
 msgstr "Confirmer"
 
 #: crates/helix-shell/src/keyring_prompt.rs:84
-#: crates/helix-shell/src/ui/prompt.rs:665
+#: crates/helix-shell/src/ui/prompt.rs:604
 msgid "Continue"
 msgstr "Continuer"
 
@@ -851,53 +806,53 @@ msgstr "Continuer"
 msgid "More"
 msgstr "Plus"
 
-#: crates/helix-shell/src/lib.rs:945
+#: crates/helix-shell/src/lib.rs:986
 msgid "Nothing was turned off or restarted. {err}"
 msgstr "Rien n’a été éteint ni redémarré. {err}"
 
-#: crates/helix-shell/src/lib.rs:945
+#: crates/helix-shell/src/lib.rs:986
 msgid "Software"
 msgstr "Logiciels"
 
-#: crates/helix-shell/src/lib.rs:945
+#: crates/helix-shell/src/lib.rs:986
 msgid "Updates could not be scheduled"
 msgstr "Impossible de planifier les mises à jour"
 
-#: crates/helix-shell/src/lib.rs:1089
+#: crates/helix-shell/src/lib.rs:1130
 msgid "Cannot pair with {name}"
 msgstr "Impossible de s’associer avec {name}"
 
-#: crates/helix-shell/src/lib.rs:1176
+#: crates/helix-shell/src/lib.rs:1217
 #: crates/helix-shell/src/panel_layout.rs:221
 #: crates/helix-shell/src/ui/quick.rs:415
 msgid "Auto Rotate"
 msgstr "Rotation automatique"
 
-#: crates/helix-shell/src/lib.rs:1176
+#: crates/helix-shell/src/lib.rs:1217
 msgid "Rotation Locked"
 msgstr "Rotation verrouillée"
 
-#: crates/helix-shell/src/lib.rs:1272
+#: crates/helix-shell/src/lib.rs:1313
 msgid "Rename Folder"
 msgstr "Renommer le dossier"
 
-#: crates/helix-shell/src/lib.rs:1273
+#: crates/helix-shell/src/lib.rs:1314
 msgid "Folder name"
 msgstr "Nom du dossier"
 
-#: crates/helix-shell/src/lib.rs:1274
+#: crates/helix-shell/src/lib.rs:1315
 msgid "Rename"
 msgstr "Renommer"
 
-#: crates/helix-shell/src/lib.rs:1360
+#: crates/helix-shell/src/lib.rs:1401
 msgid "Empty Trash?"
 msgstr "Vider la corbeille ?"
 
-#: crates/helix-shell/src/lib.rs:1361
+#: crates/helix-shell/src/lib.rs:1402
 msgid "All items in the Trash will be permanently deleted."
 msgstr "Tous les éléments de la corbeille seront définitivement supprimés."
 
-#: crates/helix-shell/src/lib.rs:1362 crates/helix-shell/src/ui/dock.rs:1484
+#: crates/helix-shell/src/lib.rs:1403 crates/helix-shell/src/ui/dock.rs:1484
 msgid "Empty Trash"
 msgstr "Vider la corbeille"
 
@@ -1140,10 +1095,6 @@ msgid_plural "{n} hours ago"
 msgstr[0] "il y a {n} heure"
 msgstr[1] "il y a {n} heures"
 
-#: crates/helix-shell/src/notifications.rs:98
-msgid "Yesterday"
-msgstr "Hier"
-
 #: crates/helix-shell/src/notifications.rs:104
 msgid "%A"
 msgstr "%A"
@@ -1165,7 +1116,7 @@ msgid "%-d %b %Y"
 msgstr "%-d %b %Y"
 
 #: crates/helix-shell/src/notifications.rs:230
-#: crates/helix-shell/src/ui/atspi.rs:477
+#: crates/helix-shell/src/ui/atspi.rs:481
 #: crates/helix-shell/src/ui/capture.rs:339
 #: crates/helix-shell/src/ui/capture.rs:412
 msgid "Screenshot"
@@ -1357,12 +1308,12 @@ msgstr "« {0} » de {1} n’a pas été reçu."
 msgid "A new version of the system"
 msgstr "Une nouvelle version du système"
 
-#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:4919
+#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:4951
 msgid "Apps"
 msgstr "Applications"
 
 #: crates/helix-shell/src/panel_layout.rs:49
-#: crates/helix-shell/src/ui/atspi.rs:551
+#: crates/helix-shell/src/ui/atspi.rs:555
 #: crates/helix-shell/src/ui/overview.rs:1050
 #: crates/helix-shell/src/ui/workspace_popup.rs:171
 msgid "Workspaces"
@@ -1423,7 +1374,7 @@ msgid "Dark Style"
 msgstr "Style sombre"
 
 #: crates/helix-shell/src/panel_layout.rs:224
-#: crates/helix-shell/src/ui/atspi.rs:821
+#: crates/helix-shell/src/ui/atspi.rs:825
 #: crates/helix-shell/src/ui/notify.rs:926
 #: crates/helix-shell/src/ui/notify.rs:927
 #: crates/helix-shell/src/ui/quick.rs:417
@@ -1527,57 +1478,57 @@ msgstr "{list} et {last}"
 msgid "An application"
 msgstr "Une application"
 
-#: crates/helix-shell/src/ui.rs:1143 crates/helix-shell/src/ui/atspi.rs:582
+#: crates/helix-shell/src/ui.rs:1146 crates/helix-shell/src/ui/atspi.rs:586
 msgid "Sharing"
 msgstr "Partage"
 
-#: crates/helix-shell/src/ui.rs:1148 crates/helix-shell/src/ui/atspi.rs:586
+#: crates/helix-shell/src/ui.rs:1151 crates/helix-shell/src/ui/atspi.rs:590
 msgid "Recording"
 msgstr "Enregistrement"
 
-#: crates/helix-shell/src/ui.rs:1188
+#: crates/helix-shell/src/ui.rs:1191
 msgid "It will be able to:"
 msgstr "Elle pourra :"
 
-#: crates/helix-shell/src/ui.rs:1190
+#: crates/helix-shell/src/ui.rs:1193
 msgid "Some applications are busy or have unsaved work:"
 msgstr ""
 "Certaines applications sont occupées ou ont des modifications non "
 "enregistrées :"
 
-#: crates/helix-shell/src/ui.rs:1197 crates/helix-shell/src/ui.rs:1198
+#: crates/helix-shell/src/ui.rs:1200 crates/helix-shell/src/ui.rs:1201
 msgid "Restart & Install"
 msgstr "Redémarrer et installer"
 
-#: crates/helix-shell/src/ui.rs:1197
+#: crates/helix-shell/src/ui.rs:1200
 msgid "Restart & Install Updates"
 msgstr "Redémarrer et installer les mises à jour"
 
-#: crates/helix-shell/src/ui.rs:1198
+#: crates/helix-shell/src/ui.rs:1201
 msgid "Restart & Install Upgrade"
 msgstr "Redémarrer et installer la mise à niveau"
 
-#: crates/helix-shell/src/ui.rs:1199
+#: crates/helix-shell/src/ui.rs:1202
 msgid "Log Out"
 msgstr "Se déconnecter"
 
-#: crates/helix-shell/src/ui.rs:1206
+#: crates/helix-shell/src/ui.rs:1209
 msgid "Power Off Anyway"
 msgstr "Éteindre quand même"
 
-#: crates/helix-shell/src/ui.rs:1207
+#: crates/helix-shell/src/ui.rs:1210
 msgid "Restart Anyway"
 msgstr "Redémarrer quand même"
 
-#: crates/helix-shell/src/ui.rs:1208
+#: crates/helix-shell/src/ui.rs:1211
 msgid "Restart & Install Anyway"
 msgstr "Redémarrer et installer quand même"
 
-#: crates/helix-shell/src/ui.rs:1209
+#: crates/helix-shell/src/ui.rs:1212
 msgid "Log Out Anyway"
 msgstr "Se déconnecter quand même"
 
-#: crates/helix-shell/src/ui.rs:1214
+#: crates/helix-shell/src/ui.rs:1217
 msgid ""
 "The computer will restart and install updates in {remaining} second. "
 "Installing can take a while."
@@ -1591,7 +1542,7 @@ msgstr[1] ""
 "L’ordinateur va redémarrer et installer les mises à jour dans {remaining} "
 "secondes. L’installation peut prendre un certain temps."
 
-#: crates/helix-shell/src/ui.rs:1220
+#: crates/helix-shell/src/ui.rs:1223
 msgid ""
 "{name} will be installed after the restart, in {remaining} second. "
 "Installing can take a long time."
@@ -1605,33 +1556,33 @@ msgstr[1] ""
 "{name} sera installée après le redémarrage, dans {remaining} secondes. "
 "L’installation peut prendre beaucoup de temps."
 
-#: crates/helix-shell/src/ui.rs:1227
+#: crates/helix-shell/src/ui.rs:1230
 msgid "The session will end automatically in {remaining} second."
 msgid_plural "The session will end automatically in {remaining} seconds."
 msgstr[0] "La session se terminera automatiquement dans {remaining} seconde."
 msgstr[1] "La session se terminera automatiquement dans {remaining} secondes."
 
-#: crates/helix-shell/src/ui.rs:1232
+#: crates/helix-shell/src/ui.rs:1235
 msgid "Turn On"
 msgstr "Activer"
 
-#: crates/helix-shell/src/ui.rs:1232
+#: crates/helix-shell/src/ui.rs:1235
 msgid "Turn on {name}?"
 msgstr "Activer {name} ?"
 
-#: crates/helix-shell/src/ui.rs:1234
+#: crates/helix-shell/src/ui.rs:1237
 msgid "Allow remote control?"
 msgstr "Autoriser le contrôle à distance ?"
 
-#: crates/helix-shell/src/ui.rs:1235
+#: crates/helix-shell/src/ui.rs:1238
 msgid "{app} wants to control your {devices}."
 msgstr "{app} souhaite contrôler votre {devices}."
 
-#: crates/helix-shell/src/ui.rs:1241
+#: crates/helix-shell/src/ui.rs:1244
 msgid "Allow {app} to use all keyboard shortcuts?"
 msgstr "Autoriser {app} à utiliser tous les raccourcis clavier ?"
 
-#: crates/helix-shell/src/ui.rs:1242
+#: crates/helix-shell/src/ui.rs:1245
 msgid ""
 "While it has the keyboard, the desktop's shortcuts go to it. Super+Escape "
 "gives them back."
@@ -1639,11 +1590,11 @@ msgstr ""
 "Tant qu’elle a le clavier, les raccourcis du bureau lui sont envoyés. "
 "Super+Échap vous les rend."
 
-#: crates/helix-shell/src/ui.rs:1248
+#: crates/helix-shell/src/ui.rs:1251
 msgid "“{title}” is not responding."
 msgstr "« {title} » ne répond pas."
 
-#: crates/helix-shell/src/ui.rs:1249
+#: crates/helix-shell/src/ui.rs:1252
 msgid ""
 "You may choose to wait a short while for it to continue or force the app to "
 "quit entirely."
@@ -1651,140 +1602,140 @@ msgstr ""
 "Vous pouvez attendre un peu qu’elle reprenne ou forcer l’application à "
 "quitter complètement."
 
-#: crates/helix-shell/src/ui.rs:1250
+#: crates/helix-shell/src/ui.rs:1253
 msgid "Wait"
 msgstr "Attendre"
 
-#: crates/helix-shell/src/ui.rs:1251
+#: crates/helix-shell/src/ui.rs:1254
 msgid "Force Quit"
 msgstr "Forcer à quitter"
 
-#: crates/helix-shell/src/ui.rs:1255
+#: crates/helix-shell/src/ui.rs:1258
 msgid "Keep the new display settings?"
 msgstr "Conserver les nouveaux paramètres d’affichage ?"
 
-#: crates/helix-shell/src/ui.rs:1256
+#: crates/helix-shell/src/ui.rs:1259
 msgid "The previous settings come back in {remaining} second."
 msgid_plural "The previous settings come back in {remaining} seconds."
 msgstr[0] "Les paramètres précédents seront rétablis dans {remaining} seconde."
 msgstr[1] ""
 "Les paramètres précédents seront rétablis dans {remaining} secondes."
 
-#: crates/helix-shell/src/ui.rs:1257
+#: crates/helix-shell/src/ui.rs:1260
 msgid "Revert"
 msgstr "Rétablir"
 
-#: crates/helix-shell/src/ui.rs:1258
+#: crates/helix-shell/src/ui.rs:1261
 msgid "Keep"
 msgstr "Conserver"
 
-#: crates/helix-shell/src/ui.rs:1316 crates/helix-shell/src/ui/atspi.rs:885
+#: crates/helix-shell/src/ui.rs:1319 crates/helix-shell/src/ui/atspi.rs:889
 msgid "Install pending software updates"
 msgstr "Installer les mises à jour logicielles en attente"
 
-#: crates/helix-shell/src/ui.rs:1345
+#: crates/helix-shell/src/ui.rs:1348
 msgid "Muted"
 msgstr "Muet"
 
-#: crates/helix-shell/src/ui.rs:1346 crates/helix-shell/src/ui/atspi.rs:950
+#: crates/helix-shell/src/ui.rs:1349 crates/helix-shell/src/ui/atspi.rs:954
 #: crates/helix-shell/src/ui/gallery.rs:1160
 #: crates/helix-shell/src/ui/quick.rs:449
 msgid "Volume"
 msgstr "Volume"
 
-#: crates/helix-shell/src/ui.rs:1347 crates/helix-shell/src/ui/quick.rs:453
+#: crates/helix-shell/src/ui.rs:1350 crates/helix-shell/src/ui/quick.rs:453
 msgid "Brightness"
 msgstr "Luminosité"
 
-#: crates/helix-shell/src/ui.rs:1348
+#: crates/helix-shell/src/ui.rs:1351
 msgid "Microphone off"
 msgstr "Microphone désactivé"
 
-#: crates/helix-shell/src/ui.rs:1349
+#: crates/helix-shell/src/ui.rs:1352
 msgid "Microphone on"
 msgstr "Microphone activé"
 
-#: crates/helix-shell/src/ui.rs:2274 crates/helix-shell/src/ui/gallery.rs:295
+#: crates/helix-shell/src/ui.rs:2277 crates/helix-shell/src/ui/gallery.rs:295
 #: crates/helix-shell/src/ui/overview.rs:538
 msgid "Type to search…"
 msgstr "Saisissez pour rechercher…"
 
-#: crates/helix-shell/src/ui.rs:2486
+#: crates/helix-shell/src/ui.rs:2489
 msgid "Checking…"
 msgstr "Vérification…"
 
-#: crates/helix-shell/src/ui.rs:2528
+#: crates/helix-shell/src/ui.rs:2531
 msgid "Incorrect password. Try again."
 msgstr "Mot de passe incorrect. Réessayez."
 
-#: crates/helix-shell/src/ui.rs:2538
+#: crates/helix-shell/src/ui.rs:2541
 msgid "Cannot check password: {err}"
 msgstr "Impossible de vérifier le mot de passe : {err}"
 
-#: crates/helix-shell/src/ui.rs:3120 crates/helix-shell/src/ui/atspi.rs:895
+#: crates/helix-shell/src/ui.rs:3141 crates/helix-shell/src/ui/atspi.rs:899
 msgid "Share your screen?"
 msgstr "Partager votre écran ?"
 
-#: crates/helix-shell/src/ui.rs:3125
+#: crates/helix-shell/src/ui.rs:3146
 msgid "{app} wants to see your screen. Choose what to share."
 msgstr ""
 "{app} souhaite voir votre écran. Choisissez ce que vous voulez partager."
 
-#: crates/helix-shell/src/ui.rs:3127
+#: crates/helix-shell/src/ui.rs:3148
 msgid "{app} wants to see your screen and control your {devices}."
 msgstr "{app} souhaite voir votre écran et contrôler votre {devices}."
 
-#: crates/helix-shell/src/ui.rs:3131 crates/helix-shell/src/ui/atspi.rs:897
+#: crates/helix-shell/src/ui.rs:3152 crates/helix-shell/src/ui/atspi.rs:901
 msgid "It will be able to share the same screen again without asking."
 msgstr "Elle pourra partager à nouveau le même écran sans demander."
 
-#: crates/helix-shell/src/ui.rs:3364
+#: crates/helix-shell/src/ui.rs:3385
 msgid "New virtual monitor"
 msgstr "Nouvel écran virtuel"
 
-#: crates/helix-shell/src/ui.rs:4911 crates/helix-shell/src/ui/atspi.rs:761
+#: crates/helix-shell/src/ui.rs:4943 crates/helix-shell/src/ui/atspi.rs:765
 msgid "No matching apps"
 msgstr "Aucune application correspondante"
 
-#: crates/helix-shell/src/ui.rs:4918
+#: crates/helix-shell/src/ui.rs:4950
 msgid "Open Windows"
 msgstr "Fenêtres ouvertes"
 
-#: crates/helix-shell/src/ui.rs:4959
+#: crates/helix-shell/src/ui.rs:4991
 msgid "Search for “{query}” in {name}"
 msgstr "Rechercher « {query} » dans {name}"
 
-#: crates/helix-shell/src/ui.rs:5024
+#: crates/helix-shell/src/ui.rs:5056
 msgid "{n} more result"
 msgid_plural "{n} more results"
 msgstr[0] "{n} autre résultat"
 msgstr[1] "{n} autres résultats"
 
-#: crates/helix-shell/src/ui.rs:5026
+#: crates/helix-shell/src/ui.rs:5058
 msgid "{n} result above"
 msgid_plural "{n} results above"
 msgstr[0] "{n} résultat au-dessus"
 msgstr[1] "{n} résultats au-dessus"
 
-#: crates/helix-shell/src/ui.rs:5211 crates/helix-shell/src/ui/atspi.rs:406
+#: crates/helix-shell/src/ui.rs:5243 crates/helix-shell/src/ui/atspi.rs:410
 #: crates/helix-shell/src/ui/quick.rs:560
 msgid "Lock Screen"
 msgstr "Verrouiller l’écran"
 
-#: crates/helix-shell/src/ui.rs:5214 crates/helix-shell/src/ui/lock.rs:515
+#: crates/helix-shell/src/ui.rs:5246 crates/helix-shell/src/ui/lock.rs:515
 #: crates/helix-shell/src/ui/lock.rs:597
 msgid "Switch User…"
 msgstr "Changer d’utilisateur…"
 
-#: crates/helix-shell/src/ui.rs:5217
+#: crates/helix-shell/src/ui.rs:5249
 msgid "Suspend"
 msgstr "Mettre en veille"
 
-#: crates/helix-shell/src/ui.rs:5220
+#: crates/helix-shell/src/ui.rs:5252
 msgid "Log Out…"
 msgstr "Se déconnecter…"
 
-#: crates/helix-shell/src/ui.rs:5306
+#: crates/helix-shell/src/ui.rs:5338
 msgid "The app"
 msgstr "L’application"
 
@@ -1810,7 +1761,7 @@ msgstr "Vue d’ensemble des fenêtres"
 msgid "Recent Apps"
 msgstr "Applications récentes"
 
-#: crates/helix-shell/src/ui/atspi.rs:96 crates/helix-shell/src/ui/atspi.rs:663
+#: crates/helix-shell/src/ui/atspi.rs:96 crates/helix-shell/src/ui/atspi.rs:667
 msgid "Applications"
 msgstr "Applications"
 
@@ -1822,130 +1773,132 @@ msgstr "Page {}"
 msgid "Pages"
 msgstr "Pages"
 
-#: crates/helix-shell/src/ui/atspi.rs:408
-#: crates/helix-shell/src/ui/atspi.rs:628
+#: crates/helix-shell/src/ui/atspi.rs:412
+#: crates/helix-shell/src/ui/atspi.rs:632
 msgid "Top Bar"
 msgstr "Barre supérieure"
 
-#: crates/helix-shell/src/ui/atspi.rs:412
+#: crates/helix-shell/src/ui/atspi.rs:416
 msgid "Dialog"
 msgstr "Boîte de dialogue"
 
-#: crates/helix-shell/src/ui/atspi.rs:417
+#: crates/helix-shell/src/ui/atspi.rs:421
 msgid "System Menu"
 msgstr "Menu système"
 
-#: crates/helix-shell/src/ui/atspi.rs:434
+#: crates/helix-shell/src/ui/atspi.rs:438
 msgid "On-screen display"
 msgstr "Affichage à l’écran"
 
-#: crates/helix-shell/src/ui/atspi.rs:440
+#: crates/helix-shell/src/ui/atspi.rs:444
 msgid "Notification"
 msgstr "Notification"
 
-#: crates/helix-shell/src/ui/atspi.rs:444
-#: crates/helix-shell/src/ui/atspi.rs:831
+#: crates/helix-shell/src/ui/atspi.rs:448
+#: crates/helix-shell/src/ui/atspi.rs:835
 msgid "Notifications"
 msgstr "Notifications"
 
-#: crates/helix-shell/src/ui/atspi.rs:457
+#: crates/helix-shell/src/ui/atspi.rs:461
 msgid "Workspace Switcher"
 msgstr "Sélecteur d’espaces de travail"
 
-#: crates/helix-shell/src/ui/atspi.rs:463
+#: crates/helix-shell/src/ui/atspi.rs:467
 msgid "On-screen Keyboard"
 msgstr "Clavier visuel"
 
-#: crates/helix-shell/src/ui/atspi.rs:469
+#: crates/helix-shell/src/ui/atspi.rs:473
 #: crates/helix-shell/src/ui/click_type.rs:136
 msgid "Click Type"
 msgstr "Type de clic"
 
-#: crates/helix-shell/src/ui/atspi.rs:473
+#: crates/helix-shell/src/ui/atspi.rs:477
 #: crates/helix-shell/src/ui/desktop_icons.rs:195
 msgid "Desktop"
 msgstr "Bureau"
 
-#: crates/helix-shell/src/ui/atspi.rs:482
+#: crates/helix-shell/src/ui/atspi.rs:486
 msgid "Break"
 msgstr "Pause"
 
-#: crates/helix-shell/src/ui/atspi.rs:489
+#: crates/helix-shell/src/ui/atspi.rs:493
 #: crates/helix-shell/src/ui/panel_editor.rs:124
 #: crates/helix-shell/src/ui/panel_editor.rs:314
 msgid "Customize Panel"
 msgstr "Personnaliser le panneau"
 
-#: crates/helix-shell/src/ui/atspi.rs:497
+#: crates/helix-shell/src/ui/atspi.rs:501
 msgid "Tooltip"
 msgstr "Infobulle"
 
-#: crates/helix-shell/src/ui/atspi.rs:512
+#: crates/helix-shell/src/ui/atspi.rs:516
 msgid "Monitor {}"
 msgstr "Écran {}"
 
-#: crates/helix-shell/src/ui/atspi.rs:526
-#: crates/helix-shell/src/ui/atspi.rs:864
+#: crates/helix-shell/src/ui/atspi.rs:530
+#: crates/helix-shell/src/ui/atspi.rs:868
 msgid "Dock"
 msgstr "Dock"
 
-#: crates/helix-shell/src/ui/atspi.rs:550
+#: crates/helix-shell/src/ui/atspi.rs:554
 msgid "Workspace {} of {}"
 msgstr "Espace de travail {0} sur {1}"
 
-#: crates/helix-shell/src/ui/atspi.rs:556
+#: crates/helix-shell/src/ui/atspi.rs:560
 msgid "Notifications and calendar"
 msgstr "Notifications et agenda"
 
-#: crates/helix-shell/src/ui/atspi.rs:556
+#: crates/helix-shell/src/ui/atspi.rs:560
 msgid "Notifications and calendar, unread notifications"
 msgstr "Notifications et agenda, notifications non lues"
 
-#: crates/helix-shell/src/ui/atspi.rs:569
+#: crates/helix-shell/src/ui/atspi.rs:573
 msgid "Input source"
 msgstr "Source de saisie"
 
-#: crates/helix-shell/src/ui/atspi.rs:571
+#: crates/helix-shell/src/ui/atspi.rs:575
 #: crates/helix-shell/src/ui/quick.rs:1274
 msgid "System"
 msgstr "Système"
 
-#: crates/helix-shell/src/ui/atspi.rs:586
+#: crates/helix-shell/src/ui/atspi.rs:590
 msgid "Stop recording"
 msgstr "Arrêter l’enregistrement"
 
-#: crates/helix-shell/src/ui/atspi.rs:622
-#: crates/helix-shell/src/ui/atspi.rs:662
+#: crates/helix-shell/src/ui/atspi.rs:626
+#: crates/helix-shell/src/ui/atspi.rs:666
 msgid "Input Sources"
 msgstr "Sources de saisie"
 
-#: crates/helix-shell/src/ui/atspi.rs:631
+#: crates/helix-shell/src/ui/atspi.rs:635
 msgid "Background"
 msgstr "Arrière-plan"
 
-#: crates/helix-shell/src/ui/atspi.rs:643
-#: crates/helix-shell/src/ui/atspi.rs:858 crates/helix-shell/src/ui/dock.rs:652
+#: crates/helix-shell/src/ui/atspi.rs:647
+#: crates/helix-shell/src/ui/atspi.rs:862 crates/helix-shell/src/ui/dock.rs:652
 #: crates/helix-shell/src/ui/dock.rs:1797
 msgid "Trash"
 msgstr "Corbeille"
 
-#: crates/helix-shell/src/ui/atspi.rs:652
-#: crates/helix-shell/src/ui/atspi.rs:664
+#: crates/helix-shell/src/ui/atspi.rs:656
+#: crates/helix-shell/src/ui/atspi.rs:668
 #: crates/helix-shell/src/ui/overview.rs:1059
 msgid "Windows"
 msgstr "Fenêtres"
 
-#: crates/helix-shell/src/ui/atspi.rs:654
+#: crates/helix-shell/src/ui/atspi.rs:658
 msgid "Window Menu"
 msgstr "Menu de la fenêtre"
 
-#: crates/helix-shell/src/ui/atspi.rs:687
+#: crates/helix-shell/src/ui/atspi.rs:691
+#: crates/helix-shell/src/ui/file_chooser.rs:1256
+#: crates/helix-shell/src/ui/file_chooser.rs:1270
 #: crates/helix-shell/src/ui/overview.rs:1043
 msgid "Search"
 msgstr "Rechercher"
 
-#: crates/helix-shell/src/ui/atspi.rs:718
-#: crates/helix-shell/src/ui/atspi.rs:806
+#: crates/helix-shell/src/ui/atspi.rs:722
+#: crates/helix-shell/src/ui/atspi.rs:810
 #: crates/helix-shell/src/ui/capture.rs:401
 #: crates/helix-shell/src/ui/capture.rs:403
 #: crates/helix-shell/src/ui/dock.rs:1387
@@ -1953,143 +1906,143 @@ msgstr "Rechercher"
 msgid "Close"
 msgstr "Fermer"
 
-#: crates/helix-shell/src/ui/atspi.rs:743
+#: crates/helix-shell/src/ui/atspi.rs:747
 msgid "Search for “{query}” in {label}"
 msgstr "Rechercher « {query} » dans {label}"
 
-#: crates/helix-shell/src/ui/atspi.rs:747
+#: crates/helix-shell/src/ui/atspi.rs:751
 msgid "Open window"
 msgstr "Fenêtre ouverte"
 
-#: crates/helix-shell/src/ui/atspi.rs:749
+#: crates/helix-shell/src/ui/atspi.rs:753
 msgid "Favorite"
 msgstr "Favori"
 
-#: crates/helix-shell/src/ui/atspi.rs:759
+#: crates/helix-shell/src/ui/atspi.rs:763
 msgid "Search Results"
 msgstr "Résultats de recherche"
 
-#: crates/helix-shell/src/ui/atspi.rs:771
+#: crates/helix-shell/src/ui/atspi.rs:775
 msgid "{app}: {summary}"
 msgstr "{app} : {summary}"
 
-#: crates/helix-shell/src/ui/atspi.rs:774
+#: crates/helix-shell/src/ui/atspi.rs:778
 msgid "{summary}. {body}"
 msgstr "{summary}. {body}"
 
-#: crates/helix-shell/src/ui/atspi.rs:808
-#: crates/helix-shell/src/ui/atspi.rs:820
+#: crates/helix-shell/src/ui/atspi.rs:812
+#: crates/helix-shell/src/ui/atspi.rs:824
 #: crates/helix-shell/src/ui/notify.rs:930
 #: crates/helix-shell/src/ui/notify.rs:932 crates/helix-shell/src/weather.rs:59
 #: crates/helix-shell/src/weather.rs:60
 msgid "Clear"
 msgstr "Effacer"
 
-#: crates/helix-shell/src/ui/atspi.rs:812
+#: crates/helix-shell/src/ui/atspi.rs:816
 msgid "{app}, {count} notifications"
 msgstr "{app}, {count} notifications"
 
-#: crates/helix-shell/src/ui/atspi.rs:814
+#: crates/helix-shell/src/ui/atspi.rs:818
 msgid "Next Month"
 msgstr "Mois suivant"
 
-#: crates/helix-shell/src/ui/atspi.rs:814
+#: crates/helix-shell/src/ui/atspi.rs:818
 msgid "Previous Month"
 msgstr "Mois précédent"
 
-#: crates/helix-shell/src/ui/atspi.rs:829
+#: crates/helix-shell/src/ui/atspi.rs:833
 #: crates/helix-shell/src/ui/calendar.rs:342
 msgid "No Events"
 msgstr "Aucun évènement"
 
-#: crates/helix-shell/src/ui/atspi.rs:830
+#: crates/helix-shell/src/ui/atspi.rs:834
 msgid "Events, {}"
 msgstr "Évènements, {}"
 
-#: crates/helix-shell/src/ui/atspi.rs:832
+#: crates/helix-shell/src/ui/atspi.rs:836
 #: crates/helix-shell/src/ui/notify.rs:940
 msgid "No Notifications"
 msgstr "Aucune notification"
 
-#: crates/helix-shell/src/ui/atspi.rs:859 crates/helix-shell/src/ui/dock.rs:653
+#: crates/helix-shell/src/ui/atspi.rs:863 crates/helix-shell/src/ui/dock.rs:653
 msgid "Show Apps"
 msgstr "Afficher les applications"
 
-#: crates/helix-shell/src/ui/atspi.rs:943
+#: crates/helix-shell/src/ui/atspi.rs:947
 msgid "No network"
 msgstr "Aucun réseau"
 
-#: crates/helix-shell/src/ui/atspi.rs:944
+#: crates/helix-shell/src/ui/atspi.rs:948
 msgid "Wired network"
 msgstr "Réseau filaire"
 
-#: crates/helix-shell/src/ui/atspi.rs:946
+#: crates/helix-shell/src/ui/atspi.rs:950
 msgid "Network"
 msgstr "Réseau"
 
-#: crates/helix-shell/src/ui/atspi.rs:950
+#: crates/helix-shell/src/ui/atspi.rs:954
 msgid "Volume muted"
 msgstr "Volume coupé"
 
-#: crates/helix-shell/src/ui/atspi.rs:955
+#: crates/helix-shell/src/ui/atspi.rs:959
 msgid "Battery {percent}"
 msgstr "Batterie {percent}"
 
-#: crates/helix-shell/src/ui/atspi.rs:955
+#: crates/helix-shell/src/ui/atspi.rs:959
 msgid "Battery {percent}, charging"
 msgstr "Batterie {percent}, en charge"
 
-#: crates/helix-shell/src/ui/atspi.rs:957
+#: crates/helix-shell/src/ui/atspi.rs:961
 msgid "Camera in use"
 msgstr "Caméra en cours d’utilisation"
 
-#: crates/helix-shell/src/ui/atspi.rs:957
+#: crates/helix-shell/src/ui/atspi.rs:961
 msgid "Location in use"
 msgstr "Localisation en cours d’utilisation"
 
-#: crates/helix-shell/src/ui/atspi.rs:957
+#: crates/helix-shell/src/ui/atspi.rs:961
 msgid "Microphone in use"
 msgstr "Microphone en cours d’utilisation"
 
-#: crates/helix-shell/src/ui/atspi.rs:968
-#: crates/helix-shell/src/ui/atspi.rs:970
+#: crates/helix-shell/src/ui/atspi.rs:972
+#: crates/helix-shell/src/ui/atspi.rs:974
 msgid "Pause"
 msgstr "Pause"
 
-#: crates/helix-shell/src/ui/atspi.rs:969
+#: crates/helix-shell/src/ui/atspi.rs:973
 msgid "Play"
 msgstr "Lecture"
 
-#: crates/helix-shell/src/ui/atspi.rs:971
+#: crates/helix-shell/src/ui/atspi.rs:975
 msgid "Stop"
 msgstr "Arrêter"
 
-#: crates/helix-shell/src/ui/atspi.rs:972
+#: crates/helix-shell/src/ui/atspi.rs:976
 msgid "Next Track"
 msgstr "Piste suivante"
 
-#: crates/helix-shell/src/ui/atspi.rs:973
+#: crates/helix-shell/src/ui/atspi.rs:977
 msgid "Previous Track"
 msgstr "Piste précédente"
 
-#: crates/helix-shell/src/ui/atspi.rs:974
+#: crates/helix-shell/src/ui/atspi.rs:978
 msgid "Rewind"
 msgstr "Retour rapide"
 
-#: crates/helix-shell/src/ui/atspi.rs:975
+#: crates/helix-shell/src/ui/atspi.rs:979
 msgid "Fast Forward"
 msgstr "Avance rapide"
 
-#: crates/helix-shell/src/ui/atspi.rs:976
+#: crates/helix-shell/src/ui/atspi.rs:980
 msgid "Repeat"
 msgstr "Répéter"
 
-#: crates/helix-shell/src/ui/atspi.rs:977
+#: crates/helix-shell/src/ui/atspi.rs:981
 msgid "Shuffle"
 msgstr "Aléatoire"
 
 #. Translators: a calendar day read out by screen readers (GLib DateTime format): "14 November 2026".
-#: crates/helix-shell/src/ui/atspi.rs:986
+#: crates/helix-shell/src/ui/atspi.rs:990
 msgctxt "calendar day for screen readers"
 msgid "%e %B %Y"
 msgstr "%e %B %Y"
@@ -2445,6 +2398,180 @@ msgstr "Terminé"
 msgid "Hide Settings"
 msgstr "Masquer les paramètres"
 
+#: crates/helix-shell/src/ui/file_chooser.rs:465
+#: crates/helix-shell/src/ui/file_chooser.rs:504
+#: crates/helix-shell/src/ui/file_chooser.rs:690
+msgid "Home"
+msgstr "Dossier personnel"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:466
+#: crates/helix-shell/src/ui/file_chooser.rs:691
+msgid "Computer"
+msgstr "Ordinateur"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:505
+msgid "Files in {folder}"
+msgstr "Fichiers dans {folder}"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:507
+msgid "Recent Files"
+msgstr "Fichiers récents"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:508
+msgid "Search results for “{query}”"
+msgstr "Résultats de recherche pour « {query} »"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:516
+#: crates/helix-shell/src/ui/file_chooser.rs:1054
+msgid "Loading…"
+msgstr "Chargement…"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:523
+#: crates/helix-shell/src/ui/file_chooser.rs:689
+#: crates/helix-shell/src/ui/file_chooser.rs:892
+msgid "Recent"
+msgstr "Récents"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:526
+msgid "{what}, {n} item"
+msgid_plural "{what}, {n} items"
+msgstr[0] "{what}, {n} élément"
+msgstr[1] "{what}, {n} éléments"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:830
+msgid "Type a file name or location"
+msgstr "Saisissez un nom de fichier ou un emplacement"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:831
+msgid "Search files"
+msgstr "Rechercher des fichiers"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:832
+#: crates/helix-shell/src/ui/file_chooser.rs:1257
+msgid "New folder name"
+msgstr "Nom du nouveau dossier"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:893
+msgid "Search for “{query}”"
+msgstr "Rechercher « {query} »"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:956
+msgid "Size"
+msgstr "Taille"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:957
+msgid "Modified"
+msgstr "Modifié"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:958
+#: crates/helix-shell/src/ui/file_chooser.rs:1250
+#: crates/helix-shell/src/ui/file_chooser.rs:1255
+msgid "Location"
+msgstr "Emplacement"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1058
+msgid "This folder cannot be shown: {error}"
+msgstr "Ce dossier ne peut pas être affiché : {error}"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1061
+msgid "Folder is empty"
+msgstr "Le dossier est vide"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1062
+msgid "No recent files"
+msgstr "Aucun fichier récent"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1063
+msgid "No results found"
+msgstr "Aucun résultat trouvé"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1121
+msgid "No preview"
+msgstr "Pas d’aperçu"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1144
+#: crates/helix-shell/src/ui/file_chooser.rs:1153
+#: crates/helix-shell/src/ui/file_chooser.rs:1316
+msgid "All Files"
+msgstr "Tous les fichiers"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1202
+msgid ""
+"A file named “{name}” already exists in “{folder}”. Replacing it overwrites "
+"its contents."
+msgstr ""
+"Un fichier nommé « {name} » existe déjà dans « {folder} ». Le remplacer "
+"écrase son contenu."
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1207
+#: crates/helix-shell/src/ui/file_chooser.rs:1242
+msgid "Replace File?"
+msgstr "Remplacer le fichier ?"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1220
+#: crates/helix-shell/src/ui/file_chooser.rs:1246
+msgid "Replace"
+msgstr "Remplacer"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1244
+msgid ""
+"A file named “{name}” already exists. Replacing it overwrites its contents."
+msgstr ""
+"Un fichier nommé « {name} » existe déjà. Le remplacer écrasera son contenu."
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1252
+msgid "Forward"
+msgstr "Suivant"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1273
+msgid "New Folder"
+msgstr "Nouveau dossier"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1281
+msgid "Places"
+msgstr "Emplacements"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1298
+msgid "Modified {when}"
+msgstr "Modifié {when}"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1317
+#: crates/helix-shell/src/ui/file_chooser.rs:1320
+msgid "File Type"
+msgstr "Type de fichier"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1486
+msgid "The folder could not be made: {error}"
+msgstr "Le dossier n’a pas pu être créé : {error}"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1586
+msgid "Type a name for the file."
+msgstr "Saisissez un nom pour le fichier."
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1605
+msgid "That folder does not exist."
+msgstr "Ce dossier n’existe pas."
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1668
+msgid "Type a name for the folder."
+msgstr "Saisissez un nom pour le dossier."
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1670
+msgid "Folder names cannot contain “/”."
+msgstr "Les noms de dossier ne peuvent pas contenir « / »."
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1672
+msgid "That name cannot be used."
+msgstr "Ce nom ne peut pas être utilisé."
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1674
+msgid "A file or folder with that name already exists."
+msgstr "Un fichier ou un dossier portant ce nom existe déjà."
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1705
+msgid "“{name}” was not found."
+msgstr "« {name} » est introuvable."
+
 #: crates/helix-shell/src/ui/lock.rs:113
 msgid "Caps Lock is on"
 msgstr "Le verrouillage des majuscules est activé"
@@ -2576,27 +2703,19 @@ msgstr "Déplacer à droite"
 msgid "Remove"
 msgstr "Retirer"
 
-#: crates/helix-shell/src/ui/prompt.rs:561
-msgid "No preview"
-msgstr "Pas d’aperçu"
-
-#: crates/helix-shell/src/ui/prompt.rs:618
+#: crates/helix-shell/src/ui/prompt.rs:557
 msgid "Hide"
 msgstr "Masquer"
 
-#: crates/helix-shell/src/ui/prompt.rs:618
+#: crates/helix-shell/src/ui/prompt.rs:557
 msgid "Show"
 msgstr "Afficher"
 
-#: crates/helix-shell/src/ui/prompt.rs:652
+#: crates/helix-shell/src/ui/prompt.rs:591
 msgid "Authenticating…"
 msgstr "Authentification…"
 
-#: crates/helix-shell/src/ui/prompt.rs:721
-msgid "Places"
-msgstr "Emplacements"
-
-#: crates/helix-shell/src/ui/prompt.rs:760
+#: crates/helix-shell/src/ui/prompt.rs:695
 msgid "Show Password"
 msgstr "Afficher le mot de passe"
 

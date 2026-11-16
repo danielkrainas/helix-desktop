@@ -74,6 +74,7 @@ mod dock;
 mod drops;
 mod ext_items;
 mod extensions_dialog;
+mod file_chooser;
 #[cfg(test)]
 mod gallery;
 mod ime;
@@ -469,8 +470,8 @@ enum OverlayHit {
     BtDevice(usize),
     /// A row of the prompt dialog's list.
     Row(usize),
-    /// A place in the prompt dialog's column of places.
-    Place(usize),
+    /// A part of the file chooser.
+    Files(file_chooser::FilesHit),
     /// A field of the prompt dialog (its focus number).
     Field(usize),
     /// "Show" in a password field of the prompt dialog.
@@ -624,6 +625,8 @@ enum DialogKind {
     },
     /// A password prompt (polkit, keyring).
     Prompt(Box<prompt::PromptView>),
+    /// The file chooser (`org.helix.PortalDialog.ChooseFiles`).
+    Files(Box<file_chooser::ChooserView>),
 }
 
 impl DialogKind {
@@ -631,7 +634,7 @@ impl DialogKind {
     /// chooses it: never one that loses work or grants a permission.
     fn default_choice(&self) -> Choice {
         match self {
-            DialogKind::End(_) | DialogKind::DisplayChange | DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) => Choice::Confirmed,
+            DialogKind::End(_) | DialogKind::DisplayChange | DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) | DialogKind::Files(_) => Choice::Confirmed,
             // Wait; Force Quit must be chosen.
             DialogKind::NotResponding { .. } => Choice::Canceled,
             // Deny, Cancel.
@@ -1228,7 +1231,7 @@ fn paint_question_with(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option
             };
             (title.to_owned(), message, tr("Cancel"), confirm, &d.blockers)
         }
-        DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) => return None,
+        DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) | DialogKind::Files(_) => return None,
         DialogKind::ApproveExtension { name, .. } => (trf!("Turn on {name}?", name = name), String::new(), tr("Cancel"), tr("Turn On").to_owned(), &approval_rows),
         DialogKind::RemoteControl { app, devices, .. } => (
             tr("Allow remote control?").to_owned(),
@@ -2895,6 +2898,9 @@ impl Ui {
                 if let DialogKind::Prompt(view) = &mut open.state.kind {
                     view.cancel();
                 }
+                if let DialogKind::Files(view) = &mut open.state.kind {
+                    view.cancel();
+                }
                 if let DialogKind::ShortcutsInhibit { id, .. } = open.state.kind {
                     if let Some(list) = self.window_list.as_ref().filter(|l| l.version() >= 6) {
                         list.allow_shortcuts_inhibit(id, 0);
@@ -2942,6 +2948,11 @@ impl Ui {
                 return;
             }
             DialogKind::Prompt(_) => return,
+            // (The chooser's buttons answer it themselves.)
+            DialogKind::Files(mut view) => {
+                view.cancel();
+                return;
+            }
             DialogKind::ShareScreen { sources, reply, multiple, picked, .. } => {
                 // Confirm (Enter, Share) shares the rows picked, else the
                 // first entry.
@@ -2983,6 +2994,11 @@ impl Ui {
     fn dialog_key(&mut self, event: &KeyEvent) {
         let Some(dialog) = self.dialog.as_mut() else { return };
         let ready = dialog_takes_key(dialog.state.shown, Instant::now());
+        if matches!(dialog.state.kind, DialogKind::Files(_)) {
+            // Typing goes in at once; only Enter waits.
+            self.files_key(event, ready);
+            return;
+        }
         if matches!(dialog.state.kind, DialogKind::Prompt(_)) {
             // Typing goes in at once; only Enter waits.
             if ready || !matches!(event.keysym, Keysym::Return | Keysym::KP_Enter) {
@@ -3031,7 +3047,8 @@ impl Ui {
             | DialogKind::RemoteControl { .. }
             | DialogKind::ApproveExtension { .. }
             | DialogKind::ShortcutsInhibit { .. }
-            | DialogKind::Prompt(_) => return,
+            | DialogKind::Prompt(_)
+            | DialogKind::Files(_) => return,
             DialogKind::End(data) if !data.blockers.is_empty() => return,
             DialogKind::End(_) => Choice::Confirmed,
             DialogKind::DisplayChange => Choice::Canceled,
@@ -3062,6 +3079,10 @@ impl Ui {
         }
         if matches!(overlay.state.kind, DialogKind::Prompt(_)) {
             self.paint_prompt(overlay);
+            return;
+        }
+        if matches!(overlay.state.kind, DialogKind::Files(_)) {
+            self.paint_files_dialog(overlay);
             return;
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
@@ -3485,7 +3506,14 @@ impl Ui {
             }
             UiEvent::PromptDone => self.prompt_done(),
             UiEvent::PromptRows(rows) => self.prompt_rows(rows),
-            UiEvent::PromptPreview(path, image) => self.prompt_preview(path, image),
+            UiEvent::FilePreview(path, image) => self.files_preview(path, image),
+            UiEvent::ChooseFiles(slot) => {
+                if let Some(request) = slot.take() {
+                    self.show_files(request);
+                }
+            }
+            UiEvent::FilesListed { serial, entries } => self.files_listed(serial, entries),
+            UiEvent::FolderMade { serial, result } => self.files_folder_made(serial, result),
             UiEvent::Background { desktop, lock } => {
                 self.desktop_background = *desktop;
                 self.lock_background = *lock;
@@ -4489,6 +4517,10 @@ impl Ui {
         let pressed_left = matches!(kind, PointerEventKind::Press { button: BTN_LEFT, .. });
         let on = |layer: &LayerSurface| layer.wl_surface() == &event.surface;
         let hit_in = |hits: &[(Rect, OverlayHit)]| hits.iter().find(|(r, _)| r.contains(x, y)).copied();
+        if self.dialog.as_ref().is_some_and(|d| on(&d.layer) && matches!(d.state.kind, DialogKind::Files(_))) {
+            self.files_pointer(event);
+            return true;
+        }
         if let Some(d) = self.dialog.as_mut().filter(|d| on(&d.layer)) {
             let hit = hit_in(&d.hits).map(|(_, h)| h);
             let out = press::track(&mut d.state.hover, &mut d.state.pressed, kind, hit);
@@ -4646,7 +4678,7 @@ impl Ui {
             OverlayHit::EndInstall => self.end_toggle_install(),
             OverlayHit::Check(i) => self.prompt_check(i),
             OverlayHit::Row(i) => self.prompt_pick(i),
-            OverlayHit::Place(i) => self.prompt_place(i),
+            OverlayHit::Files(_) => return self.files_click(hit),
             OverlayHit::Field(f) => self.prompt_focus(f),
             OverlayHit::ShowPassword(f) => self.prompt_show_password(f),
             _ => {}

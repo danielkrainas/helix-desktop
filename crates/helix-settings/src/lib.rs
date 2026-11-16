@@ -8,6 +8,8 @@
 //!   values (for the Settings portal and similar services).
 //! - [`GSettings::watch`] reports which schema changed.
 //! - [`key_type`] exposes a key's GVariant type, for contract checks.
+//! - [`files`] lists folders, places, recent files and search results
+//!   for the file chooser (no file contents are read to list a folder).
 //! - [`Schema`] reads and writes keys of a schema whose installed copy may
 //!   be older than this build (Helix's own schemas after a partial upgrade):
 //!   a missing key gives the built-in default instead of aborting.
@@ -15,6 +17,8 @@
 //! Key contracts: `helix-desktop-spec/contracts/gsettings/`.
 
 pub mod convert;
+pub mod file_index;
+pub mod files;
 pub mod sound;
 pub mod thumbnails;
 
