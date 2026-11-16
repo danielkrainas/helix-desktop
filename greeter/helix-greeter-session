@@ -7,4 +7,8 @@
 # starts the session.
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=Helix
+# Output to the journal (greetd keeps none), under "helix-greeter".
+if [ -x /usr/bin/systemd-cat ]; then
+    exec /usr/bin/systemd-cat --identifier=helix-greeter -- dbus-run-session -- helix-comp --backend drm --shell helix-greeter --exit-with-shell
+fi
 exec dbus-run-session -- helix-comp --backend drm --shell helix-greeter --exit-with-shell

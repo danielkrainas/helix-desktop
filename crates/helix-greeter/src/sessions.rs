@@ -151,9 +151,25 @@ pub fn default_index(sessions: &[Session], last: Option<&str>) -> usize {
     last.and_then(|id| sessions.iter().position(|s| s.id == id)).or_else(|| sessions.iter().position(|s| s.id == "helix")).unwrap_or(0)
 }
 
+/// Where `systemd-cat` is looked for.
+const SYSTEMD_CAT: &str = "/usr/bin/systemd-cat";
+
 /// The `start_session` request for `session`.
 pub fn start_request(session: &Session) -> Request {
-    let cmd = vec!["/bin/sh".to_owned(), "-c".to_owned(), format!("exec {}", session.exec)];
+    start_request_with(session, std::path::Path::new(SYSTEMD_CAT).is_file())
+}
+
+/// [`start_request`], with or without `systemd-cat`. greetd does not keep a
+/// session's output, so when `systemd-cat` exists the session runs under it:
+/// what the session and everything it starts print goes to the journal
+/// under the session's id (as display managers like GDM do).
+fn start_request_with(session: &Session, systemd_cat: bool) -> Request {
+    let shell = ["/bin/sh".to_owned(), "-c".to_owned(), format!("exec {}", session.exec)];
+    let cmd = if systemd_cat {
+        [SYSTEMD_CAT.to_owned(), format!("--identifier={}", session.id), "--".to_owned()].into_iter().chain(shell).collect()
+    } else {
+        shell.to_vec()
+    };
     let mut env = vec![
         "XDG_SESSION_TYPE=wayland".to_owned(),
         format!("XDG_SESSION_DESKTOP={}", session.id),
@@ -205,7 +221,7 @@ mod tests {
     fn start_request_as_specified() {
         let helix = parse("helix", HELIX, |_| true).unwrap();
         assert_eq!(
-            start_request(&helix),
+            start_request_with(&helix, false),
             Request::StartSession {
                 cmd: vec!["/bin/sh".into(), "-c".into(), "exec helix-session".into()],
                 env: vec!["XDG_SESSION_TYPE=wayland".into(), "XDG_SESSION_DESKTOP=helix".into(), "DESKTOP_SESSION=helix".into(), "XDG_CURRENT_DESKTOP=Helix:GNOME".into()],
@@ -213,12 +229,20 @@ mod tests {
         );
         let plain = Session { id: "sway".into(), name: "Sway".into(), exec: "env FOO='a b' sway --unsupported-gpu".into(), desktop_names: None };
         assert_eq!(
-            start_request(&plain),
+            start_request_with(&plain, false),
             Request::StartSession {
                 cmd: vec!["/bin/sh".into(), "-c".into(), "exec env FOO='a b' sway --unsupported-gpu".into()],
                 env: vec!["XDG_SESSION_TYPE=wayland".into(), "XDG_SESSION_DESKTOP=sway".into(), "DESKTOP_SESSION=sway".into()],
             }
         );
+    }
+
+    #[test]
+    fn start_request_logs_to_the_journal() {
+        let helix = parse("helix", HELIX, |_| true).unwrap();
+        let Request::StartSession { cmd, env } = start_request_with(&helix, true) else { panic!("not a start request") };
+        assert_eq!(cmd, ["/usr/bin/systemd-cat", "--identifier=helix", "--", "/bin/sh", "-c", "exec helix-session"]);
+        assert!(env.contains(&"XDG_SESSION_TYPE=wayland".to_owned()));
     }
 
     #[test]
