@@ -795,7 +795,9 @@ impl Ui {
 
 /// The question dialog (end session, display change, …) as painted: its
 /// title, message (or list of busy apps), check box and buttons.
-pub(super) fn dialog(title: &str, message: &str, list: Option<(&str, &[(String, String)])>, install: Option<bool>, hits: &[(Rect, OverlayHit)], (cancel, confirm): (&str, &str), confirm_focused: bool) -> Node {
+pub(super) fn dialog(title: &str, message: &str, list: Option<(&str, &[(String, String)])>, install: Option<bool>, hits: &[(Rect, OverlayHit)], (cancel, confirm): (&str, &str), focus: super::DialogStop) -> Node {
+    use super::DialogStop;
+    use crate::end_dialog::Choice;
     let at = |hit: OverlayHit| hits.iter().find(|(_, h)| *h == hit).map(|(r, _)| crate::a11y::Rect::from(*r)).unwrap_or_default();
     let mut out = Node::new(Role::Dialog, title).id("dialog").modal();
     match list {
@@ -808,10 +810,11 @@ pub(super) fn dialog(title: &str, message: &str, list: Option<(&str, &[(String, 
         None => {}
     }
     if let Some(on) = install {
-        out = out.child(Node::new(Role::CheckBox, tr("Install pending software updates")).id("install").at(at(OverlayHit::EndInstall)).click().toggled(on));
+        out = out.child(Node::new(Role::CheckBox, tr("Install pending software updates")).id("install").at(at(OverlayHit::EndInstall)).click().toggled(on).focused(focus == DialogStop::Install));
     }
     // Enter answers with the button that has the focus.
-    out.child(Node::button(cancel, at(OverlayHit::Cancel)).id("cancel").focused(!confirm_focused)).child(Node::button(confirm, at(OverlayHit::Confirm)).id("confirm").focused(confirm_focused))
+    let on = |choice| focus == DialogStop::Button(choice);
+    out.child(Node::button(cancel, at(OverlayHit::Cancel)).id("cancel").focused(on(Choice::Canceled))).child(Node::button(confirm, at(OverlayHit::Confirm)).id("confirm").focused(on(Choice::Confirmed)))
 }
 
 /// "Share your screen?" as painted: one row per monitor (picked or not),
@@ -921,7 +924,7 @@ mod tests {
 
     #[test]
     fn end_session_dialog() {
-        let node = dialog("Power Off", "The session will end automatically in 60 seconds.", None, Some(true), &hits(), ("Cancel", "Power Off"), true);
+        let node = dialog("Power Off", "The session will end automatically in 60 seconds.", None, Some(true), &hits(), ("Cancel", "Power Off"), super::super::DialogStop::Button(Choice::Confirmed));
         assert_eq!((node.role, node.name.as_str(), node.modal), (Role::Dialog, "Power Off", true));
         let message = node.find(&|n| n.role == Role::Label).expect("message");
         assert_eq!(message.text.as_deref(), Some("The session will end automatically in 60 seconds."));
@@ -934,14 +937,18 @@ mod tests {
         assert!(cancel.clickable);
         // Busy apps instead of the message.
         let busy = [("Editor".to_owned(), "Unsaved work".to_owned())];
-        let node = dialog("Log Out", "ignored", Some(("Some applications are busy or have unsaved work:", &busy)), None, &hits(), ("Cancel", "Log Out Anyway"), true);
+        let node = dialog("Log Out", "ignored", Some(("Some applications are busy or have unsaved work:", &busy)), None, &hits(), ("Cancel", "Log Out Anyway"), super::super::DialogStop::Button(Choice::Confirmed));
         let row = node.find(&|n| n.role == Role::ListItem).expect("row");
         assert_eq!((row.name.as_str(), row.description.as_str()), ("Editor", "Unsaved work"));
         assert!(node.find(&|n| n.text.as_deref() == Some("ignored")).is_none());
         // A dialog whose default is Cancel reports Cancel focused.
-        let node = dialog("“Editor” is not responding.", "", None, None, &hits(), ("Wait", "Force Quit"), false);
+        let node = dialog("“Editor” is not responding.", "", None, None, &hits(), ("Wait", "Force Quit"), super::super::DialogStop::Button(Choice::Canceled));
         assert_eq!(node.find(&|n| n.focused).map(|n| n.name.as_str()), Some("Wait"));
         assert_eq!(node.find(&|n| n.name == "Force Quit").map(|n| n.focused), Some(false));
+        // The check box with the focus is the one marked focused.
+        let node = dialog("Power Off", "", None, Some(false), &hits(), ("Cancel", "Power Off"), super::super::DialogStop::Install);
+        assert_eq!(node.find(&|n| n.focused).map(|n| n.role), Some(Role::CheckBox));
+        assert_eq!(node.find(&|n| n.name == "Power Off" && n.role == Role::Button).map(|n| n.focused), Some(false));
     }
 
     #[test]

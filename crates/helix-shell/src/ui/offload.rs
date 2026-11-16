@@ -91,6 +91,7 @@ impl Ui {
         self.draw_banner();
         self.draw_desktop_icons();
         self.draw_osk();
+        self.draw_dialog();
         if self.window_menu.is_some() {
             self.draw_window_menu();
         }

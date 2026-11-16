@@ -486,6 +486,9 @@ struct DialogState {
     /// The button with the keyboard focus (Enter answers with it); `None`
     /// until a key moves it: then it is the dialog's default.
     focus: Option<Choice>,
+    /// The "Install pending software updates" check box has the keyboard
+    /// focus (rather than a button).
+    install_focused: bool,
     /// When it was first drawn (keys before [`DIALOG_KEY_DELAY`] after
     /// that are ignored).
     shown: Option<Instant>,
@@ -497,12 +500,35 @@ struct DialogState {
 
 impl DialogState {
     fn new(kind: DialogKind, remaining: u32) -> Self {
-        Self { kind, remaining, focus: None, shown: None, hover: None, pressed: None }
+        Self { kind, remaining, focus: None, install_focused: false, shown: None, hover: None, pressed: None }
     }
 
-    /// The button Enter chooses: whichever has the focus.
+    /// The button with the focus (the default until a key moves it).
     fn focused(&self) -> Choice {
         self.focus.unwrap_or_else(|| self.kind.default_choice())
+    }
+
+    /// Where the keyboard focus is.
+    fn stop(&self) -> DialogStop {
+        if self.install_focused && self.has_install() { DialogStop::Install } else { DialogStop::Button(self.focused()) }
+    }
+
+    /// It has the "Install pending software updates" check box.
+    fn has_install(&self) -> bool {
+        matches!(&self.kind, DialogKind::End(EndDialog { install: Some(_), .. }))
+    }
+
+    /// Move the keyboard focus to `stop`; false if it was there.
+    fn focus_on(&mut self, stop: DialogStop) -> bool {
+        let before = self.stop();
+        match stop {
+            DialogStop::Install => self.install_focused = true,
+            DialogStop::Button(choice) => {
+                self.install_focused = false;
+                self.focus = Some(choice);
+            }
+        }
+        self.stop() != before
     }
 }
 
@@ -515,24 +541,46 @@ fn dialog_takes_key(shown: Option<Instant>, now: Instant) -> bool {
     shown.is_some_and(|shown| now.saturating_duration_since(shown) >= DIALOG_KEY_DELAY)
 }
 
-/// What a key does in a question dialog whose focused button is `focus`.
+/// Where the keyboard focus can be in a question dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DialogStop {
+    /// The "Install pending software updates" check box.
+    Install,
+    Button(Choice),
+}
+
+/// What a key does in a question dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DialogKey {
     Answer(Choice),
-    Focus(Choice),
+    Focus(DialogStop),
     ToggleInstall,
 }
 
-fn dialog_key_action(keysym: Keysym, focus: Choice) -> Option<DialogKey> {
-    let other = if focus == Choice::Confirmed { Choice::Canceled } else { Choice::Confirmed };
+/// What `keysym` does with the focus at `at` (`default`: the button Enter
+/// chooses from the check box; `install`: the dialog has the check box).
+/// Tab and Shift+Tab go round the check box, Cancel and the action in
+/// that order; Left and Right move between the buttons; Space toggles
+/// the check box or presses the focused button.
+fn dialog_key_action(keysym: Keysym, at: DialogStop, default: Choice, install: bool) -> Option<DialogKey> {
+    let order: Vec<DialogStop> = install.then_some(DialogStop::Install).into_iter().chain([DialogStop::Button(Choice::Canceled), DialogStop::Button(Choice::Confirmed)]).collect();
+    let i = order.iter().position(|s| *s == at).unwrap_or(0);
+    let n = order.len();
     match keysym {
         Keysym::Escape => Some(DialogKey::Answer(Choice::Canceled)),
-        Keysym::Return | Keysym::KP_Enter => Some(DialogKey::Answer(focus)),
-        Keysym::Tab | Keysym::ISO_Left_Tab => Some(DialogKey::Focus(other)),
+        Keysym::Return | Keysym::KP_Enter => Some(DialogKey::Answer(match at {
+            DialogStop::Button(choice) => choice,
+            DialogStop::Install => default,
+        })),
+        Keysym::Tab => Some(DialogKey::Focus(order[(i + 1) % n])),
+        Keysym::ISO_Left_Tab => Some(DialogKey::Focus(order[(i + n - 1) % n])),
         // Cancel is on the left, the action on the right.
-        Keysym::Left => Some(DialogKey::Focus(Choice::Canceled)),
-        Keysym::Right => Some(DialogKey::Focus(Choice::Confirmed)),
-        Keysym::space => Some(DialogKey::ToggleInstall),
+        Keysym::Left => Some(DialogKey::Focus(DialogStop::Button(Choice::Canceled))),
+        Keysym::Right => Some(DialogKey::Focus(DialogStop::Button(Choice::Confirmed))),
+        Keysym::space => Some(match at {
+            DialogStop::Install => DialogKey::ToggleInstall,
+            DialogStop::Button(choice) => DialogKey::Answer(choice),
+        }),
         _ => None,
     }
 }
@@ -1107,8 +1155,18 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
 
 /// A question dialog (not the share dialog or a prompt) over a scrim on a
 /// `w`×`h` surface: its clickable parts and its accessible node.
-fn paint_question(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text>), (w, h): (usize, usize), state: &DialogState) -> Option<(Vec<(Rect, OverlayHit)>, crate::a11y::Node)> {
-canvas.fill(SCRIM);
+#[cfg(test)]
+fn paint_question(canvas: &mut Canvas, faces: (Option<&Text>, Option<&Text>), size: (usize, usize), state: &DialogState) -> Option<(Vec<(Rect, OverlayHit)>, crate::a11y::Node)> {
+    paint_question_with(canvas, faces, size, state, &[])
+}
+
+/// A busy app's icon in the end-session dialog (logical px).
+const BLOCKER_ICON: i32 = 24;
+
+/// [`paint_question`] with the busy apps' `icons` (in the order of the
+/// dialog's blockers; a missing one leaves its place empty).
+fn paint_question_with(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text>), (w, h): (usize, usize), state: &DialogState, icons: &[Option<helix_draw::Image>]) -> Option<(Vec<(Rect, OverlayHit)>, crate::a11y::Node)> {
+    canvas.fill(SCRIM);
     let remaining = state.remaining;
     let no_blockers = Vec::new();
     // The approval prompt lists what the extension will be able to do.
@@ -1195,9 +1253,18 @@ canvas.fill(SCRIM);
     if blocked {
         label(text, canvas, list_header, (bx + 24) as f32, y as f32, size::LABEL, DIM_FG, inner);
         y += grow(16);
-        for (app, reason) in blockers.iter().take(6) {
-            label(text, canvas, app, (bx + 24) as f32, (y + grow(18)) as f32, size::BODY, FG, inner);
-            label(text, canvas, reason, (bx + 24) as f32, (y + grow(36)) as f32, size::CAPTION, DIM_FG, inner);
+        // An end-session dialog's busy apps each with its icon before
+        // the name (and reason).
+        let with_icons = matches!(state.kind, DialogKind::End(_));
+        let tx = if with_icons { bx + 24 + BLOCKER_ICON + 10 } else { bx + 24 };
+        let room = inner - (tx - bx - 24) as f32;
+        for (i, (app, reason)) in blockers.iter().take(6).enumerate() {
+            if let Some(icon) = icons.get(i).and_then(Option::as_ref) {
+                let iy = y + grow(4) + (row_h - grow(4) - BLOCKER_ICON) / 2;
+                canvas.image(f64::from(bx + 24), f64::from(iy), f64::from(BLOCKER_ICON), f64::from(BLOCKER_ICON), icon);
+            }
+            label(text, canvas, app, tx as f32, (y + grow(18)) as f32, size::BODY, FG, room);
+            label(text, canvas, reason, tx as f32, (y + grow(36)) as f32, size::CAPTION, DIM_FG, room);
             y += row_h;
         }
     } else {
@@ -1209,7 +1276,11 @@ canvas.fill(SCRIM);
     let mut extra_hits = Vec::new();
     if let Some(on) = install {
         let r = Rect { x: bx + 24, y: by + bh - grow(56) - grow(42), w: bw - 48, h: grow(26) };
-        theme::check_box(canvas, f64::from(r.x), f64::from(r.y + (r.h - 18) / 2), 18.0, on, theme::Look { hovered: state.hover == Some(OverlayHit::EndInstall), pressed: state.pressed == Some(OverlayHit::EndInstall), ..Default::default() });
+        let (cx, cy) = (f64::from(r.x), f64::from(r.y + (r.h - 18) / 2));
+        theme::check_box(canvas, cx, cy, 18.0, on, theme::Look { hovered: state.hover == Some(OverlayHit::EndInstall), pressed: state.pressed == Some(OverlayHit::EndInstall), ..Default::default() });
+        if state.stop() == DialogStop::Install {
+            theme::focus_ring_round(canvas, cx, cy, 18.0, 18.0, theme::RADIUS_CHECK);
+        }
         let name = tr("Install pending software updates");
         label(text, canvas, name, (r.x + 28) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, inner - 28.0);
         extra_hits.push((r, OverlayHit::EndInstall));
@@ -1219,17 +1290,17 @@ canvas.fill(SCRIM);
     let half = (bw - 24 * 2 - 12) / 2;
     let cancel = Rect { x: bx + 24, y: by2, w: half, h: grow(36) };
     let confirm = Rect { x: bx + 24 + half + 12, y: by2, w: half, h: grow(36) };
-    let focus = state.focused();
+    let stop = state.stop();
     let button = |canvas: &mut Canvas, r: Rect, s: &str, kind, choice, hit| {
         let look = theme::Look { hovered: state.hover == Some(hit), pressed: state.pressed == Some(hit), ..Default::default() };
-        theme::button(canvas, text, (r.x, r.y, r.w, r.h), s, kind, look, focus == choice);
+        theme::button(canvas, text, (r.x, r.y, r.w, r.h), s, kind, look, stop == DialogStop::Button(choice));
     };
     button(canvas, cancel, cancel_label, theme::Kind::Normal, Choice::Canceled, OverlayHit::Cancel);
     button(canvas, confirm, &confirm_label, state.kind.confirm_kind(), Choice::Confirmed, OverlayHit::Confirm);
     let mut hits = vec![(cancel, OverlayHit::Cancel), (confirm, OverlayHit::Confirm)];
     hits.extend(extra_hits);
     let list = blocked.then_some((list_header, blockers.as_slice()));
-    let node = atspi::dialog(&title, &message, list, install, &hits, (cancel_label, &confirm_label), focus == Choice::Confirmed);
+    let node = atspi::dialog(&title, &message, list, install, &hits, (cancel_label, &confirm_label), stop);
     Some((hits, node))
 }
 
@@ -2886,13 +2957,15 @@ impl Ui {
             tracing::debug!("key too soon after the dialog appeared; ignored");
             return;
         }
-        match dialog_key_action(event.keysym, dialog.state.focused()) {
+        let share = matches!(dialog.state.kind, DialogKind::ShareScreen { .. });
+        match dialog_key_action(event.keysym, dialog.state.stop(), dialog.state.kind.default_choice(), dialog.state.has_install()) {
+            // The share dialog has no buttons to move between or press
+            // with Space (Enter shares).
+            Some(DialogKey::Focus(_)) if share => {}
+            Some(DialogKey::Answer(_)) if share && event.keysym == Keysym::space => {}
             Some(DialogKey::Answer(choice)) => self.answer_dialog(choice),
-            // The share dialog has no buttons to move between.
-            Some(DialogKey::Focus(_)) if matches!(dialog.state.kind, DialogKind::ShareScreen { .. }) => {}
-            Some(DialogKey::Focus(choice)) => {
-                if dialog.state.focus != Some(choice) {
-                    dialog.state.focus = Some(choice);
+            Some(DialogKey::Focus(stop)) => {
+                if dialog.state.focus_on(stop) {
                     self.draw_dialog();
                 }
             }
@@ -2953,11 +3026,12 @@ impl Ui {
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
+        let icons = self.blocker_icons(&overlay.state, scale);
         let Ok((buffer, data)) = self.pool.create_buffer(physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(mirror::on(overlay.layer.wl_surface()));
-        let Some((hits, node)) = paint_question(&mut canvas, (self.text.as_ref(), self.bold.as_ref()), (w, h), &overlay.state) else { return };
+        let Some((hits, node)) = paint_question_with(&mut canvas, (self.text.as_ref(), self.bold.as_ref()), (w, h), &overlay.state, &icons) else { return };
         overlay.hits = hits;
         overlay.state.shown.get_or_insert_with(Instant::now);
         self.atspi_record(overlay.layer.wl_surface(), vec![node]);
@@ -2966,6 +3040,21 @@ impl Ui {
         if buffer.attach_to(surface).is_ok() {
             overlay.layer.commit();
         }
+    }
+
+    /// The end-session dialog's busy apps' icons (none for other dialogs;
+    /// each comes when decoded, and the dialog is drawn again).
+    fn blocker_icons(&mut self, state: &DialogState, scale: f64) -> Vec<Option<helix_draw::Image>> {
+        let DialogKind::End(d) = &state.kind else { return Vec::new() };
+        let px = (f64::from(BLOCKER_ICON) * scale).ceil() as u32;
+        d.blocker_apps
+            .iter()
+            .take(6)
+            .map(|id| {
+                let app = id.strip_suffix(".desktop").unwrap_or(id).to_owned();
+                self.icon_cache.get(format!("app:{app}@{px}"), move || crate::icons::app_icon(&app, px))
+            })
+            .collect()
     }
 
     /// "Share your screen?": one row per monitor, and Cancel.
@@ -5134,7 +5223,7 @@ mod tests {
 
     fn end(blockers: usize) -> DialogKind {
         let blockers = (0..blockers).map(|i| (format!("App {i}"), String::new())).collect();
-        DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers, install: None, upgrade: None })
+        DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers, install: None, upgrade: None, blocker_apps: Vec::new() })
     }
 
     /// The application switcher shows as icons as long as they fit (12
@@ -5232,12 +5321,93 @@ mod tests {
         assert_eq!(end(2).confirm_kind(), ButtonKind::Destructive, "Power Off Anyway");
         // Enter answers with the focused button; Tab moves to the other.
         let mut state = DialogState::new(not_responding, 0);
-        assert_eq!(dialog_key_action(Keysym::Return, state.focused()), Some(DialogKey::Answer(Choice::Canceled)));
-        assert_eq!(dialog_key_action(Keysym::Tab, state.focused()), Some(DialogKey::Focus(Choice::Confirmed)));
-        state.focus = Some(Choice::Confirmed);
-        assert_eq!(dialog_key_action(Keysym::KP_Enter, state.focused()), Some(DialogKey::Answer(Choice::Confirmed)), "an explicit choice");
-        assert_eq!(dialog_key_action(Keysym::Escape, state.focused()), Some(DialogKey::Answer(Choice::Canceled)));
-        assert_eq!(dialog_key_action(Keysym::Left, state.focused()), Some(DialogKey::Focus(Choice::Canceled)));
+        let key = |sym, state: &DialogState| dialog_key_action(sym, state.stop(), state.kind.default_choice(), state.has_install());
+        let button = DialogStop::Button;
+        assert_eq!(key(Keysym::Return, &state), Some(DialogKey::Answer(Choice::Canceled)));
+        assert_eq!(key(Keysym::Tab, &state), Some(DialogKey::Focus(button(Choice::Confirmed))));
+        assert_eq!(key(Keysym::ISO_Left_Tab, &state), Some(DialogKey::Focus(button(Choice::Confirmed))), "round");
+        assert!(state.focus_on(button(Choice::Confirmed)));
+        assert_eq!(key(Keysym::KP_Enter, &state), Some(DialogKey::Answer(Choice::Confirmed)), "an explicit choice");
+        assert_eq!(key(Keysym::Escape, &state), Some(DialogKey::Answer(Choice::Canceled)));
+        assert_eq!(key(Keysym::Left, &state), Some(DialogKey::Focus(button(Choice::Canceled))));
+        assert_eq!(key(Keysym::space, &state), Some(DialogKey::Answer(Choice::Confirmed)), "Space presses the focused button");
+        // With "Install pending software updates": the check box is a
+        // stop before Cancel; Space toggles it there, Enter still answers
+        // with the default.
+        let install = DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None, blocker_apps: Vec::new() });
+        let mut state = DialogState::new(install, 60);
+        assert_eq!(state.stop(), button(Choice::Confirmed), "the default first");
+        assert_eq!(key(Keysym::Tab, &state), Some(DialogKey::Focus(DialogStop::Install)), "round to the check box");
+        assert!(state.focus_on(DialogStop::Install));
+        assert!(!state.focus_on(DialogStop::Install), "already there");
+        assert_eq!(key(Keysym::space, &state), Some(DialogKey::ToggleInstall));
+        assert_eq!(key(Keysym::Return, &state), Some(DialogKey::Answer(Choice::Confirmed)));
+        assert_eq!(key(Keysym::Tab, &state), Some(DialogKey::Focus(button(Choice::Canceled))));
+        assert_eq!(key(Keysym::ISO_Left_Tab, &state), Some(DialogKey::Focus(button(Choice::Confirmed))));
+        assert_eq!(key(Keysym::Right, &state), Some(DialogKey::Focus(button(Choice::Confirmed))));
+    }
+
+    /// A polkit prompt shows who authenticates above the password field:
+    /// the initials on the name's color without a picture, the picture
+    /// with one; the field moves down to make room.
+    #[test]
+    fn prompt_identity() {
+        use crate::prompt::Prompt;
+        let base = Prompt { title: "Authentication Required".into(), message: "Needed.".into(), password: Some("Password".into()), continue_label: "Authenticate".into(), ..Default::default() };
+        let paint = |p: Prompt| {
+            let mut data = vec![0u8; 800 * 600 * 4];
+            let mut canvas = Canvas::scaled(&mut data, 800, 600, 1.0);
+            let (hits, _, _) = prompt::paint_prompt_view(&mut canvas, (None, None), (800, 600), &prompt::sample_view(p), (None, None));
+            let field = hits.iter().find(|(_, h)| *h == OverlayHit::Field(0)).unwrap().0;
+            (data, field)
+        };
+        let at = |data: &[u8], x: i32, y: i32| u32::from_le_bytes(data[((y * 800 + x) * 4) as usize..][..4].try_into().unwrap());
+        let (_, plain) = paint(base.clone());
+        let (data, field) = paint(Prompt { identity: Some(("Ann Smith".into(), None)), ..base.clone() });
+        assert!(field.y >= plain.y + 50, "room for the avatar: {} → {}", plain.y, field.y);
+        // The avatar's middle, centered above the field (left of the
+        // initials).
+        let (cx, cy) = (400 - 14, field.y - 84 + 4);
+        assert_eq!(at(&data, cx, cy), helix_draw::screen::avatar_color("Ann Smith"), "the initials' disc");
+        let red = helix_draw::Image { width: 8, height: 8, rgba: [255, 0, 0, 255].repeat(64) };
+        let (data, _) = paint(Prompt { identity: Some(("Ann Smith".into(), Some(Arc::new(red)))), ..base });
+        let px = at(&data, 400, cy);
+        assert!(px & 0xFF_0000 > 0xC8_0000 && px & 0xFF00 < 0x2800, "the picture: {px:08x}");
+    }
+
+    /// The end-session dialog's check box shows the focus ring when it has
+    /// the focus, and the buttons then none; busy apps get their icons.
+    #[test]
+    fn end_dialog_focus_and_icons() {
+        let install = DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None, blocker_apps: Vec::new() });
+        let mut state = DialogState::new(install, 60);
+        let paint = |state: &DialogState| {
+            let mut data = vec![0u8; 800 * 600 * 4];
+            let mut canvas = Canvas::scaled(&mut data, 800, 600, 1.0);
+            let (hits, _) = paint_question(&mut canvas, (None, None), (800, 600), state).unwrap();
+            (data, hits)
+        };
+        let at = |data: &[u8], x: i32, y: i32| u32::from_le_bytes(data[((y * 800 + x) * 4) as usize..][..4].try_into().unwrap());
+        let (rest, hits) = paint(&state);
+        let check = hits.iter().find(|(_, h)| *h == OverlayHit::EndInstall).unwrap().0;
+        let confirm = hits.iter().find(|(_, h)| *h == OverlayHit::Confirm).unwrap().0;
+        // The check box is 18 px at the row's start, its ring 2-4 px outside.
+        let ring = (check.x - 3, check.y + check.h / 2);
+        assert_ne!(at(&rest, ring.0, ring.1), theme::focus(), "no ring at first");
+        assert_eq!(at(&rest, confirm.x + confirm.w / 2, confirm.y - 3), theme::focus(), "the default button has it");
+        state.focus_on(DialogStop::Install);
+        let (focused, _) = paint(&state);
+        assert_eq!(at(&focused, ring.0, ring.1), theme::focus(), "the check box's ring");
+        assert_ne!(at(&focused, confirm.x + confirm.w / 2, confirm.y - 3), theme::focus(), "the button's is gone");
+        // Busy apps: an icon before each name.
+        let blocked = DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: vec![("Editor".into(), "Unsaved".into())], install: None, upgrade: None, blocker_apps: vec!["org.example.Editor".into()] });
+        let state = DialogState::new(blocked, 60);
+        let red = helix_draw::Image { width: BLOCKER_ICON as usize, height: BLOCKER_ICON as usize, rgba: [255, 0, 0, 255].repeat((BLOCKER_ICON * BLOCKER_ICON) as usize) };
+        let mut data = vec![0u8; 800 * 600 * 4];
+        let mut canvas = Canvas::scaled(&mut data, 800, 600, 1.0);
+        paint_question_with(&mut canvas, (None, None), (800, 600), &state, &[Some(red)]).unwrap();
+        let reds = data.as_chunks::<4>().0.iter().filter(|p| p[2] > 200 && p[1] < 40 && p[0] < 40).count();
+        assert!(reds >= (BLOCKER_ICON * BLOCKER_ICON) as usize * 3 / 4, "the icon is drawn ({reds} red pixels)");
     }
 
     /// Every text color the shell paints, on every background it is

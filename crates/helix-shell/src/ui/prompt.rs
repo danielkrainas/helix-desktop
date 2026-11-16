@@ -479,7 +479,9 @@ pub(super) fn paint_prompt_view(canvas: &mut Canvas, (text, bold): (Option<&crat
     let icon = p.icon.as_deref().filter(|i| i.width > 0 && i.height > 0);
     let top = if icon.is_some() { 60 } else { 0 };
     let preview_h = if p.previews.iter().any(|f| !f.is_empty()) { PREVIEW_H + 12 } else { 0 };
-    let bh = preview_h + top + grow(70) + message.len() as i32 * grow(19) + description.len() as i32 * grow(17) + 8 + picture_h + list_h + fields as i32 * grow(62) + if p.choice.is_some() { grow(34) } else { 0 } + p.checks.len() as i32 * grow(34) + grow(26) + grow(64);
+    // Who authenticates: an avatar with the name under it.
+    let identity_h = if p.identity.is_some() { grow(IDENTITY_H) } else { 0 };
+    let bh = identity_h + preview_h + top + grow(70) + message.len() as i32 * grow(19) + description.len() as i32 * grow(17) + 8 + picture_h + list_h + fields as i32 * grow(62) + if p.choice.is_some() { grow(34) } else { 0 } + p.checks.len() as i32 * grow(34) + grow(26) + grow(64);
     let bx = (w as i32 - bw) / 2;
     let by = (h as i32 - bh) / 3;
     theme::popover(canvas, bx, by, bw, bh);
@@ -561,6 +563,14 @@ pub(super) fn paint_prompt_view(canvas: &mut Canvas, (text, bold): (Option<&crat
             label(text, canvas, none, area.x as f32 + (area.w as f32 - tw) / 2.0, baseline(text, area.y, area.h, size::CAPTION), size::CAPTION, DIM_FG, inner);
         }
         y += preview_h;
+    }
+    if let Some((name, picture)) = &p.identity {
+        let r = f64::from(AVATAR_R);
+        let (cx, cy) = (f64::from(bx) + f64::from(bw) / 2.0, f64::from(y) + 4.0 + r);
+        helix_draw::screen::avatar(canvas, text, bold, name, picture.as_deref(), cx, cy, r, 1.0);
+        let nw = bold.map_or(0.0, |t| t.width(name, size::BODY).min(inner));
+        label(bold, canvas, name, bx as f32 + (bw as f32 - nw) / 2.0, (cy + r) as f32 + 8.0 + grow(16) as f32, size::BODY, FG, inner);
+        y += identity_h;
     }
     if let Some((name, _)) = &p.entry {
         label(text, canvas, name, (bx + 24) as f32, (y + grow(14)) as f32, size::CAPTION, DIM_FG, inner);
@@ -662,6 +672,11 @@ pub(super) fn paint_prompt_view(canvas: &mut Canvas, (text, bold): (Option<&crat
     (hits, status.to_owned(), (cancel_label.to_owned(), confirm_label.to_owned()))
 }
 
+/// The avatar of who authenticates (radius, logical px), and the room it
+/// and the name take.
+const AVATAR_R: i32 = 24;
+const IDENTITY_H: i32 = 84;
+
 /// A prompt's view for the gallery and tests.
 #[cfg(test)]
 pub(super) fn sample_view(prompt: Prompt) -> PromptView {
@@ -691,6 +706,9 @@ fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, c
         if !text.is_empty() {
             out = out.child(Node::label(text));
         }
+    }
+    if let Some((name, _)) = &p.identity {
+        out = out.child(Node::label(name).id("identity"));
     }
     if !p.places.is_empty() {
         let places = p.places.iter().enumerate().take(PLACES_SHOWN).map(|(i, name)| Node::button(name, at(OverlayHit::Place(i))).selected(p.place_current == Some(i)));

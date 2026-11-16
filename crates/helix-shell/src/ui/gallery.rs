@@ -137,7 +137,7 @@ fn shared_look() {
         panel_over(canvas, text.as_ref(), w, None, false);
     });
     in_looks(&dir, "look-dialog", (1280, 720), &mut |canvas, (w, h)| {
-        let state = DialogState { focus: Some(Choice::Canceled), ..DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60) };
+        let state = DialogState { focus: Some(Choice::Canceled), ..DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None, blocker_apps: Vec::new() }), 60) };
         paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &state);
     });
     in_looks(&dir, "look-dialog-hover", (1280, 720), &mut |canvas, (w, h)| {
@@ -163,7 +163,7 @@ fn interface_font() {
             paint_sample(canvas, (text.as_ref(), bold.as_ref()), (1280, 720), &entries, &Default::default(), &cal, None);
         });
         render(&dir, &format!("font-{tag}-dialog"), DARK, (1280, 720, 1.0), |canvas| {
-            let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60);
+            let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None, blocker_apps: Vec::new() }), 60);
             paint_question(canvas, (text.as_ref(), bold.as_ref()), (1280, 720), &state);
             let ph = panel_height() as usize;
             let mut data = vec![0u8; 1280 * ph * 4];
@@ -224,7 +224,7 @@ fn hover_and_press() {
         paint_sample_pointer(canvas, (text.as_ref(), bold.as_ref()), size, &entries, &Default::default(), &cal, None, (Some(&ListHit::Day(y, m, d + 2)), Some(&ListHit::Month(1))));
     });
     in_looks(&dir, "press-dialog", (1280, 720), &mut |canvas, size| {
-        let state = DialogState { hover: Some(OverlayHit::EndInstall), pressed: Some(OverlayHit::Cancel), ..DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(false), upgrade: None }), 60) };
+        let state = DialogState { hover: Some(OverlayHit::EndInstall), pressed: Some(OverlayHit::Cancel), ..DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(false), upgrade: None, blocker_apps: Vec::new() }), 60) };
         paint_question(canvas, (text.as_ref(), bold.as_ref()), size, &state);
     });
     in_looks(&dir, "press-quick", (1280, 720), &mut |canvas, size| {
@@ -417,19 +417,47 @@ fn dialogs() {
         ("dialog-not-responding", DialogState::new(DialogKind::NotResponding { id: 1, title: "Text Editor".into() }, 0)),
         ("dialog-not-responding-tab", DialogState { focus: Some(Choice::Confirmed), ..DialogState::new(DialogKind::NotResponding { id: 1, title: "Text Editor".into() }, 0) }),
         ("dialog-remote-control", DialogState::new(DialogKind::RemoteControl { app: "Remote Desktop".into(), devices: vec!["keyboard".into(), "pointer".into()], reply: None }, 0)),
-        ("dialog-power-off", DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60)),
-        ("dialog-power-off-blocked", DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers, install: None, upgrade: None }), 60)),
+        ("dialog-power-off", DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None, blocker_apps: Vec::new() }), 60)),
+        ("dialog-power-off-install-focus", DialogState { install_focused: true, ..DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None, blocker_apps: Vec::new() }), 60) }),
+        ("dialog-power-off-blocked", DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers, install: None, upgrade: None, blocker_apps: vec!["org.gnome.TextEditor".into(), "org.gnome.Terminal".into()] }), 60)),
     ];
+    let icons: Vec<Option<helix_draw::Image>> = ["org.gnome.TextEditor", "org.gnome.Terminal"].iter().map(|id| crate::icons::app_icon(id, BLOCKER_ICON as u32)).collect();
     for hc in [false, true] {
         helix_draw::set_high_contrast(hc);
         for (name, state) in &scenes {
             let name = if hc { format!("{name}-hc") } else { (*name).to_owned() };
             render(&dir, &name, DARK, (1280, 720, 1.0), |canvas| {
-                paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (1280, 720), state);
+                paint_question_with(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (1280, 720), state, &icons);
             });
         }
     }
     helix_draw::set_high_contrast(false);
+}
+
+/// The polkit prompt with who authenticates (`polkit-…`): the initials
+/// (a name without a picture) and a picture; in every look.
+#[test]
+#[ignore]
+fn polkit_identity() {
+    use crate::prompt::Prompt;
+    let Some(dir) = dir() else { return };
+    let (text, bold) = (Text::load(), Text::load_matching("sans-serif:bold"));
+    let picture = crate::user_identity::load_picture(std::path::Path::new("/usr/share/backgrounds/mendhak-Red_Acer.jpg")).map(Arc::new);
+    for (tag, picture) in [("initials", None), ("picture", picture)] {
+        let auth = Prompt {
+            title: "Authentication Required".into(),
+            message: "Authentication is needed to change the system time.".into(),
+            password: Some("Password".into()),
+            identity: Some(("Ann Smith".into(), picture)),
+            continue_label: "Authenticate".into(),
+            cancel_label: "Cancel".into(),
+            ..Default::default()
+        };
+        in_looks(&dir, &format!("polkit-{tag}"), (1280, 720), &mut |canvas, size| {
+            let view = prompt::sample_view(auth.clone());
+            prompt::paint_prompt_view(canvas, (text.as_ref(), bold.as_ref()), size, &view, (None, None));
+        });
+    }
 }
 
 /// Quick settings and the notification list on short screens (logical
@@ -638,7 +666,7 @@ fn text_scale() {
             }
         });
         shot("scaled-dialog", &mut |canvas| {
-            let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60);
+            let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None, blocker_apps: Vec::new() }), 60);
             paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &state);
         });
     }
@@ -738,7 +766,7 @@ fn accents() {
             paint_sample(canvas, (text.as_ref(), bold.as_ref()), (w, h), &entries, &open, &cal, Some(&notify::ListHit::Entry(4)));
         });
         render(&dir, &format!("accent-{name}-dialog"), DARK, (w, h, 1.0), |canvas| {
-            let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None }), 60);
+            let state = DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 60, blockers: Vec::new(), install: Some(true), upgrade: None, blocker_apps: Vec::new() }), 60);
             paint_question(canvas, (text.as_ref(), Text::load_matching("sans-serif:bold").as_ref()), (w, h), &state);
         });
         render(&dir, &format!("accent-{name}-dialog-focus"), DARK, (w, h, 1.0), |canvas| {
@@ -1008,8 +1036,8 @@ fn locale() {
     });
     let blockers = vec![("Text Editor".to_owned(), "Unsaved document".to_owned())];
     let dialogs: Vec<(&str, DialogState)> = vec![
-        ("dialog-power-off", DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 45, blockers: Vec::new(), install: Some(true), upgrade: None }), 45)),
-        ("dialog-power-off-blocked", DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 45, blockers, install: None, upgrade: None }), 45)),
+        ("dialog-power-off", DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 45, blockers: Vec::new(), install: Some(true), upgrade: None, blocker_apps: Vec::new() }), 45)),
+        ("dialog-power-off-blocked", DialogState::new(DialogKind::End(EndDialog { kind: SHUTDOWN, seconds: 45, blockers, install: None, upgrade: None, blocker_apps: Vec::new() }), 45)),
         ("dialog-not-responding", DialogState::new(DialogKind::NotResponding { id: 1, title: "Text Editor".into() }, 0)),
     ];
     for (what, state) in &dialogs {

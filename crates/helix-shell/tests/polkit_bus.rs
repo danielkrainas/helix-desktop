@@ -92,6 +92,9 @@ async fn authenticates_through_the_helper() {
     let first = prompt(&mut ui).await;
     assert_eq!(first.prompt.password.as_deref(), Some("Password"));
     assert_eq!(first.prompt.description, "hello");
+    // Who authenticates: a name (no AccountsService here, so no picture).
+    let (who, picture) = first.prompt.identity.clone().expect("the identity");
+    assert!(!who.is_empty() && picture.is_none(), "{who}");
     assert_eq!(first.prompt.message, "Authentication is needed to do it");
     assert!(first.prompt.warning.is_empty());
     answer(first, "wrong");

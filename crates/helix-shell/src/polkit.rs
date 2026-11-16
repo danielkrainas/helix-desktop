@@ -179,7 +179,9 @@ async fn check_caller(conn: &Connection, header: &Header<'_>) -> Result<(), Polk
 }
 
 /// Run the helper until it succeeds, the user cancels, or `cancel` fires.
-async fn authenticate(ui: &mpsc::UnboundedSender<UiEvent>, message: &str, cookie: &str, name: &str, real: &str, mut cancel: oneshot::Receiver<()>) -> Result<(), PolkitError> {
+/// `picture`: the user's picture (AccountsService), shown with the name
+/// above the password field (the initials without one).
+async fn authenticate(ui: &mpsc::UnboundedSender<UiEvent>, message: &str, cookie: &str, (name, real): (&str, &str), picture: Option<std::sync::Arc<helix_draw::Image>>, mut cancel: oneshot::Receiver<()>) -> Result<(), PolkitError> {
     let helper = helper().ok_or_else(|| PolkitError::Failed("polkit-agent-helper-1 not found".into()))?;
     let shown = if real.is_empty() { name.to_owned() } else { real.to_owned() };
     let mut warning = String::new();
@@ -219,7 +221,10 @@ async fn authenticate(ui: &mpsc::UnboundedSender<UiEvent>, message: &str, cookie
                     let p = Prompt {
                         title: tr("Authentication Required").into(),
                         message: message.into(),
-                        description: if info.is_empty() { trf!("Authenticating as {shown}", shown = shown) } else { info.clone() },
+                        // Who: the avatar and name (PAM's own words, if
+                        // any, above them).
+                        description: info.clone(),
+                        identity: Some((shown.clone(), picture.clone())),
                         password: Some(field_label(text)),
                         warning: std::mem::take(&mut warning),
                         continue_label: tr("Authenticate").into(),
@@ -327,7 +332,10 @@ impl Agent {
         };
         let (_, name, real) = &users[chosen];
         tracing::info!(action_id, user = name, choices = users.len(), "authentication requested");
-        let result = authenticate(&self.ui, message, cookie, name, real, cancel).await;
+        // The picture only (the name is the one polkit's user has; the
+        // fallbacks in `user_identity` are the session user's).
+        let picture = crate::user_identity::read(Some(conn), name).await.picture.map(std::sync::Arc::new);
+        let result = authenticate(&self.ui, message, cookie, (name, real), picture, cancel).await;
         self.running.lock().unwrap_or_else(|e| e.into_inner()).remove(cookie);
         tracing::info!(action_id, ok = result.is_ok(), "authentication finished");
         result

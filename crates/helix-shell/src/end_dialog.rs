@@ -33,6 +33,8 @@ pub struct EndDialog {
     pub seconds: u32,
     /// Blocking apps as (name, reason).
     pub blockers: Vec<(String, String)>,
+    /// The blocking apps' ids, in the same order (for their icons).
+    pub blocker_apps: Vec<String>,
     /// "Install pending software updates" (power off, restart): shown
     /// when updates are ready, and whether it is ticked.
     pub install: Option<bool>,
@@ -82,6 +84,11 @@ fn app_name(app_id: &str) -> String {
 }
 
 async fn describe(conn: &Connection, path: &OwnedObjectPath) -> Option<(String, String)> {
+    describe_app(conn, path).await.map(|(_, name, reason)| (name, reason))
+}
+
+/// An inhibitor as (app id, name, reason).
+async fn describe_app(conn: &Connection, path: &OwnedObjectPath) -> Option<(String, String, String)> {
     let get = |member: &'static str| async move {
         conn.call_method(
             Some("org.gnome.SessionManager"),
@@ -98,7 +105,8 @@ async fn describe(conn: &Connection, path: &OwnedObjectPath) -> Option<(String, 
     };
     let app_id = get("GetAppId").await?;
     let reason = get("GetReason").await.unwrap_or_default();
-    Some((app_name(&app_id), reason))
+    let name = app_name(&app_id);
+    Some((app_id, name, reason))
 }
 
 /// The apps holding up logout now: (name, reason), from the session
@@ -180,9 +188,11 @@ impl EndSessionDialog {
             return;
         }
         let mut blockers = Vec::new();
+        let mut blocker_apps = Vec::new();
         for path in &inhibitor_object_paths {
-            if let Some(b) = describe(conn, path).await {
-                blockers.push(b);
+            if let Some((app_id, name, reason)) = describe_app(conn, path).await {
+                blockers.push((name, reason));
+                blocker_apps.push(app_id);
             }
         }
         let prepared = if matches!(r#type, SHUTDOWN | REBOOT | UPDATE_REBOOT | UPGRADE_REBOOT) {
@@ -205,6 +215,7 @@ impl EndSessionDialog {
             kind,
             seconds: seconds_to_stay_open,
             blockers,
+            blocker_apps,
             install,
             upgrade,
         })));

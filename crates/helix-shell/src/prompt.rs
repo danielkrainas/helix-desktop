@@ -47,6 +47,9 @@ pub struct Prompt {
     pub previews: Vec<String>,
     /// An icon above the title (48 pixels).
     pub icon: Option<std::sync::Arc<helix_draw::Image>>,
+    /// Who is authenticating: the name shown and the picture (none: the
+    /// name's initials), as an avatar with the name above the fields.
+    pub identity: Option<(String, Option<std::sync::Arc<helix_draw::Image>>)>,
     /// Shown in a warning color, e.g. after a wrong password.
     pub warning: String,
     /// Earlier entries, oldest first: Up and Down in the text field go
