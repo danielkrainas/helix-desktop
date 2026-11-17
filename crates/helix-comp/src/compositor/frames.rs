@@ -581,6 +581,20 @@ impl Helix {
         }
     }
 
+    /// A client-side title bar was double-, middle- or right-clicked
+    /// (`gtk_surface1.titlebar_gesture`, 1 to 3): the same action as on
+    /// Helix's own title bars.
+    pub(super) fn titlebar_gesture(&mut self, window: &Window, gesture: u32) {
+        let action = match gesture {
+            1 => self.frames.config.double_click,
+            2 => self.frames.config.right_click,
+            3 => self.frames.config.middle_click,
+            _ => return,
+        };
+        tracing::debug!(gesture, ?action, "title bar gesture");
+        self.title_action(window, action);
+    }
+
     fn title_action(&mut self, window: &Window, action: TitleAction) {
         match action {
             TitleAction::ToggleMaximize => {

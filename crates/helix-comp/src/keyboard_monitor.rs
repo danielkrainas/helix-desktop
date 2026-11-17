@@ -6,6 +6,11 @@
 //! which clients to tell; the D-Bus side changes the clients' watches and
 //! grabs and sends the `KeyEvent` signals ([`Report`]).
 //! Contract: helixdesktop/spec `contracts/dbus/org.freedesktop.a11y.KeyboardMonitor.md`.
+//!
+//! The same object serves `org.freedesktop.a11y.PointerLocator`: what is
+//! under the pointer ([`PointerSpot`], kept up to date by the compositor
+//! as the pointer moves) for screen readers' mouse review, and one
+//! `PointerPositionChanged` to each asker at the next motion.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -110,6 +115,50 @@ pub struct Verdict {
     pub report: Option<Report>,
 }
 
+/// The window under the pointer, as `QueryPointer` names it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WindowSpot {
+    /// Its app's name on the accessibility bus and its toplevel's
+    /// accessible object path (`gtk_surface1.set_a11y_properties`).
+    pub dbus_name: Option<String>,
+    pub object_path: Option<String>,
+    /// Its process (0: unknown).
+    pub pid: i32,
+}
+
+/// What is under the pointer: a window (and where in it, in its surface's
+/// logical coordinates), or nothing but the shell or the background (and
+/// where in the layout).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PointerSpot {
+    pub window: Option<WindowSpot>,
+    pub x: f64,
+    pub y: f64,
+}
+
+/// `QueryPointer`'s answer: app data and coordinates, or `None` for a
+/// window that can't be named (`UnknownToplevel`), as mutter answers.
+pub fn pointer_reply(spot: &PointerSpot) -> Option<(HashMap<String, zbus::zvariant::OwnedValue>, f64, f64)> {
+    use zbus::zvariant::{ObjectPath, OwnedValue, Value};
+    let mut data: HashMap<String, OwnedValue> = HashMap::new();
+    if let Some(w) = &spot.window {
+        let path = w.object_path.as_deref().and_then(|p| ObjectPath::try_from(p).ok());
+        if w.dbus_name.is_some() || path.is_some() {
+            if let Some(name) = &w.dbus_name {
+                data.insert("app-dbus-name".into(), OwnedValue::try_from(Value::from(name.as_str())).ok()?);
+            }
+            if let Some(path) = path {
+                data.insert("toplevel-object-path".into(), OwnedValue::try_from(Value::from(path)).ok()?);
+            }
+        } else if w.pid > 0 {
+            data.insert("pid".into(), OwnedValue::from(w.pid));
+        } else {
+            return None;
+        }
+    }
+    Some((data, spot.x, spot.y))
+}
+
 /// The clients and the keys held down for them.
 #[derive(Debug, Default)]
 pub struct Monitor {
@@ -118,6 +167,10 @@ pub struct Monitor {
     held: HashMap<u32, Held>,
     /// The last client modifier pressed alone: (keysym, time of its press).
     tap: Option<(u32, u64)>,
+    /// What is under the pointer.
+    pointer: PointerSpot,
+    /// Who asked where the pointer is since it last moved.
+    pointer_askers: Vec<String>,
 }
 
 pub type Shared = Arc<Mutex<Monitor>>;
@@ -159,8 +212,28 @@ impl Monitor {
         self.tidy(name);
     }
 
+    /// `name` asks what is under the pointer; it hears of the next motion.
+    pub fn query_pointer(&mut self, name: &str) -> PointerSpot {
+        if !self.pointer_askers.iter().any(|n| n == name) {
+            self.pointer_askers.push(name.to_owned());
+        }
+        self.pointer.clone()
+    }
+
+    /// Whether anyone waits for the pointer to move.
+    pub fn pointer_wanted(&self) -> bool {
+        !self.pointer_askers.is_empty()
+    }
+
+    /// The pointer moved, now over `spot`: who to tell (once each).
+    pub fn pointer_moved(&mut self, spot: PointerSpot) -> Vec<String> {
+        self.pointer = spot;
+        std::mem::take(&mut self.pointer_askers)
+    }
+
     /// The client left the bus: everything it set up goes.
     pub fn remove(&mut self, name: &str) {
+        self.pointer_askers.retain(|n| n != name);
         self.clients.remove(name);
         for held in self.held.values_mut() {
             held.to.retain(|n| n != name);
@@ -341,6 +414,56 @@ impl KeyboardMonitor {
 
     #[zbus(signal)]
     pub async fn key_event(emitter: &SignalEmitter<'_>, released: bool, state: u32, keysym: u32, unichar: u32, keycode: u16) -> zbus::Result<()>;
+}
+
+/// `QueryPointer`'s errors.
+#[derive(Debug, zbus::DBusError)]
+#[zbus(prefix = "org.freedesktop")]
+pub enum LocatorError {
+    #[zbus(error)]
+    ZBus(zbus::Error),
+    /// The caller is not the screen reader.
+    #[zbus(name = "DBus.Error.AccessDenied")]
+    AccessDenied(String),
+    /// The window under the pointer has no accessibility name and no
+    /// process.
+    #[zbus(name = "a11y.UnknownToplevel")]
+    UnknownToplevel(String),
+}
+
+/// `org.freedesktop.a11y.PointerLocator` on the same object.
+pub struct PointerLocator {
+    pub shared: Shared,
+}
+
+#[interface(name = "org.freedesktop.a11y.PointerLocator")]
+impl PointerLocator {
+    /// The window under the pointer (`app-dbus-name` and
+    /// `toplevel-object-path`, else `pid`; nothing over the shell) and the
+    /// pointer's place relative to it (else to the layout).
+    async fn query_pointer(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(HashMap<String, zbus::zvariant::OwnedValue>, f64, f64), LocatorError> {
+        let name = caller(conn, &header).await.map_err(|e| match e {
+            fdo::Error::AccessDenied(m) => LocatorError::AccessDenied(m),
+            other => LocatorError::AccessDenied(other.to_string()),
+        })?;
+        let spot = lock(&self.shared).query_pointer(&name);
+        pointer_reply(&spot).ok_or_else(|| LocatorError::UnknownToplevel("Cannot get client a11y information".into()))
+    }
+
+    #[zbus(signal)]
+    pub async fn pointer_position_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+}
+
+/// Tell `to` (unique names) that the pointer moved.
+pub async fn send_pointer_moved(conn: &Connection, to: &[String]) -> zbus::Result<()> {
+    for name in to {
+        let Ok(dest) = zbus::names::BusName::try_from(name.as_str()) else { continue };
+        let emitter = SignalEmitter::new(conn, OBJECT_PATH)?.set_destination(dest);
+        if let Err(err) = PointerLocator::pointer_position_changed(&emitter).await {
+            tracing::debug!(%err, name, "cannot send a pointer motion");
+        }
+    }
+    Ok(())
 }
 
 /// Send a key to the clients it concerns, each its own signal.
@@ -560,6 +683,35 @@ mod tests {
         assert_eq!(v.report, None);
         assert!(m.is_idle());
         assert!(!m.key(&press(118, INSERT), 0, DELAY, false).grabbed);
+    }
+
+    #[test]
+    fn pointer_replies_as_mutter_does() {
+        let at = |window| PointerSpot { window, x: 3.0, y: 4.0 };
+        let (data, x, y) = pointer_reply(&at(None)).unwrap();
+        assert!(data.is_empty() && (x, y) == (3.0, 4.0), "over the shell: nothing named");
+        let named = WindowSpot { dbus_name: Some(":1.9".into()), object_path: Some("/org/a11y/atspi/accessible/1".into()), pid: 77 };
+        let (data, ..) = pointer_reply(&at(Some(named))).unwrap();
+        let mut keys: Vec<_> = data.keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["app-dbus-name", "toplevel-object-path"], "names, not the pid");
+        let (data, ..) = pointer_reply(&at(Some(WindowSpot { pid: 77, ..WindowSpot::default() }))).unwrap();
+        assert_eq!(data.get("pid").and_then(|v| i32::try_from(v).ok()), Some(77));
+        assert!(pointer_reply(&at(Some(WindowSpot::default()))).is_none(), "UnknownToplevel");
+    }
+
+    #[test]
+    fn pointer_askers_hear_once() {
+        let mut m = Monitor::default();
+        assert!(m.pointer_moved(PointerSpot::default()).is_empty());
+        m.query_pointer(":1.5");
+        m.query_pointer(":1.5");
+        m.query_pointer(":1.6");
+        m.remove(":1.6");
+        assert!(m.pointer_wanted());
+        assert_eq!(m.pointer_moved(PointerSpot { x: 1.0, ..PointerSpot::default() }), [":1.5"]);
+        assert!(m.pointer_moved(PointerSpot::default()).is_empty());
+        assert_eq!(m.query_pointer(":1.5").x, 0.0);
     }
 
     #[test]

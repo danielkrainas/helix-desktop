@@ -10,6 +10,9 @@ const CLICK_TYPE_NAMESPACE: &str = "helix-click-type";
 use smithay::backend::input::{ButtonState, KeyState};
 use smithay::input::keyboard::Keycode;
 
+use smithay::reexports::wayland_server::Resource;
+use smithay::utils::{Logical, Point};
+use smithay::wayland::seat::WaylandFocus;
 use super::Helix;
 
 impl Helix {
@@ -116,6 +119,37 @@ impl Helix {
             self.monitor_mods_dirty |= changed;
         }
         true
+    }
+
+    /// Keep what is under the pointer (at `pos`) up to date for screen
+    /// readers (`org.freedesktop.a11y.PointerLocator`), and tell those
+    /// that asked since the last motion.
+    /// `under_client`: the client of the surface under the pointer (none:
+    /// Helix's own title bar, or nothing).
+    pub(super) fn locate_pointer_for_a11y(&mut self, pos: Point<f64, Logical>, under_client: Option<smithay::reexports::wayland_server::backend::ClientId>) {
+        use helix_comp::keyboard_monitor::{self, PointerSpot, WindowSpot};
+        let mut spot = PointerSpot { window: None, x: pos.x, y: pos.y };
+        if !self.lock.locked {
+            if let Some((window, loc)) = self.window_under(pos).map(|(w, l)| (w.clone(), l)) {
+                let surface = window.wl_surface().map(|s| s.into_owned());
+                let client = surface.as_ref().and_then(|s| s.client());
+                // Only when the window itself (or its title bar) is under
+                // the pointer, not a shell surface over it.
+                if under_client.is_none() || client.as_ref().is_some_and(|c| Some(c.id()) == under_client) {
+                    let (dbus_name, object_path) = surface.as_ref().and_then(super::gtk_shell::a11y_properties).map_or((None, None), |(n, p)| (Some(n), Some(p)));
+                    let pid = match window.x11_surface() {
+                        Some(x11) => x11.pid().map_or(0, |p| p as i32),
+                        None => client.and_then(|c| c.get_credentials(&self.display_handle).ok()).map_or(0, |c| c.pid),
+                    };
+                    let rel = pos - loc.to_f64();
+                    spot = PointerSpot { window: Some(WindowSpot { dbus_name, object_path, pid }), x: rel.x, y: rel.y };
+                }
+            }
+        }
+        let to = keyboard_monitor::lock(&self.keyboard_monitor).pointer_moved(spot);
+        if !to.is_empty() {
+            let _ = self.events.send(helix_comp::Event::PointerMoved(to));
+        }
     }
 
     /// The namespace of the shell surface under the pointer, if any.

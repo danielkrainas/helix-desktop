@@ -104,6 +104,9 @@ pub enum Event {
     SwitchMonitor,
     /// A key for screen readers (`org.freedesktop.a11y.KeyboardMonitor`).
     KeyMonitor(keyboard_monitor::Report),
+    /// The pointer moved: tell these screen readers
+    /// (`org.freedesktop.a11y.PointerLocator`).
+    PointerMoved(Vec<String>),
 }
 
 /// The running D-Bus services of the compositor.
@@ -227,6 +230,7 @@ impl CompositorServices {
             .serve_at(screencast::OBJECT_PATH, screencast::ScreenCastState { shared: casts.clone() })?
             .serve_at(input_capture::OBJECT_PATH, input_capture::InputCapture { shared: captures.clone(), compositor: cast.clone() })?
             .serve_at(keyboard_monitor::OBJECT_PATH, keyboard_monitor::KeyboardMonitor { shared: keyboard_monitor.clone() })?
+            .serve_at(keyboard_monitor::OBJECT_PATH, keyboard_monitor::PointerLocator { shared: keyboard_monitor.clone() })?
             .build()
             .await?;
         own(&conn, idle_monitor::BUS_NAME).await?;
@@ -323,6 +327,7 @@ impl CompositorServices {
             }
             Event::FocusTracking(_) => Ok(()),
             Event::KeyMonitor(report) => keyboard_monitor::send(&self.conn, &report).await,
+            Event::PointerMoved(to) => keyboard_monitor::send_pointer_moved(&self.conn, &to).await,
             Event::SwitchMonitor => {
                 self.switcher.press(&self.conn).await;
                 Ok(())

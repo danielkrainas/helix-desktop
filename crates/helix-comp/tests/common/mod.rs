@@ -27,6 +27,8 @@ pub struct State {
     token: Option<String>,
     /// The serial of the last key or button press this client got.
     pub press: Option<u32>,
+    /// Whether the last toplevel configure said maximized.
+    pub maximized: bool,
 }
 
 macro_rules! quiet {
@@ -36,7 +38,7 @@ macro_rules! quiet {
         }
     )*};
 }
-quiet!(wl_compositor::WlCompositor, wl_surface::WlSurface, wl_shm::WlShm, wl_shm_pool::WlShmPool, wl_buffer::WlBuffer, wl_seat::WlSeat, xdg_toplevel::XdgToplevel, xdg_activation_v1::XdgActivationV1, gtk_shell1::GtkShell1, gtk_surface1::GtkSurface1);
+quiet!(wl_compositor::WlCompositor, wl_surface::WlSurface, wl_shm::WlShm, wl_shm_pool::WlShmPool, wl_buffer::WlBuffer, wl_seat::WlSeat, xdg_activation_v1::XdgActivationV1, gtk_shell1::GtkShell1, gtk_surface1::GtkSurface1);
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for State {
     fn event(_: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
@@ -45,6 +47,14 @@ impl Dispatch<xdg_wm_base::XdgWmBase, ()> for State {
     fn event(_: &mut Self, base: &xdg_wm_base::XdgWmBase, event: xdg_wm_base::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if let xdg_wm_base::Event::Ping { serial } = event {
             base.pong(serial);
+        }
+    }
+}
+impl Dispatch<xdg_toplevel::XdgToplevel, ()> for State {
+    fn event(state: &mut Self, _: &xdg_toplevel::XdgToplevel, event: xdg_toplevel::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_toplevel::Event::Configure { states, .. } = event {
+            let maximized = xdg_toplevel::State::Maximized as u32;
+            state.maximized = states.as_chunks::<4>().0.iter().any(|c| u32::from_ne_bytes(*c) == maximized);
         }
     }
 }
@@ -106,7 +116,7 @@ pub struct Client {
     base: xdg_wm_base::XdgWmBase,
     activation: xdg_activation_v1::XdgActivationV1,
     pub gtk_shell: gtk_shell1::GtkShell1,
-    seat: wl_seat::WlSeat,
+    pub seat: wl_seat::WlSeat,
 }
 
 pub struct Toplevel {
@@ -207,7 +217,7 @@ pub fn connect(session: &HeadlessSession) -> Client {
         shm: globals.bind(&qh, 1..=1, ()).unwrap(),
         base: globals.bind(&qh, 1..=6, ()).unwrap(),
         activation: globals.bind(&qh, 1..=1, ()).unwrap(),
-        gtk_shell: globals.bind(&qh, 1..=4, ()).expect("helix-comp offers gtk_shell1"),
+        gtk_shell: globals.bind(&qh, 1..=7, ()).expect("helix-comp offers gtk_shell1"),
         seat,
         queue,
         qh,

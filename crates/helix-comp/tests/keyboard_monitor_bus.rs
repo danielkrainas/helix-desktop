@@ -159,6 +159,7 @@ async fn matches_the_contract() {
     use helix_test_support::conformance::{assert_conformant, check, introspect, load_dbus_contract};
     let conn = bus.connect().await;
     let xml = introspect(&conn, keyboard_monitor::BUS_NAME, keyboard_monitor::OBJECT_PATH).await;
-    let iface = "org.freedesktop.a11y.KeyboardMonitor";
-    assert_conformant(iface, &check(iface, &load_dbus_contract(file), &xml, &[]));
+    for iface in ["org.freedesktop.a11y.KeyboardMonitor", "org.freedesktop.a11y.PointerLocator"] {
+        assert_conformant(iface, &check(iface, &load_dbus_contract(file), &xml, &[]));
+    }
 }

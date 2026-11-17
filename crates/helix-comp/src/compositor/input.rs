@@ -26,8 +26,10 @@ impl Helix {
         let pointer = self.seat.get_pointer().unwrap();
         let frame = if pointer.is_grabbed() { None } else { self.frame_under(pos) };
         let under = if self.frame_hover(frame.as_ref()) { None } else { self.surface_under(pos) };
+        let under_client = under.as_ref().and_then(|(s, _)| smithay::reexports::wayland_server::Resource::client(s)).map(|c| c.id());
         pointer.motion(self, under, &MotionEvent { location: pos, serial, time });
         pointer.frame(self);
+        self.locate_pointer_for_a11y(pos, under_client);
         self.focus_follows_pointer(pos);
         self.hot_corner(pos);
     }

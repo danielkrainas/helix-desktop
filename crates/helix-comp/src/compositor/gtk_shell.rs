@@ -4,11 +4,15 @@
 //! GTK 3 has no other way to say a dialog is modal
 //! (`gtk_surface1.set_modal`; GTK 4 uses `xdg_dialog_v1` when it is
 //! there), and Helix needs that to send focus meant for a window to its
-//! modal dialog, as mutter does. Version 4: from version 5 GTK leaves
-//! titlebar clicks to the compositor (`titlebar_gesture`), which Helix
-//! does not do. Nothing else changes for GTK at version 4 while
-//! `xdg_activation_v1` is offered (GTK then activates with tokens, not
-//! `present` or `request_focus`).
+//! modal dialog, as mutter does. Version 7: title bar gestures
+//! (`titlebar_gesture`, version 5: GTK then leaves double, middle and
+//! right clicks on its own title bars to the compositor, which does what
+//! `action-*-click-titlebar` say, as on Helix's title bars), surface
+//! offsets (version 6, `wl_surface.offset`) and the accessibility names
+//! (`set_a11y_properties`, version 7) that
+//! `org.freedesktop.a11y.PointerLocator` reports for a window. Nothing
+//! else changes for GTK while `xdg_activation_v1` is offered (GTK then
+//! activates with tokens, not `present` or `request_focus`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -20,7 +24,19 @@ use smithay::wayland::xdg_activation::XdgActivationToken;
 use super::Helix;
 
 /// The version offered (see the module documentation).
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 7;
+
+/// A surface's accessibility names (`set_a11y_properties`): its app's
+/// name on the accessibility bus and its toplevel's object path.
+#[derive(Debug, Clone, Default)]
+pub struct A11yProperties(pub Option<(String, String)>);
+
+/// The accessibility names `surface`'s client gave it, if any.
+pub fn a11y_properties(surface: &WlSurface) -> Option<(String, String)> {
+    smithay::wayland::compositor::with_states(surface, |states| {
+        states.data_map.get::<std::sync::Mutex<A11yProperties>>().and_then(|p| p.lock().ok().and_then(|p| p.0.clone()))
+    })
+}
 
 /// A `gtk_surface1`'s surface.
 pub struct GtkSurfaceData {
@@ -79,7 +95,24 @@ impl Dispatch<gtk_surface1::GtkSurface1, GtkSurfaceData> for Helix {
                 let token = startup_id.map(XdgActivationToken::from);
                 state.activate_with_token(token.as_ref(), &surface);
             }
-            // App menu paths, accessibility names: nothing uses them.
+            gtk_surface1::Request::TitlebarGesture { gesture, .. } => {
+                let gesture = match gesture {
+                    smithay::reexports::wayland_server::WEnum::Value(g) => g as u32,
+                    smithay::reexports::wayland_server::WEnum::Unknown(g) => g,
+                };
+                if let Some(window) = state.window_for_surface(&surface) {
+                    state.titlebar_gesture(&window, gesture);
+                }
+            }
+            gtk_surface1::Request::SetA11yProperties { a11y_dbus_name, toplevel_object_path } => {
+                smithay::wayland::compositor::with_states(&surface, |states| {
+                    states.data_map.insert_if_missing_threadsafe(|| std::sync::Mutex::new(A11yProperties::default()));
+                    if let Some(Ok(mut p)) = states.data_map.get::<std::sync::Mutex<A11yProperties>>().map(|p| p.lock()) {
+                        p.0 = Some((a11y_dbus_name, toplevel_object_path));
+                    }
+                });
+            }
+            // App menu paths: nothing uses them.
             _ => {}
         }
     }
