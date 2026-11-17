@@ -1430,6 +1430,7 @@ dependencies = [
  "helix-test-support",
  "libc",
  "png",
+ "resvg",
  "serde",
  "serde_json",
  "smithay-client-toolkit 0.21.1",

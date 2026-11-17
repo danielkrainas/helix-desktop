@@ -350,6 +350,26 @@ fn menu(canvas: &mut Canvas, right: i32, bottom: i32, mw: i32, count: usize, ite
 /// Users' pictures by login name.
 pub type Pictures = std::collections::HashMap<String, helix_draw::Image>;
 
+/// Helix's mark (`data/icons/…/org.helixdesktop.Helix.svg`), `px`
+/// square; made once per size.
+fn mark_image(px: u32) -> Option<helix_draw::Image> {
+    use resvg::{tiny_skia, usvg};
+    static MARK: std::sync::Mutex<Option<(u32, helix_draw::Image)>> = std::sync::Mutex::new(None);
+    const SVG: &[u8] = include_bytes!("../../../data/icons/hicolor/scalable/apps/org.helixdesktop.Helix.svg");
+    let mut cached = MARK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, image)) = cached.as_ref().filter(|(size, _)| *size == px) {
+        return Some(image.clone());
+    }
+    let tree = usvg::Tree::from_data(SVG, &usvg::Options::default()).ok()?;
+    let px = px.max(1);
+    let scale = px as f32 / tree.size().width().max(tree.size().height());
+    let mut pixmap = tiny_skia::Pixmap::new(px, px)?;
+    resvg::render(&tree, tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    let image = helix_draw::Image { width: px as usize, height: px as usize, rgba: pixmap.take() };
+    *cached = Some((px, image.clone()));
+    Some(image)
+}
+
 #[cfg(test)]
 pub fn paint(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32, h: i32) -> Hits {
     paint_with(canvas, text, view, w, h, &Pictures::new())
@@ -524,6 +544,16 @@ pub fn paint_with(canvas: &mut Canvas, text: Option<&Text>, view: &View, w: i32,
     a11y_symbol(canvas, f64::from(a11y.x) + f64::from(a11y.w) / 2.0, f64::from(a11y.y) + f64::from(a11y.h) / 2.0, theme::button_text(Kind::Normal));
     hits.push((a11y, Hit::A11yButton));
 
+    // Helix's mark, bottom center, where it fits between the two sides.
+    let left_end = hits.iter().filter(|(r, _)| r.y == y && r.x < w / 2).map(|(r, _)| r.x + r.w).max().unwrap_or(MARGIN);
+    let size = bh + 8;
+    let mark = Rect { x: (w - size) / 2, y: y + bh - size + 4, w: size, h: size };
+    if mark.x >= left_end + 24 && mark.x + mark.w + 24 <= a11y.x {
+        if let Some(image) = mark_image((f64::from(size) * canvas.scale).round() as u32) {
+            canvas.image(f64::from(mark.x), f64::from(mark.y), f64::from(size), f64::from(size), &image);
+        }
+    }
+
     let item_h = g(MENU_ITEM_H);
     if let (Some(highlighted), Some(button)) = (view.session_menu, session_button) {
         let widest = view.sessions.iter().map(|s| width(text, s, 15.0).ceil() as i32).max().unwrap_or(0);
@@ -656,6 +686,27 @@ mod tests {
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
         encoder.write_header().unwrap().write_image_data(&rgba).unwrap();
+    }
+
+    /// Helix's mark sits centered in the bottom bar (bluish pixels where
+    /// the background is warm), at any scale.
+    #[test]
+    fn mark_in_the_bottom_bar() {
+        for scale in [1.0, 2.0] {
+            let p = render(&view(users()), scale, &format!("mark-{scale}"));
+            let bar_y = H - BUTTON_H - MARGIN;
+            let size = BUTTON_H + 8;
+            let (x0, y0) = ((W - size) / 2, bar_y + BUTTON_H - size + 4);
+            let bluish = |x: i32, y: i32| {
+                let c = p.px(x, y);
+                let (r, b) = ((c >> 16) & 0xFF, c & 0xFF);
+                b > r + 30
+            };
+            let inside = (y0..y0 + size).flat_map(|y| (x0..x0 + size).map(move |x| (x, y))).filter(|&(x, y)| bluish(x, y)).count();
+            assert!(inside > (size * size / 4) as usize, "scale {scale}: {inside} mark pixels");
+            // Nothing of it outside its square.
+            assert!(!bluish(x0 - 4, y0 + size / 2) && !bluish(x0 + size + 4, y0 + size / 2));
+        }
     }
 
     #[test]

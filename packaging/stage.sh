@@ -31,6 +31,8 @@ install -Dm644 "$root/packaging/apparmor/helix-extension-sandbox" "$dest/etc/app
 # action (org.helixdesktop.login-screen-monitors).
 install -Dm755 "$bin/helix-login-monitors" "$dest/usr/libexec/helix/helix-login-monitors"
 install -Dm644 "$root/data/org.helixdesktop.login-screen-monitors.policy" "$dest/usr/share/polkit-1/actions/org.helixdesktop.login-screen-monitors.policy"
+# Helix's mark as the org.helixdesktop.Helix icon.
+install -Dm644 "$root/data/icons/hicolor/scalable/apps/org.helixdesktop.Helix.svg" "$dest/usr/share/icons/hicolor/scalable/apps/org.helixdesktop.Helix.svg"
 # The session's name and comment in every language of po/LINGUAS
 # (Name[de]=…), for login screens.
 install -d "$dest/usr/share/wayland-sessions"

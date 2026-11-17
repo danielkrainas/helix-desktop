@@ -25,6 +25,8 @@ smithay-client-toolkit.workspace = true
 helix-draw.workspace = true
 # Account pictures.
 png.workspace = true
+# Helix's mark in the bottom bar.
+resvg.workspace = true
 zune-jpeg = "0.5"
 
 [dev-dependencies]

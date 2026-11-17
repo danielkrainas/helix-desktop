@@ -43,6 +43,8 @@ contents:
     dst: /usr/libexec/helix/helix-login-monitors
   - src: ./stage/usr/share/polkit-1/actions/org.helixdesktop.login-screen-monitors.policy
     dst: /usr/share/polkit-1/actions/org.helixdesktop.login-screen-monitors.policy
+  - src: ./stage/usr/share/icons/hicolor/scalable/apps/org.helixdesktop.Helix.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/org.helixdesktop.Helix.svg
   # AppArmor (Debian/Ubuntu, Arch): lets extension sandboxes start where
   # unprivileged user namespaces are restricted. Fedora has no AppArmor.
   - src: ./stage/etc/apparmor.d/helix-extension-sandbox
