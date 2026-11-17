@@ -1191,22 +1191,29 @@ impl Ui {
 
     /// Whether there is a dock to move the keyboard to.
     pub(super) fn dock_reachable(&self) -> bool {
-        self.dock.settings.enabled && self.dock.views.iter().any(|v| v.layer.is_some() && !v.items.is_empty())
+        self.dock.settings.enabled && self.dock.views.iter().any(Self::dock_view_reachable)
+    }
+
+    /// A dock view the keyboard can go to: it has items and is shown, or
+    /// hidden (auto-hide, intellihide: no surface then) on a monitor.
+    fn dock_view_reachable(v: &DockView) -> bool {
+        !v.items.is_empty() && (v.layer.is_some() || v.output.is_some())
     }
 
     /// `switch-panels` reached the dock: its first item (last going
     /// backward) takes the keyboard, and a hidden dock shows while it has it.
     pub(super) fn focus_dock(&mut self, backward: bool) {
-        let Some(i) = self.dock.views.iter().position(|v| v.layer.is_some() && !v.items.is_empty()) else { return };
+        let Some(i) = self.dock.views.iter().position(Self::dock_view_reachable) else { return };
         self.dock.cur = i;
         let n = self.dock.views[i].items.len();
         self.dock.views[i].keyboard = Some(if backward { n - 1 } else { 0 });
         self.dock_cancel_timer();
+        // Shown for the keyboard (a hidden dock's surface is made again).
+        self.dock_update();
         if let Some(layer) = self.dock.views[i].layer.as_ref() {
             layer.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
             layer.commit();
         }
-        self.dock_update();
         self.dock_draw();
     }
 
