@@ -1002,6 +1002,59 @@ fn dock_and_grid() {
     helix_draw::accent::set(Accent::Blue);
 }
 
+/// The overview's dash (`dash-…`), its icons looking as the dock's do:
+/// Files at rest with two windows (the focused app), Calculator under the
+/// pointer with its tooltip, Calendar pressed, Terminal chosen with the
+/// keyboard, and a launch copy growing out of Text Editor; in an accent,
+/// high contrast and text scale 1.5.
+#[test]
+#[ignore]
+fn dash_feedback() {
+    use crate::item_feedback::{Look, HOVER_SCALE, PRESS_SCALE};
+    use helix_draw::accent::Accent;
+    let Some(dir) = dir() else { return };
+    let text = Text::load();
+    let (w, h) = (760, 200);
+    let px = super::dash::DASH_ICON as u32;
+    let entry = |app: &str, windows: Vec<u32>, titles: &[&str], running_only: bool| super::dash::DashEntry {
+        app: app.into(),
+        icon: crate::icons::app_icon(app, px),
+        windows,
+        running_only,
+        titles: titles.iter().map(|t| (*t).to_owned()).collect(),
+    };
+    let entries = vec![
+        entry("org.gnome.Nautilus", vec![1, 2], &["Home", "Downloads"], false),
+        entry("org.gnome.Calculator", vec![3], &["Calculator"], false),
+        entry("org.gnome.Calendar", vec![], &[], false),
+        entry("org.gnome.Terminal", vec![4], &["~/projects"], false),
+        entry("org.gnome.TextEditor", vec![], &[], true),
+    ];
+    let rest = Look { highlight: 0.0, pressed: false, scale: 1.0 };
+    let looks = vec![rest, Look { highlight: 1.0, pressed: false, scale: HOVER_SCALE }, Look { highlight: 1.0, pressed: true, scale: PRESS_SCALE }, Look { highlight: 1.0, pressed: false, scale: HOVER_SCALE }, rest];
+    for (name, accent, hc, factor) in [("blue", Accent::Blue, false, 1.0), ("hc", Accent::Blue, true, 1.0), ("text1.5", Accent::Blue, false, 1.5)] {
+        helix_draw::accent::set(accent);
+        helix_draw::set_high_contrast(hc);
+        helix_draw::theme::set_text_scale(factor);
+        render(&dir, &format!("dash-{name}"), DARK, (w, h, 1.0), |canvas| {
+            canvas.fill(SCRIM);
+            let m = super::dash::DashPaint {
+                entries: &entries,
+                looks: looks.clone(),
+                ghosts: vec![(4, 0.4)],
+                keyboard: Some(3),
+                focused_app: "org.gnome.Nautilus",
+                indicator: crate::dock::Indicator::Dots,
+                tooltip: Some(1),
+                drag: None,
+            };
+            super::dash::paint_dash(canvas, text.as_ref(), (w as i32, h as i32), &m);
+        });
+    }
+    helix_draw::theme::set_text_scale(1.0);
+    helix_draw::set_high_contrast(false);
+}
+
 /// On-screen displays: volume, brightness with a label, above 100 %,
 /// words only; in an accent, high contrast and text scale 1.5 (`osd-…`).
 #[test]

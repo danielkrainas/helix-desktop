@@ -14,7 +14,13 @@
 //! until it moved: the chosen window got no pointer `enter`, and clicks
 //! and scrolls went nowhere (every round failed).
 //!
-//! The tiles are found from the shell's debug log ("overview tiles").
+//! The dash's icons answer as the dock's do (`dash_icons_answer_like_the_dock`):
+//! resting the pointer on one lights it (drawn again frame by frame while
+//! the highlight fades in) and shows its name above it, pressing darkens
+//! the highlight, and releasing on it goes to the app's window.
+//!
+//! The tiles and dash icons are found from the shell's debug log
+//! ("overview tiles", "overview dash").
 //! Needs helix-comp built next to this test; skipped otherwise.
 
 use std::os::fd::AsFd;
@@ -289,5 +295,127 @@ fn overview_switches_windows_with_working_input() {
     }
     let log = session.log();
     assert!(failures.is_empty(), "the chosen window did not get input:\n{}\n\n{log}", failures.join("\n"));
+    assert!(!log.contains("panicked"), "{log}");
+}
+
+/// The dash icons of the last "overview dash" line: (app, x, y, w, h).
+fn dash_icons(log: &str) -> Vec<(String, [i32; 4])> {
+    let Some(line) = log.lines().rfind(|l| l.contains("overview dash")) else { return Vec::new() };
+    let Some(list) = line.split("dash=").nth(1) else { return Vec::new() };
+    list.trim_matches(|c: char| c == '"' || c.is_whitespace())
+        .split(' ')
+        .filter_map(|w| {
+            let (app, rect) = w.split_once('@')?;
+            let n: Vec<i32> = rect.trim_matches('"').split(',').map(|v| v.parse().ok()).collect::<Option<_>>()?;
+            (n.len() == 4).then(|| (app.to_owned(), [n[0], n[1], n[2], n[3]]))
+        })
+        .collect()
+}
+
+/// The mean brightness (0 to 255) of a snapshot's `x0..x1`×`y0..y1`.
+fn brightness((w, data): (u32, &[u8]), (x0, x1): (i32, i32), (y0, y1): (i32, i32)) -> f64 {
+    let mut sum = 0u64;
+    let mut n = 0u64;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let i = ((y as u32 * w + x as u32) * 4) as usize;
+            sum += u64::from(data[i]) + u64::from(data[i + 1]) + u64::from(data[i + 2]);
+            n += 3;
+        }
+    }
+    sum as f64 / n.max(1) as f64
+}
+
+/// The times (ms) of the log's drawings whose message is `what`
+/// ("overview drawn": the whole overview; "overview dash drawn": the dash
+/// alone).
+fn draws(log: &str, what: &str) -> Vec<f64> {
+    log.lines().filter(|l| l.contains(what)).filter_map(|l| l.split("ms=").nth(1)?.split_whitespace().next()?.parse().ok()).collect()
+}
+
+#[test]
+fn dash_icons_answer_like_the_dock() {
+    let Some(comp) = sibling_binary("helix-comp") else {
+        eprintln!("helix-comp is not built next to this test; skipped");
+        return;
+    };
+    let shell = std::path::PathBuf::from(env!("CARGO_BIN_EXE_helix-shell"));
+    let settings = "[org/gnome/desktop/interface]\nenable-hot-corners=false\nenable-animations=true\n";
+    let env = vec![("RUST_LOG".to_owned(), "info,helix_shell::ui::overview=debug".to_owned())];
+    let Some(mut session) = HeadlessSession::start(Options { comp: &comp, shell: Some(&shell), size: (1280, 800), settings, env }) else { return };
+    assert!(session.wait_for_log("namespace=\"helix-panel\"", Duration::from_secs(30)), "the shell's panel:\n{}", session.log());
+
+    let conn = Connection::from_socket(UnixStream::connect(&session.wayland_display).unwrap()).unwrap();
+    let (globals, queue) = registry_queue_init::<State>(&conn).unwrap();
+    let qh = queue.handle();
+    let seat: wl_seat::WlSeat = globals.bind(&qh, 5..=9, ()).unwrap();
+    seat.get_keyboard(&qh, ());
+    seat.get_pointer(&qh, ());
+    let mut c = Client {
+        compositor: globals.bind(&qh, 4..=6, ()).unwrap(),
+        shm: globals.bind(&qh, 1..=1, ()).unwrap(),
+        base: globals.bind(&qh, 1..=6, ()).unwrap(),
+        queue,
+        qh,
+        state: State::default(),
+        scratch: session.home().join("tmp"),
+    };
+    let first = c.toplevel("First", (1280, 768), 0xFF20_4080);
+    let _second = c.toplevel("Second", (1280, 768), 0xFF80_4020);
+
+    overview(&session, true);
+    assert!(c.wait(Duration::from_secs(5), |st| st.keyboard.is_none()), "the overview did not take the keyboard");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let first_icon = |log: &str| dash_icons(log).into_iter().find(|(app, _)| app == "org.helixdesktop.TestFirst").map(|(_, r)| r);
+    while first_icon(&session.log()).is_none() {
+        assert!(Instant::now() < deadline, "no dash icon for First:\n{}", session.log());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // A little time for the overview to settle (its first drawing can be
+    // at another size), then where the icon is now.
+    std::thread::sleep(Duration::from_millis(500));
+    let icon = first_icon(&session.log()).unwrap();
+    let [x, y, w, h] = icon;
+    // The ring between the icon's edge and the highlight's (4 px around),
+    // and the place above the icon where its name shows.
+    let ring = |shot: (u32, &[u8])| brightness(shot, (x - 3, x - 1), (y + 8, y + h - 8)) + brightness(shot, (x + w + 1, x + w + 3), (y + 8, y + h - 8));
+    let above = |shot: (u32, &[u8])| brightness(shot, (x + 4, x + w - 4), (y - 30, y - 18));
+    // Rest the pointer away from the dash first.
+    session.input("move 640 300");
+    std::thread::sleep(Duration::from_millis(500));
+    let (sw, _, before) = session.fresh_snapshot();
+
+    // Hover: the dash alone is drawn again frame by frame while the
+    // highlight fades in, not the whole overview.
+    let log = session.log();
+    let (full, dash) = (draws(&log, "overview drawn").len(), draws(&log, "overview dash drawn").len());
+    session.input(&format!("move {} {}", x + w / 2, y + h / 2));
+    std::thread::sleep(Duration::from_millis(700));
+    let log = session.log();
+    let (full_times, dash_times) = (draws(&log, "overview drawn"), draws(&log, "overview dash drawn"));
+    let frames = &dash_times[dash..];
+    eprintln!("hover: {} dash draws (slowest {:.1} ms, mean {:.1} ms), {} whole draws", frames.len(), frames.iter().copied().fold(0.0, f64::max), frames.iter().sum::<f64>() / frames.len().max(1) as f64, full_times.len() - full);
+    assert!(frames.len() >= 6, "the fade was not drawn frame by frame: {frames:?}\n{}", log.lines().filter(|l| l.contains("dash=") || l.contains("overview tiles")).collect::<Vec<_>>().join("\n"));
+    assert_eq!(full_times.len(), full, "hovering the dash drew the whole overview");
+    let (_, _, lit) = session.fresh_snapshot();
+    let (ring_rest, ring_lit) = (ring((sw, &before)), ring((sw, &lit)));
+    let (above_rest, above_lit) = (above((sw, &before)), above((sw, &lit)));
+    eprintln!("ring: rest {ring_rest:.1}, lit {ring_lit:.1}; above: rest {above_rest:.1}, tooltip {above_lit:.1}");
+    assert!(ring_lit > ring_rest + 10.0, "no highlight behind the hovered icon");
+    assert!((above_lit - above_rest).abs() > 5.0, "no name above the hovered icon");
+
+    // Press: a darker (stronger) highlight; no tooltip while pressed.
+    session.input("button 272 1");
+    std::thread::sleep(Duration::from_millis(400));
+    let (_, _, pressed) = session.fresh_snapshot();
+    let ring_pressed = ring((sw, &pressed));
+    eprintln!("ring pressed {ring_pressed:.1}");
+    assert!(ring_pressed > ring_lit + 3.0, "pressing did not change the highlight");
+
+    // Release on it: its window comes up and the overview closes.
+    session.input("button 272 0");
+    let f = first.surface.clone();
+    assert!(c.wait(Duration::from_secs(3), |st| st.keyboard.as_ref() == Some(&f)), "releasing on the icon did not go to First's window");
+    let log = session.log();
     assert!(!log.contains("panicked"), "{log}");
 }

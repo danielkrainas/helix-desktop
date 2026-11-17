@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 use helix_draw::Image;
 use helix_protocols::client::helix_screenshot_frame_v1::{self, HelixScreenshotFrameV1};
 use helix_protocols::client::helix_window_list_v1::Action as WindowAction;
+use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
+use smithay_client_toolkit::reexports::calloop::RegistrationToken;
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;
 use smithay_client_toolkit::reexports::client::backend::ObjectId;
 use smithay_client_toolkit::reexports::client::{Connection, Dispatch, Proxy, QueueHandle};
@@ -61,6 +63,27 @@ pub(super) struct OverviewState {
     /// icon being dragged (app, pointer).
     dash_press: Option<(String, (f64, f64), Option<u32>)>,
     dash_drag: Option<(String, (f64, f64))>,
+    /// Hover, press and launch feedback on the dash icons (by app id), as
+    /// on the dock ("Item feedback").
+    pub(super) dash_feedback: crate::item_feedback::Feedback<String>,
+    /// The dash icon under the pointer, and when its tooltip shows (as on
+    /// the dock: after a rest, at once when moving on from another).
+    dash_hover: Option<String>,
+    dash_tooltip_at: Option<Instant>,
+    dash_tooltip_shown: bool,
+    /// The dash was drawn since its tooltip became due.
+    dash_tooltip_due_drawn: bool,
+    dash_tooltip_gone: Option<Instant>,
+    /// Draws again while the dash's feedback moves or a tooltip is due.
+    redraw: Option<RegistrationToken>,
+    /// The dash's entries as last painted, and the frame without the dash
+    /// ((buffer length, scale), pixels) to repaint it on.
+    dash_entries: Vec<super::dash::DashEntry>,
+    dash_base: Option<((usize, u64), Vec<u8>)>,
+    /// The top of the dash as last painted (its tooltip's, if shown).
+    dash_top: i32,
+    /// Kept open for an app's launch copy, then closed.
+    pub(super) linger: Option<RegistrationToken>,
     /// The last window moved with the keyboard or an accessibility
     /// action, said: "Terminal moved to Workspace 2".
     moved: Option<String>,
@@ -139,6 +162,26 @@ pub(super) fn paint_window_tile(canvas: &mut Canvas, text: Option<&crate::text::
     Some(Rect { x: (cx - d / 2.0) as i32, y: (cy - d / 2.0) as i32, w: d as i32, h: d as i32 })
 }
 
+/// What the dash shows now: each icon's feedback, launch copies, the
+/// keyboard's choice and the tooltip (under the pointer once it has
+/// rested there, else the keyboard's choice; none while pressing or
+/// dragging). Nothing moves while an icon is dragged.
+fn dash_model<'a>(state: &mut OverviewState, dash: &'a [super::dash::DashEntry], focused_app: &'a str, indicator: crate::dock::Indicator) -> super::dash::DashPaint<'a> {
+    let now = Instant::now();
+    let keyboard = (state.region == Region::Dash).then_some(state.dash_key).flatten().filter(|k| *k < dash.len());
+    state.dash_feedback.set_focus(keyboard.map(|k| dash[k].app.clone()), now);
+    let index = |app: &str| dash.iter().position(|e| e.app == app);
+    let rest = crate::item_feedback::Look { highlight: 0.0, pressed: false, scale: 1.0 };
+    let looks = dash.iter().map(|e| if state.dash_drag.is_some() { rest } else { state.dash_feedback.look(&e.app, now) }).collect();
+    let ghosts = state.dash_feedback.ghosts(now).into_iter().filter_map(|(app, p)| Some((index(&app)?, p))).collect();
+    let due = state.dash_tooltip_at.is_some_and(|t| now >= t);
+    state.dash_tooltip_due_drawn |= due;
+    let pointed = state.dash_hover.as_deref().filter(|_| due).and_then(index);
+    let tooltip = if state.dash_drag.is_some() || state.dash_press.is_some() { None } else { pointed.or(keyboard) };
+    state.dash_tooltip_shown = pointed.is_some() && tooltip == pointed;
+    super::dash::DashPaint { entries: dash, looks, ghosts, keyboard, focused_app, indicator, tooltip, drag: state.dash_drag.as_ref().map(|(app, at)| (app.clone(), *at)) }
+}
+
 /// The overview's parts the keyboard moves between (Tab, Shift+Tab).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum Region {
@@ -179,7 +222,7 @@ pub(super) fn nearest<T: Copy>(rects: &[(Rect, T)], from: Rect, dir: Dir) -> Opt
 }
 
 /// How far above the dash a dropped favorite is unpinned.
-const DASH_UNPIN: f64 = 60.0;
+pub(super) const DASH_UNPIN: f64 = 60.0;
 
 /// Where a dash icon dropped at `x` goes among the favorites `rects`
 /// (left to right): the index of the first one it is left of.
@@ -345,7 +388,12 @@ impl Ui {
         }
         let was_shown = self.launcher.is_some();
         self.close_launcher(false);
-        let state = OverviewState { primary: true, selected: Some(self.windows.focused()).filter(|id| *id != 0), ..OverviewState::default() };
+        let state = OverviewState {
+            primary: true,
+            selected: Some(self.windows.focused()).filter(|id| *id != 0),
+            dash_feedback: crate::item_feedback::Feedback::with_motion(crate::item_feedback::motion()),
+            ..OverviewState::default()
+        };
         let overlay = self.new_overlay("helix-overview", KeyboardInteractivity::Exclusive, state);
         // The panel stays in sight above it.
         overlay.layer.set_margin(panel_height() as i32, 0, 0, 0);
@@ -499,6 +547,100 @@ impl Ui {
         }
         self.overview_others = others;
         tracing::debug!(ms = started.elapsed().as_secs_f64() * 1000.0, "overview drawn");
+        self.overview_schedule_redraw();
+    }
+
+    /// While the dash's feedback moves, draw again next frame; with a
+    /// tooltip due, draw again when it is.
+    fn overview_schedule_redraw(&mut self) {
+        let now = Instant::now();
+        let Some(state) = self.overview.as_mut().map(|o| &mut o.state) else { return };
+        let after = if state.dash_feedback.moving(now) {
+            Some(Duration::from_millis(16))
+        } else {
+            // Not drawn since it became due (also when the last drawing was
+            // just before that): when it is, or at once.
+            state.dash_tooltip_at.filter(|_| !state.dash_tooltip_due_drawn).map(|t| t.saturating_duration_since(now))
+        };
+        let (Some(after), None, Some(handle)) = (after, state.redraw.as_ref(), self.loop_handle.as_ref()) else { return };
+        let token = handle.insert_source(Timer::from_duration(after), |_, _, ui: &mut Ui| {
+            if let Some(o) = ui.overview.as_mut() {
+                o.state.redraw = None;
+            }
+            ui.overview_dash_changed();
+            TimeoutAction::Drop
+        });
+        state.redraw = token.ok();
+    }
+
+    /// Only the dash's look changed (hover, press, feedback moving, its
+    /// tooltip): repaint just the dash, else draw the whole overview.
+    pub(super) fn overview_dash_changed(&mut self) {
+        if !self.overview_repaint_dash() {
+            self.draw_overview();
+        }
+    }
+
+    /// Repaint the dash on the frame kept from the last full drawing
+    /// (`dash_base`) and tell the compositor only its strip changed. False
+    /// when that cannot be done.
+    fn overview_repaint_dash(&mut self) -> bool {
+        let _busy = crate::watchdog::scope("draw overview dash");
+        let started = Instant::now();
+        let Some(mut overlay) = self.overview.take() else { return true };
+        let done = self.overview_repaint_dash_in(&mut overlay);
+        self.overview = Some(overlay);
+        if done {
+            tracing::debug!(ms = started.elapsed().as_secs_f64() * 1000.0, "overview dash drawn");
+            self.overview_schedule_redraw();
+        }
+        done
+    }
+
+    fn overview_repaint_dash_in(&mut self, overlay: &mut Overlay<OverviewState>) -> bool {
+        let state = &mut overlay.state;
+        if !overlay.configured || state.dash_drag.is_some() || state.drag.is_some() || state.dash_entries.is_empty() {
+            return false;
+        }
+        let (w, h) = (overlay.width as usize, overlay.height as usize);
+        let scale = self.scales.of(overlay.layer.wl_surface());
+        let (pw, ph) = (physical(w, scale), physical(h, scale));
+        let Some((_, base)) = state.dash_base.as_ref().filter(|(key, _)| *key == (pw * ph * 4, scale.to_bits())) else { return false };
+        let Ok((buffer, data)) = self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_overview, pw as i32, ph as i32, (pw * 4) as i32, wl_shm::Format::Argb8888) else { return false };
+        data.copy_from_slice(base);
+        let mut canvas = Canvas::scaled(data, w, h, scale);
+        let focused_app = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).map(|e| e.app_id.clone()).unwrap_or_default();
+        let entries = std::mem::take(&mut state.dash_entries);
+        let paint = dash_model(state, &entries, &focused_app, self.dock.settings.indicator);
+        let (_, top) = super::dash::paint_dash(&mut canvas, self.text.as_ref(), (w as i32, h as i32), &paint);
+        state.dash_entries = entries;
+        // What the dash covers now and covered before (a tooltip that went).
+        let y0 = ((f64::from(top.min(state.dash_top).max(0)) * scale).floor() as usize).saturating_sub(1).min(ph);
+        state.dash_top = top;
+        let surface = overlay.layer.wl_surface();
+        self.scales.prepare_damage(&self.qh, surface, (w as i32, h as i32), &[(0, y0, pw, ph)]);
+        if buffer.attach_to(surface).is_ok() {
+            overlay.layer.commit();
+        }
+        true
+    }
+
+    /// The pointer is over dash icon `app` (or none): its feedback, and
+    /// when its tooltip shows.
+    fn dash_set_hover(state: &mut OverviewState, app: Option<String>) -> bool {
+        if state.dash_hover == app {
+            return false;
+        }
+        let now = Instant::now();
+        if state.dash_tooltip_shown {
+            state.dash_tooltip_gone = Some(now);
+        }
+        let (at, _) = super::dock::tooltip_from(now, state.dash_tooltip_shown, state.dash_tooltip_gone);
+        state.dash_tooltip_at = app.as_ref().map(|_| at);
+        state.dash_tooltip_due_drawn = false;
+        state.dash_feedback.set_hover(app.clone(), now);
+        state.dash_hover = app;
+        true
     }
 
     fn paint_overview(&mut self, overlay: &mut Overlay<OverviewState>) {
@@ -524,6 +666,8 @@ impl Ui {
         };
         let mut canvas = Canvas::scaled(data, w, h, scale);
         canvas.fill(SCRIM);
+        let indicator = self.dock.settings.indicator;
+        let focused_app = self.windows.mru().iter().find(|e| e.id == self.windows.focused()).map(|e| e.app_id.clone()).unwrap_or_default();
         let text = self.text.as_ref();
         let state = &mut overlay.state;
         let (w, h) = (w as i32, h as i32);
@@ -589,52 +733,10 @@ impl Ui {
         }
         }
 
-        // The dash, at the bottom of the primary monitor.
+        // Room for the dash at the bottom of the primary monitor (painted
+        // last, see below).
         state.dash.clear();
         let dash_room = if dash.is_empty() { 0 } else { super::dash::DASH_H + 16 };
-        if !dash.is_empty() {
-            use super::dash::{DASH_GAP, DASH_H, DASH_ICON};
-            let gaps = dash.windows(2).filter(|p| p[1].running_only && !p[0].running_only).count() as i32;
-            let n = dash.len() as i32;
-            let dw = n * DASH_ICON + (n - 1) * DASH_GAP + gaps * 16 + 2 * 12;
-            let (dx, dy) = ((w - dw) / 2, h - DASH_H - 16);
-            theme::popover_round(&mut canvas, f64::from(dx), f64::from(dy), f64::from(dw), f64::from(DASH_H), theme::RADIUS_POPOVER + 6.0);
-            let mut x = dx + 12;
-            for (i, entry) in dash.iter().enumerate() {
-                if i > 0 && entry.running_only && !dash[i - 1].running_only {
-                    // A separator between favorites and the rest.
-                    theme::vseparator(&mut canvas, x + 2, dy + 14, DASH_ICON - 8);
-                    x += 16;
-                }
-                let r = Rect { x, y: dy + 8, w: DASH_ICON, h: DASH_ICON };
-                let dragged = state.dash_drag.as_ref().is_some_and(|(app, _)| *app == entry.app);
-                match &entry.icon {
-                    _ if dragged => {}
-                    Some(icon) => canvas.image(f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h), icon),
-                    None => {}
-                }
-                if !entry.windows.is_empty() {
-                    canvas.circle(f64::from(r.x + r.w / 2), f64::from(dy + DASH_H - 7), 2.5, FG);
-                }
-                if state.region == Region::Dash && state.dash_key == Some(state.dash.len()) {
-                    helix_draw::theme::focus_ring_round(&mut canvas, f64::from(r.x - 4), f64::from(r.y - 4), f64::from(r.w + 8), f64::from(r.h + 8), 8.0);
-                }
-                state.dash.push((r, entry.app.clone(), entry.windows.first().copied(), !entry.running_only));
-                x += DASH_ICON + DASH_GAP;
-            }
-            // A dragged icon: where it would go, and the icon itself.
-            if let Some((app, (px, py))) = state.dash_drag.clone() {
-                let favorites: Vec<Rect> = state.dash.iter().filter(|d| d.3 && d.1 != app).map(|d| d.0).collect();
-                if py >= f64::from(dy) - DASH_UNPIN {
-                    let i = dash_insert_index(&favorites, px);
-                    let mx = favorites.get(i).map_or_else(|| favorites.last().map_or(dx + 12, |r| r.x + r.w + DASH_GAP / 2), |r| r.x - DASH_GAP / 2);
-                    canvas.rect(mx - 1, dy + 6, 3, DASH_H - 12, accent());
-                }
-                if let Some(icon) = dash.iter().find(|e| e.app == app).and_then(|e| e.icon.as_ref()) {
-                    canvas.image(px - f64::from(DASH_ICON) / 2.0, py - f64::from(DASH_ICON) / 2.0, f64::from(DASH_ICON), f64::from(DASH_ICON), icon);
-                }
-            }
-        }
 
         // The active workspace's windows on this monitor.
         let area = Rect { x: 32, y: ty + THUMB_H + 32, w: w - 64, h: h - (ty + THUMB_H + 32) - 24 - dash_room };
@@ -685,6 +787,25 @@ impl Ui {
                 .collect();
             tracing::debug!(tiles = tiles.join(" "), "overview tiles");
         }
+        // The dash, last: its feedback is repainted on the frame as it was
+        // before the dash (`dash_base`), without drawing the rest again.
+        state.dash_base = None;
+        if !dash.is_empty() {
+            if state.drag.is_none() {
+                state.dash_base = Some(((canvas.data.len(), scale.to_bits()), canvas.data.to_vec()));
+            }
+            let paint = dash_model(state, &dash, &focused_app, indicator);
+            let (rects, top) = super::dash::paint_dash(&mut canvas, text, (w, h), &paint);
+            state.dash_top = top;
+            state.dash = dash.iter().zip(rects).map(|(e, r)| (r, e.app.clone(), e.windows.first().copied(), !e.running_only)).collect();
+            if tracing::enabled!(tracing::Level::DEBUG) {
+                // On screen, as the tiles below: `app@x,y,w,h`.
+                let (ox, oy) = (self.primary_area.0, self.primary_area.1 + panel_height() as i32);
+                let icons: Vec<String> = state.dash.iter().map(|(r, app, ..)| format!("{app}@{},{},{},{}", ox + r.x, oy + r.y, r.w, r.h)).collect();
+                tracing::debug!(dash = icons.join(" "), "overview dash");
+            }
+        }
+        state.dash_entries = dash;
         // The dragged window follows the pointer.
         if let Some((id, (x, y))) = state.drag {
             if let Some(shot) = self.overview_shots.pictures.get(&id) {
@@ -757,6 +878,8 @@ impl Ui {
                     if ((x - sx).powi(2) + (y - sy).powi(2)).sqrt() >= crate::drag_threshold() {
                         state.dash_press = None;
                         state.dash_drag = Some((app, (x, y)));
+                        state.dash_feedback.release(Instant::now());
+                        Self::dash_set_hover(state, None);
                     }
                 }
                 if let Some(drag) = state.dash_drag.as_mut() {
@@ -775,9 +898,18 @@ impl Ui {
                     return true;
                 }
                 let hover = tile_at(state).or_else(|| state.closes.iter().find(|(r, _)| r.contains(x, y)).map(|(_, id)| *id));
+                let dash_hover = state.dash.iter().find(|d| d.0.contains(x, y)).map(|d| d.1.clone());
+                let dash_changed = Self::dash_set_hover(state, dash_hover);
                 if hover != state.hover {
                     state.hover = hover;
                     self.draw_overview();
+                } else if dash_changed {
+                    self.overview_dash_changed();
+                }
+            }
+            PointerEventKind::Leave { .. } => {
+                if Self::dash_set_hover(state, None) {
+                    self.overview_dash_changed();
                 }
             }
             PointerEventKind::Press { button: BTN_LEFT, .. } => {
@@ -792,7 +924,9 @@ impl Ui {
                         list.switch_workspace(n);
                     }
                 } else if let Some((_, app, window, _)) = state.dash.iter().find(|d| d.0.contains(x, y)).cloned() {
+                    state.dash_feedback.press(app.clone(), Instant::now());
                     state.dash_press = Some((app, (x, y), window));
+                    self.overview_dash_changed();
                 } else if state.search.contains(x, y) {
                     self.close_overview(false);
                     self.open_launcher(false);
@@ -827,8 +961,11 @@ impl Ui {
                     return true;
                 }
                 if let Some((app, _, window)) = state.dash_press.take() {
+                    state.dash_feedback.release(Instant::now());
                     if state.dash.iter().any(|d| d.1 == app && d.0.contains(x, y)) {
                         self.dash_activate(&app, window);
+                    } else {
+                        self.overview_dash_changed();
                     }
                     return true;
                 }

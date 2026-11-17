@@ -28,7 +28,7 @@ const BADGE: u32 = 0xFFE01B24;
 const URGENT: u32 = 0xFFF57900;
 /// How long the pointer rests on an item before its tooltip shows, and
 /// how soon after one hid the next shows at once (moving along the dock).
-const TOOLTIP_DELAY: Duration = Duration::from_millis(300);
+pub(super) const TOOLTIP_DELAY: Duration = Duration::from_millis(300);
 const TOOLTIP_FOLLOW: Duration = Duration::from_millis(500);
 /// How long a dock revealed at the edge waits for the pointer.
 const REVEAL_GRACE: f64 = 1.5;
@@ -1819,7 +1819,7 @@ fn draw_grid(canvas: &mut Canvas, x: i32, y: i32, icon: i32) {
 /// Running marks for `n` windows, on the screen-edge side of `cell`. The
 /// focused window's app (`focused`) has them joined into one wide pill in
 /// the accent, so it is told from the others by shape as well as color.
-fn draw_indicator(canvas: &mut Canvas, style: logic::Indicator, edge: Edge, cell: Rect, n: usize, focused: bool) {
+pub(super) fn draw_indicator(canvas: &mut Canvas, style: logic::Indicator, edge: Edge, cell: Rect, n: usize, focused: bool) {
     if n == 0 {
         return;
     }
@@ -1914,7 +1914,7 @@ mod nav_tests {
 /// When the tooltip of an item the pointer just reached shows, and
 /// whether at once: at once while another is shown or soon after one went
 /// (moving along the dock), else after [`TOOLTIP_DELAY`].
-fn tooltip_from(now: std::time::Instant, shown: bool, gone: Option<std::time::Instant>) -> (std::time::Instant, bool) {
+pub(super) fn tooltip_from(now: std::time::Instant, shown: bool, gone: Option<std::time::Instant>) -> (std::time::Instant, bool) {
     let follow = shown || gone.is_some_and(|g| now.duration_since(g) < TOOLTIP_FOLLOW);
     (if follow { now } else { now + TOOLTIP_DELAY }, follow)
 }
@@ -2020,15 +2020,7 @@ pub(super) fn paint_dock(canvas: &mut Canvas, text: Option<&Text>, m: &DockPaint
         let (ix, iy) = (cell.x + (cell.w - icon) / 2 + if vertical { 0 } else { wiggle }, cell.y + (cell.h - icon) / 2 + if vertical { wiggle } else { 0 });
         // Hover and press: a light square behind the icon (only those).
         let look = m.looks[i];
-        let lit = (look.highlight * f64::from(0x40)).round() as u32;
-        let alpha = if look.pressed { 0x59 } else { lit };
-        if alpha > 0 {
-            if helix_draw::high_contrast() {
-                canvas.round_outline(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, if look.pressed { 2.0 } else { 1.0 }, 0xFFFFFFFF);
-            } else {
-                canvas.round_rect(f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0, (alpha << 24) | 0xFFFFFF);
-            }
-        }
+        paint_item_highlight(canvas, ix, iy, icon, look);
         if m.keyboard == Some(i) {
             helix_draw::theme::focus_ring_round(canvas, f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8), f64::from(icon + 8), 8.0);
         }
@@ -2039,7 +2031,7 @@ pub(super) fn paint_dock(canvas: &mut Canvas, text: Option<&Text>, m: &DockPaint
             let (sx, sy) = (cx - size / 2.0, cy - size / 2.0);
             match (item, &m.icons[i]) {
                 (Item::ShowApps, _) => draw_grid(canvas, sx.round() as i32, sy.round() as i32, size.round() as i32),
-                (_, Some(image)) => canvas.image(sx, sy, size, size, image),
+                (_, Some(image)) => paint_item_icon(canvas, (cx, cy), icon, look.scale, image),
                 // Being decoded (apps without one get the generic icon).
                 (_, None) => {}
             }
@@ -2080,9 +2072,8 @@ pub(super) fn paint_dock(canvas: &mut Canvas, text: Option<&Text>, m: &DockPaint
     }
     // Launch copies growing out of their items.
     for &(k, p) in &m.ghosts {
-        if let (Some(Some(image)), Some(&(cx, cy))) = (m.icons.get(k), centers.get(k)) {
-            let size = f64::from(icon) * (1.0 + (crate::item_feedback::GHOST_SCALE - 1.0) * p);
-            canvas.image_alpha(cx - size / 2.0, cy - size / 2.0, size, size, image, (0.8 * (1.0 - p)) as f32);
+        if let (Some(Some(image)), Some(&center)) = (m.icons.get(k), centers.get(k)) {
+            paint_launch_copy(canvas, center, icon, image, p);
         }
     }
     if let Some((d, at)) = m.drag {
@@ -2096,11 +2087,7 @@ pub(super) fn paint_dock(canvas: &mut Canvas, text: Option<&Text>, m: &DockPaint
     // The item's name (and windows), beside the bar.
     if let Some((i, lines)) = &m.tooltip {
         if let Some(&(cell, _)) = hits.iter().find(|(_, n)| n == i) {
-            let px = size::CAPTION;
-            let line_h = helix_draw::theme::grow(18);
-            let widest = lines.iter().map(|l| text.map_or(80.0, |t| t.width(l, px))).fold(0.0f32, f32::max);
-            let tw = widest.ceil() as i32 + 28;
-            let lh = helix_draw::theme::grow(26) + (lines.len() as i32 - 1) * line_h;
+            let (tw, lh) = tooltip_size(text, lines);
             let lw = tw.min(if vertical { TOOLTIP_ROOM_W - 12 } else { w });
             let (lx, ly) = match m.edge {
                 Edge::Bottom => (cell.x + cell.w / 2 - lw / 2, bar.y - lh - 6),
@@ -2109,16 +2096,63 @@ pub(super) fn paint_dock(canvas: &mut Canvas, text: Option<&Text>, m: &DockPaint
                 Edge::Right => (bar.x - lw - 6, cell.y + cell.h / 2 - lh / 2),
             };
             let lx = lx.clamp(0, (w - lw).max(0));
-            theme::tooltip(canvas, lx, ly, lw, lh);
-            let base = baseline(text, ly, helix_draw::theme::grow(26), px);
-            label(text, canvas, &lines[0], (lx + 12) as f32, base, px, FG, (lw - 16) as f32);
-            // The windows, dimmer, one per line.
-            for (n, line) in lines.iter().enumerate().skip(1) {
-                label(text, canvas, line, (lx + 12) as f32, base + (n as i32 * line_h) as f32, px, DIM_FG, (lw - 16) as f32);
-            }
+            paint_tooltip(canvas, text, Rect { x: lx, y: ly, w: lw, h: lh }, lines);
         }
     }
     DockPainted { bar, hits }
+}
+
+/// The highlight behind an item's icon at (`ix`, `iy`), `icon` wide, for
+/// its feedback `look` ("Item feedback"): a light square while lit,
+/// darker while pressed; an outline in high contrast.
+pub(super) fn paint_item_highlight(canvas: &mut Canvas, ix: i32, iy: i32, icon: i32, look: crate::item_feedback::Look) {
+    let lit = (look.highlight * f64::from(0x40)).round() as u32;
+    let alpha = if look.pressed { 0x59 } else { lit };
+    if alpha == 0 {
+        return;
+    }
+    let (x, y, d) = (f64::from(ix - 4), f64::from(iy - 4), f64::from(icon + 8));
+    if helix_draw::high_contrast() {
+        canvas.round_outline(x, y, d, d, 8.0, if look.pressed { 2.0 } else { 1.0 }, 0xFFFFFFFF);
+    } else {
+        canvas.round_rect(x, y, d, d, 8.0, (alpha << 24) | 0xFFFFFF);
+    }
+}
+
+/// An item's icon centered on `center`, `icon` wide at `scale` (its
+/// feedback size).
+pub(super) fn paint_item_icon(canvas: &mut Canvas, center: (f64, f64), icon: i32, scale: f64, image: &helix_draw::Image) {
+    let size = f64::from(icon) * scale;
+    canvas.image(center.0 - size / 2.0, center.1 - size / 2.0, size, size, image);
+}
+
+/// A launch copy of an item's icon at progress `p` (0 to 1): growing out
+/// of `center` while it fades.
+pub(super) fn paint_launch_copy(canvas: &mut Canvas, center: (f64, f64), icon: i32, image: &helix_draw::Image, p: f64) {
+    let size = f64::from(icon) * (1.0 + (crate::item_feedback::GHOST_SCALE - 1.0) * p);
+    canvas.image_alpha(center.0 - size / 2.0, center.1 - size / 2.0, size, size, image, (0.8 * (1.0 - p)) as f32);
+}
+
+/// The size an item tooltip of `lines` needs (unclamped width, height).
+pub(super) fn tooltip_size(text: Option<&Text>, lines: &[String]) -> (i32, i32) {
+    let px = size::CAPTION;
+    let widest = lines.iter().map(|l| text.map_or(80.0, |t| t.width(l, px))).fold(0.0f32, f32::max);
+    let lh = helix_draw::theme::grow(26) + (lines.len() as i32 - 1) * helix_draw::theme::grow(18);
+    (widest.ceil() as i32 + 28, lh)
+}
+
+/// An item tooltip in `r`: the name, then (dimmer) one line each for its
+/// windows.
+pub(super) fn paint_tooltip(canvas: &mut Canvas, text: Option<&Text>, r: Rect, lines: &[String]) {
+    let Some(first) = lines.first() else { return };
+    let px = size::CAPTION;
+    let line_h = helix_draw::theme::grow(18);
+    theme::tooltip(canvas, r.x, r.y, r.w, r.h);
+    let base = baseline(text, r.y, helix_draw::theme::grow(26), px);
+    label(text, canvas, first, (r.x + 12) as f32, base, px, FG, (r.w - 16) as f32);
+    for (n, line) in lines.iter().enumerate().skip(1) {
+        label(text, canvas, line, (r.x + 12) as f32, base + (n as i32 * line_h) as f32, px, DIM_FG, (r.w - 16) as f32);
+    }
 }
 
 impl Ui {
