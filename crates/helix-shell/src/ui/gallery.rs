@@ -170,7 +170,7 @@ fn interface_font() {
             let mut bar = Canvas::scaled(&mut data, 1280, ph, 1.0);
             let layout = crate::panel_layout::Layout::default();
             let clock = crate::clock::top_bar(crate::clock::ClockFormat { weekday: true, ..Default::default() }, &gio::glib::DateTime::new(&gio::glib::TimeZone::local(), 2026, 11, 14, 14, 5, 0.0).unwrap());
-            let model = PanelModel { layout: &layout, clock: &clock, status_items: &[], tray_images: &[], tray_w: 0, ext_items: &[], ext_icons: &[], ext_widths: &[], locked: false, launcher_open: false, power_open: false, list_open: false, menu_open: None, unseen_dot: false, workspaces: (4, 1), a11y_shown: false, source_label: Some("en"), sharing: false, recording: false, drag_target: None, focus: None, hover: None, pressed: None, power_icon: None, bold: bold.as_ref() };
+            let model = PanelModel { layout: &layout, clock: &clock, status_items: &[], tray_images: &[], tray_w: 0, ext_items: &[], ext_icons: &[], ext_widths: &[], locked: false, launcher_open: false, power_open: false, list_open: false, menu_open: None, unseen_dot: false, workspaces: (4, 1), a11y_shown: false, source_label: Some("en"), sharing: false, recording: None, privacy_icons: (None, None), drag_target: None, focus: None, hover: None, pressed: None, power_icon: None, bold: bold.as_ref() };
             paint_panel(&mut bar, text.as_ref(), (1280, ph), &model);
             blit(canvas, &data, 1280, ph);
         });
@@ -665,6 +665,8 @@ fn panel_tray(
     };
     let bold = Text::load_matching("sans-serif:bold");
     let power_icon = symbolic("system-shutdown-symbolic", 16.0, scale);
+    let white = |name: &str| crate::icons::symbolic(name, (16.0 * scale).round() as u32, [0xFF, 0xFF, 0xFF]);
+    let (sharing_icon, record_icon) = (white("screen-shared-symbolic"), white("media-record-symbolic"));
     let status_items: Vec<status::StatusItem> =
         ["battery-level-80-symbolic", "audio-volume-high-symbolic", "network-wireless-signal-good-symbolic"].iter().filter_map(|n| symbolic(n, 16.0, scale).map(status::StatusItem::Icon)).collect();
     let layout = crate::panel_layout::Layout::default();
@@ -687,7 +689,8 @@ fn panel_tray(
         a11y_shown: true,
         source_label: Some("en"),
         sharing: true,
-        recording: true,
+        recording: Some("0:42"),
+        privacy_icons: (sharing_icon.as_ref(), record_icon.as_ref()),
         drag_target: None,
         focus,
         hover,

@@ -139,11 +139,14 @@ fn accent_text() -> u32 {
 fn hint_text() -> u32 {
     window_menu::disabled_text()
 }
-/// Words in red: errors, "Sharing" and "Recording".
+/// Words in red: errors.
 const ERROR_TEXT: u32 = theme::TEXT_ERROR;
 const SCRIM: u32 = theme::SCRIM;
-/// Screen sharing indicator (its dot; its words are `ERROR_TEXT`).
-const SHARING: u32 = theme::ERROR;
+/// The privacy indicators' pills (white on them is 6.1:1), and the
+/// recording one under the pointer and pressed (darker, more contrast).
+const PRIVACY_PILL: u32 = 0xFFC01C28;
+const PRIVACY_PILL_HOVER: u32 = 0xFFA51D2D;
+const PRIVACY_PILL_PRESSED: u32 = 0xFF8A1622;
 
 const APPS_LABEL: &str = "Apps";
 /// The launcher's result rows and section headings, and the rows' icons
@@ -363,8 +366,10 @@ struct Ui {
     attention: std::collections::HashSet<u32>,
     /// The screen is being shared (panel indicator).
     sharing: bool,
-    /// The screen is being recorded (panel indicator).
-    recording: bool,
+    /// The screen is being recorded (panel indicator): since when.
+    recording: Option<std::time::Instant>,
+    /// The recording time the panel shows.
+    shown_elapsed: Option<String>,
     /// Network, battery, volume, radios.
     status: crate::status::Status,
     /// The launcher's current search (answers for others are dropped).
@@ -654,13 +659,32 @@ impl DialogKind {
     }
 }
 
-/// The "Recording" indicator's width (clicking it stops the recording).
-fn recording_w() -> i32 {
-    helix_draw::theme::grow(104)
-}
-/// The "Sharing" indicator's width.
+/// The screen sharing pill's width (its icon alone).
 fn sharing_w() -> i32 {
-    helix_draw::theme::grow(96)
+    helix_draw::theme::grow(PRIVACY_PAD * 2 + status::ICON)
+}
+/// The recording pill's width with its elapsed time `elapsed_w` wide
+/// (clicking it stops the recording).
+fn recording_w(elapsed_w: i32) -> i32 {
+    helix_draw::theme::grow(PRIVACY_PAD * 2 + status::ICON + 6) + elapsed_w
+}
+/// Inside the privacy pills, around their content; between the pills.
+const PRIVACY_PAD: i32 = 8;
+const PRIVACY_GAP: i32 = 4;
+
+/// Where the recording pill starts in the privacy slot at `x`.
+fn recording_x(x: i32, sharing: bool) -> i32 {
+    x + if sharing { sharing_w() + PRIVACY_GAP } else { 0 }
+}
+
+/// How long the recording has run: "0:42", "12:05", "1:02:03".
+fn elapsed_text(secs: u64) -> String {
+    let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
 }
 /// Space on each side of the clock (the unseen-notifications dot sits
 /// in the right one).
@@ -938,7 +962,10 @@ struct PanelModel<'a> {
     pub a11y_shown: bool,
     pub source_label: Option<&'a str>,
     pub sharing: bool,
-    pub recording: bool,
+    /// The screen is being recorded: for how long ("0:42").
+    pub recording: Option<&'a str>,
+    /// The privacy pills' icons (white): screen shared, recording.
+    pub privacy_icons: (Option<&'a helix_draw::Image>, Option<&'a helix_draw::Image>),
     /// Dragging in the panel editor: where the item would go.
     pub drag_target: Option<i32>,
     /// The control with the keyboard focus (`switch-panels`).
@@ -1045,7 +1072,11 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
         Slot::Item(Item::Status) if m.layout.contains(Item::Power) => 0,
         Slot::Item(Item::Status) => status_w + 16,
         Slot::Item(Item::Power) => status_w + status::ICON + 20,
-        Slot::Privacy => (if m.sharing { sharing_w() } else { 0 }) + if m.recording { recording_w() } else { 0 },
+        Slot::Privacy => match m.recording {
+            Some(elapsed) => recording_x(0, m.sharing) + recording_w(text_w(elapsed)),
+            None if m.sharing => sharing_w(),
+            None => 0,
+        },
         // Nothing from extensions while locked.
         Slot::Ext(_) if m.locked => 0,
         Slot::Ext(i) => m.ext_widths.get(i).copied().unwrap_or(0),
@@ -1140,15 +1171,44 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
                 }
             }
             Slot::Privacy => {
-                let mut ix = x;
+                // White symbolic icons (and the elapsed time) on red pills
+                // (GNOME's look): the screen shared, then the recording,
+                // which stops on a click.
+                let (py, ph) = (4.0, f64::from(h as i32 - 8));
+                let icon_y = (h as i32 - status::ICON) / 2;
+                let pill = |canvas: &mut Canvas, px: i32, pw: i32, color: u32| {
+                    canvas.round_rect(f64::from(px), py, f64::from(pw), ph, ph / 2.0, color);
+                    if helix_draw::high_contrast() {
+                        canvas.round_outline(f64::from(px) + 0.5, py + 0.5, f64::from(pw) - 1.0, ph - 1.0, ph / 2.0 - 0.5, 1.0, 0xFFFFFFFF);
+                    }
+                };
+                let icon_x = |px: i32| px + helix_draw::theme::grow(PRIVACY_PAD);
                 if m.sharing {
-                    canvas.rect(ix, h as i32 / 2 - 4, 8, 8, SHARING);
-                    label(text, canvas, tr("Sharing"), (ix + 14) as f32, base, px, ERROR_TEXT, (sharing_w() - 16) as f32);
-                    ix += sharing_w();
+                    pill(canvas, x, sharing_w(), PRIVACY_PILL);
+                    match m.privacy_icons.0 {
+                        Some(image) => canvas.image(f64::from(icon_x(x)), f64::from(icon_y), f64::from(status::ICON), f64::from(status::ICON), image),
+                        // A screen: an outlined box.
+                        None => canvas.round_outline(f64::from(icon_x(x)) + 1.0, f64::from(icon_y) + 3.0, f64::from(status::ICON) - 2.0, f64::from(status::ICON) - 6.0, 2.0, 1.5, 0xFFFFFFFF),
+                    }
                 }
-                if m.recording {
-                    canvas.rect(ix, h as i32 / 2 - 4, 8, 8, SHARING);
-                    label(text, canvas, tr("Recording"), (ix + 14) as f32, base, px, ERROR_TEXT, (recording_w() - 16) as f32);
+                if let Some(elapsed) = m.recording {
+                    let rx = recording_x(x, m.sharing);
+                    let rw = iw - (rx - x);
+                    let color = if m.pressed == Some(Slot::Privacy) {
+                        PRIVACY_PILL_PRESSED
+                    } else if m.hover == Some(Slot::Privacy) {
+                        PRIVACY_PILL_HOVER
+                    } else {
+                        PRIVACY_PILL
+                    };
+                    pill(canvas, rx, rw, color);
+                    match m.privacy_icons.1 {
+                        Some(image) => canvas.image(f64::from(icon_x(rx)), f64::from(icon_y), f64::from(status::ICON), f64::from(status::ICON), image),
+                        // A dot.
+                        None => canvas.circle(f64::from(icon_x(rx) + status::ICON / 2), f64::from(h as i32) / 2.0, 5.0, 0xFFFFFFFF),
+                    }
+                    let tx = icon_x(rx) + status::ICON + 6;
+                    label(text, canvas, elapsed, tx as f32, base, px, 0xFFFFFFFF, (rx + rw - tx) as f32);
                 }
             }
         }
@@ -1368,6 +1428,10 @@ impl Ui {
         let scale = self.scales.of(self.panel.wl_surface());
         let status_items = self.status_items(scale);
         let power_icon = self.symbolic_icon("system-shutdown-symbolic", scale);
+        let sharing_icon = if self.sharing { self.symbolic_icon_color("screen-shared-symbolic", f64::from(status::ICON), scale, 0xFFFFFFFF) } else { None };
+        let record_icon = if self.recording.is_some() { self.symbolic_icon_color("media-record-symbolic", f64::from(status::ICON), scale, 0xFFFFFFFF) } else { None };
+        let elapsed = self.recording_elapsed();
+        self.shown_elapsed = elapsed.clone();
         let tray_images = self.tray_images(scale);
         let ext_icons: Vec<Option<helix_draw::Image>> = (0..self.ext.panel.len()).map(|i| self.ext_icon(i, scale)).collect();
         let ext_widths: Vec<i32> = ext_icons.iter().enumerate().map(|(i, icon)| self.ext_width(i, icon.is_some())).collect();
@@ -1398,7 +1462,8 @@ impl Ui {
             a11y_shown: self.a11y.shown,
             source_label: self.source_label.as_deref(),
             sharing: self.sharing,
-            recording: self.recording,
+            recording: elapsed.as_deref(),
+            privacy_icons: (sharing_icon.as_ref(), record_icon.as_ref()),
             drag_target: self.panel_drag.as_ref().filter(|d| d.moving && !d.off_panel).and_then(|d| d.target.as_ref()).map(|t| t.2),
             focus: self.panel_focus,
             hover: self.panel_lit,
@@ -1660,7 +1725,11 @@ impl Ui {
             return false;
         }
         let x = event.position.0;
-        let hit = self.panel_placed.iter().copied().find(|&(slot, px, pw)| pw > 0 && panel_clickable(slot) && x >= f64::from(px) && x < f64::from(px + pw));
+        // The recording pill too (the sharing one does nothing).
+        let recording = self.recording.is_some();
+        let sharing = self.sharing;
+        let clickable = |slot, px: i32| panel_clickable(slot) || (slot == crate::panel_layout::Slot::Privacy && recording && x >= f64::from(recording_x(px, sharing)));
+        let hit = self.panel_placed.iter().copied().find(|&(slot, px, pw)| pw > 0 && clickable(slot, px) && x >= f64::from(px) && x < f64::from(px + pw));
         let under = hit.map(|h| h.0);
         match event.kind {
             PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
@@ -1788,8 +1857,17 @@ impl Ui {
                     self.open_launcher(true);
                 }
             }
-            Slot::Privacy => {}
+            Slot::Privacy => {
+                if self.recording.is_some() {
+                    let _ = self.requests.send(UiRequest::StopRecording);
+                }
+            }
         }
+    }
+
+    /// How long the recording has run, as the panel shows it.
+    fn recording_elapsed(&self) -> Option<String> {
+        self.recording.map(|since| elapsed_text(since.elapsed().as_secs()))
     }
 
     /// The panel layout keys changed (or were read at start).
@@ -3463,7 +3541,9 @@ impl Ui {
                 self.draw_power_menu();
             }
             UiEvent::Recording(on) => {
-                self.recording = on;
+                if on != self.recording.is_some() {
+                    self.recording = on.then(std::time::Instant::now);
+                }
                 self.draw_panel();
             }
             UiEvent::Screenshot(slot) => {
@@ -3789,7 +3869,8 @@ impl Ui {
         self.dialog_tick();
         self.osd_tick();
         let minute_changed = self.shown_minute.as_deref() != Some(&clock_text());
-        if minute_changed {
+        // The recording pill counts the seconds.
+        if minute_changed || self.shown_elapsed != self.recording_elapsed() {
             self.draw_panel();
         }
         // The list's arrival times ("5 min") move on with the clock.
@@ -3962,7 +4043,8 @@ pub fn run(
         user_switch: false,
         attention: Default::default(),
         sharing: false,
-        recording: false,
+        recording: None,
+        shown_elapsed: None,
         status: Default::default(),
         panel_layout: Default::default(),
         panel_keys: Default::default(),
@@ -4495,15 +4577,8 @@ impl Ui {
                 self.break_click(x, y);
             } else if &event.surface == self.panel.wl_surface() {
                 let hit = self.panel_placed.iter().copied().find(|&(_, px, pw)| x >= f64::from(px) && x < f64::from(px + pw));
-                if let Some((slot, px, _)) = hit {
-                    if slot == crate::panel_layout::Slot::Privacy {
-                        // "Sharing" comes first; clicking "Recording" stops it.
-                        let recording_x = px + if self.sharing { sharing_w() } else { 0 };
-                        if self.recording && x >= f64::from(recording_x) {
-                            let _ = self.requests.send(UiRequest::StopRecording);
-                        }
-                    }
-                }
+                // (The privacy pills are `panel_pointer`'s.)
+                let _ = hit;
             }
         }
     }
@@ -5377,6 +5452,43 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
 
 #[cfg(test)]
 mod tests {
+    /// The privacy indicators (helixdesktop/desktop#25): red pills with
+    /// white content (at least 4.5:1), narrower together than the old
+    /// words, the recording one darker under the pointer.
+    #[test]
+    fn privacy_pills() {
+        use crate::panel_layout::Slot;
+        for pill in [super::PRIVACY_PILL, super::PRIVACY_PILL_HOVER, super::PRIVACY_PILL_PRESSED] {
+            assert!(helix_draw::backdrop::contrast(0xFFFFFFFF, pill) >= 4.5, "{pill:08x}");
+        }
+        assert_eq!(super::elapsed_text(42), "0:42");
+        assert_eq!(super::elapsed_text(725), "12:05");
+        assert_eq!(super::elapsed_text(3723), "1:02:03");
+        let text = super::Text::load();
+        let (w, h) = (1280usize, super::panel_height() as usize);
+        let layout = crate::panel_layout::Layout::default();
+        let paint = |hover: Option<Slot>| {
+            let mut data = vec![0u8; w * h * 4];
+            let mut canvas = super::Canvas::scaled(&mut data, w, h, 1.0);
+            let model = super::PanelModel { layout: &layout, clock: "Sat 14:05", status_items: &[], tray_images: &[], tray_w: 0, ext_items: &[], ext_icons: &[], ext_widths: &[], locked: false, launcher_open: false, power_open: false, list_open: false, menu_open: None, unseen_dot: false, workspaces: (4, 1), a11y_shown: false, source_label: None, sharing: true, recording: Some("0:42"), privacy_icons: (None, None), drag_target: None, focus: None, hover, pressed: None, power_icon: None, bold: None };
+            let placed = super::paint_panel(&mut canvas, text.as_ref(), (w, h), &model);
+            (data, placed)
+        };
+        let (data, placed) = paint(None);
+        let &(_, x, iw) = placed.iter().find(|p| p.0 == Slot::Privacy).expect("the privacy slot is placed");
+        assert!(iw > 0 && iw < 200, "both pills {iw} px wide");
+        // B, G, R, A at (x, y).
+        let at = |data: &[u8], x: i32, y: i32| -> [u8; 4] { data[(y as usize * w + x as usize) * 4..][..4].try_into().unwrap() };
+        let red = |c: u32| [c as u8, (c >> 8) as u8, (c >> 16) as u8, 0xFF];
+        let mid = h as i32 / 2;
+        assert_eq!(at(&data, x + 3, mid), red(super::PRIVACY_PILL), "the sharing pill");
+        let rx = super::recording_x(x, true);
+        assert_eq!(at(&data, rx + 3, mid), red(super::PRIVACY_PILL), "the recording pill");
+        let (lit, _) = paint(Some(Slot::Privacy));
+        assert_eq!(at(&lit, rx + 3, mid), red(super::PRIVACY_PILL_HOVER), "the recording pill under the pointer");
+        assert_eq!(at(&lit, x + 3, mid), red(super::PRIVACY_PILL), "the sharing pill is not a button");
+    }
+
     #[test]
     fn focused_field_has_ring_and_caret() {
         // B, G, R, A at logical (x, y) of a 60×40 canvas at scale 1.

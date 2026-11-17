@@ -581,13 +581,13 @@ impl Ui {
                     Node::button(name, r).id(item.full_id.clone()).describe(about)
                 }
                 Slot::Privacy => {
-                    let mut ix = x;
                     if self.sharing {
-                        out.push(Node::label(tr("Sharing")).id("sharing").at(crate::a11y::Rect::new(ix, 0, sharing_w(), h)));
-                        ix += sharing_w();
+                        out.push(Node::label(tr("Sharing")).id("sharing").at(crate::a11y::Rect::new(x, 0, sharing_w(), h)));
                     }
-                    if self.recording {
-                        out.push(Node::button(tr("Recording"), crate::a11y::Rect::new(ix, 0, recording_w(), h)).id("recording").describe(tr("Stop recording")));
+                    if let Some(elapsed) = self.recording_elapsed() {
+                        let rx = recording_x(x, self.sharing);
+                        // "Stop recording", described by how long it has run.
+                        out.push(Node::button(tr("Stop recording"), crate::a11y::Rect::new(rx, 0, w - (rx - x), h)).id("recording").describe(elapsed));
                     }
                     continue;
                 }
