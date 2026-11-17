@@ -1297,7 +1297,7 @@ fn paint_question_with(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option
         DialogKind::ApproveExtension { name, .. } => (trf!("Turn on {name}?", name = name), String::new(), tr("Cancel"), tr("Turn On").to_owned(), &approval_rows),
         DialogKind::RemoteControl { app, devices, .. } => (
             tr("Allow remote control?").to_owned(),
-            trf!("{app} wants to control your {devices}.", app = app, devices = crate::screencast_chooser::device_list(devices)),
+            crate::screencast_chooser::control_message(app, devices, false),
             tr("Deny"),
             tr("Allow").to_owned(),
             &no_blockers,
@@ -3225,7 +3225,7 @@ impl Ui {
         let message = if control.is_empty() {
             trf!("{app} wants to see your screen. Choose what to share.", app = app)
         } else {
-            trf!("{app} wants to see your screen and control your {devices}.", app = app, devices = crate::screencast_chooser::device_list(control))
+            crate::screencast_chooser::control_message(app, control, true)
         };
         label(text, &mut canvas, &message, center(&message, size::LABEL), (by + helix_draw::theme::grow(78)) as f32, size::LABEL, DIM_FG, inner);
         if *remember {

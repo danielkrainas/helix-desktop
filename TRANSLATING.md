@@ -105,8 +105,13 @@ repository always matches the sources.
 - Typography: use the real ellipsis (`…`) and your language's quotation
   marks; the original's `“{}”` becomes `„{}“`, `«{}»`, `「{}」`… The
   interface has no keyboard mnemonics (no `_` access keys).
-- Keep labels of buttons, switches and quick settings tiles short:
-  longer ones are shortened with an ellipsis.
+- Keep labels of buttons and switches short: longer ones are shortened
+  with an ellipsis. A quick settings tile's title gets a little smaller
+  when it does not fit (and, without a subtitle, may take two lines)
+  before it is shortened.
+- Messages are whole sentences; none is built from translated pieces.
+  If a message's grammar cannot be made right in your language, please
+  report it as an issue.
 
 ## Trying a translation without installing it
 

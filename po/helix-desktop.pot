@@ -72,19 +72,19 @@ msgid "Back"
 msgstr ""
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5334 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5342 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:587
 msgid "Power Off…"
 msgstr ""
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5331 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5339 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:586
 msgid "Restart…"
 msgstr ""
 
 #: crates/helix-greeter/src/atspi.rs:97 crates/helix-greeter/src/paint.rs:504
-#: crates/helix-shell/src/ui.rs:1259 crates/helix-shell/src/ui/lock.rs:185
+#: crates/helix-shell/src/ui.rs:1261 crates/helix-shell/src/ui/lock.rs:185
 #: crates/helix-shell/src/ui/lock.rs:186 crates/helix-shell/src/ui/lock.rs:589
 msgid "Restart"
 msgstr ""
@@ -95,7 +95,7 @@ msgid "Restart this computer?"
 msgstr ""
 
 #: crates/helix-greeter/src/atspi.rs:98 crates/helix-greeter/src/paint.rs:505
-#: crates/helix-shell/src/ui.rs:1258 crates/helix-shell/src/ui/lock.rs:187
+#: crates/helix-shell/src/ui.rs:1260 crates/helix-shell/src/ui/lock.rs:187
 #: crates/helix-shell/src/ui/lock.rs:188 crates/helix-shell/src/ui/lock.rs:590
 msgid "Power Off"
 msgstr ""
@@ -113,7 +113,7 @@ msgstr ""
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 #: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1317 crates/helix-shell/src/lib.rs:1405
+#: crates/helix-shell/src/lib.rs:1321 crates/helix-shell/src/lib.rs:1409
 #: crates/helix-shell/src/mount_handler.rs:125
 #: crates/helix-shell/src/mount_handler.rs:139
 #: crates/helix-shell/src/mount_handler.rs:174
@@ -123,8 +123,8 @@ msgstr ""
 #: crates/helix-shell/src/obex.rs:498 crates/helix-shell/src/polkit.rs:231
 #: crates/helix-shell/src/polkit.rs:314
 #: crates/helix-shell/src/portal_dialog.rs:118
-#: crates/helix-shell/src/run_dialog.rs:184 crates/helix-shell/src/ui.rs:1292
-#: crates/helix-shell/src/ui.rs:1295 crates/helix-shell/src/ui.rs:3263
+#: crates/helix-shell/src/run_dialog.rs:184 crates/helix-shell/src/ui.rs:1294
+#: crates/helix-shell/src/ui.rs:1297 crates/helix-shell/src/ui.rs:3265
 #: crates/helix-shell/src/ui/atspi.rs:922
 #: crates/helix-shell/src/ui/file_chooser.rs:1166
 #: crates/helix-shell/src/ui/file_chooser.rs:1219
@@ -215,7 +215,7 @@ msgstr ""
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
 #: crates/helix-shell/src/geoclue_agent.rs:115
-#: crates/helix-shell/src/ui.rs:1300 crates/helix-shell/src/ui.rs:1307
+#: crates/helix-shell/src/ui.rs:1302 crates/helix-shell/src/ui.rs:1309
 msgid "Allow"
 msgstr ""
 
@@ -225,7 +225,7 @@ msgstr ""
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
 #: crates/helix-shell/src/geoclue_agent.rs:116
-#: crates/helix-shell/src/ui.rs:1299 crates/helix-shell/src/ui.rs:1306
+#: crates/helix-shell/src/ui.rs:1301 crates/helix-shell/src/ui.rs:1308
 msgid "Deny"
 msgstr ""
 
@@ -237,8 +237,8 @@ msgstr ""
 msgid "Name: {real} ({user})"
 msgstr ""
 
-#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3270
-#: crates/helix-shell/src/ui.rs:3271 crates/helix-shell/src/ui.rs:3273
+#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3272
+#: crates/helix-shell/src/ui.rs:3273 crates/helix-shell/src/ui.rs:3275
 #: crates/helix-shell/src/ui/atspi.rs:923
 msgid "Share"
 msgstr ""
@@ -338,9 +338,9 @@ msgstr ""
 #: crates/helix-shell/src/notifications.rs:233
 #: crates/helix-shell/src/notifications.rs:348
 #: crates/helix-shell/src/portal_dialog.rs:117
-#: crates/helix-shell/src/ui/dock.rs:1467
-#: crates/helix-shell/src/ui/dock.rs:1482
-#: crates/helix-shell/src/ui/dock.rs:1510
+#: crates/helix-shell/src/ui/dock.rs:1474
+#: crates/helix-shell/src/ui/dock.rs:1489
+#: crates/helix-shell/src/ui/dock.rs:1517
 msgid "Open"
 msgstr ""
 
@@ -489,7 +489,7 @@ msgid "This code is not valid."
 msgstr ""
 
 #: crates/helix-shell/src/bluetooth_agent.rs:124
-#: crates/helix-shell/src/lib.rs:1131 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/lib.rs:1135 crates/helix-shell/src/obex.rs:478
 #: crates/helix-shell/src/panel_layout.rs:219
 #: crates/helix-shell/src/ui/quick.rs:409
 msgid "Bluetooth"
@@ -679,10 +679,8 @@ msgid "Shift was held at login."
 msgstr ""
 
 #. Translators: the separator between the names of a list ("a, b, c").
-#. Translators: the end of a list, "keyboard, pointer and touchscreen".
 #: crates/helix-shell/src/ext_host/runner.rs:549
-#: crates/helix-shell/src/media.rs:228
-#: crates/helix-shell/src/screencast_chooser.rs:133
+#: crates/helix-shell/src/media.rs:229
 msgid ", "
 msgstr ""
 
@@ -765,7 +763,7 @@ msgid "The passwords do not match."
 msgstr ""
 
 #: crates/helix-shell/src/keyring_prompt.rs:77
-#: crates/helix-shell/src/media.rs:324 crates/helix-shell/src/ui/lock.rs:550
+#: crates/helix-shell/src/media.rs:325 crates/helix-shell/src/ui/lock.rs:550
 #: crates/helix-shell/src/ui/lock.rs:560
 msgid "Unlock"
 msgstr ""
@@ -794,53 +792,53 @@ msgstr ""
 msgid "More"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:987
+#: crates/helix-shell/src/lib.rs:991
 msgid "Nothing was turned off or restarted. {err}"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:987
+#: crates/helix-shell/src/lib.rs:991
 msgid "Software"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:987
+#: crates/helix-shell/src/lib.rs:991
 msgid "Updates could not be scheduled"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1131
+#: crates/helix-shell/src/lib.rs:1135
 msgid "Cannot pair with {name}"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1218
+#: crates/helix-shell/src/lib.rs:1222
 #: crates/helix-shell/src/panel_layout.rs:221
 #: crates/helix-shell/src/ui/quick.rs:415
 msgid "Auto Rotate"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1218
+#: crates/helix-shell/src/lib.rs:1222
 msgid "Rotation Locked"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1314
+#: crates/helix-shell/src/lib.rs:1318
 msgid "Rename Folder"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1315
+#: crates/helix-shell/src/lib.rs:1319
 msgid "Folder name"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1316
+#: crates/helix-shell/src/lib.rs:1320
 msgid "Rename"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1402
+#: crates/helix-shell/src/lib.rs:1406
 msgid "Empty Trash?"
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1403
+#: crates/helix-shell/src/lib.rs:1407
 msgid "All items in the Trash will be permanently deleted."
 msgstr ""
 
-#: crates/helix-shell/src/lib.rs:1404 crates/helix-shell/src/ui/dock.rs:1484
+#: crates/helix-shell/src/lib.rs:1408 crates/helix-shell/src/ui/dock.rs:1491
 msgid "Empty Trash"
 msgstr ""
 
@@ -848,47 +846,47 @@ msgstr ""
 msgid "Lock the screen before suspending"
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:230
-msgid "{shown} and {n} more"
-msgid_plural "{shown} and {n} more"
+#: crates/helix-shell/src/media.rs:231
+msgid "{shown} and {n} other program"
+msgid_plural "{shown} and {n} other programs"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/media.rs:288
+#: crates/helix-shell/src/media.rs:289
 msgid "process {pid}"
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:322
+#: crates/helix-shell/src/media.rs:323
 msgid "Unlock {title}"
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:366
+#: crates/helix-shell/src/media.rs:367
 #: crates/helix-shell/src/mount_handler.rs:379
 msgid "In use by: {}"
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:377
+#: crates/helix-shell/src/media.rs:378
 msgid "Do not unplug until finished."
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:377
+#: crates/helix-shell/src/media.rs:378
 #: crates/helix-shell/src/notifications.rs:261
 msgid "Removable Media"
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:377
+#: crates/helix-shell/src/media.rs:378
 msgid "Writing to {title}"
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:491
+#: crates/helix-shell/src/media.rs:492
 msgid "Removable medium connected"
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:519
+#: crates/helix-shell/src/media.rs:520
 msgid "{name} can be removed"
 msgstr ""
 
-#: crates/helix-shell/src/media.rs:523 crates/helix-shell/src/media.rs:566
+#: crates/helix-shell/src/media.rs:524 crates/helix-shell/src/media.rs:567
 msgid "Cannot eject {name}"
 msgstr ""
 
@@ -1114,7 +1112,7 @@ msgid "Show in Files"
 msgstr ""
 
 #: crates/helix-shell/src/notifications.rs:258
-#: crates/helix-shell/src/ui/dock.rs:1469
+#: crates/helix-shell/src/ui/dock.rs:1476
 msgid "Eject"
 msgstr ""
 
@@ -1286,7 +1284,7 @@ msgstr ""
 msgid "A new version of the system"
 msgstr ""
 
-#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5027
+#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5035
 msgid "Apps"
 msgstr ""
 
@@ -1427,74 +1425,119 @@ msgstr ""
 msgid "Run"
 msgstr ""
 
-#. Translators: "… wants to control your keyboard".
-#: crates/helix-shell/src/screencast_chooser.rs:122
-msgid "keyboard"
+#: crates/helix-shell/src/screencast_chooser.rs:125
+msgid "{app} wants to control your keyboard."
 msgstr ""
 
-#: crates/helix-shell/src/screencast_chooser.rs:123
-msgid "pointer"
+#: crates/helix-shell/src/screencast_chooser.rs:126
+msgid "{app} wants to control your pointer."
 msgstr ""
 
-#: crates/helix-shell/src/screencast_chooser.rs:124
-msgid "touchscreen"
+#: crates/helix-shell/src/screencast_chooser.rs:127
+msgid "{app} wants to control your touchscreen."
 msgstr ""
 
-#. Translators: "… wants to control your input".
+#: crates/helix-shell/src/screencast_chooser.rs:128
+msgid "{app} wants to control your keyboard and pointer."
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:129
+msgid "{app} wants to control your keyboard and touchscreen."
+msgstr ""
+
 #: crates/helix-shell/src/screencast_chooser.rs:130
-msgid "input"
+msgid "{app} wants to control your pointer and touchscreen."
 msgstr ""
 
-#. Translators: the end of a list, "keyboard, pointer and touchscreen".
+#: crates/helix-shell/src/screencast_chooser.rs:131
+msgid "{app} wants to control your keyboard, pointer and touchscreen."
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:132
+msgid "{app} wants to control your input devices."
+msgstr ""
+
 #: crates/helix-shell/src/screencast_chooser.rs:133
-msgid "{list} and {last}"
+msgid "{app} wants to see your screen and control your keyboard."
 msgstr ""
 
-#: crates/helix-shell/src/screencast_chooser.rs:160
+#: crates/helix-shell/src/screencast_chooser.rs:134
+msgid "{app} wants to see your screen and control your pointer."
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:135
+msgid "{app} wants to see your screen and control your touchscreen."
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:136
+msgid "{app} wants to see your screen and control your keyboard and pointer."
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:137
+msgid ""
+"{app} wants to see your screen and control your keyboard and touchscreen."
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:138
+msgid ""
+"{app} wants to see your screen and control your pointer and touchscreen."
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:139
+msgid ""
+"{app} wants to see your screen and control your keyboard, pointer and "
+"touchscreen."
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:140
+msgid "{app} wants to see your screen and control your input devices."
+msgstr ""
+
+#: crates/helix-shell/src/screencast_chooser.rs:167
 msgid "An application"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1251
+#: crates/helix-shell/src/ui.rs:1253
 msgid "It will be able to:"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1253
+#: crates/helix-shell/src/ui.rs:1255
 msgid "Some applications are busy or have unsaved work:"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1260 crates/helix-shell/src/ui.rs:1261
+#: crates/helix-shell/src/ui.rs:1262 crates/helix-shell/src/ui.rs:1263
 msgid "Restart & Install"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1260
+#: crates/helix-shell/src/ui.rs:1262
 msgid "Restart & Install Updates"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1261
+#: crates/helix-shell/src/ui.rs:1263
 msgid "Restart & Install Upgrade"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1262
+#: crates/helix-shell/src/ui.rs:1264
 msgid "Log Out"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1269
+#: crates/helix-shell/src/ui.rs:1271
 msgid "Power Off Anyway"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1270
+#: crates/helix-shell/src/ui.rs:1272
 msgid "Restart Anyway"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1271
+#: crates/helix-shell/src/ui.rs:1273
 msgid "Restart & Install Anyway"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1272
+#: crates/helix-shell/src/ui.rs:1274
 msgid "Log Out Anyway"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1277
+#: crates/helix-shell/src/ui.rs:1279
 msgid ""
 "The computer will restart and install updates in {remaining} second. "
 "Installing can take a while."
@@ -1504,7 +1547,7 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/ui.rs:1283
+#: crates/helix-shell/src/ui.rs:1285
 msgid ""
 "{name} will be installed after the restart, in {remaining} second. "
 "Installing can take a long time."
@@ -1514,189 +1557,181 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/ui.rs:1290
+#: crates/helix-shell/src/ui.rs:1292
 msgid "The session will end automatically in {remaining} second."
 msgid_plural "The session will end automatically in {remaining} seconds."
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/ui.rs:1295
+#: crates/helix-shell/src/ui.rs:1297
 msgid "Turn On"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1295
+#: crates/helix-shell/src/ui.rs:1297
 msgid "Turn on {name}?"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1297
+#: crates/helix-shell/src/ui.rs:1299
 msgid "Allow remote control?"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1298
-msgid "{app} wants to control your {devices}."
-msgstr ""
-
-#: crates/helix-shell/src/ui.rs:1304
+#: crates/helix-shell/src/ui.rs:1306
 msgid "Allow {app} to use all keyboard shortcuts?"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1305
+#: crates/helix-shell/src/ui.rs:1307
 msgid ""
 "While it has the keyboard, the desktop's shortcuts go to it. Super+Escape "
 "gives them back."
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1311
+#: crates/helix-shell/src/ui.rs:1313
 msgid "“{title}” is not responding."
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1312
+#: crates/helix-shell/src/ui.rs:1314
 msgid ""
 "You may choose to wait a short while for it to continue or force the app to "
 "quit entirely."
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1313
+#: crates/helix-shell/src/ui.rs:1315
 msgid "Wait"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1314
+#: crates/helix-shell/src/ui.rs:1316
 msgid "Force Quit"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1318
+#: crates/helix-shell/src/ui.rs:1320
 msgid "Keep the new display settings?"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1319
+#: crates/helix-shell/src/ui.rs:1321
 msgid "The previous settings come back in {remaining} second."
 msgid_plural "The previous settings come back in {remaining} seconds."
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/ui.rs:1320
+#: crates/helix-shell/src/ui.rs:1322
 msgid "Revert"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1321
+#: crates/helix-shell/src/ui.rs:1323
 msgid "Keep"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1379 crates/helix-shell/src/ui/atspi.rs:899
+#: crates/helix-shell/src/ui.rs:1381 crates/helix-shell/src/ui/atspi.rs:899
 msgid "Install pending software updates"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1408
+#: crates/helix-shell/src/ui.rs:1410
 msgid "Muted"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1409 crates/helix-shell/src/ui/atspi.rs:964
-#: crates/helix-shell/src/ui/gallery.rs:1216
+#: crates/helix-shell/src/ui.rs:1411 crates/helix-shell/src/ui/atspi.rs:964
+#: crates/helix-shell/src/ui/gallery.rs:1243
 #: crates/helix-shell/src/ui/quick.rs:449
 msgid "Volume"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1410 crates/helix-shell/src/ui/quick.rs:453
+#: crates/helix-shell/src/ui.rs:1412 crates/helix-shell/src/ui/quick.rs:453
 msgid "Brightness"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1411
+#: crates/helix-shell/src/ui.rs:1413
 msgid "Microphone off"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:1412
+#: crates/helix-shell/src/ui.rs:1414
 msgid "Microphone on"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:2355 crates/helix-shell/src/ui/gallery.rs:295
+#: crates/helix-shell/src/ui.rs:2357 crates/helix-shell/src/ui/gallery.rs:295
 #: crates/helix-shell/src/ui/overview.rs:682
 msgid "Type to search…"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:2567
+#: crates/helix-shell/src/ui.rs:2569
 msgid "Checking…"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:2609
+#: crates/helix-shell/src/ui.rs:2611
 msgid "Incorrect password. Try again."
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:2619
+#: crates/helix-shell/src/ui.rs:2621
 msgid "Cannot check password: {err}"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:3219 crates/helix-shell/src/ui/atspi.rs:909
+#: crates/helix-shell/src/ui.rs:3221 crates/helix-shell/src/ui/atspi.rs:909
 msgid "Share your screen?"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:3224
+#: crates/helix-shell/src/ui.rs:3226
 msgid "{app} wants to see your screen. Choose what to share."
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:3226
-msgid "{app} wants to see your screen and control your {devices}."
-msgstr ""
-
-#: crates/helix-shell/src/ui.rs:3230 crates/helix-shell/src/ui/atspi.rs:911
+#: crates/helix-shell/src/ui.rs:3232 crates/helix-shell/src/ui/atspi.rs:911
 msgid "It will be able to share the same screen again without asking."
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:3463
+#: crates/helix-shell/src/ui.rs:3466
 msgid "New virtual monitor"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:5019 crates/helix-shell/src/ui/atspi.rs:765
+#: crates/helix-shell/src/ui.rs:5027 crates/helix-shell/src/ui/atspi.rs:765
 msgid "No matching apps"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:5026
+#: crates/helix-shell/src/ui.rs:5034
 msgid "Open Windows"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:5067
+#: crates/helix-shell/src/ui.rs:5075
 msgid "Search for “{query}” in {name}"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:5132
+#: crates/helix-shell/src/ui.rs:5140
 msgid "{n} more result"
 msgid_plural "{n} more results"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/ui.rs:5134
+#: crates/helix-shell/src/ui.rs:5142
 msgid "{n} result above"
 msgid_plural "{n} results above"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/ui.rs:5319 crates/helix-shell/src/ui/atspi.rs:410
+#: crates/helix-shell/src/ui.rs:5327 crates/helix-shell/src/ui/atspi.rs:410
 #: crates/helix-shell/src/ui/quick.rs:560
 msgid "Lock Screen"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:5322 crates/helix-shell/src/ui/lock.rs:515
+#: crates/helix-shell/src/ui.rs:5330 crates/helix-shell/src/ui/lock.rs:515
 #: crates/helix-shell/src/ui/lock.rs:597
 msgid "Switch User…"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:5325
+#: crates/helix-shell/src/ui.rs:5333
 msgid "Suspend"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:5328
+#: crates/helix-shell/src/ui.rs:5336
 msgid "Log Out…"
 msgstr ""
 
-#: crates/helix-shell/src/ui.rs:5414
+#: crates/helix-shell/src/ui.rs:5422
 msgid "The app"
 msgstr ""
 
-#: crates/helix-shell/src/ui/app_grid.rs:318
-#: crates/helix-shell/src/ui/app_grid.rs:469
+#: crates/helix-shell/src/ui/app_grid.rs:327
+#: crates/helix-shell/src/ui/app_grid.rs:478
 msgid "Clear Recent Apps"
 msgstr ""
 
-#: crates/helix-shell/src/ui/app_grid.rs:871
+#: crates/helix-shell/src/ui/app_grid.rs:926
 msgctxt "app grid heading"
 msgid "Recent"
 msgstr ""
@@ -1809,7 +1844,7 @@ msgid "Input source"
 msgstr ""
 
 #: crates/helix-shell/src/ui/atspi.rs:575
-#: crates/helix-shell/src/ui/quick.rs:1274
+#: crates/helix-shell/src/ui/quick.rs:1287
 msgid "System"
 msgstr ""
 
@@ -1832,7 +1867,7 @@ msgstr ""
 
 #: crates/helix-shell/src/ui/atspi.rs:647
 #: crates/helix-shell/src/ui/atspi.rs:872 crates/helix-shell/src/ui/dock.rs:652
-#: crates/helix-shell/src/ui/dock.rs:1797
+#: crates/helix-shell/src/ui/dock.rs:1804
 msgid "Trash"
 msgstr ""
 
@@ -1857,7 +1892,7 @@ msgstr ""
 #: crates/helix-shell/src/ui/atspi.rs:810
 #: crates/helix-shell/src/ui/capture.rs:401
 #: crates/helix-shell/src/ui/capture.rs:403
-#: crates/helix-shell/src/ui/dock.rs:1387
+#: crates/helix-shell/src/ui/dock.rs:1394
 #: crates/helix-shell/src/ui/window_menu.rs:115
 msgid "Close"
 msgstr ""
@@ -2086,14 +2121,14 @@ msgid "Weather unavailable"
 msgstr ""
 
 #: crates/helix-shell/src/ui/calendar.rs:414
-#: crates/helix-shell/src/wellbeing.rs:237
+#: crates/helix-shell/src/wellbeing.rs:247
 msgid "{n} hour"
 msgid_plural "{n} hours"
 msgstr[0] ""
 msgstr[1] ""
 
 #: crates/helix-shell/src/ui/calendar.rs:415
-#: crates/helix-shell/src/wellbeing.rs:238
+#: crates/helix-shell/src/wellbeing.rs:248
 msgid "{n} minute"
 msgid_plural "{n} minutes"
 msgstr[0] ""
@@ -2217,39 +2252,39 @@ msgstr ""
 msgid "Single"
 msgstr ""
 
-#: crates/helix-shell/src/ui/dock.rs:1467
+#: crates/helix-shell/src/ui/dock.rs:1474
 msgid "Mount"
 msgstr ""
 
-#: crates/helix-shell/src/ui/dock.rs:1469
+#: crates/helix-shell/src/ui/dock.rs:1476
 msgid "Unmount"
 msgstr ""
 
-#: crates/helix-shell/src/ui/dock.rs:1500
+#: crates/helix-shell/src/ui/dock.rs:1507
 msgid "All Windows"
 msgstr ""
 
-#: crates/helix-shell/src/ui/dock.rs:1510
+#: crates/helix-shell/src/ui/dock.rs:1517
 msgid "New Window"
 msgstr ""
 
-#: crates/helix-shell/src/ui/dock.rs:1525
+#: crates/helix-shell/src/ui/dock.rs:1532
 msgid "Pin to Dash"
 msgstr ""
 
-#: crates/helix-shell/src/ui/dock.rs:1525
+#: crates/helix-shell/src/ui/dock.rs:1532
 msgid "Unpin"
 msgstr ""
 
-#: crates/helix-shell/src/ui/dock.rs:1528
+#: crates/helix-shell/src/ui/dock.rs:1535
 msgid "App Details"
 msgstr ""
 
-#: crates/helix-shell/src/ui/dock.rs:1532
+#: crates/helix-shell/src/ui/dock.rs:1539
 msgid "Quit"
 msgstr ""
 
-#: crates/helix-shell/src/ui/dock.rs:1532
+#: crates/helix-shell/src/ui/dock.rs:1539
 msgid "Quit {n} Window"
 msgid_plural "Quit {n} Windows"
 msgstr[0] ""
@@ -2544,7 +2579,7 @@ msgid_plural "{app}: {n} notifications"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/ui/lock_extras.rs:457
+#: crates/helix-shell/src/ui/lock_extras.rs:501
 msgid "+{n} more notification"
 msgid_plural "+{n} more notifications"
 msgstr[0] ""
@@ -2673,7 +2708,7 @@ msgid "Performance"
 msgstr ""
 
 #: crates/helix-shell/src/ui/quick.rs:428
-#: crates/helix-shell/src/ui/quick.rs:1310
+#: crates/helix-shell/src/ui/quick.rs:1323
 msgid "Power Mode"
 msgstr ""
 
@@ -2720,32 +2755,32 @@ msgid "Take Screenshot"
 msgstr ""
 
 #: crates/helix-shell/src/ui/quick.rs:564
-#: crates/helix-shell/src/ui/quick.rs:1287
+#: crates/helix-shell/src/ui/quick.rs:1300
 msgid "Power Off / Log Out"
 msgstr ""
 
-#: crates/helix-shell/src/ui/quick.rs:1174
+#: crates/helix-shell/src/ui/quick.rs:1187
 msgid "No Devices"
 msgstr ""
 
-#: crates/helix-shell/src/ui/quick.rs:1174
+#: crates/helix-shell/src/ui/quick.rs:1187
 msgid "No Networks"
 msgstr ""
 
-#: crates/helix-shell/src/ui/quick.rs:1201
-#: crates/helix-shell/src/ui/quick.rs:1313
+#: crates/helix-shell/src/ui/quick.rs:1214
+#: crates/helix-shell/src/ui/quick.rs:1326
 msgid "Connected"
 msgstr ""
 
-#: crates/helix-shell/src/ui/quick.rs:1276
+#: crates/helix-shell/src/ui/quick.rs:1289
 msgid "Battery {charge}"
 msgstr ""
 
-#: crates/helix-shell/src/ui/quick.rs:1291
+#: crates/helix-shell/src/ui/quick.rs:1304
 msgid "Mute"
 msgstr ""
 
-#: crates/helix-shell/src/ui/quick.rs:1313
+#: crates/helix-shell/src/ui/quick.rs:1326
 msgid "Secured"
 msgstr ""
 
@@ -2908,53 +2943,70 @@ msgstr ""
 msgid "Movement Break"
 msgstr ""
 
-#: crates/helix-shell/src/wellbeing.rs:50
+#: crates/helix-shell/src/wellbeing.rs:52
+msgid "Eyesight Break Soon"
+msgstr ""
+
+#: crates/helix-shell/src/wellbeing.rs:53
+msgid "Movement Break Soon"
+msgstr ""
+
+#: crates/helix-shell/src/wellbeing.rs:59
 msgid "Look at something far away"
 msgstr ""
 
-#: crates/helix-shell/src/wellbeing.rs:51
+#: crates/helix-shell/src/wellbeing.rs:60
 msgid "Stand up and move around"
 msgstr ""
 
-#. Translators: a duration, "2 hours and 5 minutes".
-#: crates/helix-shell/src/wellbeing.rs:243
+#. Translators: a duration on its own, "2 hours and 5 minutes".
+#: crates/helix-shell/src/wellbeing.rs:253
 msgid "{hours} and {minutes}"
 msgstr ""
 
-#: crates/helix-shell/src/wellbeing.rs:365
+#: crates/helix-shell/src/wellbeing.rs:263
+msgid "You have used the computer for {n} minute today."
+msgid_plural "You have used the computer for {n} minutes today."
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/helix-shell/src/wellbeing.rs:264
+msgid "You have used the computer for {n} hour today."
+msgid_plural "You have used the computer for {n} hours today."
+msgstr[0] ""
+msgstr[1] ""
+
+#. Translators: {} is a duration on its own, "2 hours and 5 minutes".
+#: crates/helix-shell/src/wellbeing.rs:266
+msgid "Screen time today: {}."
+msgstr ""
+
+#: crates/helix-shell/src/wellbeing.rs:388
 msgid "A break starts in one minute."
 msgstr ""
 
-#: crates/helix-shell/src/wellbeing.rs:365
-#: crates/helix-shell/src/wellbeing.rs:371
-#: crates/helix-shell/src/wellbeing.rs:382
+#: crates/helix-shell/src/wellbeing.rs:388
+#: crates/helix-shell/src/wellbeing.rs:394
+#: crates/helix-shell/src/wellbeing.rs:405
 msgid "Break Reminders"
 msgstr ""
 
-#: crates/helix-shell/src/wellbeing.rs:365
-msgid "{} Soon"
-msgstr ""
-
-#: crates/helix-shell/src/wellbeing.rs:371
+#: crates/helix-shell/src/wellbeing.rs:394
 msgid "Break Overdue"
 msgstr ""
 
-#: crates/helix-shell/src/wellbeing.rs:371
+#: crates/helix-shell/src/wellbeing.rs:394
 msgid "You have been working for {minutes} minute without a break."
 msgid_plural "You have been working for {minutes} minutes without a break."
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/wellbeing.rs:426
+#: crates/helix-shell/src/wellbeing.rs:449
 msgid "Screen Time"
 msgstr ""
 
-#: crates/helix-shell/src/wellbeing.rs:426
+#: crates/helix-shell/src/wellbeing.rs:449
 msgid "Screen Time Limit Reached"
-msgstr ""
-
-#: crates/helix-shell/src/wellbeing.rs:426
-msgid "You have used the computer for {} today."
 msgstr ""
 
 #: crates/helix-shell/src/windows.rs:266

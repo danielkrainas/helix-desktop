@@ -222,12 +222,13 @@ thread_local! {
     static WRITING: RefCell<HashMap<u64, u32>> = RefCell::new(HashMap::new());
 }
 
-/// "a, b, c" for at most five programs, then "and N more".
+/// "a, b, c" for at most five programs, then "and N other programs" (the
+/// noun is in the message, for languages whose "more" agrees with it).
 pub fn program_list(names: &[String]) -> String {
     // Translators: the separator between the names of a list ("a, b, c").
     let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(helix_i18n::tr(", "));
     match names.len() {
-        n if n > 5 => helix_i18n::trnf!("{shown} and {n} more", "{shown} and {n} more", n - 5, shown = shown),
+        n if n > 5 => helix_i18n::trnf!("{shown} and {n} other program", "{shown} and {n} other programs", n - 5, shown = shown),
         _ => shown,
     }
 }
@@ -668,7 +669,7 @@ mod tests {
     fn questions() {
         let names = |n: usize| (1..=n).map(|i| format!("p{i}")).collect::<Vec<_>>();
         assert_eq!(program_list(&names(2)), "p1, p2");
-        assert_eq!(program_list(&names(7)), "p1, p2, p3, p4, p5 and 2 more");
+        assert_eq!(program_list(&names(7)), "p1, p2, p3, p4, p5 and 2 other programs");
     }
 
     #[test]

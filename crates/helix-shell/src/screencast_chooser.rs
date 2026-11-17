@@ -113,24 +113,31 @@ pub fn find_window(windows: &WindowInfo, app_id: &str, title: &str) -> Option<u3
     windows.iter().find(|(_, a, t)| a == app_id && t == title).map(|(id, _, _)| *id)
 }
 
-/// "keyboard and pointer", "keyboard, pointer and touchscreen".
-pub fn device_list(devices: &[String]) -> String {
-    // The portal names the devices in English (`keyboard`, `pointer`,
-    // `touchscreen`); they are translated here, where they are shown.
-    let name = |d: &String| match d.as_str() {
-        // Translators: "… wants to control your keyboard".
-        "keyboard" => helix_i18n::tr("keyboard").to_owned(),
-        "pointer" => helix_i18n::tr("pointer").to_owned(),
-        "touchscreen" => helix_i18n::tr("touchscreen").to_owned(),
-        other => other.to_owned(),
-    };
-    let names: Vec<String> = devices.iter().map(name).collect();
-    match names.as_slice() {
-        // Translators: "… wants to control your input".
-        [] => helix_i18n::tr("input").into(),
-        [one] => one.clone(),
-        // Translators: the end of a list, "keyboard, pointer and touchscreen".
-        [rest @ .., last] => helix_i18n::trf!("{list} and {last}", list = rest.join(helix_i18n::tr(", ")), last = last),
+/// What a remote control request asks, as a whole sentence for the set of
+/// devices (the portal names them in English: `keyboard`, `pointer`,
+/// `touchscreen`; others are left out), so that translations need not
+/// build it from pieces: "{app} wants to control your keyboard and
+/// pointer." With `screen`, the request also shares the screen.
+pub fn control_message(app: &str, devices: &[String], screen: bool) -> String {
+    use helix_i18n::trf;
+    let has = |d: &str| devices.iter().any(|x| x == d);
+    match (screen, has("keyboard"), has("pointer"), has("touchscreen")) {
+        (false, true, false, false) => trf!("{app} wants to control your keyboard.", app = app),
+        (false, false, true, false) => trf!("{app} wants to control your pointer.", app = app),
+        (false, false, false, true) => trf!("{app} wants to control your touchscreen.", app = app),
+        (false, true, true, false) => trf!("{app} wants to control your keyboard and pointer.", app = app),
+        (false, true, false, true) => trf!("{app} wants to control your keyboard and touchscreen.", app = app),
+        (false, false, true, true) => trf!("{app} wants to control your pointer and touchscreen.", app = app),
+        (false, true, true, true) => trf!("{app} wants to control your keyboard, pointer and touchscreen.", app = app),
+        (false, false, false, false) => trf!("{app} wants to control your input devices.", app = app),
+        (true, true, false, false) => trf!("{app} wants to see your screen and control your keyboard.", app = app),
+        (true, false, true, false) => trf!("{app} wants to see your screen and control your pointer.", app = app),
+        (true, false, false, true) => trf!("{app} wants to see your screen and control your touchscreen.", app = app),
+        (true, true, true, false) => trf!("{app} wants to see your screen and control your keyboard and pointer.", app = app),
+        (true, true, false, true) => trf!("{app} wants to see your screen and control your keyboard and touchscreen.", app = app),
+        (true, false, true, true) => trf!("{app} wants to see your screen and control your pointer and touchscreen.", app = app),
+        (true, true, true, true) => trf!("{app} wants to see your screen and control your keyboard, pointer and touchscreen.", app = app),
+        (true, false, false, false) => trf!("{app} wants to see your screen and control your input devices.", app = app),
     }
 }
 
@@ -326,5 +333,15 @@ mod tests {
         assert_eq!(find_window(&w, "a", "T"), Some(3), "most recently used");
         assert_eq!(find_window(&w, "b", "T"), Some(2));
         assert_eq!(find_window(&w, "a", "U"), None);
+    }
+
+    #[test]
+    fn control_sentences() {
+        let d = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+        assert_eq!(control_message("Remmina", &d(&["pointer", "keyboard"]), false), "Remmina wants to control your keyboard and pointer.");
+        assert_eq!(control_message("Remmina", &d(&["keyboard", "pointer", "touchscreen"]), true), "Remmina wants to see your screen and control your keyboard, pointer and touchscreen.");
+        // Unknown devices are left out.
+        assert_eq!(control_message("Remmina", &d(&["touchscreen", "joystick"]), false), "Remmina wants to control your touchscreen.");
+        assert_eq!(control_message("Remmina", &[], false), "Remmina wants to control your input devices.");
     }
 }

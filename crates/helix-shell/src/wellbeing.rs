@@ -45,6 +45,15 @@ impl Kind {
         }
     }
 
+    /// The notice a minute before the break (a whole title per kind, so
+    /// translations need not build it).
+    pub fn soon_title(self) -> &'static str {
+        match self {
+            Kind::Eyesight => tr("Eyesight Break Soon"),
+            Kind::Movement => tr("Movement Break Soon"),
+        }
+    }
+
     pub fn message(self) -> &'static str {
         match self {
             Kind::Eyesight => tr("Look at something far away"),
@@ -231,7 +240,8 @@ pub fn format_history(history: &BTreeMap<String, u64>) -> String {
     history.iter().skip(skip).map(|(d, s)| format!("{d} {s}\n")).collect()
 }
 
-/// "H hours and M minutes".
+/// "H hours and M minutes", on its own (as in a label, not inside a
+/// sentence: languages with cases use the nominative).
 pub fn duration_text(secs: u64) -> String {
     let (h, m) = (secs / 3600, secs % 3600 / 60);
     let hours = || trnf!("{n} hour", "{n} hours", h);
@@ -239,8 +249,21 @@ pub fn duration_text(secs: u64) -> String {
     match (h, m) {
         (0, _) => minutes(),
         (_, 0) => hours(),
-        // Translators: a duration, "2 hours and 5 minutes".
+        // Translators: a duration on its own, "2 hours and 5 minutes".
         _ => trf!("{hours} and {minutes}", hours = hours(), minutes = minutes()),
+    }
+}
+
+/// The screen time limit notice's body: a whole sentence for whole hours
+/// or minutes, else the duration after a colon (where it stays in the
+/// nominative), so no translation has to fit a duration into a sentence.
+pub fn used_today_text(secs: u64) -> String {
+    let (h, m) = (secs / 3600, secs % 3600 / 60);
+    match (h, m) {
+        (0, _) => trnf!("You have used the computer for {n} minute today.", "You have used the computer for {n} minutes today.", m),
+        (_, 0) => trnf!("You have used the computer for {n} hour today.", "You have used the computer for {n} hours today.", h),
+        // Translators: {} is a duration on its own, "2 hours and 5 minutes".
+        _ => trf!("Screen time today: {}.", duration_text(secs)),
     }
 }
 
@@ -362,7 +385,7 @@ pub async fn run(conn: Connection, center: Center, ui: mpsc::UnboundedSender<UiE
             tracing::debug!(?out, "break reminders");
             match out {
                 Out::Upcoming(kind) => {
-                    center.notice(tr("Break Reminders"), &trf!("{} Soon", kind.title()), tr("A break starts in one minute."), "alarm-symbolic", false);
+                    center.notice(tr("Break Reminders"), kind.soon_title(), tr("A break starts in one minute."), "alarm-symbolic", false);
                 }
                 Out::Start { kind, overdue } => {
                     let Some(s) = setting(kind) else { continue };
@@ -423,7 +446,7 @@ pub async fn run(conn: Connection, center: Center, ui: mpsc::UnboundedSender<UiE
         if reached && notified_day != day {
             notified_day = day.clone();
             tracing::info!(total, limit = l.limit, "screen time limit reached");
-            center.notice(tr("Screen Time"), tr("Screen Time Limit Reached"), &trf!("You have used the computer for {} today.", duration_text(total)), "preferences-system-time-symbolic", false);
+            center.notice(tr("Screen Time"), tr("Screen Time Limit Reached"), &used_today_text(total), "preferences-system-time-symbolic", false);
         }
         let want_gray = reached && l.grayscale;
         if want_gray != gray {
@@ -495,5 +518,8 @@ mod tests {
         assert_eq!(duration_text(7260), "2 hours and 1 minute");
         assert_eq!(duration_text(3600), "1 hour");
         assert_eq!(duration_text(59), "0 minutes");
+        assert_eq!(used_today_text(7260), "Screen time today: 2 hours and 1 minute.");
+        assert_eq!(used_today_text(7200), "You have used the computer for 2 hours today.");
+        assert_eq!(used_today_text(60), "You have used the computer for 1 minute today.");
     }
 }

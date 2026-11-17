@@ -1139,12 +1139,25 @@ fn paint_quick_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Tex
         x += icon_px() + 8;
         let room = (main.x + main.w - x - 6) as f32;
         let title_face = bold.or(text);
+        // A title longer than the tile (a translation) gets smaller, to
+        // the caption size, before it is cut; alone, it may take two lines.
+        let title_px = fitted_px(title_face, &t.name, size::HEADING, size::CAPTION, room);
         if t.subtitle.is_empty() {
-            label(title_face, canvas, &t.name, x as f32, baseline(title_face, r.y, r.h, size::HEADING), size::HEADING, fg, room);
+            let lines = match title_face {
+                Some(face) if face.width(&t.name, title_px) > room => face.wrap(&t.name, title_px, room, 2),
+                _ => vec![t.name.clone()],
+            };
+            if let [first, second] = lines.as_slice() {
+                let mid = r.y + r.h / 2;
+                label(title_face, canvas, first, x as f32, (mid - 3) as f32, title_px, fg, room);
+                label(title_face, canvas, second, x as f32, (mid + grow(14)) as f32, title_px, fg, room);
+            } else {
+                label(title_face, canvas, &t.name, x as f32, baseline(title_face, r.y, r.h, title_px), title_px, fg, room);
+            }
         } else {
             // The subtitle under the title.
             let mid = r.y + r.h / 2;
-            label(title_face, canvas, &t.name, x as f32, (mid - 2) as f32, size::HEADING, fg, room);
+            label(title_face, canvas, &t.name, x as f32, (mid - 2) as f32, title_px, fg, room);
             let subtitle_fg = if t.on { theme::control_text(look) } else { DIM_FG };
             label(text, canvas, &t.subtitle, x as f32, (mid + grow(15)) as f32, size::CAPTION, subtitle_fg, room);
         }
@@ -1321,9 +1334,32 @@ fn quick_node(m: &QuickModel, hits: &[(Rect, OverlayHit)], bounds: Rect, focus: 
     menu
 }
 
+/// The size, from `px` down to `min`, at which `s` fits in `room` (`min`
+/// if it does not fit even then).
+fn fitted_px(face: Option<&Text>, s: &str, px: f32, min: f32, room: f32) -> f32 {
+    let Some(face) = face else { return px };
+    let w = face.width(s, px);
+    if w <= room || w <= 0.0 {
+        return px;
+    }
+    // Widths grow with the size; a hair under, for rounding.
+    (px * room / w - 0.05).clamp(min, px)
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+
+    #[test]
+    fn long_titles_get_smaller() {
+        assert_eq!(fitted_px(None, "Mode d’alimentation", 15.0, 13.0, 50.0), 15.0);
+        let Some(face) = Text::load() else { return };
+        let w = face.width("Mode d’alimentation", 15.0);
+        assert_eq!(fitted_px(Some(&face), "Mode d’alimentation", 15.0, 13.0, w + 1.0), 15.0, "it fits");
+        let px = fitted_px(Some(&face), "Mode d’alimentation", 15.0, 13.0, w * 0.93);
+        assert!((13.0..15.0).contains(&px) && face.width("Mode d’alimentation", px) <= w * 0.93, "{px}");
+        assert_eq!(fitted_px(Some(&face), "Mode d’alimentation", 15.0, 13.0, w / 2.0), 13.0, "no smaller than the caption");
+    }
 
     /// A symbolic icon for the samples, `color`ed (none without the
     /// icon theme).
