@@ -1,8 +1,9 @@
 //! Window pictures never pile up (helixdesktop/desktop#105): a headless Helix
 //! session (helix-comp with helix-shell, scratch home, private bus) with
-//! eight client windows (this test). The headless compositor never answers
-//! the shell's window-picture requests, so every request the shell does
-//! not give up on keeps its memory file (`memfd:helix-capture`) open.
+//! eight client windows (this test). The headless compositor is told not
+//! to answer the shell's window-picture requests
+//! (`HELIX_HEADLESS_NO_CAPTURE`), so every request the shell does not give
+//! up on keeps its memory file (`memfd:helix-capture`) open.
 //!
 //! - With the overview held open, the pictures asked for are given up on
 //!   after their timeout and asked for again: never more than one
@@ -190,7 +191,8 @@ fn window_pictures_do_not_pile_up() {
     };
     let shell = std::path::PathBuf::from(env!("CARGO_BIN_EXE_helix-shell"));
     let settings = "[org/gnome/desktop/interface]\nenable-hot-corners=false\nenable-animations=false\n";
-    let Some(session) = HeadlessSession::start(Options { comp: &comp, shell: Some(&shell), size: SIZE, settings, env: Vec::new() }) else { return };
+    let env = vec![("HELIX_HEADLESS_NO_CAPTURE".to_owned(), "1".to_owned())];
+    let Some(session) = HeadlessSession::start(Options { comp: &comp, shell: Some(&shell), size: SIZE, settings, env }) else { return };
     assert!(session.wait_for_log("namespace=\"helix-panel\"", Duration::from_secs(30)), "the shell's panel:\n{}", session.log());
     let deadline = Instant::now() + Duration::from_secs(10);
     let pid = loop {
@@ -283,4 +285,85 @@ fn window_pictures_do_not_pile_up() {
     assert_eq!(files, 0, "picture files left open");
     assert!(after <= before + 8, "open fds grew from {before} to {after}");
     drop(toplevels);
+}
+
+/// Pixels of `snapshot` (a PNG) within 8 of `rgb` in each channel.
+fn count_color(snapshot: &Path, rgb: [u8; 3]) -> usize {
+    let Ok(file) = std::fs::File::open(snapshot) else { return 0 };
+    let Ok(mut reader) = png::Decoder::new(std::io::BufReader::new(file)).read_info() else { return 0 };
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let Ok(info) = reader.next_frame(&mut buf) else { return 0 };
+    let n = info.color_type.samples();
+    buf[..info.buffer_size()].chunks_exact(n).filter(|p| (0..3).all(|i| p[i].abs_diff(rgb[i]) <= 8)).count()
+}
+
+/// The headless compositor answers window pictures (helixdesktop/desktop#101):
+/// with the overview open, the window's picture (its color, smaller than
+/// the window) is what the overview shows, and no picture file stays open
+/// once it closes.
+#[test]
+fn window_pictures_are_answered() {
+    let Some(comp) = sibling_binary("helix-comp") else {
+        eprintln!("helix-comp is not built next to this test; skipped");
+        return;
+    };
+    let shell = std::path::PathBuf::from(env!("CARGO_BIN_EXE_helix-shell"));
+    let settings = "[org/gnome/desktop/interface]\nenable-hot-corners=false\nenable-animations=false\n";
+    let Some(session) = HeadlessSession::start(Options { comp: &comp, shell: Some(&shell), size: SIZE, settings, env: Vec::new() }) else { return };
+    assert!(session.wait_for_log("namespace=\"helix-panel\"", Duration::from_secs(30)), "the shell's panel:\n{}", session.log());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let pid = loop {
+        if let Some(pid) = shell_pid(session.home()) {
+            break pid;
+        }
+        assert!(Instant::now() < deadline, "no helix-shell process for the session");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let stream = std::os::unix::net::UnixStream::connect(&session.wayland_display).unwrap();
+    let conn = Connection::from_socket(stream).unwrap();
+    let (globals, queue) = registry_queue_init::<Client>(&conn).unwrap();
+    let qh = queue.handle();
+    let compositor: wl_compositor::WlCompositor = globals.bind(&qh, 1..=5, ()).unwrap();
+    let shm: wl_shm::WlShm = globals.bind(&qh, 1..=1, ()).unwrap();
+    let base: xdg_wm_base::XdgWmBase = globals.bind(&qh, 1..=5, ()).unwrap();
+    let surface = compositor.create_surface(&qh, ());
+    let xdg = base.get_xdg_surface(&surface, &qh, 0);
+    let toplevel = xdg.get_toplevel(&qh, ());
+    toplevel.set_app_id("org.example.CaptureTest".to_owned());
+    toplevel.set_title("Capture test".to_owned());
+    surface.commit();
+    let mut app = App { queue, state: Client { configure: vec![None], configured: 0, shown: 0 }, xdg: vec![xdg] };
+    app.until("the first configure", |c| c.configured >= 1);
+    // Large and green: the overview can only show it smaller.
+    let (w, h) = (1100, 560);
+    surface.attach(Some(&shm_buffer(&shm, &qh, w, h, 0xFF00_C000)), 0, 0);
+    surface.frame(&qh, ());
+    surface.commit();
+    app.until("the window is shown", |c| c.shown >= 1);
+    let snapshot = session.snapshot_path();
+    let full = (w * h) as usize;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while count_color(&snapshot, [0, 0xC0, 0]) < full * 9 / 10 {
+        assert!(Instant::now() < deadline, "the window is not on screen");
+        app.pump(200);
+    }
+
+    overview(&session, true);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let shown = loop {
+        app.pump(300);
+        let n = count_color(&snapshot, [0, 0xC0, 0]);
+        if n > 1000 && n < full * 7 / 10 {
+            break n;
+        }
+        assert!(Instant::now() < deadline, "the overview never showed the window's picture ({n} green pixels):\n{}", session.log());
+    };
+    eprintln!("{shown} green pixels in the overview, {full} in the window");
+    // The overview keeps its pictures fresh: at most one request at a
+    // time, none once it closes.
+    assert!(capture_files(pid).len() <= 1, "one picture request at a time");
+    overview(&session, false);
+    app.pump_for(500);
+    assert!(capture_files(pid).is_empty(), "answered pictures leave no file open");
+    drop(toplevel);
 }

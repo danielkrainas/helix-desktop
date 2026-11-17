@@ -4,9 +4,12 @@
 //! (helixdesktop/spec `contracts/wayland/README.md`, "Screen capture").
 //!
 //! Requests queue up and are rendered when a renderer is at hand (the
-//! nested backend's next frame, or right away on bare hardware). Encoding
-//! and writing happen on a worker thread; the result comes back to the
-//! event loop, which sends `done` or `failed`.
+//! nested backend's next frame, or right away on bare hardware). The
+//! headless backend (tests) has no renderer: it draws shared-memory
+//! surfaces in software once idle, at scale 1, without title bars or the
+//! pointer (`headless.rs`). Encoding and writing happen on a worker
+//! thread; the result comes back to the event loop, which sends `done` or
+//! `failed`.
 
 use std::os::fd::OwnedFd;
 
@@ -278,6 +281,13 @@ impl Helix {
 
     fn queue_capture(&mut self, pending: Pending) {
         self.captures.pending.push(pending);
+        if self.headless {
+            // Tests that need captures left unanswered say so.
+            if std::env::var_os("HELIX_HEADLESS_NO_CAPTURE").is_none() {
+                self.loop_handle.insert_idle(|state| state.run_captures_headless());
+            }
+            return;
+        }
         if self.udev.is_some() {
             // Bare hardware: the renderer is ours; capture once idle.
             self.loop_handle.insert_idle(|state| state.run_captures_udev());
@@ -304,28 +314,104 @@ impl Helix {
             } else {
                 self.capture(renderer, target, cursor.then_some(named_cursor), &frame)
             };
-            match result {
-                Ok((rect, image)) => {
-                    let Some(results) = self.captures.results.clone() else {
-                        frame.failed(Reason::Failed);
-                        continue;
-                    };
-                    std::thread::spawn(move || {
-                        let file = std::fs::File::from(fd);
-                        let written = encode_png(&image, std::io::BufWriter::new(file));
-                        let outcome = match written {
-                            Ok(()) => Ok(rect),
-                            Err(err) => {
-                                tracing::warn!(%err, "cannot write screenshot");
-                                Err(Reason::Failed)
-                            }
-                        };
-                        let _ = results.send((frame, outcome));
-                    });
-                }
-                Err(reason) => frame.failed(reason),
-            }
+            self.finish_capture(frame, fd, result);
         }
+    }
+
+    /// Write a capture's image to its file on a worker thread (then
+    /// `done`), or send `failed`.
+    fn finish_capture(&mut self, frame: HelixScreenshotFrameV1, fd: OwnedFd, result: Result<(Rectangle<i32, Logical>, Image), Reason>) {
+        match result {
+            Ok((rect, image)) => {
+                let Some(results) = self.captures.results.clone() else {
+                    frame.failed(Reason::Failed);
+                    return;
+                };
+                std::thread::spawn(move || {
+                    let file = std::fs::File::from(fd);
+                    let written = encode_png(&image, std::io::BufWriter::new(file));
+                    let outcome = match written {
+                        Ok(()) => Ok(rect),
+                        Err(err) => {
+                            tracing::warn!(%err, "cannot write screenshot");
+                            Err(Reason::Failed)
+                        }
+                    };
+                    let _ = results.send((frame, outcome));
+                });
+            }
+            Err(reason) => frame.failed(reason),
+        }
+    }
+
+    /// The headless backend's captures, drawn in software.
+    fn run_captures_headless(&mut self) {
+        for Pending { frame, target, fd, .. } in std::mem::take(&mut self.captures.pending) {
+            if !frame.is_alive() {
+                continue;
+            }
+            let result = if self.lock.locked { Err(Reason::Locked) } else { self.capture_soft(target) };
+            self.finish_capture(frame, fd, result);
+        }
+    }
+
+    /// [`Self::capture`] from shared-memory buffers, at scale 1 (the
+    /// headless backend): monitors as `headless_image` draws them, windows
+    /// from their surfaces (a title bar asked for is left plain).
+    fn capture_soft(&mut self, target: Target) -> Result<(Rectangle<i32, Logical>, Image), Reason> {
+        let window = match target {
+            Target::Window { frame } => {
+                let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
+                Some((focus.and_then(|f| self.window_for_focus(&f)).ok_or(Reason::NoWindow)?, frame))
+            }
+            Target::WindowAt(point) => {
+                let at = point.to_f64();
+                let window = self
+                    .frame_under(at)
+                    .map(|(w, _)| w)
+                    .or_else(|| self.window_under(at).map(|(w, _)| w.clone()))
+                    .filter(|w| !super::wm::is_override_redirect(w))
+                    .ok_or(Reason::NoWindow)?;
+                Some((window, true))
+            }
+            Target::WindowId(id) => Some((self.window_by_list_id(id).ok_or(Reason::NoWindow)?, false)),
+            Target::Screen | Target::Area(_) => None,
+        };
+        if let Some((window, frame)) = window {
+            let geometry = window.geometry();
+            let top = if frame { super::frames::frame_top(&window) } else { 0 };
+            let location = match target {
+                Target::WindowId(_) => self.window_geometry_location(&window),
+                _ => self.space.element_location(&window).ok_or(Reason::NoWindow)?,
+            };
+            let rect = Rectangle::new((location.x, location.y - top).into(), (geometry.size.w, geometry.size.h + top).into());
+            if rect.size.w <= 0 || rect.size.h <= 0 {
+                return Err(Reason::Failed);
+            }
+            let mut image = super::headless::Image::filled(rect.size.w, rect.size.h);
+            if let Some(surface) = super::wm::surface_of(&window) {
+                image.draw_tree(&surface, Point::from((0, top)) - geometry.loc);
+            }
+            return Ok((rect, image.to_rgba()));
+        }
+        let outputs: Vec<_> = self.space.outputs().cloned().collect();
+        let layout = outputs.iter().filter_map(|o| self.space.output_geometry(o)).reduce(|a, b| a.merge(b)).ok_or(Reason::Invalid)?;
+        let area = match target {
+            Target::Area(area) => area,
+            _ => layout,
+        };
+        if area.size.w <= 0 || area.size.h <= 0 {
+            return Err(Reason::Invalid);
+        }
+        let pieces: Vec<Piece> = outputs
+            .iter()
+            .filter_map(|o| {
+                let geometry = self.space.output_geometry(o)?;
+                geometry.overlaps(area).then_some(())?;
+                Some(Piece { geometry, scale: 1.0, image: self.headless_image(o)?.to_rgba() })
+            })
+            .collect();
+        Ok((area, compose(area, 1.0, &pieces)))
     }
 
     fn capture(

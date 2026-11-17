@@ -56,10 +56,25 @@ fn area_and_point_with_the_keyboard() {
     assert_eq!(picked, (330, 180, 650, 360));
 
     // A point: the first arrow puts it in the middle, Shift+Left takes it
-    // 50 px left; Enter picks it. (The color read there is not waited
-    // for: the headless backend need not answer that capture.)
-    let _color = call("PickColor");
+    // 50 px left; Enter picks it. The reply is the color there
+    // (helixdesktop/desktop#101), as the screen shows it.
+    let color = call("PickColor");
     picker_open(&session, 2);
     session.input("tap 106\ntap 42 105\ntap 28");
     assert!(session.wait_for_log("picker closed result=Point(590, 360)", Duration::from_secs(10)), "the point picked:\n{}", session.log());
+    let reply = rt.block_on(color).unwrap().expect("PickColor answered");
+    let picked: std::collections::HashMap<String, zbus::zvariant::OwnedValue> = reply.body().deserialize().unwrap();
+    let (r, g, b): (f64, f64, f64) = picked["color"].try_clone().unwrap().try_into().unwrap();
+    // The screen there once the picker has gone.
+    std::thread::sleep(Duration::from_millis(1500));
+    let file = std::fs::File::open(session.snapshot_path()).unwrap();
+    let mut reader = png::Decoder::new(std::io::BufReader::new(file)).read_info().unwrap();
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).unwrap();
+    let n = info.color_type.samples();
+    let at = (360 * info.width as usize + 590) * n;
+    let want = [buf[at], buf[at + 1], buf[at + 2]].map(|c| f64::from(c) / 255.0);
+    for (got, want) in [r, g, b].into_iter().zip(want) {
+        assert!((got - want).abs() < 0.02, "picked {:?}, the screen shows {want:?}", (r, g, b));
+    }
 }

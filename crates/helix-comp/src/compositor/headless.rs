@@ -197,7 +197,7 @@ impl Helix {
     /// where each window is.
     pub(super) fn headless_image(&self, output: &Output) -> Option<Image> {
         let geo = self.space.output_geometry(output)?;
-        let mut image = Image { width: geo.size.w, height: geo.size.h, pixels: vec![0xFF1E1E24; (geo.size.w * geo.size.h) as usize] };
+        let mut image = Image::filled(geo.size.w, geo.size.h);
         let fullscreen = self.in_fullscreen(output);
         let layers: Vec<(Layer, WlSurface, Point<i32, Logical>)> = {
             let map = layer_map_for_output(output);
@@ -250,6 +250,20 @@ pub(super) struct Image {
 }
 
 impl Image {
+    /// One of `width` × `height` in the screen's background.
+    pub(super) fn filled(width: i32, height: i32) -> Self {
+        Self { width, height, pixels: vec![0xFF1E1E24; (width.max(0) * height.max(0)) as usize] }
+    }
+
+    /// As the captures' straight-alpha RGBA (opaque).
+    pub(super) fn to_rgba(&self) -> super::capture::Image {
+        let mut rgba = Vec::with_capacity(self.pixels.len() * 4);
+        for px in &self.pixels {
+            rgba.extend_from_slice(&[(px >> 16) as u8, (px >> 8) as u8, *px as u8, 0xFF]);
+        }
+        super::capture::Image { width: self.width as u32, height: self.height as u32, rgba }
+    }
+
     /// The pixel at (`x`, `y`), ARGB.
     #[cfg(test)]
     pub(super) fn at(&self, x: i32, y: i32) -> u32 {
@@ -259,7 +273,7 @@ impl Image {
 
 impl Image {
     /// Draw `surface` and its subsurfaces with the surface's origin at `at`.
-    fn draw_tree(&mut self, surface: &WlSurface, at: Point<i32, Logical>) {
+    pub(super) fn draw_tree(&mut self, surface: &WlSurface, at: Point<i32, Logical>) {
         with_surface_tree_downward(
             surface,
             at,
@@ -317,10 +331,7 @@ impl Image {
     }
 
     fn save(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-        let mut rgba = Vec::with_capacity(self.pixels.len() * 4);
-        for px in &self.pixels {
-            rgba.extend_from_slice(&[(px >> 16) as u8, (px >> 8) as u8, *px as u8, 0xFF]);
-        }
+        let rgba = self.to_rgba().rgba;
         let tmp = path.with_extension("tmp");
         let file = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
         let mut encoder = png::Encoder::new(file, self.width as u32, self.height as u32);

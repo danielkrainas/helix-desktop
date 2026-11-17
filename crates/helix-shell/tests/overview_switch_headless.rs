@@ -341,7 +341,9 @@ fn dash_icons_answer_like_the_dock() {
     };
     let shell = std::path::PathBuf::from(env!("CARGO_BIN_EXE_helix-shell"));
     let settings = "[org/gnome/desktop/interface]\nenable-hot-corners=false\nenable-animations=true\n";
-    let env = vec![("RUST_LOG".to_owned(), "info,helix_shell::ui::overview=debug".to_owned())];
+    // Window pictures arriving redraw the whole overview (as they should);
+    // this test counts the draws hovering makes, so none are answered.
+    let env = vec![("RUST_LOG".to_owned(), "info,helix_shell::ui::overview=debug".to_owned()), ("HELIX_HEADLESS_NO_CAPTURE".to_owned(), "1".to_owned())];
     let Some(mut session) = HeadlessSession::start(Options { comp: &comp, shell: Some(&shell), size: (1280, 800), settings, env }) else { return };
     assert!(session.wait_for_log("namespace=\"helix-panel\"", Duration::from_secs(30)), "the shell's panel:\n{}", session.log());
 
