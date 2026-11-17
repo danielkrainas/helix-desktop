@@ -273,7 +273,7 @@ impl Ui {
         let Ok((buffer, data)) = self.buffers.create_buffer(&popup, Ui::draw_candidates, pw, ph, pw * 4, wl_shm::Format::Argb8888) else { return };
         let mut canvas = Canvas::scaled(data, w as usize, h as usize, scale);
         canvas.fill(0);
-        theme::popover_round(&mut canvas, 1.0, 1.0, f64::from(w - 2), f64::from(h - 2), theme::RADIUS_BUTTON);
+        theme::popover_surface(&mut canvas, f64::from(w), f64::from(h), theme::RADIUS_BUTTON);
         let mut x = 4;
         for (i, (label_text, width)) in labels.iter().zip(&widths).enumerate() {
             if i == selected {

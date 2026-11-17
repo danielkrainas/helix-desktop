@@ -249,9 +249,9 @@ impl Ui {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(view.layer.wl_surface()));
-        // A popover, rounded, its edge inside the surface.
+        // A popover filling the surface, rounded (no room for a shadow).
         canvas.fill(0);
-        theme::popover_round(&mut canvas, 1.0, 1.0, w as f64 - 2.0, h as f64 - 2.0, theme::RADIUS_POPOVER);
+        theme::popover_surface(&mut canvas, w as f64, h as f64, theme::RADIUS_POPOVER);
         // The body under the pointer (clicking it opens the notification).
         let body = theme::Look { hovered: view.hover == Some(BannerHit::Body), pressed: view.pressed == Some(BannerHit::Body), ..Default::default() };
         if body.hovered || body.pressed {

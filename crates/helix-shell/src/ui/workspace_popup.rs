@@ -123,7 +123,7 @@ impl Ui {
             {
                 let mut canvas = Canvas::scaled(data, w, h, scale);
                 canvas.fill(0);
-                theme::popover_round(&mut canvas, 1.0, 1.0, w as f64 - 2.0, h as f64 - 2.0, theme::RADIUS_POPOVER);
+                theme::popover_surface(&mut canvas, w as f64, h as f64, theme::RADIUS_POPOVER);
                 let n = self.windows.count.min(36) as i32;
                 let row = n * BOX_W + (n - 1) * GAP;
                 let x0 = (w as i32 - row) / 2;

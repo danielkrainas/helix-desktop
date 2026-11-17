@@ -204,6 +204,19 @@ pub fn popover_round(canvas: &mut Canvas, x: f64, y: f64, w: f64, h: f64, radius
     canvas.round_rect(x, y, w, h, radius, POPOVER);
 }
 
+/// A popover filling a whole `w` × `h` surface (a banner, a small popup
+/// window): its edge on the surface's edge, the rest inside, and no
+/// shadow. The surface leaves no room for a shadow, which would only show
+/// at the corners, as dark wedges outside the rounded edge.
+pub fn popover_surface(canvas: &mut Canvas, w: f64, h: f64, radius: f64) {
+    if crate::high_contrast() {
+        popover_round(canvas, 1.0, 1.0, w - 2.0, h - 2.0, radius);
+        return;
+    }
+    canvas.round_rect(0.0, 0.0, w, h, radius + 1.0, BORDER);
+    canvas.round_rect(1.0, 1.0, w - 2.0, h - 2.0, radius, POPOVER);
+}
+
 /// The soft shadow of a box at (x, y, w, h) with corners of `radius`:
 /// [`SHADOW`] fading out over [`SHADOW_SPREAD`] px around it, a little
 /// lower than the box. None in high contrast (edges are lines there).
@@ -693,6 +706,23 @@ mod tests {
     use super::*;
 
     use crate::backdrop::contrast;
+
+    /// A popover filling its surface leaves the corners outside its
+    /// rounded edge clear (no shadow there), and is opaque inside.
+    #[test]
+    fn popover_surface_corners() {
+        let (w, h) = (120usize, 60usize);
+        let mut data = vec![0u8; w * h * 4];
+        let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
+        canvas.fill(0);
+        popover_surface(&mut canvas, w as f64, h as f64, RADIUS_POPOVER);
+        let alpha = |x: usize, y: usize| data[(y * w + x) * 4 + 3];
+        for (x, y) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (1, 1), (w - 2, h - 2)] {
+            assert_eq!(alpha(x, y), 0, "corner pixel ({x}, {y}) is not clear");
+        }
+        assert_eq!(alpha(w / 2, h / 2), 255);
+        assert_eq!(alpha(w / 2, 0), 255, "the edge reaches the surface's edge");
+    }
 
     /// Neighbouring surfaces and controls are told apart (at least
     /// 1.3:1), the slider's parts and the focus ring stand out (3:1
