@@ -1005,6 +1005,33 @@ fn dock_and_grid() {
     helix_draw::accent::set(Accent::Blue);
 }
 
+/// The whole app grid at 1920×1080, 2560×1440 and 1280×720
+/// (`grid-page-…`): cells and icons grown into the room, two-line names,
+/// the hovered app's whole name.
+#[test]
+#[ignore]
+fn grid_pages() {
+    let Some(dir) = dir() else { return };
+    let text = Text::load();
+    let mut icons = crate::icon_cache::IconCache::default();
+    let mut apps: Vec<crate::launcher::App> = crate::launcher::installed();
+    apps.extend(["Evolution Mail and Calendar", "GNU Image Manipulation Program", "PulseAudio Volume Control"].iter().enumerate().map(|(i, n)| crate::launcher::App { id: format!("org.example.Long{i}.desktop"), name: (*n).to_owned(), search: String::new(), categories: Vec::new() }));
+    apps.sort_by_key(|a| a.name.to_lowercase());
+    let model = crate::launcher::Launcher::new(apps);
+    for (w, h) in [(1920usize, 1080usize), (2560, 1440), (1280, 720)] {
+        render(&dir, &format!("grid-page-{w}x{h}"), DARK, (w, h, 1.0), |canvas| {
+            canvas.fill(SCRIM);
+            let mut grid = app_grid::GridView::new(crate::item_feedback::motion());
+            let mut p = app_grid::Paint { cache: &mut icons, text: text.as_ref(), bold: None, scale: 1.0 };
+            // Twice: icons are decoded on the first.
+            app_grid::paint_grid(&mut p, &mut grid, &model, canvas, (w as i32, h as i32), 120);
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            canvas.fill(SCRIM);
+            app_grid::paint_grid(&mut p, &mut grid, &model, canvas, (w as i32, h as i32), 120);
+        });
+    }
+}
+
 /// The overview's dash (`dash-…`), its icons looking as the dock's do:
 /// Files at rest with two windows (the focused app), Calculator under the
 /// pointer with its tooltip, Calendar pressed, Terminal chosen with the

@@ -44,6 +44,14 @@ fn cell_h() -> i32 {
     118 - 22 + helix_draw::theme::grow(22)
 }
 const ICON: i32 = 64;
+/// The icon sizes a cell may use, largest first (as GNOME's `IconGrid`
+/// grows its icons with the room it has).
+const ICONS: [i32; 3] = [96, 80, 64];
+/// The largest cell (logical px, before the text scale).
+const CELL_MAX_W: i32 = 240;
+const CELL_MAX_H: i32 = 190;
+/// From a cell's top to its icon.
+const ICON_TOP: i32 = 10;
 const MINI: i32 = 26;
 const DOT: i32 = 10;
 
@@ -235,7 +243,8 @@ fn drop_at(g: &GridView, model: &Launcher, drag: &Drag) -> Option<Drop> {
             continue;
         }
         // The icon's middle combines (apps only; not with itself).
-        let icon = Rect { x: cell.x + (cell.w - ICON) / 2 + 8, y: cell.y + 18, w: ICON - 16, h: ICON - 16 };
+        let size = icon_for(*cell);
+        let icon = Rect { x: cell.x + (cell.w - size) / 2 + 8, y: cell.y + ICON_TOP + 8, w: size - 16, h: size - 16 };
         if !is_folder && *id != drag.id && icon.contains(x, y) {
             return Some(Drop::Combine(id.clone()));
         }
@@ -763,9 +772,40 @@ pub(super) struct Paint<'a> {
     pub scale: f64,
 }
 
+/// A label line's height, and from the icon's bottom to the first
+/// line's baseline.
+fn line_h() -> i32 {
+    helix_draw::theme::grow(17)
+}
+fn label_gap() -> i32 {
+    helix_draw::theme::grow(22)
+}
+
+/// The icon size for `cell`: the largest of [`ICONS`] that leaves room
+/// around it and for two label lines below it (64 in the smallest cell).
+fn icon_for(cell: Rect) -> i32 {
+    ICONS.into_iter().find(|&i| i <= cell.w - 24 && ICON_TOP + i + label_gap() + line_h() <= cell.h - 4).unwrap_or(ICON)
+}
+
+/// How many label lines `cell` has room for (at least two).
+fn label_lines(cell: Rect) -> usize {
+    let first = ICON_TOP + icon_for(cell) + label_gap();
+    (1 + (cell.h - 4 - first) / line_h()).max(2) as usize
+}
+
+/// The cells' size for a page of `cols` × `rows` in `room` (logical px):
+/// as large as the room allows, up to [`CELL_MAX_W`] × [`CELL_MAX_H`],
+/// never smaller than the base cell.
+fn cell_size(cols: usize, rows: usize, (rw, rh): (i32, i32)) -> (i32, i32) {
+    let grow = helix_draw::theme::grow;
+    let w = (rw / cols.max(1) as i32).clamp(cell_w(), grow(CELL_MAX_W).max(cell_w()));
+    let h = (rh / rows.max(1) as i32).clamp(cell_h(), grow(CELL_MAX_H).max(cell_h()));
+    (w, h)
+}
+
 /// The center of a cell's icon.
 fn icon_center(cell: Rect) -> (f64, f64) {
-    (f64::from(cell.x) + f64::from(cell.w) / 2.0, f64::from(cell.y + 10) + f64::from(ICON) / 2.0)
+    (f64::from(cell.x) + f64::from(cell.w) / 2.0, f64::from(cell.y + ICON_TOP) + f64::from(icon_for(cell)) / 2.0)
 }
 
 /// Draw one grid cell; `focused`: it has the keyboard focus (a focus
@@ -787,25 +827,28 @@ pub(super) fn paint_cell(p: &mut Paint, model: &Launcher, canvas: &mut Canvas, c
     if focused {
         helix_draw::theme::focus_ring_round(canvas, bx, by, bw, bh, 10.0);
     }
-    let iy = cell.y + 10;
+    let iy = cell.y + ICON_TOP;
+    let icon_px = icon_for(cell);
     let (cx, cy) = icon_center(cell);
     let k = look.scale;
-    let size = f64::from(ICON) * k;
+    let size = f64::from(icon_px) * k;
     let (sx, sy) = (cx - size / 2.0, cy - size / 2.0);
     match folder {
         Some(folder) => {
             canvas.round_rect(sx, sy, size, size, 12.0 * k, 0x50FFFFFF);
-            let px = (f64::from(MINI) * k * scale).round() as u32;
-            let (mini, gap) = (f64::from(MINI) * k, f64::from(MINI + 2) * k);
+            // The mini icons grow with the folder's icon.
+            let m = f64::from(icon_px) / f64::from(ICON);
+            let px = (f64::from(MINI) * m * k * scale).round() as u32;
+            let (mini, gap) = (f64::from(MINI) * m * k, f64::from(MINI + 2) * m * k);
             for (n, app) in folder.apps.iter().take(4).enumerate() {
-                let (mx, my) = (sx + 5.0 * k + (n % 2) as f64 * gap, sy + 5.0 * k + (n / 2) as f64 * gap);
+                let (mx, my) = (sx + 5.0 * m * k + (n % 2) as f64 * gap, sy + 5.0 * m * k + (n / 2) as f64 * gap);
                 if let Some(icon) = grid_icon(p.cache, app, px) {
                     canvas.image(mx, my, mini, mini, &icon);
                 }
             }
         }
         None => {
-            let px = (f64::from(ICON) * scale).round() as u32;
+            let px = (f64::from(icon_px) * scale).round() as u32;
             // (Nothing while it is being decoded; apps without an icon get
             // the generic one.)
             if let Some(icon) = grid_icon(p.cache, id, px) {
@@ -813,8 +856,17 @@ pub(super) fn paint_cell(p: &mut Paint, model: &Launcher, canvas: &mut Canvas, c
             }
         }
     }
-    let tw = text.map_or(0.0, |t| t.width(&name, size::CAPTION)).min((cell.w - 12) as f32);
-    label(text, canvas, &name, cell.x as f32 + (cell.w as f32 - tw) / 2.0, (iy + ICON + helix_draw::theme::grow(22)) as f32, size::CAPTION, FG, (cell.w - 12) as f32);
+    // The name: two lines, centred, the second ellipsized; the whole name
+    // (as many lines as the cell holds) when lit or focused, as GNOME
+    // shows the hovered or selected item's full name.
+    let room = (cell.w - 12) as f32;
+    let lines = if look.highlight > 0.0 || look.pressed || focused { label_lines(cell) } else { 2 };
+    let wrapped = text.map(|t| t.wrap(&name, size::CAPTION, room, lines)).unwrap_or_default();
+    let first = iy + icon_px + label_gap();
+    for (n, line) in wrapped.iter().enumerate() {
+        let tw = text.map_or(0.0, |t| t.width(line, size::CAPTION)).min(room);
+        label(text, canvas, line, cell.x as f32 + (cell.w as f32 - tw) / 2.0, (first + n as i32 * line_h()) as f32, size::CAPTION, FG, room);
+    }
 }
 
 /// Paint the grid below the search field (from `top`): on the first page
@@ -827,13 +879,16 @@ pub(super) fn paint_grid(p: &mut Paint, grid: &mut GridView, model: &Launcher, c
     if grid.cols != cols || grid.per_page != per_page || grid.recent != recent {
         Ui::grid_refresh(grid, model, cols, per_page, recent);
     }
-    let gw = cols as i32 * cell_w();
+    // The cells grow into the room the page has (the "Recent" heading's
+    // room kept on every page).
+    let (cw, ch) = cell_size(cols, rows, (w - 96, h - top - 72 - heading_h() - ROW_GAP));
+    let gw = cols as i32 * cw;
     let gx = (w - gw) / 2;
     let row_keys = grid.row_keys();
     // The row and its heading take the first page's first line, and the
     // heading's height more on every page (the dots stay put).
     let extra = if grid.recent.is_empty() { 0 } else { heading_h() + ROW_GAP };
-    let gtop = if row_keys.is_empty() { top } else { top + heading_h() + cell_h() + ROW_GAP };
+    let gtop = if row_keys.is_empty() { top } else { top + heading_h() + ch + ROW_GAP };
     let lines = if row_keys.is_empty() { rows } else { rows - 1 };
     let items: Vec<String> = grid.page_items().to_vec();
     let (selected, drag, open_folder) = (grid.selected, grid.drag.clone(), model.open_folder);
@@ -871,17 +926,17 @@ pub(super) fn paint_grid(p: &mut Paint, grid: &mut GridView, model: &Launcher, c
         label(face, canvas, &helix_i18n::trc("app grid heading", "Recent"), (gx + 14) as f32, baseline(face, top, hh, size::CAPTION), size::CAPTION, color, (gw - 28) as f32);
         heading = Some(Rect { x: gx, y: top, w: gw, h: hh });
         for (i, key) in row_keys.iter().enumerate() {
-            let cell = Rect { x: gx + i as i32 * cell_w(), y: top + hh, w: cell_w(), h: cell_h() };
+            let cell = Rect { x: gx + i as i32 * cw, y: top + hh, w: cw, h: ch };
             cells.push((cell, key.clone()));
             let focused = open_folder.is_none() && focus.as_deref() == Some(key.as_str());
             paint_cell(p, model, canvas, cell, item_id(key), look_of(key, false), focused);
         }
         let line = if helix_draw::high_contrast() { 0x99FFFFFF } else { 0x26FFFFFF };
-        canvas.rect(gx + 14, top + hh + cell_h() + ROW_GAP / 2, gw - 28, 1, line);
-        recent_area = Some(Rect { x: gx, y: top, w: gw, h: hh + cell_h() + ROW_GAP });
+        canvas.rect(gx + 14, top + hh + ch + ROW_GAP / 2, gw - 28, 1, line);
+        recent_area = Some(Rect { x: gx, y: top, w: gw, h: hh + ch + ROW_GAP });
     }
     for (i, id) in items.iter().enumerate() {
-        let cell = Rect { x: gx + (i % cols) as i32 * cell_w(), y: gtop + (i / cols) as i32 * cell_h(), w: cell_w(), h: cell_h() };
+        let cell = Rect { x: gx + (i % cols) as i32 * cw, y: gtop + (i / cols) as i32 * ch, w: cw, h: ch };
         cells.push((cell, id.clone()));
         if drag.as_ref().is_some_and(|d| d.id == *id && d.from_folder.is_none()) {
             continue;
@@ -894,21 +949,23 @@ pub(super) fn paint_grid(p: &mut Paint, grid: &mut GridView, model: &Launcher, c
     if let Some(Drop::Insert { page, index }) = &target {
         if *page == current {
             let i = (*index).min(items.len());
-            let (cx, cy) = (gx + (i % cols) as i32 * cell_w(), gtop + (i / cols) as i32 * cell_h());
-            canvas.rect(cx - 2, cy + 8, 3, cell_h() - 16, accent());
+            let (cx, cy) = (gx + (i % cols) as i32 * cw, gtop + (i / cols) as i32 * ch);
+            canvas.rect(cx - 2, cy + 8, 3, ch - 16, accent());
         }
     }
     // Page dots.
-    let dots_y = top + extra + rows as i32 * cell_h() + 18;
+    let dots_y = top + extra + rows as i32 * ch + 18;
     let dots_x = (w - pages as i32 * (DOT + 10)) / 2;
     let mut dots = Vec::new();
     for p in 0..pages {
         let r = Rect { x: dots_x + p as i32 * (DOT + 10) - 5, y: dots_y - 10, w: DOT + 10, h: DOT + 20 };
-        let color = if p == current { FG } else { 0x80FFFFFF };
-        canvas.circle(f64::from(r.x + 5 + DOT / 2), f64::from(dots_y), f64::from(DOT) / 2.0, color);
+        // Round pills: the current page's wider and white.
+        let (pw, color) = if p == current { (DOT + 8, FG) } else { (DOT, 0x80FFFFFF) };
+        let cx = f64::from(r.x + 5 + DOT / 2);
+        canvas.round_rect(cx - f64::from(pw) / 2.0, f64::from(dots_y - DOT / 2), f64::from(pw), f64::from(DOT), f64::from(DOT) / 2.0, color);
         dots.push((r, p));
     }
-    let area = Rect { x: gx, y: gtop, w: gw, h: lines as i32 * cell_h() };
+    let area = Rect { x: gx, y: gtop, w: gw, h: lines as i32 * ch };
     // An open folder: a box over the dimmed grid (and "Recent" row).
     let (mut folder_box, mut folder_title, mut folder_cells) = (None, None, Vec::new());
     if let Some(folder) = open_folder.and_then(|i| model.folders.get(i).cloned()) {
@@ -960,10 +1017,11 @@ pub(super) fn paint_grid(p: &mut Paint, grid: &mut GridView, model: &Launcher, c
     // Launch copies growing out of their icons.
     for (id, progress) in feedback.ghosts(now) {
         let Some(&(cell, _)) = folder_cells.iter().chain(&cells).find(|(_, i)| *i == id) else { continue };
-        let px = (f64::from(ICON) * scale).round() as u32;
+        let icon_px = icon_for(cell);
+        let px = (f64::from(icon_px) * scale).round() as u32;
         if let Some(icon) = grid_icon(p.cache, item_id(&id), px) {
             let (cx, cy) = icon_center(cell);
-            let size = f64::from(ICON) * (1.0 + (GHOST_SCALE - 1.0) * progress);
+            let size = f64::from(icon_px) * (1.0 + (GHOST_SCALE - 1.0) * progress);
             canvas.image_alpha(cx - size / 2.0, cy - size / 2.0, size, size, &icon, (0.8 * (1.0 - progress)) as f32);
         }
     }
@@ -1145,6 +1203,42 @@ impl Ui {
 #[cfg(test)]
 mod recent_tests {
     use super::*;
+
+    /// The grid fills the screen (helixdesktop/desktop#34): on 1080p and
+    /// 1440p it spans most of the width with icons larger than 64 px; on
+    /// 720p it still shows three rows. Names take two lines; a lit cell
+    /// has room for its whole name.
+    #[test]
+    fn grid_adapts_to_the_screen() {
+        let model = Launcher::new(apps(60));
+        let mut cache = crate::icon_cache::IconCache::default();
+        // The search field's bottom, as the launcher places the grid.
+        let top = 120;
+        for (w, h, wide, big, min_rows) in [(1920, 1080, true, true, 3), (2560, 1440, true, true, 3), (1280, 720, true, false, 3)] {
+            let mut data = vec![0u8; w * h * 4];
+            let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
+            let mut grid = GridView::new(helix_draw::motion::Motion::default());
+            let mut p = Paint { cache: &mut cache, text: None, bold: None, scale: 1.0 };
+            paint_grid(&mut p, &mut grid, &model, &mut canvas, (w as i32, h as i32), top);
+            let cells = &grid.cells;
+            let left = cells.iter().map(|(r, _)| r.x).min().unwrap();
+            let right = cells.iter().map(|(r, _)| r.x + r.w).max().unwrap();
+            let rows = cells.iter().map(|(r, _)| r.y).collect::<std::collections::BTreeSet<_>>().len();
+            let icon = icon_for(cells[0].0);
+            eprintln!("{w}x{h}: {} cells {}x{} wide {} of {w}, icon {icon}, {rows} rows", cells.len(), cells[0].0.w, cells[0].0.h, right - left);
+            if wide {
+                assert!(f64::from(right - left) >= 0.6 * w as f64 || cells[0].0.w == helix_draw::theme::grow(CELL_MAX_W), "{w}x{h}: the grid is {} wide", right - left);
+            }
+            assert_eq!(icon > ICON, big, "{w}x{h}: icon {icon}");
+            assert!(rows >= min_rows, "{w}x{h}: {rows} rows");
+            assert!(label_lines(cells[0].0) >= 2);
+            assert!(dots_inside(&grid, h as i32), "{w}x{h}: page dots on screen");
+        }
+    }
+
+    fn dots_inside(grid: &GridView, h: i32) -> bool {
+        grid.dots.iter().all(|(r, _)| r.y + r.h <= h)
+    }
 
     fn apps(n: usize) -> Vec<crate::launcher::App> {
         (0..n).map(|i| crate::launcher::App { id: format!("app{i:02}.desktop"), name: format!("App {i:02}"), search: String::new(), categories: Vec::new() }).collect()
