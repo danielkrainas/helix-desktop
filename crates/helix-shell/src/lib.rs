@@ -26,6 +26,7 @@ pub mod favorites;
 pub mod file_chooser;
 pub mod font;
 pub mod geoclue_agent;
+pub mod heap;
 pub mod housekeeping;
 pub mod ibus;
 pub mod idle;

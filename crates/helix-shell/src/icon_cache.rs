@@ -25,9 +25,17 @@ pub type Sink = Arc<dyn Fn(Done) + Send + Sync>;
 /// Icons by key (which says what and at what size): `None` when there is
 /// none. Without workers (tests, pictures for the docs) icons are decoded
 /// when asked for.
+/// How many icons are kept: past it, the least recently used quarter is
+/// forgotten (helixdesktop/desktop#120: keys made from a notification's
+/// own picture, file or bytes, are new for nearly every notification, so
+/// an unbounded cache grows for as long as the session runs).
+const MAX_ICONS: usize = 768;
+
 #[derive(Default)]
 pub struct IconCache {
-    done: HashMap<String, Option<Image>>,
+    /// The icons and when each was last asked for (a counter).
+    done: HashMap<String, (Option<Image>, u64)>,
+    used: u64,
     pending: HashSet<String>,
     /// Bumped by `clear`: icons decoded for an older one are dropped.
     generation: u64,
@@ -43,12 +51,14 @@ impl IconCache {
     /// The icon `key`, if ready; else `load` runs on a worker (unless it
     /// already is for `key`) and nothing is returned yet.
     pub fn get(&mut self, key: String, load: impl FnOnce() -> Option<Image> + Send + 'static) -> Option<Image> {
-        if let Some(found) = self.done.get(&key) {
+        self.used += 1;
+        if let Some((found, used)) = self.done.get_mut(&key) {
+            *used = self.used;
             return found.clone();
         }
         let Some((workers, sink)) = self.workers.as_mut() else {
             let image = load();
-            self.done.insert(key, image.clone());
+            self.keep(key, image.clone());
             return image;
         };
         if self.pending.insert(key.clone()) {
@@ -71,8 +81,30 @@ impl IconCache {
         if done.generation != self.generation || !self.pending.remove(&done.key) {
             return false;
         }
-        self.done.insert(done.key, done.image);
+        self.keep(done.key, done.image);
         true
+    }
+
+    /// Keep `image` as `key`, forgetting the least recently used quarter
+    /// when there are too many.
+    fn keep(&mut self, key: String, image: Option<Image>) {
+        self.used += 1;
+        self.done.insert(key, (image, self.used));
+        if self.done.len() > MAX_ICONS {
+            let mut ages: Vec<u64> = self.done.values().map(|(_, used)| *used).collect();
+            ages.sort_unstable();
+            let cut = ages[ages.len() / 4];
+            self.done.retain(|_, (_, used)| *used > cut);
+        }
+    }
+
+    /// How many icons are kept.
+    pub fn len(&self) -> usize {
+        self.done.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.done.is_empty()
     }
 
     /// Forget every icon (the icon theme changed): ones being decoded
@@ -105,6 +137,19 @@ mod tests {
             let _ = tx.lock().unwrap().send(done);
         });
         (IconCache::spawning(Workers::new("icons-test", 2), sink), rx)
+    }
+
+    /// The cache stays bounded and keeps what is still used.
+    #[test]
+    fn bounded() {
+        let mut cache = IconCache::default();
+        for i in 0..5000 {
+            cache.get(format!("source:{i}@48"), || Some(image(1)));
+            // One icon asked for all the time.
+            cache.get("app:files@48".into(), || Some(image(2)));
+        }
+        assert!(cache.len() <= MAX_ICONS, "{} icons", cache.len());
+        assert_eq!(cache.get("app:files@48".into(), || panic!("forgotten")), Some(image(2)));
     }
 
     #[test]

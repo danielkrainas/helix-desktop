@@ -11,6 +11,8 @@ use smithay_client_toolkit::reexports::calloop::channel;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> ExitCode {
+    // Before any other thread (helixdesktop/desktop#120).
+    helix_shell::heap::limit_arenas();
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -24,6 +26,7 @@ fn main() -> ExitCode {
     helix_draw::set_rtl(helix_i18n::is_rtl());
     // Before any other thread touches GIO.
     helix_settings::prepare_gio();
+    helix_shell::heap::log_from_env();
     // The installed apps, read before the dock or overview needs them.
     helix_shell::icons::read_apps_soon();
 

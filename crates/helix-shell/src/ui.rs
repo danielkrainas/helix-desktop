@@ -370,6 +370,8 @@ struct Ui {
     recording: Option<std::time::Instant>,
     /// The recording time the panel shows.
     shown_elapsed: Option<String>,
+    /// Gives freed heap memory back now and then.
+    heap_trim: crate::heap::Trim,
     /// Network, battery, volume, radios.
     status: crate::status::Status,
     /// The launcher's current search (answers for others are dropped).
@@ -3859,6 +3861,8 @@ impl Ui {
 
     /// Redraw when the minute changes or an OSD expires.
     fn tick(&mut self) {
+        // Memory malloc keeps after surfaces come and go goes back.
+        self.heap_trim.tick();
         // Input sources may change from outside (Settings).
         self.ime_sync();
         self.osk_sync();
@@ -4045,6 +4049,7 @@ pub fn run(
         sharing: false,
         recording: None,
         shown_elapsed: None,
+        heap_trim: Default::default(),
         status: Default::default(),
         panel_layout: Default::default(),
         panel_keys: Default::default(),
