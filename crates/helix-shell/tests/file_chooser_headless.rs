@@ -408,3 +408,51 @@ fn large_text_fits() {
     let (response, results) = wait_answer(answer);
     assert_eq!((response, paths(&results)), (0, vec![s.home().join("Documents/Untitled document.odt")]));
 }
+
+/// Places follow while the dialog is open: a network place that appears
+/// (GVfs's FUSE folder) is listed and goes again; dragging the dialog's
+/// corner and the edge of the places resizes them, kept when the button
+/// goes up (helixdesktop/desktop#118).
+#[test]
+fn live_places_and_resizing() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(mut s) = start((1280, 800), SETTINGS, Vec::new(), false) else { return };
+    let docs = s.home().join("Documents");
+    let answer = choose(&s, "open", &docs, "");
+    assert!(wait_lines(&s, &["file chooser listed", "entries=15"], 1), "Documents listed:\n{}", s.log());
+    let share = s.home().join("run/gvfs/smb-share:server=nas,share=docs");
+    std::fs::create_dir_all(&share).unwrap();
+    assert!(wait_lines(&s, &["file chooser places", "docs on nas"], 1), "the share came:\n{}", s.log());
+    std::fs::remove_dir(&share).unwrap();
+    assert!(wait_lines(&s, &["file chooser places"], 2), "the share went:\n{}", s.log());
+    assert!(!s.log().lines().rev().find(|l| l.contains("file chooser places")).unwrap().contains("docs on nas"));
+
+    // The bottom right corner, 100 px left and 60 up: the dialog (kept
+    // centred) is 200 narrower and 120 lower.
+    let (x, y, w, h) = *parts(&s).get("Files(Resize(10))").expect("the corner");
+    let dialog_w = |s: &HeadlessSession| parts(s).get("Files(Resize(2))").map(|r| r.0).unwrap() - parts(s).get("Files(Resize(1))").map(|r| r.0).unwrap();
+    let before = dialog_w(&s);
+    let (cx, cy) = (x + w / 2, y + h / 2);
+    s.input(&format!("move {cx} {cy}\nbutton 272 down\nmove {} {}\nmove {} {}\nbutton 272 up", cx - 50, cy - 30, cx - 100, cy - 60));
+    assert!(wait_lines(&s, &["file chooser resized"], 1), "resized:\n{}", s.log());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while dialog_w(&s) != before - 200 {
+        assert!(Instant::now() < deadline, "the dialog is {} wide, was {before}:\n{}", dialog_w(&s), s.log());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // The places' edge, 40 px right.
+    let (x, y, w, h) = *parts(&s).get("Files(SidebarEdge)").expect("the places' edge");
+    let place_w = |s: &HeadlessSession| parts(s).get("Files(Place(1))").map(|r| r.2).unwrap();
+    let before = place_w(&s);
+    let (ex, ey) = (x + w / 2, y + h / 2);
+    s.input(&format!("move {ex} {ey}\nbutton 272 down\nmove {} {ey}\nbutton 272 up", ex + 40));
+    assert!(wait_lines(&s, &["file chooser resized"], 2), "places resized:\n{}", s.log());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while place_w(&s) != before + 40 {
+        assert!(Instant::now() < deadline, "the places are {} wide, were {before}:\n{}", place_w(&s), s.log());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    s.input("tap 1");
+    let (response, _) = wait_answer(answer);
+    assert_eq!(response, 1, "Escape cancels");
+}

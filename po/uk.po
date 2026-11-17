@@ -66,19 +66,19 @@ msgid "Username"
 msgstr "Ім'я користувача"
 
 #: crates/helix-greeter/src/atspi.rs:79 crates/helix-greeter/src/paint.rs:479
-#: crates/helix-shell/src/ui/file_chooser.rs:1251
+#: crates/helix-shell/src/ui/file_chooser.rs:1446
 #: crates/helix-shell/src/ui/window_menu.rs:405
 msgid "Back"
 msgstr "Назад"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5342 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5345 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:587
 msgid "Power Off…"
 msgstr "Вимкнути…"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5339 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5342 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:586
 msgid "Restart…"
 msgstr "Перезапустити…"
@@ -113,7 +113,7 @@ msgstr "Вимкнути комп'ютер?"
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 #: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1321 crates/helix-shell/src/lib.rs:1409
+#: crates/helix-shell/src/lib.rs:1334 crates/helix-shell/src/lib.rs:1422
 #: crates/helix-shell/src/mount_handler.rs:125
 #: crates/helix-shell/src/mount_handler.rs:139
 #: crates/helix-shell/src/mount_handler.rs:174
@@ -126,10 +126,10 @@ msgstr "Вимкнути комп'ютер?"
 #: crates/helix-shell/src/run_dialog.rs:184 crates/helix-shell/src/ui.rs:1294
 #: crates/helix-shell/src/ui.rs:1297 crates/helix-shell/src/ui.rs:3265
 #: crates/helix-shell/src/ui/atspi.rs:922
-#: crates/helix-shell/src/ui/file_chooser.rs:1166
-#: crates/helix-shell/src/ui/file_chooser.rs:1219
-#: crates/helix-shell/src/ui/file_chooser.rs:1245
-#: crates/helix-shell/src/ui/file_chooser.rs:1327
+#: crates/helix-shell/src/ui/file_chooser.rs:1361
+#: crates/helix-shell/src/ui/file_chooser.rs:1414
+#: crates/helix-shell/src/ui/file_chooser.rs:1440
+#: crates/helix-shell/src/ui/file_chooser.rs:1528
 #: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:588
 #: crates/helix-shell/src/ui/prompt.rs:603
 #: crates/helix-shell/src/vpn_secrets.rs:195
@@ -150,14 +150,14 @@ msgstr "Доступність"
 #. Translators: the login screen's clock in 12-hour time (strftime).
 #. Translators: a time of day for today, 24-hour and 12-hour (see GLib's g_date_time_format for the codes).
 #: crates/helix-greeter/src/clock.rs:98
-#: crates/helix-shell/src/file_chooser.rs:263
+#: crates/helix-shell/src/file_chooser.rs:333
 msgid "%l:%M %p"
 msgstr "%l:%M %p"
 
 #. Translators: the login screen's clock in 24-hour time (strftime).
 #. Translators: a time of day for today, 24-hour and 12-hour (see GLib's g_date_time_format for the codes).
 #: crates/helix-greeter/src/clock.rs:101
-#: crates/helix-shell/src/file_chooser.rs:263
+#: crates/helix-shell/src/file_chooser.rs:333
 msgid "%H:%M"
 msgstr "%H:%M"
 
@@ -304,9 +304,9 @@ msgid "Add"
 msgstr "Додати"
 
 #: crates/helix-portals/src/dynamic_launcher.rs:154
-#: crates/helix-shell/src/ui/file_chooser.rs:910
-#: crates/helix-shell/src/ui/file_chooser.rs:955
-#: crates/helix-shell/src/ui/file_chooser.rs:1277
+#: crates/helix-shell/src/ui/file_chooser.rs:1068
+#: crates/helix-shell/src/ui/file_chooser.rs:1142
+#: crates/helix-shell/src/ui/file_chooser.rs:1472
 msgid "Name"
 msgstr "Назва"
 
@@ -491,7 +491,7 @@ msgid "This code is not valid."
 msgstr "Цей код недійсний."
 
 #: crates/helix-shell/src/bluetooth_agent.rs:124
-#: crates/helix-shell/src/lib.rs:1135 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/lib.rs:1148 crates/helix-shell/src/obex.rs:478
 #: crates/helix-shell/src/panel_layout.rs:219
 #: crates/helix-shell/src/ui/quick.rs:409
 msgid "Bluetooth"
@@ -725,10 +725,12 @@ msgstr "Bluetooth увімкнено"
 msgid "Bluetooth Off"
 msgstr "Bluetooth вимкнено"
 
+#. Translators: the type of a folder in the file chooser.
 #: crates/helix-shell/src/favorites.rs:147
+#: crates/helix-shell/src/file_chooser.rs:267
 #: crates/helix-shell/src/ui/atspi.rs:752
 #: crates/helix-shell/src/ui/desktop_icons.rs:191
-#: crates/helix-shell/src/ui/file_chooser.rs:1292
+#: crates/helix-shell/src/ui/file_chooser.rs:1490
 msgid "Folder"
 msgstr "Тека"
 
@@ -736,20 +738,101 @@ msgstr "Тека"
 msgid "Unnamed Folder"
 msgstr "Тека без назви"
 
-#: crates/helix-shell/src/file_chooser.rs:267
+#: crates/helix-shell/src/file_chooser.rs:243
+msgid "Program"
+msgstr "Програма"
+
+#: crates/helix-shell/src/file_chooser.rs:244
+msgid "Audio"
+msgstr "Аудіо"
+
+#: crates/helix-shell/src/file_chooser.rs:245
+msgid "Font"
+msgstr "Шрифт"
+
+#: crates/helix-shell/src/file_chooser.rs:246
+msgid "Image"
+msgstr "Зображення"
+
+#: crates/helix-shell/src/file_chooser.rs:247
+msgid "Archive"
+msgstr "Архів"
+
+#: crates/helix-shell/src/file_chooser.rs:248
+msgid "Markup"
+msgstr "Розмітка"
+
+#: crates/helix-shell/src/file_chooser.rs:249
+msgid "Text"
+msgstr "Текст"
+
+#: crates/helix-shell/src/file_chooser.rs:250
+msgid "Video"
+msgstr "Відео"
+
+#: crates/helix-shell/src/file_chooser.rs:251
+msgid "Contacts"
+msgstr "Контакти"
+
+#: crates/helix-shell/src/file_chooser.rs:252
+msgid "Calendar"
+msgstr "Календар"
+
+#: crates/helix-shell/src/file_chooser.rs:253
+msgid "Document"
+msgstr "Документ"
+
+#: crates/helix-shell/src/file_chooser.rs:254
+msgid "Presentation"
+msgstr "Презентація"
+
+#: crates/helix-shell/src/file_chooser.rs:255
+msgid "Spreadsheet"
+msgstr "Електронна таблиця"
+
+#. Translators: a file type the chooser cannot name.
+#: crates/helix-shell/src/file_chooser.rs:257
+#: crates/helix-shell/src/weather.rs:72
+msgid "Unknown"
+msgstr "Невідомо"
+
+#. Translators: yesterday at a time of day ("14:05", "2:05 PM").
+#: crates/helix-shell/src/file_chooser.rs:341
+msgid "Yesterday, {time}"
+msgstr "Учора, {time}"
+
+#: crates/helix-shell/src/file_chooser.rs:343
 #: crates/helix-shell/src/notifications.rs:98
 msgid "Yesterday"
 msgstr "Учора"
 
 #. Translators: a date this year (day and abbreviated month).
-#: crates/helix-shell/src/file_chooser.rs:271
+#: crates/helix-shell/src/file_chooser.rs:349
 msgid "%-e %b"
 msgstr "%-e %b"
 
+#. Translators: a date this year with the time, 24-hour and 12-hour.
+#: crates/helix-shell/src/file_chooser.rs:351
+msgid "%-e %b, %H:%M"
+msgstr "%-e %b, %H:%M"
+
+#: crates/helix-shell/src/file_chooser.rs:352
+msgid "%-e %b, %l:%M %p"
+msgstr "%-e %b, %l:%M %p"
+
 #. Translators: a date in another year.
-#: crates/helix-shell/src/file_chooser.rs:274
+#: crates/helix-shell/src/file_chooser.rs:354
 msgid "%-e %b %Y"
 msgstr "%-e %b %Y"
+
+#. Translators: a date in another year with the time, 24-hour and 12-hour.
+#: crates/helix-shell/src/file_chooser.rs:357
+msgid "%-e %b %Y, %H:%M"
+msgstr "%-e %b %Y, %H:%M"
+
+#: crates/helix-shell/src/file_chooser.rs:358
+msgid "%-e %b %Y, %l:%M %p"
+msgstr "%-e %b %Y, %l:%M %p"
 
 #: crates/helix-shell/src/geoclue_agent.rs:112
 msgid "Location Access"
@@ -798,53 +881,53 @@ msgstr "Продовжити"
 msgid "More"
 msgstr "Більше"
 
-#: crates/helix-shell/src/lib.rs:991
+#: crates/helix-shell/src/lib.rs:1004
 msgid "Nothing was turned off or restarted. {err}"
 msgstr "Нічого не було вимкнено чи перезапущено. {err}"
 
-#: crates/helix-shell/src/lib.rs:991
+#: crates/helix-shell/src/lib.rs:1004
 msgid "Software"
 msgstr "Програмне забезпечення"
 
-#: crates/helix-shell/src/lib.rs:991
+#: crates/helix-shell/src/lib.rs:1004
 msgid "Updates could not be scheduled"
 msgstr "Не вдалося запланувати оновлення"
 
-#: crates/helix-shell/src/lib.rs:1135
+#: crates/helix-shell/src/lib.rs:1148
 msgid "Cannot pair with {name}"
 msgstr "Не вдалося пов'язати з {name}"
 
-#: crates/helix-shell/src/lib.rs:1222
+#: crates/helix-shell/src/lib.rs:1235
 #: crates/helix-shell/src/panel_layout.rs:221
 #: crates/helix-shell/src/ui/quick.rs:415
 msgid "Auto Rotate"
 msgstr "Автообертання"
 
-#: crates/helix-shell/src/lib.rs:1222
+#: crates/helix-shell/src/lib.rs:1235
 msgid "Rotation Locked"
 msgstr "Обертання заблоковано"
 
-#: crates/helix-shell/src/lib.rs:1318
+#: crates/helix-shell/src/lib.rs:1331
 msgid "Rename Folder"
 msgstr "Перейменувати теку"
 
-#: crates/helix-shell/src/lib.rs:1319
+#: crates/helix-shell/src/lib.rs:1332
 msgid "Folder name"
 msgstr "Назва теки"
 
-#: crates/helix-shell/src/lib.rs:1320
+#: crates/helix-shell/src/lib.rs:1333
 msgid "Rename"
 msgstr "Перейменувати"
 
-#: crates/helix-shell/src/lib.rs:1406
+#: crates/helix-shell/src/lib.rs:1419
 msgid "Empty Trash?"
 msgstr "Спорожнити смітник?"
 
-#: crates/helix-shell/src/lib.rs:1407
+#: crates/helix-shell/src/lib.rs:1420
 msgid "All items in the Trash will be permanently deleted."
 msgstr "Усі об'єкти в смітнику буде остаточно вилучено."
 
-#: crates/helix-shell/src/lib.rs:1408 crates/helix-shell/src/ui/dock.rs:1491
+#: crates/helix-shell/src/lib.rs:1421 crates/helix-shell/src/ui/dock.rs:1491
 msgid "Empty Trash"
 msgstr "Спорожнити смітник"
 
@@ -1295,7 +1378,7 @@ msgstr "«{}» від {} не отримано."
 msgid "A new version of the system"
 msgstr "Нова версія системи"
 
-#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5035
+#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5038
 msgid "Apps"
 msgstr "Програми"
 
@@ -1716,55 +1799,55 @@ msgstr "{app} хоче бачити ваш екран. Виберіть, що п
 msgid "It will be able to share the same screen again without asking."
 msgstr "Вона зможе знову показувати той самий екран без запиту."
 
-#: crates/helix-shell/src/ui.rs:3466
+#: crates/helix-shell/src/ui.rs:3467
 msgid "New virtual monitor"
 msgstr "Новий віртуальний монітор"
 
-#: crates/helix-shell/src/ui.rs:5027 crates/helix-shell/src/ui/atspi.rs:765
+#: crates/helix-shell/src/ui.rs:5030 crates/helix-shell/src/ui/atspi.rs:765
 msgid "No matching apps"
 msgstr "Немає відповідних програм"
 
-#: crates/helix-shell/src/ui.rs:5034
+#: crates/helix-shell/src/ui.rs:5037
 msgid "Open Windows"
 msgstr "Відкриті вікна"
 
-#: crates/helix-shell/src/ui.rs:5075
+#: crates/helix-shell/src/ui.rs:5078
 msgid "Search for “{query}” in {name}"
 msgstr "Шукати «{query}» у {name}"
 
-#: crates/helix-shell/src/ui.rs:5140
+#: crates/helix-shell/src/ui.rs:5143
 msgid "{n} more result"
 msgid_plural "{n} more results"
 msgstr[0] "Ще {n} результат"
 msgstr[1] "Ще {n} результати"
 msgstr[2] "Ще {n} результатів"
 
-#: crates/helix-shell/src/ui.rs:5142
+#: crates/helix-shell/src/ui.rs:5145
 msgid "{n} result above"
 msgid_plural "{n} results above"
 msgstr[0] "{n} результат вище"
 msgstr[1] "{n} результати вище"
 msgstr[2] "{n} результатів вище"
 
-#: crates/helix-shell/src/ui.rs:5327 crates/helix-shell/src/ui/atspi.rs:410
+#: crates/helix-shell/src/ui.rs:5330 crates/helix-shell/src/ui/atspi.rs:410
 #: crates/helix-shell/src/ui/quick.rs:560
 msgid "Lock Screen"
 msgstr "Заблокувати екран"
 
-#: crates/helix-shell/src/ui.rs:5330 crates/helix-shell/src/ui/lock.rs:515
+#: crates/helix-shell/src/ui.rs:5333 crates/helix-shell/src/ui/lock.rs:515
 #: crates/helix-shell/src/ui/lock.rs:597
 msgid "Switch User…"
 msgstr "Змінити користувача…"
 
-#: crates/helix-shell/src/ui.rs:5333
+#: crates/helix-shell/src/ui.rs:5336
 msgid "Suspend"
 msgstr "Присипляння"
 
-#: crates/helix-shell/src/ui.rs:5336
+#: crates/helix-shell/src/ui.rs:5339
 msgid "Log Out…"
 msgstr "Вийти…"
 
-#: crates/helix-shell/src/ui.rs:5422
+#: crates/helix-shell/src/ui.rs:5425
 msgid "The app"
 msgstr "Програма"
 
@@ -1924,8 +2007,8 @@ msgid "Window Menu"
 msgstr "Меню вікна"
 
 #: crates/helix-shell/src/ui/atspi.rs:691
-#: crates/helix-shell/src/ui/file_chooser.rs:1256
-#: crates/helix-shell/src/ui/file_chooser.rs:1270
+#: crates/helix-shell/src/ui/file_chooser.rs:1451
+#: crates/helix-shell/src/ui/file_chooser.rs:1465
 #: crates/helix-shell/src/ui/overview.rs:1194
 msgid "Search"
 msgstr "Пошук"
@@ -2432,176 +2515,184 @@ msgstr "Готово"
 msgid "Hide Settings"
 msgstr "Сховати налаштування"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:465
-#: crates/helix-shell/src/ui/file_chooser.rs:504
-#: crates/helix-shell/src/ui/file_chooser.rs:690
+#: crates/helix-shell/src/ui/file_chooser.rs:559
+#: crates/helix-shell/src/ui/file_chooser.rs:598
+#: crates/helix-shell/src/ui/file_chooser.rs:821
 msgid "Home"
 msgstr "Домівка"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:466
-#: crates/helix-shell/src/ui/file_chooser.rs:691
+#: crates/helix-shell/src/ui/file_chooser.rs:560
+#: crates/helix-shell/src/ui/file_chooser.rs:822
 msgid "Computer"
 msgstr "Комп'ютер"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:505
+#: crates/helix-shell/src/ui/file_chooser.rs:599
 msgid "Files in {folder}"
 msgstr "Файли в {folder}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:507
+#: crates/helix-shell/src/ui/file_chooser.rs:601
 msgid "Recent Files"
 msgstr "Нещодавні файли"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:508
+#: crates/helix-shell/src/ui/file_chooser.rs:602
 msgid "Search results for “{query}”"
 msgstr "Результати пошуку «{query}»"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:516
-#: crates/helix-shell/src/ui/file_chooser.rs:1054
+#: crates/helix-shell/src/ui/file_chooser.rs:610
+#: crates/helix-shell/src/ui/file_chooser.rs:1249
 msgid "Loading…"
 msgstr "Завантаження…"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:523
-#: crates/helix-shell/src/ui/file_chooser.rs:689
-#: crates/helix-shell/src/ui/file_chooser.rs:892
+#: crates/helix-shell/src/ui/file_chooser.rs:617
+#: crates/helix-shell/src/ui/file_chooser.rs:820
+#: crates/helix-shell/src/ui/file_chooser.rs:1050
 msgid "Recent"
 msgstr "Недавні"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:526
+#: crates/helix-shell/src/ui/file_chooser.rs:620
 msgid "{what}, {n} item"
 msgid_plural "{what}, {n} items"
 msgstr[0] "{what}, {n} об’єкт"
 msgstr[1] "{what}, {n} об’єкти"
 msgstr[2] "{what}, {n} об’єктів"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:830
+#: crates/helix-shell/src/ui/file_chooser.rs:988
 msgid "Type a file name or location"
 msgstr "Введіть назву файлу або розташування"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:831
+#: crates/helix-shell/src/ui/file_chooser.rs:989
 msgid "Search files"
 msgstr "Пошук файлів"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:832
-#: crates/helix-shell/src/ui/file_chooser.rs:1257
+#: crates/helix-shell/src/ui/file_chooser.rs:990
+#: crates/helix-shell/src/ui/file_chooser.rs:1452
 msgid "New folder name"
 msgstr "Назва нової теки"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:893
+#: crates/helix-shell/src/ui/file_chooser.rs:1051
 msgid "Search for “{query}”"
 msgstr "Пошук «{query}»"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:956
+#: crates/helix-shell/src/ui/file_chooser.rs:1143
 msgid "Size"
 msgstr "Розмір"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:957
+#: crates/helix-shell/src/ui/file_chooser.rs:1144
 msgid "Modified"
 msgstr "Змінено"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:958
-#: crates/helix-shell/src/ui/file_chooser.rs:1250
-#: crates/helix-shell/src/ui/file_chooser.rs:1255
+#: crates/helix-shell/src/ui/file_chooser.rs:1145
+#: crates/helix-shell/src/ui/file_chooser.rs:1445
+#: crates/helix-shell/src/ui/file_chooser.rs:1450
 msgid "Location"
 msgstr "Розташування"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1058
+#: crates/helix-shell/src/ui/file_chooser.rs:1146
+msgid "Type"
+msgstr "Тип"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1253
 msgid "This folder cannot be shown: {error}"
 msgstr "Не вдається показати цю теку: {error}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1061
+#: crates/helix-shell/src/ui/file_chooser.rs:1256
 msgid "Folder is empty"
 msgstr "Тека порожня"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1062
+#: crates/helix-shell/src/ui/file_chooser.rs:1257
 msgid "No recent files"
 msgstr "Немає нещодавніх файлів"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1063
+#: crates/helix-shell/src/ui/file_chooser.rs:1258
 msgid "No results found"
 msgstr "Нічого не знайдено"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1121
+#: crates/helix-shell/src/ui/file_chooser.rs:1316
 msgid "No preview"
 msgstr "Немає попереднього перегляду"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1144
-#: crates/helix-shell/src/ui/file_chooser.rs:1153
-#: crates/helix-shell/src/ui/file_chooser.rs:1316
+#: crates/helix-shell/src/ui/file_chooser.rs:1339
+#: crates/helix-shell/src/ui/file_chooser.rs:1348
+#: crates/helix-shell/src/ui/file_chooser.rs:1517
 msgid "All Files"
 msgstr "Усі файли"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1202
+#: crates/helix-shell/src/ui/file_chooser.rs:1397
 msgid ""
 "A file named “{name}” already exists in “{folder}”. Replacing it overwrites "
 "its contents."
 msgstr ""
 "Файл з назвою «{name}» уже існує в «{folder}». Заміна перезапише його вміст."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1207
-#: crates/helix-shell/src/ui/file_chooser.rs:1242
+#: crates/helix-shell/src/ui/file_chooser.rs:1402
+#: crates/helix-shell/src/ui/file_chooser.rs:1437
 msgid "Replace File?"
 msgstr "Замінити файл?"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1220
-#: crates/helix-shell/src/ui/file_chooser.rs:1246
+#: crates/helix-shell/src/ui/file_chooser.rs:1415
+#: crates/helix-shell/src/ui/file_chooser.rs:1441
 msgid "Replace"
 msgstr "Замінити"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1244
+#: crates/helix-shell/src/ui/file_chooser.rs:1439
 msgid ""
 "A file named “{name}” already exists. Replacing it overwrites its contents."
 msgstr "Файл з назвою «{name}» уже існує. Заміна перезапише його вміст."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1252
+#: crates/helix-shell/src/ui/file_chooser.rs:1447
 msgid "Forward"
 msgstr "Вперед"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1273
+#: crates/helix-shell/src/ui/file_chooser.rs:1468
 msgid "New Folder"
 msgstr "Нова тека"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1281
+#: crates/helix-shell/src/ui/file_chooser.rs:1476
 msgid "Places"
 msgstr "Місця"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1298
+#: crates/helix-shell/src/ui/file_chooser.rs:1478
+msgid "Eject {drive}"
+msgstr "Виштовхнути «{drive}»"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1499
 msgid "Modified {when}"
 msgstr "Змінено {when}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1317
-#: crates/helix-shell/src/ui/file_chooser.rs:1320
+#: crates/helix-shell/src/ui/file_chooser.rs:1518
+#: crates/helix-shell/src/ui/file_chooser.rs:1521
 msgid "File Type"
 msgstr "Тип файлу"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1486
+#: crates/helix-shell/src/ui/file_chooser.rs:1737
 msgid "The folder could not be made: {error}"
 msgstr "Не вдалося створити теку: {error}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1586
+#: crates/helix-shell/src/ui/file_chooser.rs:1837
 msgid "Type a name for the file."
 msgstr "Введіть назву файлу."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1605
+#: crates/helix-shell/src/ui/file_chooser.rs:1856
 msgid "That folder does not exist."
 msgstr "Такої теки не існує."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1668
+#: crates/helix-shell/src/ui/file_chooser.rs:1919
 msgid "Type a name for the folder."
 msgstr "Введіть назву теки."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1670
+#: crates/helix-shell/src/ui/file_chooser.rs:1921
 msgid "Folder names cannot contain “/”."
 msgstr "Назва теки не може містити «/»."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1672
+#: crates/helix-shell/src/ui/file_chooser.rs:1923
 msgid "That name cannot be used."
 msgstr "Цю назву не можна використати."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1674
+#: crates/helix-shell/src/ui/file_chooser.rs:1925
 msgid "A file or folder with that name already exists."
 msgstr "Файл або тека з такою назвою вже існує."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1705
+#: crates/helix-shell/src/ui/file_chooser.rs:1956
 msgid "“{name}” was not found."
 msgstr "«{name}» не знайдено."
 
@@ -2955,10 +3046,6 @@ msgstr "Невеликий дощ"
 #: crates/helix-shell/src/weather.rs:71
 msgid "Rain"
 msgstr "Дощ"
-
-#: crates/helix-shell/src/weather.rs:72
-msgid "Unknown"
-msgstr "Невідомо"
 
 #. Translators: a temperature in degrees Celsius.
 #: crates/helix-shell/src/weather.rs:87

@@ -192,6 +192,11 @@ pub fn list_blocking(listing: &Listing, home: &Path) -> Result<Vec<Entry>, Strin
 /// with `hidden`; files only when the mode lists them and they pass
 /// `filter`.
 pub fn rows(entries: &[Entry], mode: Mode, filter: Option<&Filter>, hidden: bool, sort: files::Sort) -> Vec<usize> {
+    rows_typed(entries, mode, filter, hidden, sort, TypeFormat::default())
+}
+
+/// [`rows`], sorting by type as the Type column shows it in `format`.
+pub fn rows_typed(entries: &[Entry], mode: Mode, filter: Option<&Filter>, hidden: bool, sort: files::Sort, format: TypeFormat) -> Vec<usize> {
     let mut out: Vec<usize> = entries
         .iter()
         .enumerate()
@@ -199,8 +204,74 @@ pub fn rows(entries: &[Entry], mode: Mode, filter: Option<&Filter>, hidden: bool
         .filter(|(_, e)| e.dir || (mode.lists_files() && filter.is_none_or(|f| files::passes(f, &e.name))))
         .map(|(i, _)| i)
         .collect();
-    files::sort_rows(entries, &mut out, sort);
+    let types: Vec<String> = match sort.column {
+        files::SortColumn::Type => entries.iter().map(|e| type_text(e, format)).collect(),
+        _ => Vec::new(),
+    };
+    files::sort_rows_typed(entries, &mut out, sort, &types);
     out
+}
+
+/// How the Type column names types (`org.gtk.gtk4.Settings.FileChooser`
+/// `type-format`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TypeFormat {
+    /// The MIME type (`image/png`).
+    Mime,
+    /// The type's description (`PNG image`).
+    Description,
+    /// A broad category (`Image`), as GTK 4's chooser shows by default.
+    #[default]
+    Category,
+}
+
+impl TypeFormat {
+    pub fn from_key(key: &str) -> Self {
+        match key {
+            "mime" => TypeFormat::Mime,
+            "description" => TypeFormat::Description,
+            _ => TypeFormat::Category,
+        }
+    }
+}
+
+/// The category of a content type, from its generic icon, as GTK 4's
+/// file chooser has them ("Unknown" for the rest).
+fn category(content_type: &str) -> &'static str {
+    let generic = gio::content_type_get_generic_icon_name(content_type).map(|g| g.to_string()).unwrap_or_default();
+    match generic.as_str() {
+        "application-x-executable" | "text-x-script" => tr("Program"),
+        "audio-x-generic" => tr("Audio"),
+        "font-x-generic" => tr("Font"),
+        "image-x-generic" => tr("Image"),
+        "package-x-generic" => tr("Archive"),
+        "text-html" => tr("Markup"),
+        "text-x-generic" | "text-x-generic-template" => tr("Text"),
+        "video-x-generic" => tr("Video"),
+        "x-office-address-book" => tr("Contacts"),
+        "x-office-calendar" => tr("Calendar"),
+        "x-office-document" => tr("Document"),
+        "x-office-presentation" => tr("Presentation"),
+        "x-office-spreadsheet" => tr("Spreadsheet"),
+        // Translators: a file type the chooser cannot name.
+        _ => tr("Unknown"),
+    }
+}
+
+/// An entry's type as the Type column shows it ("Folder" for folders).
+pub fn type_text(entry: &Entry, format: TypeFormat) -> String {
+    if entry.dir {
+        return match format {
+            TypeFormat::Mime => "inode/directory".to_owned(),
+            // Translators: the type of a folder in the file chooser.
+            _ => tr("Folder").to_owned(),
+        };
+    }
+    match format {
+        TypeFormat::Mime => gio::content_type_get_mime_type(&entry.content_type).map(|m| m.to_string()).unwrap_or_else(|| entry.content_type.clone()),
+        TypeFormat::Description => gio::content_type_get_description(&entry.content_type).to_string(),
+        TypeFormat::Category => category(&entry.content_type).to_owned(),
+    }
 }
 
 /// The first row (in shown order) whose name starts with `typed`,
@@ -250,28 +321,44 @@ pub fn size_text(bytes: u64) -> String {
 /// When a file was modified, as GNOME's file chooser shows it: the time
 /// for today, "Yesterday", the day and month this year, else with the
 /// year (local time; `now` and `t` Unix seconds).
-pub fn modified_text(t: i64, now: i64, twelve_hour: bool) -> String {
+pub fn modified_text(t: i64, now: i64, twelve_hour: bool, with_time: bool) -> String {
     if t <= 0 {
         return String::new();
     }
     let (Ok(when), Ok(now)) = (gio::glib::DateTime::from_unix_local(t), gio::glib::DateTime::from_unix_local(now)) else { return String::new() };
     let day = |d: &gio::glib::DateTime| (d.year(), d.day_of_year());
     let format = |d: &gio::glib::DateTime, f: &str| d.format(f).map(|s| s.to_string()).unwrap_or_default();
+    // Translators: a time of day for today, 24-hour and 12-hour (see
+    // GLib's g_date_time_format for the codes).
+    let time = || format(&when, if twelve_hour { tr("%l:%M %p") } else { tr("%H:%M") }).trim().to_owned();
     if day(&when) == day(&now) {
-        // Translators: a time of day for today, 24-hour and 12-hour (see
-        // GLib's g_date_time_format for the codes).
-        return format(&when, if twelve_hour { tr("%l:%M %p") } else { tr("%H:%M") }).trim().to_owned();
+        return time();
     }
     let yesterday = now.add_days(-1).ok();
     if yesterday.as_ref().is_some_and(|y| day(y) == day(&when)) {
-        return tr("Yesterday").to_owned();
+        return if with_time {
+            // Translators: yesterday at a time of day ("14:05", "2:05 PM").
+            helix_i18n::trf!("Yesterday, {time}", time = time())
+        } else {
+            tr("Yesterday").to_owned()
+        };
     }
-    if when.year() == now.year() {
+    // `date-format` `with-time`: the time after the date.
+    let pattern = match (when.year() == now.year(), with_time, twelve_hour) {
         // Translators: a date this year (day and abbreviated month).
-        return format(&when, tr("%-e %b"));
-    }
-    // Translators: a date in another year.
-    format(&when, tr("%-e %b %Y"))
+        (true, false, _) => tr("%-e %b"),
+        // Translators: a date this year with the time, 24-hour and 12-hour.
+        (true, true, false) => tr("%-e %b, %H:%M"),
+        (true, true, true) => tr("%-e %b, %l:%M %p"),
+        // Translators: a date in another year.
+        (false, false, _) => tr("%-e %b %Y"),
+        // Translators: a date in another year with the time, 24-hour and
+        // 12-hour.
+        (false, true, false) => tr("%-e %b %Y, %H:%M"),
+        (false, true, true) => tr("%-e %b %Y, %l:%M %p"),
+    };
+    // (`%l` pads with a space, or GLib's figure space.)
+    format(&when, pattern).replace('\u{2007}', " ").replace("  ", " ").trim().to_owned()
 }
 
 // ----- The name field ---------------------------------------------------
@@ -479,16 +566,42 @@ mod tests {
     }
 
     #[test]
+    fn types() {
+        let file = |name: &str| Entry { name: name.into(), path: PathBuf::from("/x").join(name), dir: false, size: 1, modified: 0, content_type: files::fast_content_type(name) };
+        let folder = Entry { dir: true, content_type: "inode/directory".into(), ..file("Docs") };
+        assert_eq!(type_text(&folder, TypeFormat::Category), "Folder");
+        assert_eq!(type_text(&folder, TypeFormat::Mime), "inode/directory");
+        // Without shared-mime-info nothing is known; with it, as GTK names them.
+        if gio::content_type_get_mime_type(&files::fast_content_type("a.png")).is_some_and(|m| m == "image/png") {
+            assert_eq!(type_text(&file("a.png"), TypeFormat::Category), "Image");
+            assert_eq!(type_text(&file("a.png"), TypeFormat::Mime), "image/png");
+            assert_eq!(type_text(&file("notes.txt"), TypeFormat::Category), "Text");
+            assert!(!type_text(&file("a.png"), TypeFormat::Description).is_empty());
+            // Sorted by the type shown: folders, then Image before Text.
+            let entries = vec![file("notes.txt"), file("a.png"), folder.clone()];
+            let sort = files::Sort { column: files::SortColumn::Type, ascending: true, folders_first: false };
+            assert_eq!(rows_typed(&entries, Mode::Open, None, false, sort, TypeFormat::Category), [2, 1, 0]);
+        }
+        assert_eq!((TypeFormat::from_key("mime"), TypeFormat::from_key("description"), TypeFormat::from_key("?")), (TypeFormat::Mime, TypeFormat::Description, TypeFormat::Category));
+    }
+
+    #[test]
     fn dates_and_sizes() {
         let now = gio::glib::DateTime::from_local(2026, 11, 16, 15, 30, 0.0).unwrap().to_unix();
         let at = |d: i32, h: i32| gio::glib::DateTime::from_local(2026, 11, d, h, 5, 0.0).unwrap().to_unix();
-        assert_eq!(modified_text(at(16, 9), now, false), "09:05");
-        assert_eq!(modified_text(at(16, 21), now, true), "9:05 PM");
-        assert_eq!(modified_text(at(15, 23), now, false), "Yesterday");
-        assert_eq!(modified_text(at(2, 10), now, false), "2 Nov");
+        assert_eq!(modified_text(at(16, 9), now, false, false), "09:05");
+        assert_eq!(modified_text(at(16, 21), now, true, false), "9:05 PM");
+        assert_eq!(modified_text(at(15, 23), now, false, false), "Yesterday");
+        assert_eq!(modified_text(at(2, 10), now, false, false), "2 Nov");
         let old = gio::glib::DateTime::from_local(2025, 3, 7, 10, 0, 0.0).unwrap().to_unix();
-        assert_eq!(modified_text(old, now, false), "7 Mar 2025");
-        assert_eq!(modified_text(0, now, false), "");
+        assert_eq!(modified_text(old, now, false, false), "7 Mar 2025");
+        assert_eq!(modified_text(0, now, false, false), "");
+        // `date-format` `with-time`.
+        assert_eq!(modified_text(at(16, 9), now, false, true), "09:05", "today: the time alone");
+        assert_eq!(modified_text(at(15, 23), now, false, true), "Yesterday, 23:05");
+        assert_eq!(modified_text(at(2, 10), now, false, true), "2 Nov, 10:05");
+        assert_eq!(modified_text(at(2, 9), now, true, true), "2 Nov, 9:05 AM");
+        assert_eq!(modified_text(old, now, false, true), "7 Mar 2025, 10:00");
         assert_eq!(size_text(340), "340 bytes");
         assert_eq!(size_text(1_200_000).replace('\u{a0}', " "), "1.2 MB", "(GLib puts a no-break space before the unit)");
     }

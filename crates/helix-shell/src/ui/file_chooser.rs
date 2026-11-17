@@ -40,6 +40,8 @@ const NOTCH_ROWS: f64 = 3.0;
 /// rows on screen and those near them (each still telling its place in
 /// the whole list).
 const A11Y_ALL_ROWS: usize = 1000;
+/// The places are read again this often while the dialog is open.
+const PLACES_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// A part of the file chooser.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -68,6 +70,25 @@ pub(super) enum FilesHit {
     Check,
     ReplaceCancel,
     ReplaceConfirm,
+    /// The dialog's edges and corners, for resizing it ([`EDGE_LEFT`]…
+    /// together), and the edge between the places and the list.
+    Resize(u8),
+    SidebarEdge,
+    /// The eject button of a place (a removable drive).
+    Eject(usize),
+}
+
+/// Which edges a [`FilesHit::Resize`] moves.
+pub(super) const EDGE_LEFT: u8 = 1;
+pub(super) const EDGE_RIGHT: u8 = 2;
+pub(super) const EDGE_TOP: u8 = 4;
+pub(super) const EDGE_BOTTOM: u8 = 8;
+
+/// A drag that resizes: the dialog by its `edges`, or the places.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Resizing {
+    Dialog { edges: u8, from: (f64, f64), size: (i32, i32) },
+    Sidebar { from: f64, width: i32 },
 }
 
 /// What the list shows.
@@ -108,11 +129,32 @@ pub(super) struct ChooserSettings {
     pub start_in_recent: bool,
     pub twelve_hour: bool,
     pub double_click_ms: u32,
+    /// The Type column, and how it names types.
+    pub type_column: bool,
+    pub type_format: model::TypeFormat,
+    /// `date-format` `with-time`: dates show the time too.
+    pub with_time: bool,
+    /// The dialog's size and the places' width the user chose (logical
+    /// px; `None`: from the screen).
+    pub window_size: Option<(i32, i32)>,
+    pub sidebar_width: Option<i32>,
 }
 
 impl Default for ChooserSettings {
     fn default() -> Self {
-        Self { sort: Sort::default(), hidden: false, size_column: true, start_in_recent: true, twelve_hour: false, double_click_ms: 400 }
+        Self {
+            sort: Sort::default(),
+            hidden: false,
+            size_column: true,
+            start_in_recent: true,
+            twelve_hour: false,
+            double_click_ms: 400,
+            type_column: true,
+            type_format: model::TypeFormat::Category,
+            with_time: false,
+            window_size: None,
+            sidebar_width: None,
+        }
     }
 }
 
@@ -143,6 +185,21 @@ impl ChooserSettings {
             if has("clock-format") {
                 out.twelve_hour = s.string("clock-format") == "12h";
             }
+            if has("show-type-column") {
+                out.type_column = s.boolean("show-type-column");
+            }
+            if has("type-format") {
+                out.type_format = model::TypeFormat::from_key(&s.string("type-format"));
+            }
+            if has("date-format") {
+                out.with_time = s.string("date-format") == "with-time";
+            }
+            if has("window-size") {
+                out.window_size = s.value("window-size").get::<(i32, i32)>().filter(|(w, h)| *w > 0 && *h > 0);
+            }
+            if has("sidebar-width") {
+                out.sidebar_width = Some(s.int("sidebar-width")).filter(|w| *w > 0);
+            }
         }
         if helix_settings::has_schema(MOUSE_SCHEMA) {
             let s = helix_settings::Settings::new(MOUSE_SCHEMA);
@@ -162,6 +219,20 @@ impl ChooserSettings {
         let _ = s.set_string("sort-column", self.sort.column.key());
         let _ = s.set_string("sort-order", if self.sort.ascending { "ascending" } else { "descending" });
         let _ = s.set_boolean("show-hidden", self.hidden);
+    }
+
+    /// Store the dialog's size and the places' width as GTK does.
+    fn store_size(&self) {
+        if !helix_settings::has_schema(GTK_SCHEMA) {
+            return;
+        }
+        let s = helix_settings::Settings::new(GTK_SCHEMA);
+        if let Some(size) = self.window_size {
+            let _ = s.set_value("window-size", &gio::glib::variant::ToVariant::to_variant(&size));
+        }
+        if let Some(w) = self.sidebar_width {
+            let _ = s.set_int("sidebar-width", w);
+        }
     }
 }
 
@@ -226,6 +297,16 @@ pub(super) struct ChooserView {
     making: Option<u64>,
     /// The parts last logged (for tests driving the dialog).
     logged_hits: String,
+    /// The dialog's size and the places' width as last drawn, and a
+    /// resizing drag.
+    shown_size: (i32, i32),
+    shown_sidebar: i32,
+    resizing: Option<Resizing>,
+    /// Mounted media by folder: their roots (URIs), for the eject
+    /// buttons.
+    pub mounts: Vec<(PathBuf, String)>,
+    /// When the places were last asked for.
+    places_asked: Option<std::time::Instant>,
 }
 
 impl ChooserView {
@@ -282,7 +363,20 @@ impl ChooserView {
             body_h: 320,
             making: None,
             logged_hits: String::new(),
+            shown_size: (0, 0),
+            shown_sidebar: 0,
+            resizing: None,
+            mounts: Vec::new(),
+            places_asked: Some(std::time::Instant::now()),
         }
+    }
+
+    /// The root (a URI) of the mount place `i` is, when it can be
+    /// ejected or unmounted: removable drives and network places.
+    pub(super) fn eject_root(&self, i: usize) -> Option<&str> {
+        let place = self.opts.places.get(i).filter(|p| matches!(p.kind, PlaceKind::Drive | PlaceKind::Network))?;
+        let path = place.path.as_ref()?;
+        self.mounts.iter().find(|(p, _)| p == path).map(|(_, root)| root.as_str())
     }
 
     /// Answer (once): `None` cancels.
@@ -328,7 +422,7 @@ impl ChooserView {
             Shown::Search { .. } => self.settings.sort,
         };
         let filter = self.filter_now().cloned();
-        self.rows = model::rows(&self.entries, mode, filter.as_ref(), self.settings.hidden, sort);
+        self.rows = model::rows_typed(&self.entries, mode, filter.as_ref(), self.settings.hidden, sort, self.settings.type_format);
         self.picked.retain(|e| self.rows.contains(e));
         self.current = keep.and_then(|n| self.rows.iter().position(|&i| self.entries[i].name == n));
         if self.current.is_none() && matches!(self.opts.mode, Mode::Open) && !self.rows.is_empty() {
@@ -565,12 +659,23 @@ pub(super) struct Wants {
     pub search: bool,
     pub new_folder: bool,
     pub preview: bool,
+    /// The size the user gave the dialog and the places (logical px).
+    pub size: Option<(i32, i32)>,
+    pub sidebar: Option<i32>,
 }
 
 pub(super) fn layout(w: i32, h: i32, k: f32, wants: Wants) -> Layout {
     let g = |v: i32| (v as f32 * k).round() as i32;
-    let dw = ((w as f32 * 0.8).round() as i32).clamp(600.min(w - 24), 1180).min(w - 24).max(0);
-    let dh = ((h as f32 * 0.85).round() as i32).clamp(440.min(h - 24), 900).min(h - 24).max(0);
+    // From the screen, or as the user sized it (never smaller than the
+    // smallest from the screen, nor off it).
+    let (min_w, min_h) = (600.min(w - 24), 440.min(h - 24));
+    let (dw, dh) = match wants.size {
+        Some((sw, sh)) => (sw.clamp(min_w, (w - 24).max(min_w)).max(0), sh.clamp(min_h, (h - 24).max(min_h)).max(0)),
+        None => (
+            ((w as f32 * 0.8).round() as i32).clamp(min_w, 1180).min(w - 24).max(0),
+            ((h as f32 * 0.85).round() as i32).clamp(min_h, 900).min(h - 24).max(0),
+        ),
+    };
     let (dx, dy) = ((w - dw) / 2, (h - dh) / 2);
     let pad = 16;
     let title_base = dy + pad + g(20);
@@ -606,7 +711,11 @@ pub(super) fn layout(w: i32, h: i32, k: f32, wants: Wants) -> Layout {
     let cancel = Rect { x: accept.x - 8 - bw, y: footer.y, w: bw, h: fh };
     let content_bottom = footer.y - 12;
     let ch = (content_bottom - content_top).max(0);
-    let sidebar = Rect { x: dx + pad, y: content_top, w: g(172).min(dw / 4), h: ch };
+    let sidebar_w = match wants.sidebar {
+        Some(sw) => sw.clamp(g(120).min(dw / 3), dw / 3),
+        None => g(172).min(dw / 4),
+    };
+    let sidebar = Rect { x: dx + pad, y: content_top, w: sidebar_w, h: ch };
     let lx = sidebar.x + sidebar.w + 12;
     let lw = (dx + dw - pad - lx).max(0);
     let pw = if wants.preview { ((lw as f32 * 0.3) as i32).clamp(g(160).min(lw / 2), 320).min(lw / 2) } else { 0 };
@@ -653,24 +762,33 @@ pub(super) fn middle_ellipsis(t: &Text, s: &str, px: f32, room: f32) -> String {
 struct Columns {
     name: (i32, i32),
     second: Option<(i32, i32)>,
+    /// The Type column.
+    kind: Option<(i32, i32)>,
     modified: Option<(i32, i32)>,
 }
 
-fn columns(body: Rect, k: f32, second_w: i32, has_second: bool) -> Columns {
+/// `modified_w` and `type_w` (`None`: no Type column) as wide as their
+/// texts need.
+fn columns(body: Rect, k: f32, second_w: i32, has_second: bool, modified_w: i32, type_w: Option<i32>) -> Columns {
     let g = |v: i32| (v as f32 * k).round() as i32;
     let right = body.x + body.w - 14;
     let left = body.x + 8;
-    let modified_w = g(118);
     let mut x = right;
     let modified = (body.w >= g(300)).then(|| {
         x -= modified_w;
         (x, modified_w)
     });
+    // Type (GTK's order: name, size, type, modified), with room left for
+    // the name.
+    let kind = type_w.filter(|tw| body.w >= g(300) + tw + g(220) + if has_second { second_w } else { 0 }).map(|tw| {
+        x -= tw + 12;
+        (x, tw)
+    });
     let second = (has_second && body.w >= g(300) + second_w + g(140)).then(|| {
         x -= second_w + 12;
         (x, second_w)
     });
-    Columns { name: (left, (x - 12 - left).max(0)), second, modified }
+    Columns { name: (left, (x - 12 - left).max(0)), second, kind, modified }
 }
 
 /// The places' groups (a separator between groups).
@@ -681,6 +799,19 @@ fn place_group(kind: PlaceKind) -> u8 {
         PlaceKind::Drive | PlaceKind::Network => 2,
         PlaceKind::Computer => 3,
     }
+}
+
+/// A `type-format` (for the gallery).
+#[cfg(test)]
+pub(super) fn model_type_format(key: &str) -> model::TypeFormat {
+    model::TypeFormat::from_key(key)
+}
+
+/// Mounted media by folder (where their roots are local folders, FUSE
+/// ones too): (folder, root URI).
+fn mount_paths(mounts: &[crate::media::MountInfo]) -> Vec<(PathBuf, String)> {
+    use gio::prelude::*;
+    mounts.iter().filter(|m| m.mounted).filter_map(|m| Some((gio::File::for_uri(&m.root).path()?, m.root.clone()))).collect()
 }
 
 /// A place's name.
@@ -739,7 +870,7 @@ pub(super) fn wants(view: &ChooserView) -> Wants {
     // The preview pane shows beside the list while the file selected is
     // of a type that can be previewed.
     let preview = mode.lists_files() && view.current_entry().is_some_and(files::previewable);
-    Wants { save: mode == Mode::Save, search: mode == Mode::Open, new_folder: mode != Mode::Open, preview }
+    Wants { save: mode == Mode::Save, search: mode == Mode::Open, new_folder: mode != Mode::Open, preview, size: view.settings.window_size, sidebar: view.settings.sidebar_width }
 }
 
 fn hit(h: FilesHit) -> OverlayHit {
@@ -801,7 +932,34 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
     let modal = view.replace.is_some();
     let mut hits: Vec<(Rect, OverlayHit)> = Vec::new();
     let d = l.dialog;
+    // The edges and corners resize the dialog (first: they take presses
+    // before the parts they overlap).
+    if !modal {
+        let (band, corner) = (6, 14);
+        let (l_, r_, t_, b_) = (EDGE_LEFT, EDGE_RIGHT, EDGE_TOP, EDGE_BOTTOM);
+        for (r, edges) in [
+            (Rect { x: d.x - band, y: d.y - band, w: corner + band, h: corner + band }, l_ | t_),
+            (Rect { x: d.x + d.w - corner, y: d.y - band, w: corner + band, h: corner + band }, r_ | t_),
+            (Rect { x: d.x - band, y: d.y + d.h - corner, w: corner + band, h: corner + band }, l_ | b_),
+            (Rect { x: d.x + d.w - corner, y: d.y + d.h - corner, w: corner + band, h: corner + band }, r_ | b_),
+            (Rect { x: d.x - band, y: d.y, w: 2 * band, h: d.h }, l_),
+            (Rect { x: d.x + d.w - band, y: d.y, w: 2 * band, h: d.h }, r_),
+            (Rect { x: d.x, y: d.y - band, w: d.w, h: 2 * band }, t_),
+            (Rect { x: d.x, y: d.y + d.h - band, w: d.w, h: 2 * band }, b_),
+        ] {
+            hits.push((r, hit(FilesHit::Resize(edges))));
+        }
+        // Between the places and the list.
+        let sb = l.sidebar;
+        hits.push((Rect { x: sb.x + sb.w + 1, y: sb.y, w: 10, h: sb.h }, hit(FilesHit::SidebarEdge)));
+    }
     theme::popover(canvas, d.x, d.y, d.w, d.h);
+    // A grip at the bottom corner: the dialog can be resized.
+    for i in 1..=3 {
+        let o = f64::from(4 * i + 2);
+        let (cx, cy) = (f64::from(d.x + d.w) - 6.0, f64::from(d.y + d.h) - 6.0);
+        canvas.line((cx - o, cy), (cx, cy - o), 1.0, 0x40FF_FFFF);
+    }
     let inner = (d.w - 32) as f32;
     // The title.
     let tw = bold.map_or(0.0, |t| t.width(&view.opts.title, size::TITLE).min(inner));
@@ -934,8 +1092,28 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
         if let Some(img) = (p.icon)(place_icon(place, &view.home), color) {
             canvas.image(f64::from(r.x + 10), f64::from(r.y + (r.h - 16) / 2), 16.0, 16.0, &img);
         }
-        label(text, canvas, &place_label(place), (r.x + 34) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, color, (r.w - 42) as f32);
-        let shown = Rect { x: r.x, y: r.y.max(sb.y), w: r.w, h: (r.y + r.h).min(sb.y + sb.h) - r.y.max(sb.y) };
+        // Removable drives and network places: an eject button at the
+        // end.
+        let eject = view.eject_root(i).map(|_| {
+            let s = (row_h - 6).min(g(26));
+            Rect { x: r.x + r.w - s - 3, y: r.y + (r.h - s) / 2, w: s, h: s }
+        });
+        let label_end = eject.map_or(r.x + r.w - 8, |e| e.x - 4);
+        label(text, canvas, &place_label(place), (r.x + 34) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, color, (label_end - r.x - 34) as f32);
+        let visible = |a: Rect| Rect { x: a.x, y: a.y.max(sb.y), w: a.w, h: (a.y + a.h).min(sb.y + sb.h) - a.y.max(sb.y) };
+        if let Some(e) = eject {
+            let elk = look(FilesHit::Eject(i));
+            if elk.hovered || elk.pressed {
+                theme::flat(canvas, (f64::from(e.x), f64::from(e.y), f64::from(e.w), f64::from(e.h)), theme::RADIUS_BUTTON, elk);
+            }
+            if let Some(img) = (p.icon)("media-eject-symbolic", color) {
+                canvas.image(f64::from(e.x + (e.w - 16) / 2), f64::from(e.y + (e.h - 16) / 2), 16.0, 16.0, &img);
+            }
+            if visible(e).h > 0 {
+                hits.push((visible(e), hit(FilesHit::Eject(i))));
+            }
+        }
+        let shown = visible(r);
         if shown.h > 0 {
             hits.push((shown, hit(FilesHit::Place(i))));
         }
@@ -943,6 +1121,11 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
     }
     canvas.restore_clip(clip);
     hits.push((sb, hit(FilesHit::Sidebar)));
+    // The edge between the places and the list: a line while it is
+    // pointed at or dragged.
+    if hover == Some(hit(FilesHit::SidebarEdge)) || matches!(view.resizing, Some(Resizing::Sidebar { .. })) {
+        canvas.rect(sb.x + sb.w + 5, sb.y + 4, 2, sb.h - 8, accent());
+    }
 
     // ----- The list.
     let body = l.body;
@@ -950,16 +1133,24 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
     theme::well(canvas, head.x, head.y, head.w, head.h + body.h);
     let location = !matches!(view.shown, Shown::Folder(_));
     let second_w = if location { g(170) } else { g(84) };
-    let cols = columns(body, k, second_w, location || view.settings.size_column);
+    // Dates with the time are wider, and so are descriptions and MIME
+    // types than categories (longer ones are cut).
+    let modified_w = if view.settings.with_time { g(168) } else { g(118) };
+    let type_w = view.settings.type_column.then(|| if view.settings.type_format == model::TypeFormat::Category { g(104) } else { g(170) });
+    let cols = columns(body, k, second_w, location || view.settings.size_column, modified_w, type_w);
     let col_label = |c: SortColumn| match c {
         SortColumn::Name => tr("Name"),
         SortColumn::Size => tr("Size"),
         SortColumn::Modified => tr("Modified"),
         SortColumn::Location => tr("Location"),
+        SortColumn::Type => tr("Type"),
     };
     let mut header_cols = vec![(SortColumn::Name, cols.name.0, cols.name.1, false)];
     if let Some((x, cw)) = cols.second {
         header_cols.push((if location { SortColumn::Location } else { SortColumn::Size }, x, cw, !location));
+    }
+    if let Some((x, cw)) = cols.kind {
+        header_cols.push((SortColumn::Type, x, cw, false));
     }
     if let Some((x, cw)) = cols.modified {
         header_cols.push((SortColumn::Modified, x, cw, false));
@@ -1038,8 +1229,12 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
                 label(text, canvas, &s, (x + cw) as f32 - sw - 14.0, base, size::LABEL, dim, cw as f32);
             }
         }
+        if let Some((x, cw)) = cols.kind {
+            let s = model::type_text(e, view.settings.type_format);
+            label(text, canvas, &s, x as f32, base, size::LABEL, dim, cw as f32);
+        }
         if let Some((x, cw)) = cols.modified {
-            let s = model::modified_text(e.modified, p.now_unix, view.settings.twelve_hour);
+            let s = model::modified_text(e.modified, p.now_unix, view.settings.twelve_hour, view.settings.with_time);
             label(text, canvas, &s, x as f32, base, size::LABEL, dim, cw as f32);
         }
         let shown = Rect { x: row.x, y: row.y.max(body.y), w: row.w, h: (row.y + rh).min(body.y + body.h) - row.y.max(body.y) };
@@ -1279,6 +1474,9 @@ pub(super) fn files_node(view: &ChooserView, painted: &Painted, now: std::time::
     let current_place = view.current_place();
     let places = view.opts.places.iter().enumerate().map(|(i, p)| place(Node::new(Role::ListBoxOption, place_label(p)).id(format!("place:{i}")).selected(current_place == Some(i)), hit(FilesHit::Place(i))));
     out = out.child(Node::new(Role::ListBox, tr("Places")).id("places").children(places));
+    for (i, p) in view.opts.places.iter().enumerate().filter(|(i, _)| view.eject_root(*i).is_some()) {
+        out = out.child(place(Node::new(Role::Button, trf!("Eject {drive}", drive = place_label(p))).id(format!("eject:{i}")), hit(FilesHit::Eject(i))));
+    }
     // The list: every row while there are not too many, else the ones
     // near the screen; each knows its place among all rows.
     let n = view.rows.len();
@@ -1292,8 +1490,11 @@ pub(super) fn files_node(view: &ChooserView, painted: &Painted, now: std::time::
             desc.push(tr("Folder").to_owned());
         } else {
             desc.push(model::size_text(e.size));
+            if view.settings.type_column {
+                desc.push(model::type_text(e, view.settings.type_format));
+            }
         }
-        let modified = model::modified_text(e.modified, now_unix(), view.settings.twelve_hour);
+        let modified = model::modified_text(e.modified, now_unix(), view.settings.twelve_hour, view.settings.with_time);
         if !modified.is_empty() {
             desc.push(trf!("Modified {when}", when = modified));
         }
@@ -1375,9 +1576,59 @@ impl Ui {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| "/".into());
         let view = ChooserView::new(request, ChooserSettings::read(), home);
         let start = view.shown.clone();
+        let mut view = view;
+        view.mounts = mount_paths(&self.dock.all_mounts);
         tracing::info!(mode = ?view.opts.mode, title = %view.opts.title, "file chooser opened");
         self.show_dialog(DialogState::new(DialogKind::Files(Box::new(view)), 0));
         self.files_go(start, false);
+    }
+
+    /// Drives came or went: the eject buttons follow, and the places are
+    /// read again now.
+    pub(super) fn files_mounts_changed(&mut self) {
+        let mounts = mount_paths(&self.dock.all_mounts);
+        let Some(view) = self.files_view() else { return };
+        view.mounts = mounts;
+        view.places_asked = None;
+        self.files_tick();
+        self.draw_dialog();
+    }
+
+    /// While the chooser is open its places are read again now and then:
+    /// drives, network places, bookmarks and folders come and go.
+    pub(super) fn files_tick(&mut self) {
+        let Some(view) = self.files_view() else { return };
+        if view.places_asked.is_some_and(|t| t.elapsed() < PLACES_EVERY) {
+            return;
+        }
+        view.places_asked = Some(std::time::Instant::now());
+        let recent = view.opts.places.iter().any(|p| p.kind == PlaceKind::Recent);
+        let _ = self.requests.send(crate::UiRequest::FilesPlaces { recent });
+    }
+
+    /// The places read again: shown when they changed. A drive that went
+    /// while the list showed it leaves for the home folder.
+    pub(super) fn files_places(&mut self, places: Vec<Place>) {
+        let Some(view) = self.files_view() else { return };
+        if view.opts.places == places {
+            return;
+        }
+        let gone: Vec<PathBuf> = view
+            .opts
+            .places
+            .iter()
+            .filter(|p| matches!(p.kind, PlaceKind::Drive | PlaceKind::Network))
+            .filter_map(|p| p.path.clone())
+            .filter(|p| !places.iter().any(|q| q.path.as_ref() == Some(p)))
+            .collect();
+        tracing::info!(places = places.len(), names = ?places.iter().map(place_label).collect::<Vec<_>>(), "file chooser places");
+        view.opts.places = places;
+        if view.folder().is_some_and(|f| gone.iter().any(|g| f.starts_with(g))) {
+            let home = view.home.clone();
+            self.files_go(Shown::Folder(home), true);
+        } else {
+            self.draw_dialog();
+        }
     }
 
     /// Show `to` (in history unless going back or forward): the list
@@ -2026,6 +2277,50 @@ impl Ui {
             }
             return;
         }
+        // Resizing the dialog or the places (the size is kept when the
+        // button goes up).
+        if let Some(resizing) = view.resizing {
+            match event.kind {
+                PointerEventKind::Motion { .. } => {
+                    match resizing {
+                        // The dialog stays centred: an edge moves the
+                        // opposite one too.
+                        Resizing::Dialog { edges, from, size } => {
+                            let (mut nw, mut nh) = size;
+                            let (dx, dy) = ((x - from.0).round() as i32, (y - from.1).round() as i32);
+                            if edges & EDGE_LEFT != 0 {
+                                nw -= 2 * dx;
+                            }
+                            if edges & EDGE_RIGHT != 0 {
+                                nw += 2 * dx;
+                            }
+                            if edges & EDGE_TOP != 0 {
+                                nh -= 2 * dy;
+                            }
+                            if edges & EDGE_BOTTOM != 0 {
+                                nh += 2 * dy;
+                            }
+                            view.settings.window_size = Some((nw.max(1), nh.max(1)));
+                        }
+                        Resizing::Sidebar { from, width } => view.settings.sidebar_width = Some((width + (x - from).round() as i32).max(1)),
+                    }
+                    return self.draw_dialog();
+                }
+                PointerEventKind::Release { .. } => {
+                    view.resizing = None;
+                    // Kept as drawn (within the screen's bounds).
+                    match resizing {
+                        Resizing::Dialog { .. } => view.settings.window_size = Some(view.shown_size),
+                        Resizing::Sidebar { .. } => view.settings.sidebar_width = Some(view.shown_sidebar),
+                    }
+                    view.settings.store_size();
+                    tracing::info!(size = ?view.settings.window_size, sidebar = ?view.settings.sidebar_width, "file chooser resized");
+                    d.state.pressed = None;
+                    return self.draw_dialog();
+                }
+                _ => {}
+            }
+        }
         // Dragging the scrollbar.
         if let Some(grab) = view.dragging {
             match event.kind {
@@ -2053,6 +2348,16 @@ impl Ui {
                 return self.draw_dialog();
             }
             match part {
+                Some(OverlayHit::Files(FilesHit::Resize(edges))) => {
+                    view.resizing = Some(Resizing::Dialog { edges, from: (x, y), size: view.shown_size });
+                    d.state.pressed = part;
+                    return;
+                }
+                Some(OverlayHit::Files(FilesHit::SidebarEdge)) => {
+                    view.resizing = Some(Resizing::Sidebar { from: x, width: view.shown_sidebar });
+                    d.state.pressed = part;
+                    return self.draw_dialog();
+                }
                 Some(OverlayHit::Files(FilesHit::Row(r))) => {
                     // Rows act on the press: select, and a second press
                     // on the same entry within the double-click time
@@ -2212,7 +2517,14 @@ impl Ui {
                     self.files_done(vec![path]);
                 }
             }
-            FilesHit::Row(_) | FilesHit::Scrollbar | FilesHit::List | FilesHit::Sidebar | FilesHit::Name | FilesHit::Field => self.draw_dialog(),
+            FilesHit::Eject(i) => {
+                if let Some(root) = view.eject_root(i).map(str::to_owned) {
+                    tracing::info!(%root, "file chooser eject");
+                    crate::media::request(root, crate::media::Request::Eject);
+                }
+                self.draw_dialog();
+            }
+            FilesHit::Row(_) | FilesHit::Scrollbar | FilesHit::List | FilesHit::Sidebar | FilesHit::Name | FilesHit::Field | FilesHit::Resize(_) | FilesHit::SidebarEdge => self.draw_dialog(),
         }
     }
 
@@ -2233,6 +2545,7 @@ impl Ui {
         let scale = self.scales.of(overlay.layer.wl_surface());
         let l = layout(w as i32, h as i32, theme::text_scale(), wants(view));
         view.note_sizes(l.row_h, l.body.h);
+        (view.shown_size, view.shown_sidebar) = ((l.dialog.w, l.dialog.h), l.sidebar.w);
         let Ok((buffer, data)) = self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_dialog, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
@@ -2363,6 +2676,30 @@ mod tests {
     /// The dialog's place and buttons depend on the screen, never on the
     /// folder (helixdesktop/desktop#116).
     #[test]
+    fn eject_buttons_and_sizes() {
+        use crate::media::MountInfo;
+        let home = Path::new("/home/ada");
+        let mut o = options(Mode::Open);
+        o.places.push(Place { kind: PlaceKind::Drive, label: "SANDISK".into(), path: Some("/media/ada/SANDISK".into()) });
+        o.places.push(Place { kind: PlaceKind::Drive, label: "Old".into(), path: Some("/media/ada/Old".into()) });
+        let mut v = sample_view(o, Shown::Folder("/home/ada/Documents".into()), Vec::new(), home);
+        let mount = |root: &str, mounted| MountInfo { name: String::new(), root: root.into(), icons: Vec::new(), ejectable: true, network: false, mounted };
+        v.mounts = mount_paths(&[mount("file:///media/ada/SANDISK", true), mount("volume:1234", false), mount("file:///home/ada/Documents", true)]);
+        // Only mounted drives (and network places) get one.
+        assert_eq!(v.eject_root(2), Some("file:///media/ada/SANDISK"));
+        assert_eq!((v.eject_root(1), v.eject_root(3)), (None, None));
+        // A size the user chose, kept within the screen and above the
+        // smallest; the places within a third of the dialog.
+        let sized = |size, sidebar| layout(1280, 800, 1.0, Wants { size, sidebar, ..Wants::default() });
+        assert_eq!((sized(Some((900, 600)), None).dialog.w, sized(Some((900, 600)), None).dialog.h), (900, 600));
+        assert_eq!(sized(Some((5000, 5000)), None).dialog, Rect { x: 12, y: 12, w: 1256, h: 776 });
+        assert_eq!((sized(Some((100, 100)), None).dialog.w, sized(Some((100, 100)), None).dialog.h), (600, 440));
+        assert_eq!(sized(Some((900, 600)), Some(250)).sidebar.w, 250);
+        assert_eq!(sized(Some((900, 600)), Some(800)).sidebar.w, 300);
+        assert_eq!(sized(Some((900, 600)), Some(10)).sidebar.w, 120);
+    }
+
+    #[test]
     fn layout_is_stable() {
         let home = Path::new("/home/ada");
         let few: Vec<Entry> = (0..2).map(|i| entry(&format!("a{i}.dat"), false)).collect();
@@ -2381,7 +2718,7 @@ mod tests {
         for (w, h) in [(1280, 600), (1280, 720), (1280, 800), (1024, 600), (1920, 1080), (853, 600)] {
             for k in [1.0, 1.25, 1.5, 1.75, 2.0] {
                 for save in [false, true] {
-                    let l = layout(w, h, k, Wants { save, search: !save, new_folder: save, preview: true });
+                    let l = layout(w, h, k, Wants { save, search: !save, new_folder: save, preview: true, ..Wants::default() });
                     let inside = |r: Rect| r.x >= 0 && r.y >= 0 && r.x + r.w <= w && r.y + r.h <= h;
                     for r in [l.dialog, l.cancel, l.accept, l.back, l.bar, l.footer] {
                         assert!(inside(r), "{r:?} off a {w}×{h} screen at text {k}");

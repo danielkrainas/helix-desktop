@@ -1336,6 +1336,20 @@ fn file_chooser() {
     scene("files-loading-1280x720", (1280, 720), &open, Vec::new(), &|v| v.loading = Some((1, std::time::Instant::now() - std::time::Duration::from_secs(1))));
     scene("files-menu-1280x720", (1280, 720), &open, entries.clone(), &|v| v.dropdown = true);
     scene("files-replace-1280x720", (1280, 720), &save, entries.clone(), &|v| v.replace = Some("/home/ada/Documents/Client — Contoso Ltd/2026/notes-01.md".into()));
+    // Eject buttons on mounted drives, dates with the time
+    // (helixdesktop/desktop#118).
+    scene("files-eject-with-time-1280x720", (1280, 720), &open, entries.clone(), &|v| {
+        v.mounts = vec![("/media/ada/SANDISK".into(), "file:///media/ada/SANDISK".into()), ("/media/ada/Backup Disk".into(), "file:///media/ada/Backup%20Disk".into())];
+        v.settings.with_time = true;
+        v.places_scroll = 80.0;
+    });
+    // Resized smaller, wider places, types described.
+    scene("files-resized-1280x720", (1280, 720), &open, entries.clone(), &|v| {
+        v.settings.window_size = Some((900, 560));
+        v.settings.sidebar_width = Some(240);
+        v.settings.type_format = file_chooser::model_type_format("description");
+    });
+    scene("files-no-type-1280x720", (1280, 720), &open, entries.clone(), &|v| v.settings.type_column = false);
     // Large text and scaling on small screens (helixdesktop/desktop#116).
     for (tag, (w, h, s)) in [("1280x800", (1280, 800, 1.0)), ("1280x720", (1280, 720, 1.0)), ("1280x720@1.5", (853, 480, 1.5))] {
         for (mode, options) in [("open", &open), ("save", &save)] {

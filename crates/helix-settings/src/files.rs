@@ -180,6 +180,8 @@ pub enum SortColumn {
     Modified,
     /// The folder holding each file (Recent and search results).
     Location,
+    /// The file's type as the Type column shows it.
+    Type,
 }
 
 impl SortColumn {
@@ -190,6 +192,7 @@ impl SortColumn {
             SortColumn::Name | SortColumn::Location => "name",
             SortColumn::Size => "size",
             SortColumn::Modified => "modified",
+            SortColumn::Type => "type",
         }
     }
 
@@ -197,6 +200,7 @@ impl SortColumn {
         match key {
             "size" => SortColumn::Size,
             "modified" => SortColumn::Modified,
+            "type" => SortColumn::Type,
             _ => SortColumn::Name,
         }
     }
@@ -217,9 +221,20 @@ impl Default for Sort {
     }
 }
 
-/// Order `rows` (indexes into `entries`) by `sort`; ties by name.
+/// Order `rows` (indexes into `entries`) by `sort`; ties by name. By
+/// type: by content type (see [`sort_rows_typed`]).
 pub fn sort_rows(entries: &[Entry], rows: &mut [usize], sort: Sort) {
+    sort_rows_typed(entries, rows, sort, &[]);
+}
+
+/// [`sort_rows`], sorting by type by `types` (each entry's type as shown,
+/// in `entries`' order; when empty, the content types).
+pub fn sort_rows_typed(entries: &[Entry], rows: &mut [usize], sort: Sort, types: &[String]) {
     let keys: Vec<NameKey> = entries.iter().map(|e| NameKey::new(&e.name)).collect();
+    let type_keys: Vec<NameKey> = match sort.column {
+        SortColumn::Type => entries.iter().enumerate().map(|(i, e)| NameKey::new(types.get(i).unwrap_or(&e.content_type))).collect(),
+        _ => Vec::new(),
+    };
     rows.sort_by(|&a, &b| {
         let (ea, eb) = (&entries[a], &entries[b]);
         if sort.folders_first && ea.dir != eb.dir {
@@ -233,6 +248,7 @@ pub fn sort_rows(entries: &[Entry], rows: &mut [usize], sort: Sort) {
             SortColumn::Location => NameKey::new(&ea.path.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
                 .cmp(&NameKey::new(&eb.path.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()))
                 .then_with(by_name),
+            SortColumn::Type => type_keys[a].cmp(&type_keys[b]).then_with(by_name),
         };
         if sort.ascending { order } else { order.reverse() }
     });
@@ -623,6 +639,12 @@ mod tests {
         assert_eq!(order(Sort { column: SortColumn::Modified, ascending: false, folders_first: true }), ["Docs", "apps", "a.png", "b10.txt", "b2.txt"]);
         assert_eq!(order(Sort { column: SortColumn::Modified, ascending: true, folders_first: false }), ["b2.txt", "apps", "b10.txt", "a.png", "Docs"]);
         assert_eq!(SortColumn::from_key(SortColumn::Modified.key()), SortColumn::Modified);
+        assert_eq!(SortColumn::from_key(SortColumn::Type.key()), SortColumn::Type);
+        // By type as shown; ties by name.
+        let types: Vec<String> = ["Text", "Folder", "Text", "Folder", "Image"].map(String::from).to_vec();
+        let mut rows: Vec<usize> = (0..entries.len()).collect();
+        sort_rows_typed(&entries, &mut rows, Sort { column: SortColumn::Type, ascending: true, folders_first: false }, &types);
+        assert_eq!(rows.iter().map(|i| entries[*i].name.as_str()).collect::<Vec<_>>(), ["apps", "Docs", "a.png", "b2.txt", "b10.txt"]);
     }
 
     #[test]

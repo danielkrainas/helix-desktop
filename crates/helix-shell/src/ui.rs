@@ -3419,6 +3419,7 @@ impl Ui {
                 self.dock.all_mounts = mounts;
                 self.dock_filter_mounts();
                 self.dock_update();
+                self.files_mounts_changed();
             }
             UiEvent::Trash(full) => {
                 if self.dock.trash_full != full {
@@ -3596,6 +3597,7 @@ impl Ui {
                 }
             }
             UiEvent::FilesListed { serial, entries } => self.files_listed(serial, entries),
+            UiEvent::FilesPlaces(places) => self.files_places(places),
             UiEvent::FolderMade { serial, result } => self.files_folder_made(serial, result),
             UiEvent::Background { desktop, lock } => {
                 self.desktop_background = *desktop;
@@ -3872,6 +3874,7 @@ impl Ui {
         self.report_running_apps();
         self.refresh_source_label();
         self.dialog_tick();
+        self.files_tick();
         self.osd_tick();
         let minute_changed = self.shown_minute.as_deref() != Some(&clock_text());
         // The recording pill counts the seconds.

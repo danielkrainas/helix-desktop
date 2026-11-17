@@ -267,6 +267,8 @@ pub enum UiEvent {
     /// What the file chooser asked to list (`serial` of the request), or
     /// why it cannot be.
     FilesListed { serial: u64, entries: Result<Vec<helix_settings::files::Entry>, String> },
+    /// The file chooser's places, read again.
+    FilesPlaces(Vec<helix_settings::files::Place>),
     /// A folder the file chooser asked for was made (or why not).
     FolderMade { serial: u64, result: Result<std::path::PathBuf, String> },
     /// A search provider answered: its results for search `serial`.
@@ -341,6 +343,9 @@ pub enum UiRequest {
     /// List a folder, the recent files or a search for the file chooser,
     /// off the UI thread; the answer comes back as `FilesListed`.
     ListFiles { serial: u64, listing: file_chooser::Listing },
+    /// Read the file chooser's places again (`FilesPlaces`), with Recent
+    /// when `recent`.
+    FilesPlaces { recent: bool },
     /// Make a new folder for the file chooser (`FolderMade`).
     MakeFolder { serial: u64, path: std::path::PathBuf },
     /// The UI opened/closed the launcher itself.
@@ -947,6 +952,14 @@ impl UiBridge {
                         }
                     };
                     let _ = ui.send(UiEvent::FilesListed { serial, entries });
+                });
+                Ok(())
+            }
+            UiRequest::FilesPlaces { recent } => {
+                let ui = self.ui.clone();
+                tokio::task::spawn_blocking(move || {
+                    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(|| "/".into());
+                    let _ = ui.send(UiEvent::FilesPlaces(helix_settings::files::user_places(&home, recent)));
                 });
                 Ok(())
             }
