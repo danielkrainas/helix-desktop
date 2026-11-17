@@ -154,6 +154,15 @@ fn main() -> ExitCode {
             }
         });
     }
+    // Media players seeking or changing track, for the media cards.
+    {
+        let (conn, ui) = (service.connection().clone(), service.ui_sender());
+        runtime.spawn(async move {
+            if let Err(err) = helix_shell::calendar::follow_players(conn, ui).await {
+                tracing::info!(%err, "cannot follow media players");
+            }
+        });
+    }
     // The panel's accessibility menu.
     let a11y_ui = service.ui_sender();
     runtime.spawn(async move {

@@ -835,7 +835,7 @@ pub(super) mod tests {
         let icons = LockIcons { media: media.clone(), art: cover, art_is_cover: true, apps: apps.clone(), restart, power_off, switch_user };
         let (restart, power_off, switch_user) = bottom();
         let icons_no_art = LockIcons { media, art: icon("audio-x-generic-symbolic"), art_is_cover: false, apps, restart, power_off, switch_user };
-        let player = Player { identity: "Music".into(), title: "Clair de Lune".into(), artist: "Claude Debussy".into(), ..Default::default() };
+        let player = Player { identity: "Music".into(), title: "Clair de Lune".into(), artist: "Claude Debussy".into(), position: Some(95_000_000), length: Some(300_000_000), ..Default::default() };
         let app = |name: &str, count: usize, details: &[(&str, &str)]| LockApp { name: name.into(), app_id: String::new(), count, details: details.iter().map(|(s, b)| ((*s).to_owned(), (*b).to_owned())).collect() };
         let counts = vec![app("Chat", 3, &[("Alice", "are we still on for lunch?"), ("Bob", "sent a photo")]), app("Mail", 1, &[])];
         let busy = vec![
@@ -947,7 +947,7 @@ pub(super) mod tests {
             power_off: small("system-shutdown-symbolic"),
             switch_user: small("system-switch-user-symbolic"),
         };
-        let player = Player { identity: "Music".into(), title: "Clair de Lune".into(), artist: "Claude Debussy".into(), ..Default::default() };
+        let player = Player { identity: "Music".into(), title: "Clair de Lune".into(), artist: "Claude Debussy".into(), position: Some(95_000_000), length: Some(300_000_000), ..Default::default() };
         let app = |name: &str, count: usize| LockApp { name: name.into(), app_id: String::new(), count, details: Vec::new() };
         let counts = vec![app("Chat", 3), app("Mail", 1)];
         let blockers = vec![("Text Editor".to_owned(), "Unsaved document".to_owned())];

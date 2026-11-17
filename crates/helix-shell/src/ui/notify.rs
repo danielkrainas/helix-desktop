@@ -1121,7 +1121,7 @@ pub(super) mod tests {
         let mut cal = super::super::calendar::CalendarState::default();
         let now = gio::glib::DateTime::now_local().unwrap().to_unix();
         let events = vec![crate::ical::Occurrence { start: now - now.rem_euclid(3600), end: now + 1800, all_day: false, summary: "Standup".into() }];
-        let player = player.then(|| crate::calendar::Player { identity: "Music".into(), title: "Clair de Lune".into(), artist: "Claude Debussy".into(), ..Default::default() });
+        let player = player.then(|| crate::calendar::Player { identity: "Music".into(), title: "Clair de Lune".into(), artist: "Claude Debussy".into(), position: Some(95_000_000), length: Some(300_000_000), ..Default::default() });
         cal.data = Some(crate::calendar::CalendarData { events, player, clocks: vec![("Tokyo".into(), "Asia/Tokyo".into())], ..Default::default() });
         cal
     }

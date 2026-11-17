@@ -207,6 +207,9 @@ pub enum UiEvent {
     Calendar(Box<calendar::CalendarData>),
     /// The media player for the lock screen.
     LockMedia(Option<calendar::Player>),
+    /// A media player seeked or changed: the chosen player read again,
+    /// for the media cards that are open.
+    MediaPlayer(Option<calendar::Player>),
     /// Who the lock screen shows: real name and picture.
     LockIdentity(Box<user_identity::Identity>),
     /// Album art read for the lock screen (its URL), if it could be.

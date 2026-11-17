@@ -3,7 +3,7 @@
 //! world clocks, and the media player.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 use zbus::Connection;
@@ -30,6 +30,28 @@ pub struct Player {
     /// id (`DesktopEntry`): may be empty.
     pub art_url: String,
     pub desktop_entry: String,
+    /// Where playback was (`Position`, µs) when read, and the track's
+    /// length (`mpris:length`, µs): `None` when the player does not say.
+    pub position: Option<i64>,
+    pub length: Option<i64>,
+    /// The playback rate (`Rate`): `None` for the usual 1.0.
+    pub rate: Option<f64>,
+    /// When `position` was read: while playing, the position moves on
+    /// from there (`None`: it stays put, as in pictures).
+    pub read_at: Option<Instant>,
+}
+
+impl Player {
+    /// How far into the track playback is at `now` (0.0–1.0): `None`
+    /// when the player reports no position or no length (no bar then).
+    pub fn progress(&self, now: Instant) -> Option<f64> {
+        let (position, length) = (self.position?, self.length.filter(|l| *l > 0)?);
+        let moved = match self.read_at {
+            Some(at) if self.playing => now.saturating_duration_since(at).as_secs_f64() * 1e6 * self.rate.unwrap_or(1.0),
+            _ => 0.0,
+        };
+        Some(((position as f64 + moved) / length as f64).clamp(0.0, 1.0))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -213,7 +235,57 @@ pub async fn player(conn: &Connection) -> Option<Player> {
     let playing = player.get_property::<String>("PlaybackStatus").await.is_ok_and(|s| s == "Playing");
     let art_url = metadata.get("mpris:artUrl").and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default();
     let desktop_entry = root.get_property::<String>("DesktopEntry").await.unwrap_or_default();
-    Some(Player { identity, title, artist, playing, art_url, desktop_entry })
+    let length = metadata.get("mpris:length").and_then(micros);
+    let position = player.get_property::<i64>("Position").await.ok().filter(|p| *p >= 0);
+    let rate = player.get_property::<f64>("Rate").await.ok().filter(|r| *r > 0.0 && (*r - 1.0).abs() > f64::EPSILON);
+    Some(Player { identity, title, artist, playing, art_url, desktop_entry, position, length, rate, read_at: Some(Instant::now()) })
+}
+
+/// A time in µs as players send it: `x` per the spec, but some send `t`,
+/// `i` or `u`.
+fn micros(v: &OwnedValue) -> Option<i64> {
+    use zbus::zvariant::Value;
+    match &**v {
+        Value::I64(x) => Some(*x),
+        Value::U64(x) => i64::try_from(*x).ok(),
+        Value::I32(x) => Some(i64::from(*x)),
+        Value::U32(x) => Some(i64::from(*x)),
+        _ => None,
+    }
+    .filter(|l| *l > 0)
+}
+
+/// Follow the media players for the rest of the session: when one seeks
+/// (`Seeked`) or its state changes (`PropertiesChanged` of the player
+/// interface: a new track, play/pause), the chosen player is read again
+/// and handed to the UI, which shows it in the media cards it has open.
+pub async fn follow_players(conn: Connection, ui: tokio::sync::mpsc::UnboundedSender<crate::UiEvent>) -> zbus::Result<()> {
+    use futures_util::StreamExt;
+    let seeked = zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).path(MPRIS_PATH)?.interface(MPRIS_PLAYER)?.member("Seeked")?.build();
+    let changed = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .path(MPRIS_PATH)?
+        .interface("org.freedesktop.DBus.Properties")?
+        .member("PropertiesChanged")?
+        .arg(0, MPRIS_PLAYER)?
+        .build();
+    let mut seeked = zbus::MessageStream::for_match_rule(seeked, &conn, Some(16)).await?;
+    let mut changed = zbus::MessageStream::for_match_rule(changed, &conn, Some(16)).await?;
+    loop {
+        tokio::select! {
+            m = seeked.next() => if m.is_none() { break },
+            m = changed.next() => if m.is_none() { break },
+        }
+        // Players send several at once (a new track: metadata, then
+        // status): read once they settle.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        while futures_util::FutureExt::now_or_never(seeked.next()).flatten().is_some() {}
+        while futures_util::FutureExt::now_or_never(changed.next()).flatten().is_some() {}
+        if ui.send(crate::UiEvent::MediaPlayer(player(&conn).await)).is_err() {
+            break;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -228,6 +300,36 @@ mod tests {
         assert!(!is_shown_calendar("[Calendar]\nSelected=false\n"));
         assert!(!is_shown_calendar("[Data Source]\nEnabled=false\n[Calendar]\n"));
         assert!(!is_shown_calendar("[Data Source]\nEnabled=true\n[Address Book]\n"));
+    }
+
+    #[test]
+    fn progress_moves_on_while_playing() {
+        let now = Instant::now();
+        let at = now - Duration::from_secs(10);
+        let player = Player { position: Some(20_000_000), length: Some(100_000_000), read_at: Some(at), playing: true, ..Default::default() };
+        assert!((player.progress(now).unwrap() - 0.3).abs() < 1e-6);
+        // Paused (or never read): it stays put.
+        assert!((Player { playing: false, ..player.clone() }.progress(now).unwrap() - 0.2).abs() < 1e-6);
+        assert!((Player { read_at: None, ..player.clone() }.progress(now).unwrap() - 0.2).abs() < 1e-6);
+        // At twice the speed; never past the end.
+        assert!((Player { rate: Some(2.0), ..player.clone() }.progress(now).unwrap() - 0.4).abs() < 1e-6);
+        assert_eq!(Player { position: Some(99_000_000), ..player.clone() }.progress(now), Some(1.0));
+        // No bar without both.
+        assert_eq!(Player { length: None, ..player.clone() }.progress(now), None);
+        assert_eq!(Player { length: Some(0), ..player.clone() }.progress(now), None);
+        assert_eq!(Player { position: None, ..player }.progress(now), None);
+    }
+
+    #[test]
+    fn lengths_of_any_integer_type() {
+        use zbus::zvariant::Value;
+        let owned = |v: Value| OwnedValue::try_from(v).unwrap();
+        assert_eq!(micros(&owned(Value::I64(5))), Some(5));
+        assert_eq!(micros(&owned(Value::U64(5))), Some(5));
+        assert_eq!(micros(&owned(Value::I32(5))), Some(5));
+        assert_eq!(micros(&owned(Value::U32(5))), Some(5));
+        assert_eq!(micros(&owned(Value::I64(0))), None);
+        assert_eq!(micros(&owned(Value::from("5"))), None);
     }
 
     #[test]

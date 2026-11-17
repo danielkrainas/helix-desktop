@@ -131,6 +131,25 @@ impl Ui {
         }
     }
 
+    /// A player seeked or changed (or went): the open media cards follow.
+    pub(super) fn media_player(&mut self, player: Option<Player>) {
+        if self.lock.session.is_some() {
+            self.lock_media(player.clone());
+        }
+        let Some(data) = self.calendar.data.as_mut() else { return };
+        if data.player == player {
+            return;
+        }
+        let url = player.as_ref().map(|p| p.art_url.clone()).filter(|u| !u.is_empty());
+        data.player = player;
+        if let Some(url) = url {
+            self.want_media_art(url);
+        }
+        if self.notify.view.is_some() {
+            self.draw_notification_list();
+        }
+    }
+
     /// Read the album art at `url` off the UI thread, unless it is read
     /// (or being read) already. Shared by the lock screen's media card and
     /// the notification list's.
@@ -400,10 +419,21 @@ pub(super) fn paint_media(canvas: &mut Canvas, (text, bold): (Option<&Text>, Opt
     hits.reverse();
     let tx = ax + art_px + 14;
     let title = if player.title.is_empty() { player.identity.as_str() } else { player.title.as_str() };
+    // How far into the track, when the player says (GNOME's thin bar):
+    // beside the buttons, under the title in a compact card.
+    let progress = player.progress(Instant::now());
+    if let Some(done) = progress {
+        let (bx, bw) = (f64::from(tx), right - 12.0 - f64::from(tx));
+        let by = if compact { f64::from(y + card_h - CARD_PAD - 6) } else { cy - 2.0 };
+        if bw > 24.0 {
+            paint_progress(canvas, (bx, by, bw), done, alpha);
+        }
+    }
     if compact {
-        // The title only, beside the buttons.
+        // The title only, beside the buttons (above the bar).
         let tw = (right as i32 - 8 - tx) as f32;
-        label(bold.or(text), canvas, title, tx as f32, baseline(bold.or(text), y, card_h, size::BODY), size::BODY, fade(FG, alpha), tw);
+        let base = baseline(bold.or(text), y, card_h, size::BODY) - if progress.is_some() { 6.0 } else { 0.0 };
+        label(bold.or(text), canvas, title, tx as f32, base, size::BODY, fade(FG, alpha), tw);
     } else {
         let tw = (x + w - CARD_PAD - tx) as f32;
         label(bold.or(text), canvas, title, tx as f32, (y + CARD_PAD + 18) as f32, size::BODY, fade(FG, alpha), tw);
@@ -411,6 +441,20 @@ pub(super) fn paint_media(canvas: &mut Canvas, (text, bold): (Option<&Text>, Opt
         label(text, canvas, artist, tx as f32, (y + CARD_PAD + 38) as f32, size::CAPTION, fade(CARD_DIM, alpha), tw);
     }
     hits
+}
+
+/// A media card's progress bar at (x, y), `w` wide: a thin dim track,
+/// `done` of it filled (from the right in right-to-left layouts, as the
+/// canvas mirrors).
+pub(super) fn paint_progress(canvas: &mut Canvas, (x, y, w): (f64, f64, f64), done: f64, alpha: f64) {
+    use helix_draw::screen::fade;
+    const H: f64 = 4.0;
+    let hc = helix_draw::high_contrast();
+    canvas.round_rect(x, y, w, H, H / 2.0, fade(if hc { 0x80FFFFFF } else { 0x33FFFFFF }, alpha));
+    let fill = (w * done.clamp(0.0, 1.0)).round();
+    if fill >= 1.0 {
+        canvas.round_rect(x, y, fill.max(H), H, H / 2.0, fade(FG, alpha));
+    }
 }
 
 /// The notification card at (x, y), `w` wide: per app its icon, name and

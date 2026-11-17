@@ -3433,6 +3433,7 @@ impl Ui {
             UiEvent::Calendar(data) => self.calendar_data(*data),
             UiEvent::Break(view) => self.show_break(view),
             UiEvent::LockMedia(player) => self.lock_media(player),
+            UiEvent::MediaPlayer(player) => self.media_player(player),
             UiEvent::LockArt(url, art) => self.lock_art(url, art),
             UiEvent::LockIdentity(identity) => {
                 if self.lock.identity != *identity {
@@ -3878,10 +3879,12 @@ impl Ui {
             self.draw_panel();
         }
         // The list's arrival times ("5 min") move on with the clock.
-        if minute_changed && self.notify.view.is_some() {
+        // So do the media cards' progress bars while playing.
+        let moving = |p: Option<&crate::calendar::Player>| p.is_some_and(|p| p.playing && p.progress(Instant::now()).is_some());
+        if (minute_changed || moving(self.calendar.data.as_ref().and_then(|d| d.player.as_ref()))) && self.notify.view.is_some() {
             self.draw_notification_list();
         }
-        if !self.lock.surfaces.is_empty() && self.shown_lock_clock.as_deref() != Some(&lock_clock_text()) {
+        if !self.lock.surfaces.is_empty() && (self.shown_lock_clock.as_deref() != Some(&lock_clock_text()) || moving(self.lock_extras.media.as_ref())) {
             self.draw_lock();
         }
         // The prompt rests again after a while without input.
