@@ -665,7 +665,7 @@ pub(super) fn row_targets(entries: &[Banner], rows: &[Row]) -> Vec<ListHit> {
 
 /// Whether `hit` is in the calendar column.
 fn in_calendar(hit: &ListHit) -> bool {
-    matches!(hit, ListHit::Month(_) | ListHit::Day(..) | ListHit::Media(_))
+    matches!(hit, ListHit::Month(_) | ListHit::Day(..))
 }
 
 /// What a key does in the open list.
@@ -728,27 +728,41 @@ pub(super) fn list_key_action(keysym: Keysym, ctrl: bool, stops: &[(Rect, ListHi
         };
     }
     if calendar {
-        // The month and media buttons: Left/Right along them, Up/Down
-        // to the days.
+        // The month buttons: Left/Right along them, Down to the days.
         let day = order.iter().find(|h| matches!(h, ListHit::Day(..))).map(|h| (*h).clone());
         let same = |h: &&&ListHit| std::mem::discriminant(**h) == std::mem::discriminant(focus);
         return match keysym {
             Keysym::Left | Keysym::KP_Left => order[..at].iter().rev().find(same).map_or(ListKey::None, |h| ListKey::Focus((*h).clone())),
             Keysym::Right | Keysym::KP_Right => order[at + 1..].iter().find(same).map_or(ListKey::None, |h| ListKey::Focus((*h).clone())),
             Keysym::Down | Keysym::KP_Down if matches!(focus, ListHit::Month(_)) => day.map_or(ListKey::None, ListKey::Focus),
-            Keysym::Up | Keysym::KP_Up if matches!(focus, ListHit::Media(_)) => day.map_or(ListKey::None, ListKey::Focus),
             Keysym::Page_Up => ListKey::Month(-1),
             Keysym::Page_Down => ListKey::Month(1),
             Keysym::Return | Keysym::KP_Enter | Keysym::space => activate(),
             _ => ListKey::None,
         };
     }
+    // The media card's buttons (under the header): Left/Right along
+    // them, Up to the header, Down to the rows.
+    let media = order.iter().any(|h| matches!(h, ListHit::Media(_)));
+    if let ListHit::Media(_) = focus {
+        let same = |h: &&&ListHit| matches!(h, ListHit::Media(_));
+        return match keysym {
+            Keysym::Left | Keysym::KP_Left => order[..at].iter().rev().find(same).map_or(ListKey::None, |h| ListKey::Focus((*h).clone())),
+            Keysym::Right | Keysym::KP_Right => order[at + 1..].iter().find(same).map_or(ListKey::None, |h| ListKey::Focus((*h).clone())),
+            Keysym::Up | Keysym::KP_Up => ListKey::Focus(ListHit::DoNotDisturb),
+            Keysym::Down | Keysym::KP_Down => targets.first().map_or(ListKey::None, |t| ListKey::Focus(t.clone())),
+            Keysym::Return | Keysym::KP_Enter | Keysym::space => activate(),
+            _ => ListKey::None,
+        };
+    }
     match keysym {
+        Keysym::Down | Keysym::KP_Down if media && matches!(focus, ListHit::DoNotDisturb | ListHit::Clear) => ListKey::Focus(ListHit::Media(crate::shell_keys::Playback::PlayPause)),
         Keysym::Down | Keysym::KP_Down => match row {
             Some(r) => targets.get(r + 1).map_or(ListKey::None, |t| ListKey::Focus(t.clone())),
             None => targets.first().map_or(ListKey::None, |t| ListKey::Focus(t.clone())),
         },
         Keysym::Up | Keysym::KP_Up => match row {
+            Some(0) if media => ListKey::Focus(ListHit::Media(crate::shell_keys::Playback::PlayPause)),
             Some(0) => ListKey::Focus(ListHit::DoNotDisturb),
             Some(r) => ListKey::Focus(targets[r - 1].clone()),
             None => ListKey::None,
@@ -841,6 +855,7 @@ pub(super) struct ListModel<'a> {
     pub scroll: usize,
     pub do_not_disturb: bool,
     pub calendar: &'a super::calendar::CalendarState,
+    /// The media card's pictures and the weather's icon.
     pub media_icons: &'a super::calendar::MediaIcons,
     pub cal_h: i32,
     /// Logical px of the calendar column scrolled past.
@@ -892,9 +907,12 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     let bx = (w as i32 - total_w) / 2;
     let by = panel_height() as i32 + 4;
     let max_h = h as i32 - by - 8;
-    // Entries that fit, from the scroll position.
+    // Entries that fit, from the scroll position, under the header and
+    // the media card (GNOME's message list puts media first).
     let header = helix_draw::theme::grow(44);
-    let mut used = header;
+    let player = m.calendar.data.as_ref().and_then(|d| d.player.as_ref());
+    let media_h = if player.is_some() { super::lock_extras::MEDIA_H + LIST_PAD } else { 0 };
+    let mut used = header + media_h;
     let mut shown = Vec::new();
     for ((row, eh), icon) in m.rows.iter().zip(m.heights).skip(m.scroll).zip(m.icons) {
         if used + eh > max_h && !shown.is_empty() {
@@ -912,7 +930,7 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     theme::vseparator(canvas, bx + list_w(), by + LIST_PAD, bh - 2 * LIST_PAD);
     let mut calendar_hits = Vec::new();
     canvas.clip(cal_area.x, cal_area.y, cal_area.w, cal_area.h);
-    super::calendar::paint_calendar(m.calendar, (text, bold), canvas, (bx + list_w(), by - cal_scroll), m.media_icons, &mut calendar_hits, &|hit| m.look(hit));
+    super::calendar::paint_calendar(m.calendar, (text, bold), canvas, (bx + list_w(), by - cal_scroll), m.media_icons.1.as_ref(), &mut calendar_hits, &|hit| m.look(hit));
     canvas.unclip();
     if m.cal_h > bh {
         // Where the column is, when it scrolls.
@@ -936,6 +954,20 @@ fn paint_list_at(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option<&Text
     // buttons (which come before it in `hits`, being on top).
     let mut stops: Vec<(Rect, ListHit)> = hits.clone();
     let mut y = by + header;
+    // The media card: art (or the player's icon), title, artist, round
+    // previous / play-pause / next buttons.
+    if let Some(player) = player {
+        let state = |c| {
+            let l = m.look(&ListHit::Media(c));
+            helix_draw::screen::ButtonState { hovered: l.hovered, pressed: l.pressed, focused: focus == Some(&ListHit::Media(c)) }
+        };
+        let buttons = super::lock_extras::paint_media(canvas, (text, bold), (bx + LIST_PAD, y, list_w() - 2 * LIST_PAD), player, &m.media_icons.0, false, state, 1.0);
+        for (r, command) in buttons {
+            hits.push((r, ListHit::Media(command)));
+            stops.push((r, ListHit::Media(command)));
+        }
+        y += media_h;
+    }
     if m.entries.is_empty() {
         let message = tr("No Notifications");
         let mw = text.map_or(0.0, |t| t.width(message, size::BODY));
@@ -1107,7 +1139,7 @@ pub(super) mod tests {
         let indents = row_indents(entries, &rows);
         let heights: Vec<i32> = rows.iter().zip(&indents).map(|(row, indent)| match row { Row::Header { .. } => group_header(), Row::Entry(i) => entry_height(f.as_ref(), &entries[*i], *indent) }).collect();
         let icons = vec![None; rows.len()];
-        let media_icons: super::super::calendar::MediaIcons = [None, None, None, None];
+        let media_icons: super::super::calendar::MediaIcons = Default::default();
         let cal_h = super::super::calendar::height(cal);
         let model = ListModel { entries, rows: &rows, heights: &heights, icons: &icons, scroll: 0, do_not_disturb: false, calendar: cal, media_icons: &media_icons, cal_h, cal_scroll: 0, hover, pressed };
         paint_list(canvas, fonts, (w, h), &model, focus)
@@ -1139,7 +1171,8 @@ pub(super) mod tests {
     }
 
     /// On a short screen the calendar column scrolls: nothing is drawn
-    /// below the edge and its media buttons can be reached.
+    /// below the edge and its controls can be reached; the media card is
+    /// at the top of the notification column, in sight.
     #[test]
     fn short_screens() {
         let entries = sample();
@@ -1153,12 +1186,13 @@ pub(super) mod tests {
         for (r, hit) in &painted.hits {
             assert!(*hit == ListHit::Outside || r.y + r.h <= h as i32 - 8, "{hit:?} at {r:?}");
         }
-        assert!(!painted.hits.iter().any(|(_, hit)| matches!(hit, ListHit::Media(_))), "the media buttons start out of sight");
-        let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
         let play = ListHit::Media(Playback::PlayPause);
-        let painted = paint_sample(&mut canvas, (None, None), (w, h), &entries, &HashSet::new(), &cal, Some(&play));
-        assert!(painted.cal_scroll > 0);
-        assert!(painted.hits.iter().any(|(_, hit)| *hit == play), "focusing them scrolls them into sight");
+        let (r, _) = painted.hits.iter().find(|(_, hit)| *hit == play).expect("the media buttons are in sight");
+        assert!(r.x + r.w <= area.x, "in the notification column: {r:?}");
+        let mut canvas = Canvas::scaled(&mut data, w, h, 1.0);
+        let next = ListHit::Month(1);
+        let painted = paint_sample(&mut canvas, (None, None), (w, h), &entries, &HashSet::new(), &cal, Some(&ListHit::Day(cal.selected.0, cal.selected.1, cal.selected.2)));
+        assert!(painted.hits.iter().any(|(_, hit)| *hit == next) || painted.cal_scroll > 0, "the calendar's controls can be reached");
     }
 
     /// A grouped notification is measured at the width it is painted at:
@@ -1216,8 +1250,11 @@ pub(super) mod tests {
         let group = ListHit::GroupToggle("app:org.example.Chat".into());
         assert_eq!(targets, [group.clone(), ListHit::Entry(6), ListHit::Entry(4), ListHit::Entry(5), ListHit::Entry(3)]);
         let order: Vec<ListHit> = painted.stops.iter().map(|(_, h)| h.clone()).collect();
-        assert_eq!(order[..5], [ListHit::DoNotDisturb, ListHit::Clear, group.clone(), ListHit::GroupClear("app:org.example.Chat".into()), ListHit::Entry(6)]);
-        assert_eq!(order[5], ListHit::Dismiss(6), "a row's buttons follow it");
+        let media = [ListHit::Media(Playback::Previous), ListHit::Media(Playback::PlayPause), ListHit::Media(Playback::Next)];
+        assert_eq!(order[..2], [ListHit::DoNotDisturb, ListHit::Clear]);
+        assert_eq!(order[2..5], media);
+        assert_eq!(order[5..8], [group.clone(), ListHit::GroupClear("app:org.example.Chat".into()), ListHit::Entry(6)]);
+        assert_eq!(order[8], ListHit::Dismiss(6), "a row's buttons follow it");
         let (y, m, d) = cal.selected;
         assert!(order.contains(&ListHit::Day(y, m, d)), "the selected day");
         assert_eq!(order.iter().filter(|h| matches!(h, ListHit::Day(..))).count(), 1, "one stop for the days");
@@ -1228,7 +1265,7 @@ pub(super) mod tests {
         // Rows with Up and Down; Do Not Disturb above them.
         assert_eq!(key(Keysym::Down, &group), ListKey::Focus(ListHit::Entry(6)));
         assert_eq!(key(Keysym::Down, &ListHit::Dismiss(6)), ListKey::Focus(ListHit::Entry(4)), "from a row's button");
-        assert_eq!(key(Keysym::Up, &group), ListKey::Focus(ListHit::DoNotDisturb));
+        assert_eq!(key(Keysym::Up, &ListHit::Entry(6)), ListKey::Focus(group.clone()));
         assert_eq!(key(Keysym::Right, &ListHit::DoNotDisturb), ListKey::Focus(ListHit::Clear));
         // Enter activates, Delete dismisses, Left/Right close/open groups.
         assert_eq!(key(Keysym::Return, &ListHit::Entry(5)), ListKey::Activate(ListHit::Entry(5)));
@@ -1249,8 +1286,17 @@ pub(super) mod tests {
         assert_eq!(key(Keysym::Home, &day), ListKey::Today);
         assert_eq!(key(Keysym::Right, &ListHit::Month(-1)), ListKey::Focus(ListHit::Month(1)));
         assert_eq!(key(Keysym::Down, &ListHit::Month(1)), ListKey::Focus(day.clone()));
-        assert_eq!(key(Keysym::Up, &ListHit::Media(Playback::Next)), ListKey::Focus(day));
-        assert_eq!(key(Keysym::space, &ListHit::Media(Playback::PlayPause)), ListKey::Activate(ListHit::Media(Playback::PlayPause)));
+        let _ = day;
+        // The media card, between the header and the rows.
+        let play = ListHit::Media(Playback::PlayPause);
+        assert_eq!(key(Keysym::Up, &ListHit::Media(Playback::Next)), ListKey::Focus(ListHit::DoNotDisturb));
+        assert_eq!(key(Keysym::Down, &play), ListKey::Focus(group.clone()));
+        assert_eq!(key(Keysym::Right, &play), ListKey::Focus(ListHit::Media(Playback::Next)));
+        assert_eq!(key(Keysym::Down, &ListHit::DoNotDisturb), ListKey::Focus(play.clone()));
+        assert_eq!(key(Keysym::Up, &group), ListKey::Focus(play.clone()));
+        assert_eq!(key(Keysym::space, &play), ListKey::Activate(play.clone()));
+        let at = |h: &ListHit| order.iter().position(|o| o == h).unwrap();
+        assert!(at(&ListHit::Clear) < at(&play) && at(&play) < at(&group), "Tab: header, media, rows");
         assert_eq!(key(Keysym::Escape, &ListHit::Clear), ListKey::Close);
     }
 

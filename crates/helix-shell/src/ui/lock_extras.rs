@@ -123,16 +123,26 @@ impl Ui {
             // New art is read off the UI thread; the card shows the
             // player's icon until it comes (or if it cannot be had).
             let url = player.as_ref().map(|p| p.art_url.clone()).filter(|u| !u.is_empty());
-            if let Some(url) = url.filter(|u| !self.lock_extras.art.contains_key(u)) {
-                if self.lock_extras.art.len() > 16 {
-                    self.lock_extras.art.clear();
-                }
-                self.lock_extras.art.insert(url.clone(), None);
-                let _ = self.requests.send(UiRequest::LockArt(url));
+            if let Some(url) = url {
+                self.want_media_art(url);
             }
             self.lock_extras.media = player;
             self.draw_lock();
         }
+    }
+
+    /// Read the album art at `url` off the UI thread, unless it is read
+    /// (or being read) already. Shared by the lock screen's media card and
+    /// the notification list's.
+    pub(super) fn want_media_art(&mut self, url: String) {
+        if self.lock_extras.art.contains_key(&url) {
+            return;
+        }
+        if self.lock_extras.art.len() > 16 {
+            self.lock_extras.art.clear();
+        }
+        self.lock_extras.art.insert(url.clone(), None);
+        let _ = self.requests.send(UiRequest::LockArt(url));
     }
 
     /// Album art read (or not).
@@ -141,6 +151,24 @@ impl Ui {
         if self.lock_extras.media.as_ref().is_some_and(|p| p.art_url == url) {
             self.draw_lock();
         }
+        if self.calendar.data.as_ref().and_then(|d| d.player.as_ref()).is_some_and(|p| p.art_url == url) {
+            self.draw_notification_list();
+        }
+    }
+
+    /// A media card's pictures for `player`: its buttons' icons, and the
+    /// track's art, else the player's icon, else a generic audio icon.
+    pub(super) fn media_card_icons(&mut self, player: &Player, scale: f64) -> LockIcons {
+        let play = if player.playing { "media-playback-pause-symbolic" } else { "media-playback-start-symbolic" };
+        let media = [
+            self.symbolic_icon_px("media-skip-backward-symbolic", 20.0, scale),
+            self.symbolic_icon_px(play, 20.0, scale),
+            self.symbolic_icon_px("media-skip-forward-symbolic", 20.0, scale),
+        ];
+        let cover = self.lock_extras.art.get(&player.art_url).cloned().flatten();
+        let art_is_cover = cover.is_some();
+        let art = cover.or_else(|| self.app_icon_px(&player.desktop_entry, 48.0, scale)).or_else(|| self.symbolic_icon_px("audio-x-generic-symbolic", 48.0, scale));
+        LockIcons { media, art, art_is_cover, ..Default::default() }
     }
 
     pub(super) fn lock_icons(&mut self, scale: f64, counts: &[LockApp]) -> LockIcons {
@@ -151,16 +179,8 @@ impl Ui {
         let Some(player) = self.lock_extras.media.clone() else {
             return LockIcons { apps, restart, power_off, switch_user, ..Default::default() };
         };
-        let play = if player.playing { "media-playback-pause-symbolic" } else { "media-playback-start-symbolic" };
-        let media = [
-            self.symbolic_icon_px("media-skip-backward-symbolic", 20.0, scale),
-            self.symbolic_icon_px(play, 20.0, scale),
-            self.symbolic_icon_px("media-skip-forward-symbolic", 20.0, scale),
-        ];
-        let cover = self.lock_extras.art.get(&player.art_url).cloned().flatten();
-        let art_is_cover = cover.is_some();
-        let art = cover.or_else(|| self.app_icon_px(&player.desktop_entry, 48.0, scale)).or_else(|| self.symbolic_icon_px("audio-x-generic-symbolic", 48.0, scale));
-        LockIcons { media, art, art_is_cover, apps, restart, power_off, switch_user }
+        let card = self.media_card_icons(&player, scale);
+        LockIcons { apps, restart, power_off, switch_user, ..card }
     }
 
     /// The counts to show (none unless allowed).

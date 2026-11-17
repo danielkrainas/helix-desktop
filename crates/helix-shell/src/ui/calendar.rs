@@ -1,6 +1,7 @@
 //! The message tray's calendar column (helixdesktop/spec
 //! `contracts/gsettings/calendar.md`): date, month grid, the chosen day's
-//! events, world clocks and the media player.
+//! events, world clocks and the weather. (The media player's card is at
+//! the top of the notification column, `notify.rs`.)
 
 use gio::glib::{DateTime, TimeZone};
 use helix_draw::Image;
@@ -8,7 +9,6 @@ use helix_draw::Image;
 use super::notify::ListHit;
 use super::*;
 use crate::calendar::CalendarData;
-use crate::shell_keys::Playback;
 use helix_i18n::{tr, trc};
 use helix_i18n::trf;
 
@@ -25,7 +25,6 @@ const LINE_H: i32 = 22;
 const SECTION_H: i32 = 26;
 const GAP: i32 = 10;
 const MAX_EVENTS: usize = 6;
-const MEDIA_H: i32 = 64 + 40;
 
 /// The first day of the week in the locale (1 = Monday … 7 = Sunday),
 /// read from the C library's locale data (`LC_TIME`).
@@ -112,9 +111,9 @@ impl CalendarState {
     }
 }
 
-/// The media buttons' icons (previous, play or pause, next), then the
-/// weather's.
-pub(super) type MediaIcons = [Option<Image>; 4];
+/// The media card's pictures (buttons' icons, the track's art or the
+/// player's icon), and the weather's icon.
+pub(super) type MediaIcons = (super::lock_extras::LockIcons, Option<Image>);
 
 impl Ui {
     /// The tray opened: today, this month, fresh data.
@@ -136,7 +135,13 @@ impl Ui {
         if (data.from, data.to) != self.calendar.asked {
             return;
         }
+        // The track's art is read off the UI thread (shared with the
+        // lock screen's card); the player's icon shows until it comes.
+        let url = data.player.as_ref().map(|p| p.art_url.clone()).filter(|u| !u.is_empty());
         self.calendar.data = Some(data);
+        if let Some(url) = url {
+            self.want_media_art(url);
+        }
         self.draw_notification_list();
     }
 
@@ -179,15 +184,13 @@ impl Ui {
     }
 
     pub(super) fn calendar_media_icons(&mut self, scale: f64) -> MediaIcons {
-        let playing = self.calendar.data.as_ref().and_then(|d| d.player.as_ref()).is_some_and(|p| p.playing);
-        let play = if playing { "media-playback-pause-symbolic" } else { "media-playback-start-symbolic" };
         let weather = self.calendar.data.as_ref().and_then(|d| d.weather.clone().flatten()).map(|f| crate::weather::condition(&f.symbol).1);
-        [
-            self.symbolic_icon("media-skip-backward-symbolic", scale),
-            self.symbolic_icon(play, scale),
-            self.symbolic_icon("media-skip-forward-symbolic", scale),
-            weather.and_then(|icon| self.symbolic_icon(icon, scale)),
-        ]
+        let weather = weather.and_then(|icon| self.symbolic_icon(icon, scale));
+        let media = match self.calendar.data.as_ref().and_then(|d| d.player.clone()) {
+            Some(player) => self.media_card_icons(&player, scale),
+            None => Default::default(),
+        };
+        (media, weather)
     }
 
     pub(super) fn calendar_height(&self) -> i32 {
@@ -207,9 +210,6 @@ pub(super) fn height(cal: &CalendarState) -> i32 {
         }
         if data.weather.is_some() {
             h += GAP + grow(SECTION_H) + 2 * grow(LINE_H) + 6;
-        }
-        if data.player.is_some() {
-            h += GAP + grow(MEDIA_H);
         }
     }
     h + GAP
@@ -244,7 +244,7 @@ pub(super) fn paint_calendar(
     (text, bold): (Option<&Text>, Option<&Text>),
     canvas: &mut Canvas,
     (x, y): (i32, i32),
-    icons: &MediaIcons,
+    weather_icon: Option<&Image>,
     hits: &mut Vec<(Rect, ListHit)>,
     look: &dyn Fn(&ListHit) -> theme::Look,
 ) {
@@ -387,7 +387,7 @@ pub(super) fn paint_calendar(
         match weather {
             Some(f) => {
                 let (words, _) = crate::weather::condition(&f.symbol);
-                if let Some(icon) = &icons[3] {
+                if let Some(icon) = weather_icon {
                     canvas.image(f64::from(x + PAD), f64::from(y + 3), 16.0, 16.0, icon);
                 }
                 let now = format!("{}  {}, {words}", f.location, crate::weather::temperature_text(f.temperature, unit));
@@ -399,36 +399,10 @@ pub(super) fn paint_calendar(
                     let cell = format!("{hour} {}", crate::weather::temperature_text(*temp, unit));
                     label(text, canvas, &cell, (x + PAD + i as i32 * cw) as f32, (y + grow(16)) as f32, size::CAPTION, DIM_FG, cw as f32);
                 }
-                y += grow(LINE_H);
             }
             None => {
                 label(text, canvas, tr("Weather unavailable"), (x + PAD) as f32, (y + grow(16)) as f32, size::CAPTION, DIM_FG, inner as f32);
-                y += 2 * grow(LINE_H) + 6;
             }
-        }
-    }
-    // The media player.
-    if let Some(player) = &data.player {
-        y += GAP;
-        theme::separator(canvas, x + PAD, y, inner);
-        label(text, canvas, &player.identity, (x + PAD) as f32, (y + grow(18)) as f32, size::CAPTION, DIM_FG, inner as f32);
-        let title = if player.title.is_empty() { tr("Unknown Title") } else { player.title.as_str() };
-        label(bold.or(text), canvas, title, (x + PAD) as f32, (y + grow(38)) as f32, size::LABEL, FG, inner as f32);
-        label(text, canvas, &player.artist, (x + PAD) as f32, (y + grow(57)) as f32, size::CAPTION, DIM_FG, inner as f32);
-        let by = y + 64;
-        let commands = [Playback::Previous, Playback::PlayPause, Playback::Next];
-        let bw = 44;
-        let bx = x + (cal_w() - 3 * bw - 2 * 12) / 2;
-        for (i, command) in commands.into_iter().enumerate() {
-            let r = Rect { x: bx + i as i32 * (bw + 12), y: by, w: bw, h: 32 };
-            // Round buttons; play/pause, the main one, filled.
-            let l = theme::Look { on: false, ..look(&ListHit::Media(command)) };
-            theme::control_round(canvas, (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h)), theme::pill(f64::from(r.h)), l);
-            if let Some(icon) = &icons[i] {
-                let s = 16.0;
-                canvas.image(f64::from(r.x) + (f64::from(r.w) - s) / 2.0, f64::from(r.y) + (f64::from(r.h) - s) / 2.0, s, s, icon);
-            }
-            hits.push((r, ListHit::Media(command)));
         }
     }
 }

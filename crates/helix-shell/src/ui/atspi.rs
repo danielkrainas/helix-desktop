@@ -820,7 +820,17 @@ impl Ui {
                     let selected = self.calendar.selected == (*y, *m, *d);
                     out.push(Node::button(day_name(*y, *m, *d), r).id(format!("day:{y}-{m}-{d}")).selected(selected).focusable().focused(focused));
                 }
-                ListHit::Media(command) => out.push(Node::button(playback_name(*command, self.lock_extras.media.as_ref().is_some_and(|p| p.playing)), r).id(format!("{command:?}")).focusable().focused(focused)),
+                ListHit::Media(command) => {
+                    let player = self.calendar.data.as_ref().and_then(|d| d.player.as_ref());
+                    if *command == crate::shell_keys::Playback::Previous {
+                        // What plays, before its buttons.
+                        if let Some(p) = player {
+                            let title = if p.title.is_empty() { p.identity.clone() } else { p.title.clone() };
+                            out.push(Node::label(title).id("media").describe(p.artist.clone()));
+                        }
+                    }
+                    out.push(Node::button(playback_name(*command, player.is_some_and(|p| p.playing)), r).id(format!("{command:?}")).focusable().focused(focused));
+                }
                 ListHit::Clear => out.push(Node::button(tr("Clear"), r).id("clear-all").focusable().focused(focused)),
                 ListHit::DoNotDisturb => out.push(Node::new(Role::Switch, tr("Do Not Disturb")).id("dnd").at(r).click().toggled(self.notify.do_not_disturb).focusable().focused(focused)),
                 ListHit::Inside | ListHit::Outside => {}
