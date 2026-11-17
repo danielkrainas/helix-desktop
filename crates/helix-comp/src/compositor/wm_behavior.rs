@@ -40,6 +40,10 @@ pub struct WmState {
     pub modal: Vec<WlSurface>,
     /// An action for a key that was not kept from the client.
     pub pending_action: Option<super::shortcuts::Action>,
+    /// The seat's latest user interaction (a key or button press, or a
+    /// touch) and the client it went to: activation tokens carrying this
+    /// serial from that client are granted (`handlers.rs`).
+    pub last_press: Option<(smithay::utils::Serial, smithay::reexports::wayland_server::backend::ClientId)>,
 }
 
 /// Which corner a modifier resize at `pos` moves: the window quarter the

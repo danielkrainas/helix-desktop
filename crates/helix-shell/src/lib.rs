@@ -9,6 +9,7 @@ use helix_i18n::tr;
 use helix_i18n::trf;
 
 pub mod accel;
+pub mod activation;
 pub mod ambient;
 pub mod app_grid;
 pub mod app_scope;

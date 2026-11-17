@@ -3828,6 +3828,7 @@ pub fn run(
     let conn = Connection::connect_to_env()?;
     let (globals, event_queue) = registry_queue_init(&conn)?;
     let qh: QueueHandle<Ui> = event_queue.handle();
+    crate::activation::init(&conn, &globals);
 
     let compositor = CompositorState::bind(&globals, &qh)?;
     let layer_shell = LayerShell::bind(&globals, &qh)?;

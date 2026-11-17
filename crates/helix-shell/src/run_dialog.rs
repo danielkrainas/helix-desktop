@@ -93,7 +93,10 @@ fn execute(text: &str) -> Result<(), String> {
             if gio::glib::find_program_in_path(&program).is_none() {
                 return Err(trf!("Command not found: {program}", program = program));
             }
-            let app = gio::AppInfo::create_from_commandline(&line, None, gio::AppInfoCreateFlags::NONE).map_err(|e| e.message().to_owned())?;
+            // With startup notification: the command gets an activation
+            // token of the shell's (`XDG_ACTIVATION_TOKEN`), so a running
+            // app it asks to show a window can take focus.
+            let app = gio::AppInfo::create_from_commandline(&line, None, gio::AppInfoCreateFlags::SUPPORTS_STARTUP_NOTIFICATION).map_err(|e| e.message().to_owned())?;
             app.launch(&[], Some(&crate::app_scope::context(None))).map_err(|e| e.message().to_owned())
         }
     }

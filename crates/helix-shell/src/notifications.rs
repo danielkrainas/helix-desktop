@@ -448,6 +448,12 @@ impl Center {
         if let Some(text) = response.as_deref() {
             platform.insert(RESPONSE_KEY, Value::from(text.to_owned()));
         }
+        // The app may present a window: with the shell's token it gets
+        // focus (`activation.rs`).
+        let token = crate::activation::token_async(Some(app_id.clone())).await;
+        if let Some(token) = &token {
+            platform.insert("activation-token", Value::from(token.clone()));
+        }
         let signal = |name: &str| {
             let parameter: Vec<Value<'_>> = parameter.iter().filter_map(|v| v.try_clone().ok()).map(Value::from).collect();
             (name.to_owned(), parameter)
@@ -461,7 +467,7 @@ impl Center {
             }
             _ => {
                 let owned: Vec<OwnedValue> = parameter.iter().filter_map(|v| v.try_clone().ok()).collect();
-                if let Err(err) = activate_app(conn, app_id, action.as_deref(), owned).await {
+                if let Err(err) = activate_app(conn, app_id, action.as_deref(), owned, token.as_deref()).await {
                     tracing::info!(%err, app_id, "cannot activate application");
                     // An app that cannot be reached (not on the bus, as
                     // portal clients may be) hears by signal.
@@ -486,6 +492,11 @@ impl Center {
             Origin::Freedesktop { resident } => {
                 if key != "default" || n.has_default {
                     let emitter = SignalEmitter::new(conn, FDO_PATH)?;
+                    // As GNOME: the token first, for the window the app
+                    // presents (`activation.rs`).
+                    if let Some(token) = crate::activation::token_async(None).await {
+                        FdoNotifications::activation_token(&emitter, id, &token).await?;
+                    }
                     FdoNotifications::action_invoked(&emitter, id, &key).await?;
                 }
                 if !resident {
@@ -622,9 +633,14 @@ async fn activate_app(
     app_id: &str,
     action: Option<&str>,
     parameter: Vec<OwnedValue>,
+    token: Option<&str>,
 ) -> zbus::Result<()> {
     let path = app_object_path(app_id);
-    let platform_data: HashMap<&str, Value<'_>> = HashMap::new();
+    let mut platform_data: HashMap<&str, Value<'_>> = HashMap::new();
+    if let Some(token) = token {
+        platform_data.insert("activation-token", Value::from(token.to_owned()));
+        platform_data.insert("desktop-startup-id", Value::from(token.to_owned()));
+    }
     match action.and_then(|a| a.strip_prefix("app.")) {
         Some(name) => {
             let parameter: Vec<Value<'_>> = parameter.into_iter().map(Value::from).collect();

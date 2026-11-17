@@ -443,9 +443,44 @@ impl XdgDecorationHandler for Helix {
     }
 }
 
+/// Whether a token may take focus, decided when it was made (kept in the
+/// token's user data; tokens the compositor makes itself have none and
+/// are granted).
+struct Granted(bool);
+
+/// Whether a token's activation may take focus: made by the compositor or
+/// the shell, or for the seat's latest key or button press by the client
+/// that press went to; and younger than the TTL.
+fn granted(data: &XdgActivationTokenData) -> bool {
+    data.timestamp.elapsed() < ACTIVATION_TOKEN_TTL && data.user_data.get::<Granted>().is_none_or(|g| g.0)
+}
+
+/// Whether a client's token is for a real user interaction: the shell's
+/// (Helix's privileged client: launches, notification actions, the dock),
+/// or one carrying the serial of the seat's latest press (`last_press`),
+/// asked for by the client that press went to, from a surface of its own
+/// (as mutter checks; GTK 3 dialogs ask with serial 0 and no surface).
+pub(super) fn token_for_input(data: &XdgActivationTokenData, privileged: bool, last_press: Option<&(smithay::utils::Serial, smithay::reexports::wayland_server::backend::ClientId)>) -> bool {
+    if privileged {
+        return true;
+    }
+    let (Some((serial, _)), Some(surface), Some(client), Some((pressed, pressed_client))) = (&data.serial, &data.surface, &data.client_id, last_press) else { return false };
+    serial == pressed && client == pressed_client && surface.client().is_some_and(|c| c.id() == *client)
+}
+
 impl XdgActivationHandler for Helix {
     fn activation_state(&mut self) -> &mut XdgActivationState {
         &mut self.activation_state
+    }
+
+    fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
+        let privileged = data.client_id.as_ref().and_then(|id| self.display_handle.backend_handle().get_client_data(id.clone()).ok()).is_some_and(|d| d.downcast_ref::<super::ClientState>().is_some_and(|c| c.privileged));
+        let ok = token_for_input(&data, privileged, self.wm.last_press.as_ref());
+        tracing::debug!(ok, privileged, serial = ?data.serial.as_ref().map(|(s, _)| u32::from(*s)), "activation token");
+        data.user_data.insert_if_missing(|| Granted(ok));
+        // Kept either way: an activation with it makes the window want
+        // attention.
+        true
     }
 
     fn request_activation(
@@ -454,29 +489,33 @@ impl XdgActivationHandler for Helix {
         token_data: XdgActivationTokenData,
         surface: WlSurface,
     ) {
-        let fresh = token_data.timestamp.elapsed() < ACTIVATION_TOKEN_TTL;
         self.activation_state.remove_token(&token);
-        self.activate_surface(&surface, fresh);
+        self.activate_surface(&surface, granted(&token_data));
     }
 }
 
 impl Helix {
+    /// A key or button press (or touch) with `serial` went to `surface`
+    /// (none: to no client).
+    pub(super) fn note_press(&mut self, serial: smithay::utils::Serial, surface: Option<&WlSurface>) {
+        self.wm.last_press = surface.and_then(|s| s.client()).map(|c| (serial, c.id()));
+    }
+
     /// `surface`'s window asks to be activated with `token` (an
     /// `xdg_activation_v1` token, or `None`).
     pub fn activate_with_token(&mut self, token: Option<&XdgActivationToken>, surface: &WlSurface) {
-        let fresh = token
-            .and_then(|t| self.activation_state.data_for_token(t))
-            .is_some_and(|data| data.timestamp.elapsed() < ACTIVATION_TOKEN_TTL);
+        let fresh = token.and_then(|t| self.activation_state.data_for_token(t)).is_some_and(granted);
         if let Some(token) = token {
             self.activation_state.remove_token(token);
         }
         self.activate_surface(surface, fresh);
     }
 
-    /// Honor fresh tokens (e.g. an app launched from the shell, or a
-    /// notification click); for stale ones the window wants attention
-    /// instead of stealing focus. Focus goes to the window's modal dialog
-    /// if it has one (`focus_window`).
+    /// Honor granted tokens (an app launched from the shell, a
+    /// notification click, or one asked for with the user's latest
+    /// press); for others the window wants attention instead of stealing
+    /// focus. Focus goes to the window's modal dialog if it has one
+    /// (`focus_window`).
     fn activate_surface(&mut self, surface: &WlSurface, fresh: bool) {
         let Some(window) = self.window_for_surface(surface) else { return };
         tracing::debug!(granted = fresh, "activation request");

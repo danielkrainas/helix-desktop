@@ -11,7 +11,8 @@
 //! manager (`org.freedesktop.systemd1` on the session bus). Apps started
 //! by D-Bus activation have no pid here; the bus starts them. Without a
 //! user manager on the bus the call fails and the app stays where it was
-//! started (logged at debug level).
+//! started (logged at debug level). The context also gives each launch
+//! an activation token (`activation.rs`).
 
 use gio::prelude::*;
 use zbus::zvariant::Value;
@@ -90,7 +91,9 @@ pub fn context(desktop_id: Option<&str>) -> gio::AppLaunchContext {
 
 /// [`context`] reporting each launched (app id, pid) to `placed` instead.
 pub fn context_with(desktop_id: Option<&str>, placed: impl Fn(String, u32) + 'static) -> gio::AppLaunchContext {
-    let ctx = gio::AppLaunchContext::new();
+    // Its startup notification id is an activation token of the shell's
+    // (`activation.rs`), so the app's window gets focus.
+    let ctx = gio::glib::Object::with_type(crate::activation::launch_context_type()).downcast::<gio::AppLaunchContext>().unwrap_or_else(|_| gio::AppLaunchContext::new());
     let fallback = desktop_id.map(str::to_owned);
     ctx.connect_launched(move |_, info, platform_data| {
         let data = platform_data.get::<std::collections::HashMap<String, gio::glib::Variant>>().unwrap_or_default();

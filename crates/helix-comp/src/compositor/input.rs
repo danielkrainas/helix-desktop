@@ -9,6 +9,7 @@ use smithay::backend::input::KeyState;
 use smithay::input::keyboard::FilterResult;
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent};
 use smithay::utils::SERIAL_COUNTER;
+use smithay::wayland::seat::WaylandFocus;
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use helix_comp::client_socket::Motion;
 
@@ -442,6 +443,10 @@ impl Helix {
                 // reach the app with its next key.
                 let mods_changed = mods_changed || std::mem::take(&mut self.monitor_mods_dirty);
                 keyboard.input_forward(self, keycode, key_state, serial, time, mods_changed);
+                if pressed {
+                    let focus = keyboard.current_focus().and_then(|f| f.wl_surface().map(|s| s.into_owned()));
+                    self.note_press(serial, focus.as_ref());
+                }
                 None
             }
         };
@@ -470,6 +475,7 @@ impl Helix {
                 }
                 pointer.button(self, &ButtonEvent { button, state, serial, time });
                 pointer.frame(self);
+                self.note_press(serial, pointer.current_focus().as_ref());
                 return;
             }
             if self.over_panel(pos) {
@@ -491,6 +497,9 @@ impl Helix {
         }
         pointer.button(self, &ButtonEvent { button, state, serial, time });
         pointer.frame(self);
+        if state == ButtonState::Pressed {
+            self.note_press(serial, pointer.current_focus().as_ref());
+        }
     }
 
     /// Whether a touch event is part of Helix's gesture (not the apps').
@@ -545,7 +554,9 @@ impl Helix {
         let under = self.surface_under(pos);
         let touch = self.seat.get_touch().unwrap();
         let down = smithay::input::touch::DownEvent { slot, location: pos, serial: SERIAL_COUNTER.next_serial(), time };
+        let pressed = under.as_ref().map(|(s, _)| s.clone());
         touch.down(self, under, &down);
+        self.note_press(down.serial, pressed.as_ref());
     }
 
     pub(super) fn touch_motion(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, time: u32) {
