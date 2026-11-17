@@ -52,6 +52,55 @@ pub(super) struct Picker {
     keyboard: bool,
 }
 
+/// What is under the pointer on a picker view, for its cursor.
+#[derive(Debug, Clone, Copy, Default)]
+struct PointerAt {
+    /// A toolbar button (or one held pressed).
+    on_tool: bool,
+    /// The selection's handle or inside being dragged.
+    editing: Option<Grip>,
+    /// A new area being dragged out.
+    dragging: bool,
+    /// The selection's handle or inside under the pointer.
+    grip: Option<Grip>,
+}
+
+/// The cursor a picker shows: a crosshair wherever a press picks an area
+/// or a point (precise to the pixel), resize and move cursors on the
+/// screenshot UI's selection, and the arrow on its toolbar, in its Screen
+/// and Window modes and on the window picker.
+fn cursor_for(mode: PickMode, shot: ShotMode, at: PointerAt) -> CursorShape {
+    if at.dragging {
+        return CursorShape::Crosshair;
+    }
+    match mode {
+        PickMode::Area | PickMode::Point => CursorShape::Crosshair,
+        PickMode::Window => CursorShape::Default,
+        PickMode::Ui { .. } => match (at.editing, shot) {
+            (Some(grip), _) => grip_cursor(grip),
+            _ if at.on_tool => CursorShape::Default,
+            (None, ShotMode::Area) => at.grip.map_or(CursorShape::Crosshair, grip_cursor),
+            (None, ShotMode::Screen | ShotMode::Window) => CursorShape::Default,
+        },
+    }
+}
+
+/// The cursor for a selection handle (the sides it moves), or the move
+/// cursor for its inside.
+fn grip_cursor(g: Grip) -> CursorShape {
+    match (g.left, g.right, g.top, g.bottom) {
+        (true, _, true, _) => CursorShape::NwResize,
+        (_, true, true, _) => CursorShape::NeResize,
+        (true, _, _, true) => CursorShape::SwResize,
+        (_, true, _, true) => CursorShape::SeResize,
+        (true, ..) => CursorShape::WResize,
+        (_, true, ..) => CursorShape::EResize,
+        (_, _, true, _) => CursorShape::NResize,
+        (_, _, _, true) => CursorShape::SResize,
+        _ => CursorShape::Move,
+    }
+}
+
 /// What the screenshot UI captures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ShotMode {
@@ -916,6 +965,21 @@ impl Ui {
         true
     }
 
+    /// The cursor over picker view `surface` at `p` (surface-local), or
+    /// None when `surface` is not the picker's.
+    pub(super) fn picker_cursor(&self, surface: &wl_surface::WlSurface, p: (f64, f64)) -> Option<CursorShape> {
+        let picker = self.picker.as_ref()?;
+        let index = picker.views.iter().position(|v| v.overlay.layer.wl_surface() == surface)?;
+        let st = &picker.shot;
+        let at = PointerAt {
+            on_tool: index == 0 && (st.tool_pressed.is_some() || st.tools.iter().any(|(r, _)| r.contains(p.0, p.1))),
+            editing: st.edit.as_ref().map(|e| e.grip),
+            dragging: picker.drag.is_some(),
+            grip: st.selection.filter(|(v, _)| *v == index).and_then(|(_, sel)| grip_at(sel, p)),
+        };
+        Some(cursor_for(picker.mode, st.mode, at))
+    }
+
     /// Draw the picker's views again.
     pub(super) fn redraw_picker(&mut self) {
         let count = self.picker.as_ref().map_or(0, |p| p.views.len());
@@ -1162,6 +1226,34 @@ mod grip_tests {
 
     /// Handles and the inside are taken where pressed; a drag moves the
     /// taken sides (or the whole), kept on the monitor.
+    /// A crosshair to pick an area or a point; resize and move cursors on
+    /// the screenshot UI's selection; the arrow on its toolbar and where
+    /// a press picks no area.
+    #[test]
+    fn cursors() {
+        let ui = PickMode::Ui { record: false, allow_record: true };
+        let none = PointerAt::default();
+        assert_eq!(cursor_for(PickMode::Area, ShotMode::Area, none), CursorShape::Crosshair);
+        assert_eq!(cursor_for(PickMode::Point, ShotMode::Area, none), CursorShape::Crosshair);
+        assert_eq!(cursor_for(PickMode::Window, ShotMode::Area, none), CursorShape::Default);
+        assert_eq!(cursor_for(ui, ShotMode::Area, none), CursorShape::Crosshair);
+        assert_eq!(cursor_for(ui, ShotMode::Screen, none), CursorShape::Default);
+        assert_eq!(cursor_for(ui, ShotMode::Window, none), CursorShape::Default);
+        assert_eq!(cursor_for(ui, ShotMode::Area, PointerAt { on_tool: true, ..none }), CursorShape::Default);
+        assert_eq!(cursor_for(ui, ShotMode::Area, PointerAt { dragging: true, on_tool: true, ..none }), CursorShape::Crosshair, "a drag passing over the toolbar");
+        let sel = (100.0, 100.0, 200.0, 100.0);
+        let at = |p| PointerAt { grip: grip_at(sel, p), ..none };
+        assert_eq!(cursor_for(ui, ShotMode::Area, at((100.0, 100.0))), CursorShape::NwResize);
+        assert_eq!(cursor_for(ui, ShotMode::Area, at((200.0, 100.0))), CursorShape::NResize);
+        assert_eq!(cursor_for(ui, ShotMode::Area, at((300.0, 200.0))), CursorShape::SeResize);
+        assert_eq!(cursor_for(ui, ShotMode::Area, at((100.0, 150.0))), CursorShape::WResize);
+        assert_eq!(cursor_for(ui, ShotMode::Area, at((150.0, 130.0))), CursorShape::Move);
+        assert_eq!(cursor_for(ui, ShotMode::Area, at((500.0, 500.0))), CursorShape::Crosshair, "outside: a new area");
+        // While a handle is dragged its cursor stays, wherever the pointer is.
+        let edit = PointerAt { editing: Some(Grip { left: false, right: true, top: false, bottom: false }), on_tool: true, ..none };
+        assert_eq!(cursor_for(ui, ShotMode::Area, edit), CursorShape::EResize);
+    }
+
     #[test]
     fn handles() {
         let sel = (100.0, 100.0, 200.0, 100.0);

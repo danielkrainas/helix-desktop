@@ -21,6 +21,7 @@ use smithay_client_toolkit::reexports::client::protocol::{
 use smithay_client_toolkit::reexports::client::{Connection, QueueHandle};
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers};
+use smithay_client_toolkit::reexports::protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::{Shape as CursorShape, WpCursorShapeDeviceV1};
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, PointerHandler};
 use smithay_client_toolkit::seat::touch::TouchHandler;
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
@@ -246,6 +247,13 @@ struct Ui {
     /// Unclamped pointer motion (pressure at the dock's edge).
     relative_state: smithay_client_toolkit::seat::relative_pointer::RelativePointerState,
     relative_pointer: Option<smithay_client_toolkit::reexports::protocols::wp::relative_pointer::zv1::client::zwp_relative_pointer_v1::ZwpRelativePointerV1>,
+    /// Named cursors (`wp_cursor_shape_v1`): the pointer's device, the
+    /// serial of its latest enter (None while on no shell surface) and
+    /// the shape last set since then.
+    cursor_shapes: Option<smithay_client_toolkit::seat::pointer::cursor_shape::CursorShapeManager>,
+    cursor: Option<WpCursorShapeDeviceV1>,
+    cursor_enter: Option<u32>,
+    cursor_shown: Option<CursorShape>,
     touch: Option<wl_touch::WlTouch>,
     /// The touch point taken as a click: id, surface, last position.
     touch_point: Option<(i32, wl_surface::WlSurface, (f64, f64))>,
@@ -3990,6 +3998,10 @@ pub fn run(
         pointer: None,
         relative_state: smithay_client_toolkit::seat::relative_pointer::RelativePointerState::bind(&globals, &qh),
         relative_pointer: None,
+        cursor_shapes: smithay_client_toolkit::seat::pointer::cursor_shape::CursorShapeManager::bind(&globals, &qh).ok(),
+        cursor: None,
+        cursor_enter: None,
+        cursor_shown: None,
         touch: None,
         touch_point: None,
         requests,
@@ -4395,6 +4407,7 @@ impl SeatHandler for Ui {
             match self.seat_state.get_pointer(qh, &seat) {
                 Ok(p) => {
                     self.relative_pointer = self.relative_state.get_relative_pointer(&p, qh).ok();
+                    self.cursor = self.cursor_shapes.as_ref().map(|m| m.get_shape_device(&p, qh));
                     self.pointer = Some(p);
                 }
                 Err(err) => tracing::warn!(%err, "no pointer"),
@@ -4414,6 +4427,10 @@ impl SeatHandler for Ui {
             }
         }
         if capability == Capability::Pointer {
+            if let Some(c) = self.cursor.take() {
+                c.destroy();
+            }
+            self.cursor_enter = None;
             if let Some(p) = self.pointer.take() {
                 p.release();
             }
@@ -4513,7 +4530,22 @@ impl KeyboardHandler for Ui {
 
 impl PointerHandler for Ui {
     fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
+        for event in events {
+            match event.kind {
+                PointerEventKind::Enter { serial } => {
+                    // Another client may have left its cursor showing.
+                    self.cursor_enter = Some(serial);
+                    self.cursor_shown = None;
+                }
+                PointerEventKind::Leave { .. } => self.cursor_enter = None,
+                _ => {}
+            }
+        }
         self.pointer_events(events);
+        if let Some(last) = events.last().filter(|_| self.cursor_enter.is_some()) {
+            let event = mirror::adjust(last);
+            self.update_cursor(&event.surface, event.position);
+        }
     }
 }
 
@@ -4561,6 +4593,18 @@ impl TouchHandler for Ui {
 }
 
 impl Ui {
+    /// The pointer's cursor over shell surface `surface` at `position`:
+    /// the picker's (a crosshair where an area or point is picked), else
+    /// the default arrow. Set only when it changes.
+    fn update_cursor(&mut self, surface: &wl_surface::WlSurface, position: (f64, f64)) {
+        let shape = self.picker_cursor(surface, position).unwrap_or(CursorShape::Default);
+        let (Some(serial), Some(device)) = (self.cursor_enter, self.cursor.as_ref()) else { return };
+        if self.cursor_shown != Some(shape) {
+            device.set_shape(serial, shape);
+            self.cursor_shown = Some(shape);
+        }
+    }
+
     fn pointer_events(&mut self, events: &[PointerEvent]) {
         self.pointer_batch(events);
         self.grid_flush();

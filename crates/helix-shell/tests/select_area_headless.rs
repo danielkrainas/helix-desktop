@@ -3,7 +3,8 @@
 //! a headless Helix session (helix-comp with helix-shell, scratch home,
 //! private bus); this test claims `org.gnome.Screenshot` without queueing,
 //! asks for an area, sees the picker dim the screen, drags out a rectangle
-//! with the test input and gets it back.
+//! with the test input and gets it back. Over the picker the pointer is a
+//! crosshair, and back to the arrow once it closes.
 //!
 //! Needs helix-comp built next to this test; skipped otherwise.
 
@@ -28,7 +29,7 @@ fn select_area_with_the_pointer() {
     };
     let shell = std::path::PathBuf::from(env!("CARGO_BIN_EXE_helix-shell"));
     let settings = "[org/gnome/desktop/interface]\nenable-hot-corners=false\n";
-    let env = vec![("RUST_LOG".to_owned(), "info,helix_shell::ui::capture=debug".to_owned())];
+    let env = vec![("RUST_LOG".to_owned(), "info,helix_shell::ui::capture=debug,helix_comp::compositor::handlers=debug".to_owned())];
     let Some(mut session) = HeadlessSession::start(Options { comp: &comp, shell: Some(&shell), size: (1280, 720), settings, env }) else { return };
     assert!(session.wait_for_log("namespace=\"helix-panel\"", Duration::from_secs(30)), "the shell's panel:\n{}", session.log());
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
@@ -52,9 +53,20 @@ fn select_area_with_the_pointer() {
     let during = brightness(&session.fresh_snapshot());
     assert!(during < before * 0.75, "the picker is not shown (brightness {before:.0} before, {during:.0} with it)");
 
-    // A drag from (100, 100) to (300, 250).
-    session.input("move 100 100\nbutton 272 1\nmove 200 150\nmove 300 250\nbutton 272 0");
+    // A drag from (100, 100) to (300, 250), with a crosshair to aim.
+    session.input("move 100 100");
+    assert!(session.wait_for_log("icon=Crosshair taken=true", Duration::from_secs(5)), "no crosshair over the picker:\n{}", session.log());
+    session.input("button 272 1\nmove 200 150\nmove 300 250\nbutton 272 0");
     let reply = rt.block_on(area).unwrap().expect("SelectArea answered");
     let picked: (i32, i32, i32, i32) = reply.body().deserialize().unwrap();
     assert_eq!(picked, (100, 100, 200, 150));
+
+    // The picker closed: the arrow again over the desktop.
+    let cross = session.log().rfind("icon=Crosshair").expect("crosshair logged");
+    session.input("move 640 400");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !session.log()[cross..].contains("icon=Default taken=true") {
+        assert!(std::time::Instant::now() < deadline, "the crosshair stayed after the picker closed:\n{}", session.log());
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
