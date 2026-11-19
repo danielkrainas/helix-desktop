@@ -10,6 +10,7 @@
 //! instead of being dropped.
 
 use std::os::fd::{AsRawFd, BorrowedFd};
+use std::path::Path;
 use std::time::Duration;
 
 pub use smithay::reexports::wayland_server::backend::DisconnectReason;
@@ -70,6 +71,31 @@ pub fn peer_pid(fd: BorrowedFd<'_>) -> Option<u32> {
     // SAFETY: SO_PEERCRED fills a ucred of `len` bytes.
     let ok = unsafe { libc::getsockopt(fd.as_raw_fd(), libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut cred as *mut libc::ucred).cast(), &mut len) };
     (ok >= 0 && cred.pid > 0).then_some(cred.pid as u32)
+}
+
+/// Whether process `pid` runs in an app sandbox: a Flatpak
+/// (`/.flatpak-info`), a snap (an AppArmor label starting with `snap.`),
+/// or any other process whose root directory is not ours (or can't be
+/// looked at).
+pub fn sandboxed(pid: u32) -> bool {
+    let label = std::fs::read_to_string(format!("/proc/{pid}/attr/apparmor/current")).or_else(|_| std::fs::read_to_string(format!("/proc/{pid}/attr/current"))).ok();
+    sandboxed_process(label.as_deref(), Path::new(&format!("/proc/{pid}/root")), Path::new("/"))
+}
+
+/// [`sandboxed`] for a process with security label `label` and root
+/// directory `root` (as `/proc/PID/root`), when ours is `own_root`.
+pub fn sandboxed_process(label: Option<&str>, root: &Path, own_root: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    if label.is_some_and(|l| l.trim_end_matches(['\0', '\n']).starts_with("snap.")) {
+        return true;
+    }
+    if root.join(".flatpak-info").symlink_metadata().is_ok() {
+        return true;
+    }
+    match (std::fs::metadata(root), std::fs::metadata(own_root)) {
+        (Ok(theirs), Ok(ours)) => (theirs.dev(), theirs.ino()) != (ours.dev(), ours.ino()),
+        _ => true,
+    }
 }
 
 /// Process `pid`'s command name (`/proc/<pid>/comm`).
@@ -157,6 +183,25 @@ impl MotionCoalescer {
 mod tests {
     use std::os::fd::AsFd;
     use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn sandboxes() {
+        use super::{sandboxed, sandboxed_process};
+        let dir = std::env::temp_dir().join(format!("helix-client-sandbox-{}", std::process::id()));
+        let (host, flatpak, other) = (dir.join("host"), dir.join("flatpak"), dir.join("other"));
+        for d in [&host, &flatpak, &other] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(flatpak.join(".flatpak-info"), "[Application]\nname=org.example.App\n").unwrap();
+        assert!(!sandboxed_process(None, &host, &host));
+        assert!(!sandboxed_process(Some("unconfined\n"), &host, &host));
+        assert!(sandboxed_process(Some("snap.firefox.firefox (enforce)\n"), &host, &host));
+        assert!(sandboxed_process(None, &flatpak, &flatpak));
+        assert!(sandboxed_process(None, &other, &host));
+        assert!(sandboxed_process(None, &dir.join("gone"), &host));
+        assert!(!sandboxed(std::process::id()), "this test");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use std::io::Write;
 
     use super::*;

@@ -152,7 +152,7 @@ impl PortalDialog {
         let mut prompt = dialog_prompt(&options);
         let prompt_multiple = prompt.multiple;
         if let Some(path) = get::<String>(&options, "picture").filter(|p| !p.is_empty()) {
-            let decoded = tokio::task::spawn_blocking(move || crate::wallpaper::decode(std::path::Path::new(&path))).await;
+            let decoded = tokio::task::spawn_blocking(move || crate::wallpaper::decode_within(std::path::Path::new(&path), crate::wallpaper::Limits::PREVIEW)).await;
             match decoded {
                 Ok(Ok(image)) => prompt.picture = Some(Arc::new(crate::wallpaper::thumbnail(&image, 392, 220))),
                 Ok(Err(err)) => tracing::info!(%err, "cannot show the dialog's picture"),

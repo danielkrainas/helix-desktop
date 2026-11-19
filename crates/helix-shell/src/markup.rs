@@ -79,7 +79,9 @@ fn decode(s: &str) -> String {
 /// A tag at the start of `s` (which begins with `<`): (closing, name,
 /// attributes, length). `None` if it is not a tag.
 fn tag(s: &str) -> Option<(bool, String, String, usize)> {
-    let end = s.find('>')?;
+    // A tag ends before the next `<`: the search stops there, so a body
+    // of `<` without `>` is read once, not once per `<`.
+    let end = s[1..].find(['<', '>']).map(|i| i + 1).filter(|i| s.as_bytes()[*i] == b'>')?;
     let inner = &s[1..end];
     let (closing, inner) = match inner.strip_prefix('/') {
         Some(rest) => (true, rest),
@@ -181,5 +183,15 @@ mod tests {
         assert_eq!(plain("<img src=\"x.png\" alt=\"pic\"/>a < b &copy; &#65;&#x42;"), "a < b &copy; AB");
         assert_eq!(plain("<i>tilted</i> <span>kept</span>"), "tilted kept");
         assert_eq!(plain("1 <2 and 3> 0"), "1 <2 and 3> 0");
+        assert_eq!(plain("<<b>x</b>"), "<x");
+        assert_eq!(plain("a <b <i>c</i>"), "a <b c");
+    }
+
+    #[test]
+    fn brackets_without_end_are_linear() {
+        let body = "<".repeat(200_000);
+        let started = std::time::Instant::now();
+        assert_eq!(plain(&body), body);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "took {:?}", started.elapsed());
     }
 }

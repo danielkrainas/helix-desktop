@@ -50,16 +50,51 @@ pub async fn require_owner(conn: &Connection, header: &Header<'_>, names: &[&str
 /// told: no sender, no credentials, another user).
 pub async fn sandboxed(conn: &Connection, header: &Header<'_>) -> bool {
     let Some(sender) = header.sender() else { return true };
-    let Ok(dbus) = DBusProxy::new(conn).await else { return true };
-    let Ok(creds) = dbus.get_connection_credentials(BusName::Unique(sender.to_owned())).await else { return true };
+    match process_of(conn, BusName::Unique(sender.to_owned())).await {
+        Some((root, label)) => sandboxed_process(label.as_deref(), &root, Path::new("/")),
+        None => true,
+    }
+}
+
+/// The process behind bus name `name` (of our user): its root directory
+/// (as `/proc/PID/root`) and security label.
+async fn process_of(conn: &Connection, name: BusName<'_>) -> Option<(PathBuf, Option<String>)> {
+    let dbus = DBusProxy::new(conn).await.ok()?;
+    let creds = dbus.get_connection_credentials(name).await.ok()?;
     // SAFETY: getuid cannot fail.
     let me = unsafe { libc::getuid() };
     if creds.unix_user_id() != Some(me) {
-        return true;
+        return None;
     }
-    let Some(pid) = creds.process_id() else { return true };
+    let pid = creds.process_id()?;
     let label = creds.linux_security_label().map(|l| String::from_utf8_lossy(l).into_owned());
-    sandboxed_process(label.as_deref(), &PathBuf::from(format!("/proc/{pid}/root")), Path::new("/"))
+    Some((PathBuf::from(format!("/proc/{pid}/root")), label))
+}
+
+/// Whether the shell may reach the network on behalf of bus name `name`
+/// (e.g. to download a player's album art): it is not sandboxed, or it
+/// is a Flatpak allowed the network itself.
+pub async fn may_use_network(conn: &Connection, name: &str) -> bool {
+    let Ok(name) = BusName::try_from(name) else { return false };
+    match process_of(conn, name).await {
+        Some((root, label)) => !sandboxed_process(label.as_deref(), &root, Path::new("/")) || flatpak_shares_network(&root),
+        None => false,
+    }
+}
+
+/// Whether the Flatpak with root `root` shares the network
+/// (`/.flatpak-info`'s `[Context]` `shared` list has `network`).
+pub fn flatpak_shares_network(root: &Path) -> bool {
+    let Ok(info) = std::fs::read_to_string(root.join(".flatpak-info")) else { return false };
+    let mut context = false;
+    for line in info.lines().map(str::trim) {
+        if line.starts_with('[') {
+            context = line == "[Context]";
+        } else if let Some(shared) = line.strip_prefix("shared=").filter(|_| context) {
+            return shared.split(';').any(|s| s.trim() == "network");
+        }
+    }
+    false
 }
 
 /// Refuse sandboxed callers (see [`sandboxed`]).
@@ -110,6 +145,13 @@ mod tests {
         assert!(sandboxed_process(None, &flatpak, &flatpak));
         assert!(sandboxed_process(None, &other, &host));
         assert!(sandboxed_process(None, &dir.join("gone"), &host));
+        // Flatpak's network permission.
+        assert!(!flatpak_shares_network(&flatpak), "no [Context]");
+        std::fs::write(flatpak.join(".flatpak-info"), "[Application]\nname=a\nshared=network\n[Context]\nshared=ipc;\n").unwrap();
+        assert!(!flatpak_shares_network(&flatpak));
+        std::fs::write(flatpak.join(".flatpak-info"), "[Application]\nname=a\n\n[Context]\nshared=network;ipc;\nsockets=x11;\n").unwrap();
+        assert!(flatpak_shares_network(&flatpak));
+        assert!(!flatpak_shares_network(&host));
         // This process, as /proc shows it.
         assert!(!sandboxed_process(None, &PathBuf::from(format!("/proc/{}/root", std::process::id())), Path::new("/")));
         let _ = std::fs::remove_dir_all(&dir);

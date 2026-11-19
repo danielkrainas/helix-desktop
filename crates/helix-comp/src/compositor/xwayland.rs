@@ -34,10 +34,25 @@ impl Helix {
     /// Start Xwayland. `ready` runs once it is up (with its display number)
     /// or has failed (`None`).
     pub fn start_xwayland(&mut self, ready: impl FnOnce(&mut Helix, Option<u32>) + 'static) {
+        // Only clients with the cookie may connect (and no abstract
+        // socket, which any process in the network namespace can reach).
+        let auth = match new_auth() {
+            Ok(auth) => auth,
+            Err(err) => {
+                tracing::warn!(%err, "cannot write the X authorization file; X11 apps will not run");
+                ready(self, None);
+                return;
+            }
+        };
         // Smithay starts `Xwayland` from PATH with fixed options: a wrapper
-        // first in PATH adds the ones the settings ask for.
-        let envs = xwayland_wrapper(&self.wm_settings).unwrap_or_default();
-        let spawn = |display: Option<u32>| XWayland::spawn(&self.display_handle, display, envs.clone(), true, Stdio::null(), Stdio::null(), |_| ());
+        // first in PATH adds `-auth` and the ones the settings ask for.
+        let Some(envs) = xwayland_wrapper(&self.wm_settings, &auth.path) else {
+            tracing::warn!("cannot prepare Xwayland's options; X11 apps will not run");
+            let _ = std::fs::remove_file(&auth.path);
+            ready(self, None);
+            return;
+        };
+        let spawn = |display: Option<u32>| XWayland::spawn(&self.display_handle, display, envs.clone(), false, Stdio::null(), Stdio::null(), |_| ());
         // Smithay looks for a free display among :0 to :32; when those are
         // all taken (by other X servers or locks that stay behind), the next
         // ones are tried one by one.
@@ -52,10 +67,17 @@ impl Helix {
             Ok(x) => x,
             Err(err) => {
                 tracing::warn!(%err, "cannot start Xwayland; X11 apps will not run");
+                let _ = std::fs::remove_file(&auth.path);
                 ready(self, None);
                 return;
             }
         };
+        // Now that the display is chosen, entries clients look up by it.
+        let contents = helix_comp::xauth::file_contents(&helix_comp::xauth::host_name(), Some(xwayland.display_number()), &auth.cookie);
+        if let Err(err) = helix_comp::xauth::write_file(&auth.path, &contents) {
+            tracing::warn!(%err, "cannot write the X authorization file");
+        }
+        helix_comp::xauth::set_current(Some(auth));
         let mut ready = Some(ready);
         let result = self.loop_handle.insert_source(xwayland, move |event, _, state| {
             let display = match event {
@@ -419,16 +441,29 @@ impl XwmHandler for Helix {
 /// Environment that runs `Xwayland` through a wrapper adding the options of
 /// `org.gnome.mutter.wayland` (helixdesktop/spec `contracts/wayland/README.md`,
 /// "Xwayland options").
-fn xwayland_wrapper(settings: &helix_comp::wm_settings::WmSettings) -> Option<Vec<(String, String)>> {
+/// A new cookie, in the Xauthority file Xwayland is started with.
+fn new_auth() -> std::io::Result<helix_comp::xauth::Auth> {
+    use helix_comp::xauth;
+    let path = xauth::default_path().ok_or_else(|| std::io::Error::other("no XDG_RUNTIME_DIR"))?;
+    let cookie = xauth::Cookie::generate()?;
+    xauth::write_file(&path, &xauth::file_contents(&xauth::host_name(), None, &cookie))?;
+    Ok(xauth::Auth { path, cookie })
+}
+
+fn xwayland_wrapper(settings: &helix_comp::wm_settings::WmSettings, auth: &std::path::Path) -> Option<Vec<(String, String)>> {
     use std::os::unix::fs::PermissionsExt;
     let path = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into());
     let help = std::process::Command::new("Xwayland").arg("-help").output().ok()?;
     let help = String::from_utf8_lossy(&help.stderr).into_owned() + &String::from_utf8_lossy(&help.stdout);
     let switchable = helix_comp::wm_settings::switchable_extensions(&help);
-    let args = helix_comp::wm_settings::xwayland_args(settings.xwayland_disable_extension, settings.xwayland_byte_swapped, &switchable);
+    let mut args = helix_comp::wm_settings::xwayland_args(settings.xwayland_disable_extension, settings.xwayland_byte_swapped, &switchable);
+    args.extend(["-auth".to_owned(), auth.to_str()?.to_owned()]);
     let dir = wrapper_dir()?;
     std::fs::create_dir_all(&dir).ok()?;
     let script = dir.join("Xwayland");
+    if args.iter().any(|a| a.contains('\'')) {
+        return None;
+    }
     let quoted: Vec<String> = args.iter().map(|a| format!("'{a}'")).collect();
     let body = format!("#!/bin/sh\nPATH=\"$HELIX_XWAYLAND_PATH\" exec Xwayland \"$@\" {}\n", quoted.join(" "));
     std::fs::write(&script, body).ok()?;

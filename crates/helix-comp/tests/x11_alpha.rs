@@ -60,7 +60,7 @@ fn argb_window_corners_stay_transparent() {
     let snapshot = dir.join("snap.png");
     let display_file = dir.join("display");
     let command = dir.join("announce.sh");
-    std::fs::write(&command, format!("#!/bin/sh\necho \"$DISPLAY\" > {}\n", display_file.display())).unwrap();
+    std::fs::write(&command, format!("#!/bin/sh\necho \"$DISPLAY $XAUTHORITY\" > {}\n", display_file.display())).unwrap();
     std::fs::set_permissions(&command, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     let comp = Command::new(env!("CARGO_BIN_EXE_helix-comp"))
         .args(["--backend", "headless", "--command"])
@@ -80,7 +80,19 @@ fn argb_window_corners_stay_transparent() {
     let _comp = Comp(comp);
     let display: String = wait_for("Xwayland", || std::fs::read_to_string(&display_file).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()));
 
-    let (conn, screen_num) = x11rb::connect(Some(&display)).unwrap();
+    let (display, xauthority) = display.split_once(' ').expect("DISPLAY and XAUTHORITY");
+    // Without the cookie the server refuses; with it (XAUTHORITY, as the
+    // compositor's command got it) it accepts.
+    {
+        let number = display.trim_start_matches(':');
+        let stream = std::os::unix::net::UnixStream::connect(format!("/tmp/.X11-unix/X{number}")).unwrap();
+        let (stream, _) = x11rb::rust_connection::DefaultStream::from_unix_stream(stream).unwrap();
+        assert!(x11rb::rust_connection::RustConnection::connect_to_stream_with_auth_info(stream, 0, Vec::new(), Vec::new()).is_err(), "no X authorization");
+    }
+    let mode = std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(xauthority).unwrap().permissions());
+    assert_eq!(mode & 0o077, 0, "the Xauthority file is private");
+    std::env::set_var("XAUTHORITY", xauthority);
+    let (conn, screen_num) = x11rb::connect(Some(display)).unwrap();
     let screen = &conn.setup().roots[screen_num];
     let visual = screen
         .allowed_depths

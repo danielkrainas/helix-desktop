@@ -19,6 +19,7 @@ crates/helix-shell/src/a11y_menu.rs
 crates/helix-shell/src/bluetooth_agent.rs
 crates/helix-shell/src/clock.rs
 crates/helix-shell/src/dock.rs
+crates/helix-shell/src/ext_host/approval.rs
 crates/helix-shell/src/ext_host/manifest.rs
 crates/helix-shell/src/ext_host/runner.rs
 crates/helix-shell/src/extra_keys.rs

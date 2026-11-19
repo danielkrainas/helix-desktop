@@ -13,6 +13,9 @@ pub struct ApprovalQuestion {
     /// What it will be able to do (the permissions' texts).
     pub can: Vec<String>,
     pub sandboxed: bool,
+    /// Sandboxed, but with a permission that leaves the sandbox
+    /// ([`super::manifest::LEAVE_SANDBOX`]).
+    pub leaves_sandbox: bool,
     pub reply: oneshot::Sender<bool>,
 }
 
@@ -37,10 +40,28 @@ impl PartialEq for ApprovalSlot {
 }
 
 /// The prompt's lines below "It will be able to:".
-pub fn lines(can: &[String], sandboxed: bool) -> Vec<String> {
+pub fn lines(can: &[String], sandboxed: bool, leaves_sandbox: bool) -> Vec<String> {
     let mut out = can.to_vec();
     if !sandboxed {
-        out.push("It is not sandboxed: it can do anything you can.".to_owned());
+        out.push(helix_i18n::tr("It is not sandboxed: it can do anything you can.").to_owned());
+    } else if leaves_sandbox {
+        out.push(helix_i18n::tr("Its permissions let it out of its sandbox: it can do anything you can.").to_owned());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn warnings() {
+        let can = vec!["use the network".to_owned()];
+        assert_eq!(lines(&can, true, false), can);
+        assert_eq!(lines(&can, false, false).len(), 2);
+        assert!(lines(&can, true, true)[1].contains("out of its sandbox"));
+        assert!(super::super::manifest::leaves_sandbox(&["network".into(), "session-bus".into()]));
+        assert!(super::super::manifest::leaves_sandbox(&["files:home".into()]));
+        assert!(!super::super::manifest::leaves_sandbox(&["files:documents".into(), "network".into(), "system-bus".into()]));
+    }
 }

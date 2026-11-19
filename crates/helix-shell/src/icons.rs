@@ -38,7 +38,9 @@ impl IconSource {
         }
     }
 
-    /// The `image-data` hint: `(iiibiiay)`.
+    /// The `image-data` hint: `(iiibiiay)`. Images wider or taller than
+    /// [`MAX_IMAGE_DATA`], or whose rows don't fit their stride, are
+    /// refused; big ones are kept shrunk to [`KEPT_IMAGE_DATA`].
     pub fn from_image_data(value: &Value<'_>) -> Option<Self> {
         let value = unwrap(value);
         let Value::Structure(s) = value else { return None };
@@ -47,12 +49,17 @@ impl IconSource {
         else {
             return None;
         };
-        if *bits != 8 || !(3..=4).contains(channels) || *w <= 0 || *h <= 0 {
+        if *bits != 8 || !(3..=4).contains(channels) || !(1..=MAX_IMAGE_DATA).contains(w) || !(1..=MAX_IMAGE_DATA).contains(h) {
+            return None;
+        }
+        let (w, h, channels) = (*w as usize, *h as usize, *channels as usize);
+        let stride = usize::try_from(*stride).ok().filter(|s| *s >= w * channels)?;
+        let needed = stride.checked_mul(h - 1)?.checked_add(w * channels)?;
+        if data.len() < needed {
             return None;
         }
         let bytes: Vec<u8> = data.iter().filter_map(|v| if let Value::U8(b) = v { Some(*b) } else { None }).collect();
-        let (w, h, stride, channels) = (*w as usize, *h as usize, *stride as usize, *channels as usize);
-        if bytes.len() < stride * (h - 1) + w * channels {
+        if bytes.len() < needed {
             return None;
         }
         let mut rgba = Vec::with_capacity(w * h * 4);
@@ -63,7 +70,7 @@ impl IconSource {
                 rgba.extend_from_slice(&premultiply([p[0], p[1], p[2], a]));
             }
         }
-        Some(Self::Data(Image { width: w, height: h, rgba }))
+        Some(Self::Data(shrink(Image { width: w, height: h, rgba }, KEPT_IMAGE_DATA)))
     }
 
     /// A serialized `GIcon` (the org.gtk.Notifications `icon`).
@@ -220,6 +227,9 @@ fn decode_png(bytes: &[u8]) -> Option<Image> {
     let mut decoder = png::Decoder::new(bytes);
     decoder.set_transformations(png::Transformations::normalize_to_color8() | png::Transformations::ALPHA);
     let mut reader = decoder.read_info().ok()?;
+    if reader.info().width > MAX_ICON_SIDE || reader.info().height > MAX_ICON_SIDE {
+        return None;
+    }
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).ok()?;
     let (w, h) = (info.width as usize, info.height as usize);
@@ -566,6 +576,17 @@ fn png_size(path: &Path) -> Option<u32> {
     Some(w.max(h))
 }
 
+/// Icon and notification image files: at most this large, and PNGs at
+/// most this wide and tall.
+const MAX_ICON_FILE: u64 = 16 << 20;
+const MAX_ICON_SIDE: u32 = 4096;
+
+/// `image-data` (notifications, search results) at most this wide and
+/// tall.
+pub const MAX_IMAGE_DATA: i32 = 2048;
+/// Larger `image-data` is kept shrunk to this size.
+pub const KEPT_IMAGE_DATA: u32 = 512;
+
 /// `image` shrunk to fit `px` pixels (keeping its proportions), each
 /// pixel the average of the source pixels it covers (premultiplied, so
 /// edges keep their color); one that fits already is returned as it is.
@@ -698,7 +719,7 @@ fn decode_file_with(cache: Option<&DiskCache>, path: &Path, px: u32) -> Option<I
     if let Some(found) = cache.and_then(|c| c.get(path, &meta, px)) {
         return Some(found);
     }
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = crate::wallpaper::read_regular(path, MAX_ICON_FILE).ok()?;
     let image = decode(&bytes, px)?;
     // PNGs decode quickly (and at their own size): only rendered SVGs
     // are kept.
@@ -906,6 +927,22 @@ pub(crate) mod tests {
         let data = Value::Structure(Structure::from((1i32, 1i32, 4i32, false, 8i32, 3i32, Array::from(vec![10u8, 20, 30, 0]))));
         let Some(IconSource::Data(image)) = IconSource::from_image_data(&data) else { panic!("not decoded") };
         assert_eq!(image.rgba, vec![10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn image_data_limits() {
+        let image = |w: i32, h: i32, stride: i32, data: Vec<u8>| IconSource::from_image_data(&Value::Structure(Structure::from((w, h, stride, true, 8i32, 4i32, Array::from(data)))));
+        // A stride that does not hold a row, or is negative.
+        assert_eq!(image(100_000, 100_000, 0, vec![0; 400_000]), None);
+        assert_eq!(image(2, 2, 4, vec![0; 16]), None);
+        assert_eq!(image(2, 2, -8, vec![0; 16]), None);
+        // Too large, too short.
+        assert_eq!(image(MAX_IMAGE_DATA + 1, 1, (MAX_IMAGE_DATA + 1) * 4, vec![0; (MAX_IMAGE_DATA as usize + 1) * 4]), None);
+        assert_eq!(image(2, 2, 8, vec![0; 15]), None);
+        assert!(matches!(image(2, 2, 8, vec![0; 16]), Some(IconSource::Data(_))));
+        // Big ones are kept small.
+        let Some(IconSource::Data(big)) = image(1024, 8, 4096, vec![255; 4096 * 8]) else { panic!("not decoded") };
+        assert_eq!((big.width, big.height), (KEPT_IMAGE_DATA as usize, 4));
     }
 
     #[test]

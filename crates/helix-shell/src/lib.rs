@@ -970,7 +970,7 @@ fn preview_image(path: &str) -> Option<Preview> {
         return Some(Preview::Text(thumbnails::text_lines(path, PREVIEW_LINES)));
     }
     let source = if thumbnails::is_picture(&mime) { path.to_path_buf() } else { thumbnails::thumbnail(path)? };
-    let image = wallpaper::decode(&source).ok()?;
+    let image = wallpaper::decode_within(&source, wallpaper::Limits::PREVIEW).ok()?;
     Some(Preview::Image(std::sync::Arc::new(wallpaper::thumbnail(&image, 480, 480))))
 }
 

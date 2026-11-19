@@ -1147,6 +1147,7 @@ impl ExtHost {
             name: manifest.name.clone(),
             can: manifest.permissions.iter().map(|p| manifest::permission_text(p).to_owned()).collect(),
             sandboxed: manifest.sandbox,
+            leaves_sandbox: manifest.sandbox && manifest::leaves_sandbox(&manifest.permissions),
             reply,
         };
         tracing::info!(id, "asking the user to approve an extension");
@@ -1694,6 +1695,14 @@ impl HostIface {
 
     async fn launch(&self, desktop_id: String, uris: Vec<String>) -> zbus::fdo::Result<()> {
         self.host.granted(&self.id, self.generation, "launch-apps")?;
+        // From a sandbox, web and mail addresses only: an app handed one
+        // of the sandbox's files (its home is a host folder) could run it.
+        let sandboxed = self.host.lock().exts.get(&self.id).and_then(|e| e.found.manifest.as_ref().ok().map(|m| m.sandbox)).unwrap_or(true);
+        if sandboxed {
+            if let Some(uri) = uris.iter().find(|u| !launchable_from_sandbox(u)) {
+                return Err(zbus::fdo::Error::AccessDenied(format!("{uri}: only web and mail addresses can be opened from a sandbox")));
+            }
+        }
         tokio::task::spawn_blocking(move || {
             use gio::prelude::*;
             let info = gio::AppInfo::all().into_iter().find(|a| a.id().is_some_and(|i| i == desktop_id)).ok_or_else(|| format!("no app {desktop_id}"))?;
@@ -1709,9 +1718,26 @@ impl HostIface {
     pub async fn setting_changed(emitter: &SignalEmitter<'_>, key: &str, value: &OwnedValue) -> zbus::Result<()>;
 }
 
+/// Whether a sandboxed extension may hand `uri` to an app it launches:
+/// `http`, `https` and `mailto` addresses.
+pub fn launchable_from_sandbox(uri: &str) -> bool {
+    let scheme = uri.split_once(':').map(|(s, _)| s.to_ascii_lowercase()).unwrap_or_default();
+    matches!(scheme.as_str(), "http" | "https" | "mailto")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sandbox_launch_uris() {
+        assert!(launchable_from_sandbox("https://example.org/"));
+        assert!(launchable_from_sandbox("HTTP://example.org/"));
+        assert!(launchable_from_sandbox("mailto:a@example.org"));
+        for uri in ["file:///home/u/.local/share/helix/extension-data/x/run.exe", "/etc/passwd", "smb://host/share", "x-scheme:foo", ""] {
+            assert!(!launchable_from_sandbox(uri), "{uri}");
+        }
+    }
 
     #[test]
     fn menus_are_limited() {

@@ -84,23 +84,33 @@ fn documents_dir() -> PathBuf {
     gio::glib::user_special_dir(gio::glib::UserDirectory::Documents).filter(|d| d.is_dir()).or_else(|| std::env::var_os("HOME").map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("/tmp"))
 }
 
-/// `dir/stem.ext`, or with " (2)" etc. when taken.
-pub fn free_name(dir: &Path, stem: &str, ext: &str) -> PathBuf {
-    let mut path = dir.join(format!("{stem}.{ext}"));
-    let mut n = 2;
-    while path.exists() {
-        path = dir.join(format!("{stem} ({n}).{ext}"));
-        n += 1;
+/// Documents larger than this are not printed.
+pub const MAX_DOCUMENT: u64 = 512 << 20;
+
+/// A new file `dir/stem.ext`, or with " (2)" etc. when taken. Created
+/// exclusively and never through a symbolic link: a name that is taken
+/// in any way, a dangling link too, is skipped.
+pub fn create_free(dir: &Path, stem: &str, ext: &str) -> std::io::Result<(PathBuf, std::fs::File)> {
+    use std::os::unix::fs::OpenOptionsExt;
+    for n in 1..=10_000 {
+        let path = if n == 1 { dir.join(format!("{stem}.{ext}")) } else { dir.join(format!("{stem} ({n}).{ext}")) };
+        match std::fs::OpenOptions::new().write(true).create_new(true).mode(0o644).custom_flags(libc::O_NOFOLLOW).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
     }
-    path
+    Err(std::io::Error::other("no free file name"))
 }
 
 /// Print (or save) the document in `data`; the file written, if any.
 fn run(choice: &Choice, title: &str, data: &[u8]) -> Result<Option<PathBuf>, String> {
     match &choice.target {
         Target::File => {
-            let path = free_name(&documents_dir(), &file_stem(title), suffix(data));
-            std::fs::write(&path, data).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+            use std::io::Write;
+            let dir = documents_dir();
+            let (path, mut file) = create_free(&dir, &file_stem(title), suffix(data)).map_err(|e| format!("cannot write in {}: {e}", dir.display()))?;
+            file.write_all(data).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
             Ok(Some(path))
         }
         Target::Printer(printer) => {
@@ -256,7 +266,10 @@ impl PrintBackend {
                 let mut file = std::fs::File::from(std::os::fd::OwnedFd::from(fd));
                 use std::io::Seek;
                 let _ = file.seek(std::io::SeekFrom::Start(0));
-                file.read_to_end(&mut data).map_err(|e| e.to_string())?;
+                (&mut file).take(MAX_DOCUMENT + 1).read_to_end(&mut data).map_err(|e| e.to_string())?;
+                if data.len() as u64 > MAX_DOCUMENT {
+                    return Err("the document is too large".to_owned());
+                }
                 run(&choice, &title, &data).map(|path| (choice, path))
             })
             .await;
@@ -298,9 +311,15 @@ mod tests {
         assert_eq!(file_stem("  "), "output");
         let dir = std::env::temp_dir().join(format!("helix-print-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(free_name(&dir, "a", "pdf"), dir.join("a.pdf"));
-        std::fs::write(dir.join("a.pdf"), b"x").unwrap();
-        assert_eq!(free_name(&dir, "a", "pdf"), dir.join("a (2).pdf"));
+        assert_eq!(create_free(&dir, "a", "pdf").unwrap().0, dir.join("a.pdf"));
+        assert_eq!(create_free(&dir, "a", "pdf").unwrap().0, dir.join("a (2).pdf"));
+        // A planted link, dangling or not, is never written through.
+        let outside = dir.join("outside");
+        std::os::unix::fs::symlink(&outside, dir.join("b.pdf")).unwrap();
+        std::os::unix::fs::symlink(dir.join("a.pdf"), dir.join("b (2).pdf")).unwrap();
+        assert_eq!(create_free(&dir, "b", "pdf").unwrap().0, dir.join("b (3).pdf"));
+        assert!(!outside.exists());
+        assert_eq!(std::fs::read(dir.join("a.pdf")).unwrap(), b"");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

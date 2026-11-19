@@ -16,16 +16,27 @@ pub const PERMISSIONS: [(&str, &str); 14] = [
     ("popover", n_("show its own panels")),
     // 1.2: what a sandbox may reach.
     ("network", n_("use the network")),
-    ("files:home", n_("read and change all your files")),
+    ("files:home", n_("read and change all your files, which lets it do anything you can")),
     ("files:documents", n_("read and change your Documents")),
     ("files:downloads", n_("read and change your Downloads")),
     ("files:music", n_("read and change your Music")),
     ("files:pictures", n_("read and change your Pictures")),
     ("files:videos", n_("read and change your Videos")),
     ("files:desktop", n_("read and change your Desktop")),
-    ("session-bus", n_("talk to your other programs")),
+    ("session-bus", n_("talk to all your other programs, which lets it do anything you can")),
     ("system-bus", n_("talk to system services")),
 ];
+
+/// System permissions that let a sandboxed extension do anything the
+/// user can, as if it had no sandbox: the whole home folder (startup
+/// files, autostart entries) and the unfiltered session bus (e.g.
+/// systemd's `StartTransientUnit`).
+pub const LEAVE_SANDBOX: [&str; 2] = ["files:home", "session-bus"];
+
+/// Whether `permissions` include one of [`LEAVE_SANDBOX`].
+pub fn leaves_sandbox(permissions: &[String]) -> bool {
+    permissions.iter().any(|p| LEAVE_SANDBOX.contains(&p.as_str()))
+}
 
 /// The system permissions (1.2): meaningful in a sandbox only.
 pub fn is_system_permission(name: &str) -> bool {

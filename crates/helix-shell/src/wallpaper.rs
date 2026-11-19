@@ -136,6 +136,57 @@ pub fn uri_path(uri: &str) -> Option<PathBuf> {
 
 // ----- Decoding ---------------------------------------------------------
 
+/// How large a decoded picture may be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    /// Width and height, each.
+    pub side: u32,
+    /// Width × height.
+    pub pixels: u64,
+    /// The file.
+    pub bytes: u64,
+}
+
+impl Limits {
+    /// Backgrounds the user chose (and pictures of the shell's own).
+    pub const WALLPAPER: Limits = Limits { side: 16384, pixels: 8192 * 8192, bytes: 256 << 20 };
+    /// File chooser previews and pictures of other programs' dialogs.
+    pub const PREVIEW: Limits = Limits { side: 8192, pixels: 8192 * 8192, bytes: 64 << 20 };
+    /// Album art and other small pictures other programs name.
+    pub const ART: Limits = Limits { side: 4096, pixels: 4096 * 4096, bytes: 16 << 20 };
+
+    fn check(&self, width: u32, height: u32) -> Result<(), String> {
+        if width == 0 || height == 0 || width > self.side || height > self.side || u64::from(width) * u64::from(height) > self.pixels {
+            return Err(format!("{width}×{height} is too large"));
+        }
+        Ok(())
+    }
+}
+
+/// The contents of the regular file at `path`, at most `max` bytes: no
+/// devices, FIFOs or sockets (whose size says nothing, and which may never
+/// end or never answer).
+pub fn read_regular(path: &Path, max: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    let err = |e: std::io::Error| format!("{}: {e}", path.display());
+    // Non-blocking: opening a FIFO must not wait for a writer.
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path).map_err(err)?;
+    let meta = file.metadata().map_err(err)?;
+    if !meta.is_file() {
+        return Err(format!("{}: not a regular file", path.display()));
+    }
+    if meta.len() > max {
+        return Err(format!("{}: {} bytes is too large", path.display(), meta.len()));
+    }
+    let mut data = Vec::with_capacity(meta.len() as usize);
+    file.take(max + 1).read_to_end(&mut data).map_err(err)?;
+    if data.len() as u64 > max {
+        return Err(format!("{}: too large", path.display()));
+    }
+    Ok(data)
+}
+
 fn rgba_from(width: u32, height: u32, data: Vec<u8>, channels: usize) -> Result<Image, String> {
     let pixels = width as usize * height as usize;
     if data.len() < pixels * channels {
@@ -151,35 +202,46 @@ fn rgba_from(width: u32, height: u32, data: Vec<u8>, channels: usize) -> Result<
     Ok(Image { width, height, rgba })
 }
 
-fn decode_png(data: &[u8]) -> Result<Image, String> {
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(data));
+fn decode_png(data: &[u8], limits: Limits) -> Result<Image, String> {
+    let bytes = usize::try_from(limits.pixels * 4).unwrap_or(usize::MAX);
+    let mut decoder = png::Decoder::new_with_limits(std::io::Cursor::new(data), png::Limits { bytes });
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+    limits.check(reader.info().width, reader.info().height)?;
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
     buf.truncate(info.buffer_size());
     rgba_from(info.width, info.height, buf, info.color_type.samples())
 }
 
-fn decode_jpeg(data: &[u8]) -> Result<Image, String> {
-    let options = zune_jpeg::zune_core::options::DecoderOptions::default().jpeg_set_out_colorspace(zune_jpeg::zune_core::colorspace::ColorSpace::RGB);
+fn decode_jpeg(data: &[u8], limits: Limits) -> Result<Image, String> {
+    let side = limits.side as usize;
+    let options = zune_jpeg::zune_core::options::DecoderOptions::default()
+        .jpeg_set_out_colorspace(zune_jpeg::zune_core::colorspace::ColorSpace::RGB)
+        .set_max_width(side)
+        .set_max_height(side);
     let mut decoder = zune_jpeg::JpegDecoder::new_with_options(zune_jpeg::zune_core::bytestream::ZCursor::new(data), options);
+    decoder.decode_headers().map_err(|e| format!("{e:?}"))?;
+    let header = decoder.info().ok_or("no JPEG header")?;
+    limits.check(u32::from(header.width), u32::from(header.height))?;
     let pixels = decoder.decode().map_err(|e| format!("{e:?}"))?;
     let info = decoder.info().ok_or("no JPEG header")?;
     rgba_from(u32::from(info.width), u32::from(info.height), pixels, 3)
 }
 
-fn decode_webp(data: &[u8]) -> Result<Image, String> {
+fn decode_webp(data: &[u8], limits: Limits) -> Result<Image, String> {
     let mut decoder = image_webp::WebPDecoder::new(std::io::Cursor::new(data)).map_err(|e| e.to_string())?;
     let (width, height) = decoder.dimensions();
+    limits.check(width, height)?;
     let channels = if decoder.has_alpha() { 4 } else { 3 };
     let mut buf = vec![0; decoder.output_buffer_size().ok_or("WebP too large")?];
     decoder.read_image(&mut buf).map_err(|e| e.to_string())?;
     rgba_from(width, height, buf, channels)
 }
 
-fn decode_jxl(data: &[u8]) -> Result<Image, String> {
+fn decode_jxl(data: &[u8], limits: Limits) -> Result<Image, String> {
     let image = jxl_oxide::JxlImage::builder().read(std::io::Cursor::new(data)).map_err(|e| e.to_string())?;
+    limits.check(image.width(), image.height())?;
     let render = image.render_frame(0).map_err(|e| e.to_string())?;
     let mut stream = render.stream();
     let (width, height, channels) = (stream.width(), stream.height(), stream.channels() as usize);
@@ -188,11 +250,14 @@ fn decode_jxl(data: &[u8]) -> Result<Image, String> {
     rgba_from(width, height, buf, channels)
 }
 
-fn decode_svg(data: &[u8], base: &Path) -> Result<Image, String> {
+fn decode_svg(data: &[u8], base: &Path, limits: Limits) -> Result<Image, String> {
     let options = resvg::usvg::Options { resources_dir: base.parent().map(Path::to_path_buf), ..Default::default() };
     let tree = resvg::usvg::Tree::from_data(data, &options).map_err(|e| e.to_string())?;
     let size = tree.size();
-    let scale = (SVG_SIZE / size.width().max(size.height())).max(1.0);
+    let longest = size.width().max(size.height());
+    // Small ones are drawn at SVG_SIZE; large ones at most at the limits.
+    let fit = (limits.side as f32 / longest).min((limits.pixels as f64 / f64::from(size.width() * size.height())).sqrt() as f32);
+    let scale = (SVG_SIZE / longest).max(1.0).min(fit);
     let (w, h) = ((size.width() * scale).ceil() as u32, (size.height() * scale).ceil() as u32);
     let mut pixmap = resvg::tiny_skia::Pixmap::new(w.max(1), h.max(1)).ok_or("SVG too large")?;
     resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
@@ -209,26 +274,37 @@ fn decode_svg(data: &[u8], base: &Path) -> Result<Image, String> {
     Ok(Image { width: w, height: h, rgba })
 }
 
-/// Decode a picture file, by its content.
+/// Decode a picture file, by its content (within [`Limits::WALLPAPER`]).
 pub fn decode(path: &Path) -> Result<Image, String> {
-    let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    decode_bytes(&data, path)
+    decode_within(path, Limits::WALLPAPER)
+}
+
+/// Decode a picture file within `limits`.
+pub fn decode_within(path: &Path, limits: Limits) -> Result<Image, String> {
+    let data = read_regular(path, limits.bytes)?;
+    decode_bytes_within(&data, path, limits)
 }
 
 /// Decode a picture from its bytes, by their content; `path` names it in
 /// errors (and an SVG's relative references are found from it).
 pub fn decode_bytes(data: &[u8], path: &Path) -> Result<Image, String> {
+    decode_bytes_within(data, path, Limits::WALLPAPER)
+}
+
+/// [`decode_bytes`] within `limits`: larger pictures are refused before
+/// their pixels are allocated.
+pub fn decode_bytes_within(data: &[u8], path: &Path, limits: Limits) -> Result<Image, String> {
     let head = &data[..data.len().min(512)];
     if head.starts_with(b"\x89PNG") {
-        decode_png(data)
+        decode_png(data, limits)
     } else if head.starts_with(&[0xFF, 0xD8]) {
-        decode_jpeg(data)
+        decode_jpeg(data, limits)
     } else if head.len() >= 12 && &head[..4] == b"RIFF" && &head[8..12] == b"WEBP" {
-        decode_webp(data)
+        decode_webp(data, limits)
     } else if head.starts_with(&[0xFF, 0x0A]) || head.starts_with(&[0, 0, 0, 0x0C, b'J', b'X', b'L', b' ']) {
-        decode_jxl(data)
+        decode_jxl(data, limits)
     } else if String::from_utf8_lossy(head).contains("<svg") {
-        decode_svg(data, path)
+        decode_svg(data, path, limits)
     } else {
         Err(format!("{}: unknown picture format", path.display()))
     }

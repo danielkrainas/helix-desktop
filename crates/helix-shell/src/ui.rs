@@ -3494,7 +3494,7 @@ impl Ui {
                     if self.lock.session.is_some() || self.dialog.is_some() {
                         let _ = q.reply.send(false);
                     } else {
-                        let lines = crate::ext_host::approval::lines(&q.can, q.sandboxed);
+                        let lines = crate::ext_host::approval::lines(&q.can, q.sandboxed, q.leaves_sandbox);
                         let kind = DialogKind::ApproveExtension { name: q.name, lines, reply: Some(q.reply) };
                         self.show_dialog(DialogState::new(kind, 0));
                     }

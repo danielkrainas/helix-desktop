@@ -49,6 +49,7 @@ pub mod screencast;
 pub mod wm_settings;
 pub mod workspaces;
 pub mod xsettings;
+pub mod xauth;
 
 use std::sync::{Arc, Mutex};
 

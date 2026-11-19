@@ -29,6 +29,17 @@ pub const GTK_PATH: &str = "/org/gtk/Notifications";
 const ACTIVE_WINDOW: Duration = Duration::from_secs(5);
 /// Helix's own settings: the ignore periods.
 const HELIX_SCHEMA: &str = "org.helixdesktop.shell";
+/// Longer summaries and bodies are cut (in characters).
+pub const MAX_SUMMARY: usize = 1_000;
+pub const MAX_BODY: usize = 10_000;
+
+/// Cut `text` to at most `max` characters, with an ellipsis.
+pub fn clip(text: &mut String, max: usize) {
+    if let Some((at, _)) = text.char_indices().nth(max) {
+        text.truncate(at);
+        text.push('…');
+    }
+}
 
 /// What the UI draws for the current banner.
 #[derive(Debug, Clone, PartialEq)]
@@ -359,7 +370,9 @@ impl Center {
 
     /// Show (or, with do not disturb, only list) a notification; play its
     /// sound if it gets a banner. Closes the oldest beyond the list's limit.
-    fn post(&self, notification: Notification, sound: Option<Sound>) -> u32 {
+    fn post(&self, mut notification: Notification, sound: Option<Sound>) -> u32 {
+        clip(&mut notification.summary, MAX_SUMMARY);
+        clip(&mut notification.body, MAX_BODY);
         // The app's own settings (none for the shell's own).
         let app = match &notification.origin {
             Origin::Gtk { app_id, .. } => Some(app_id.clone()),
@@ -1012,6 +1025,16 @@ pub fn spawn_ticker(center: Center, conn: Connection) -> tokio::task::JoinHandle
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_text_is_clipped() {
+        let mut short = "Hello".to_owned();
+        clip(&mut short, 5);
+        assert_eq!(short, "Hello");
+        let mut long = "ééééé".repeat(3);
+        clip(&mut long, 4);
+        assert_eq!(long, "éééé…");
+    }
 
     #[test]
     fn purposes() {

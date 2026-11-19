@@ -233,7 +233,11 @@ pub async fn player(conn: &Connection) -> Option<Player> {
         .unwrap_or_default();
     let identity = root.get_property::<String>("Identity").await.unwrap_or_else(|_| name.trim_start_matches("org.mpris.MediaPlayer2.").to_owned());
     let playing = player.get_property::<String>("PlaybackStatus").await.is_ok_and(|s| s == "Playing");
-    let art_url = metadata.get("mpris:artUrl").and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default();
+    let mut art_url = metadata.get("mpris:artUrl").and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default();
+    // Web art is downloaded only for players that may use the network.
+    if !art_url.starts_with("file://") && !art_url.is_empty() && !crate::caller::may_use_network(conn, &name).await {
+        art_url.clear();
+    }
     let desktop_entry = root.get_property::<String>("DesktopEntry").await.unwrap_or_default();
     let length = metadata.get("mpris:length").and_then(micros);
     let position = player.get_property::<i64>("Position").await.ok().filter(|p| *p >= 0);

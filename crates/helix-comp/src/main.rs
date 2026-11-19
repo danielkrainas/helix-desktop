@@ -434,6 +434,10 @@ async fn announce_socket(conn: &zbus::Connection, socket: &str, xdisplay: Option
     let result = async {
         let sm = SessionManagerProxy::new(conn).await?;
         if let Some(n) = xdisplay {
+            // Xwayland's clients need its cookie.
+            if let Some(auth) = helix_comp::xauth::current() {
+                sm.setenv("XAUTHORITY", &auth.path.to_string_lossy()).await?;
+            }
             sm.setenv("DISPLAY", &format!(":{n}")).await?;
         }
         sm.setenv("WAYLAND_DISPLAY", socket).await

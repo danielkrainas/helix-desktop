@@ -33,7 +33,7 @@ fn x_err(e: impl std::fmt::Display) -> String {
 impl XSettings {
     /// Become the XSETTINGS manager of Xwayland `:display`.
     pub fn start(display: u32) -> Result<Self, String> {
-        let (conn, screen) = RustConnection::connect(Some(&format!(":{display}"))).map_err(x_err)?;
+        let (conn, screen) = helix_comp::xauth::connect(display)?;
         let root = conn.setup().roots[screen].root;
         let atom = |name: &str| -> Result<Atom, String> { Ok(conn.intern_atom(false, name.as_bytes()).map_err(x_err)?.reply().map_err(x_err)?.atom) };
         let selection = atom(&format!("_XSETTINGS_S{screen}"))?;

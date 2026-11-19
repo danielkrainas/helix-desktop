@@ -82,17 +82,42 @@ pub fn available() -> bool {
 }
 
 const LAUNCHER: &str = "helix-extension-sandbox";
+/// The bubblewrap `helix-extension-sandbox` runs (never one from PATH).
+pub const SYSTEM_BWRAP: &str = "/usr/bin/bwrap";
 
 /// What starts bubblewrap: `helix-extension-sandbox` (installed in
 /// `../libexec/helix/` from the shell, or beside it), which AppArmor may
-/// allow user namespaces; else `bwrap` itself.
+/// allow user namespaces; else `bwrap` itself. The helper needs a
+/// bubblewrap that can turn user namespaces off (0.8).
 pub fn launcher() -> PathBuf {
     let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
     exe_dir
         .into_iter()
         .flat_map(|d| [d.join("../libexec/helix").join(LAUNCHER), d.join(LAUNCHER)])
-        .find(|p| p.is_file())
+        .find(|p| p.is_file() && can_disable_userns())
         .unwrap_or_else(|| PathBuf::from("bwrap"))
+}
+
+/// Options `helix-extension-sandbox` refuses: they would give the
+/// sandboxed program capabilities or namespaces of its own, or read more
+/// options from elsewhere.
+const REFUSED: &[&str] = &["--cap-add", "--userns", "--userns2", "--pidns", "--args", "--unshare-user-try", "--share-user"];
+
+/// The bubblewrap command line `helix-extension-sandbox ARGS…` runs:
+/// always in a user namespace of its own without further ones
+/// (`--unshare-user --disable-userns`), and only with ARGS that end their
+/// options with `--` and use none of [`REFUSED`] before it. Anyone can run
+/// the helper, and AppArmor lets what it starts use user namespaces.
+pub fn launcher_command(args: &[std::ffi::OsString]) -> Result<Vec<std::ffi::OsString>, String> {
+    // The options end at the last `--` at the latest: a `--` that is an
+    // option's value can't hide what follows it.
+    let end = args.iter().rposition(|a| a == "--").ok_or("the command must follow --")?;
+    if let Some(bad) = args[..end].iter().find(|a| REFUSED.iter().any(|r| a.as_os_str() == *r)) {
+        return Err(format!("{} is not allowed", bad.to_string_lossy()));
+    }
+    let mut out: Vec<std::ffi::OsString> = ["--unshare-user", "--disable-userns", "--die-with-parent"].iter().map(Into::into).collect();
+    out.extend(args.iter().cloned());
+    Ok(out)
 }
 
 /// Whether this bubblewrap can turn off user namespaces inside the
@@ -283,6 +308,21 @@ mod tests {
         assert!(version_at_least("bubblewrap 1.0", (0, 8)));
         assert!(!version_at_least("bubblewrap 0.6.2", (0, 8)));
         assert!(!version_at_least("", (0, 8)));
+    }
+
+    #[test]
+    fn launcher_commands() {
+        let os = |a: &[&str]| a.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        let ok = launcher_command(&os(&["--ro-bind", "/usr", "/usr", "--", "/bin/true", "--cap-add"])).unwrap();
+        assert_eq!(ok[..3], os(&["--unshare-user", "--disable-userns", "--die-with-parent"])[..]);
+        assert_eq!(ok[3..], os(&["--ro-bind", "/usr", "/usr", "--", "/bin/true", "--cap-add"])[..], "the program's own arguments are its business");
+        assert!(launcher_command(&os(&["--ro-bind", "/", "/", "sh"])).is_err(), "no --");
+        assert!(launcher_command(&os(&["--cap-add", "ALL", "--", "sh"])).is_err());
+        assert!(launcher_command(&os(&["--args", "3", "--", "sh"])).is_err());
+        assert!(launcher_command(&os(&["--userns", "3", "--", "sh"])).is_err());
+        // A `--` given as a value does not end the options.
+        assert!(launcher_command(&os(&["--chdir", "--", "--cap-add", "ALL", "--", "sh"])).is_err());
+        assert!(launcher_command(&os(&["--chdir", "--", "--cap-add", "ALL", "--", "sh", "--"])).is_err());
         let ubuntu = "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\n";
         assert!(explain(ubuntu, true).contains("restricts user namespaces (AppArmor)"));
         assert!(!explain(ubuntu, false).contains("AppArmor"));

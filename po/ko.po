@@ -107,7 +107,7 @@ msgstr "이 컴퓨터의 전원을 끌까요?"
 #: crates/helix-greeter/src/atspi.rs:101 crates/helix-greeter/src/paint.rs:507
 #: crates/helix-portals/src/dialogs.rs:181
 #: crates/helix-portals/src/dynamic_launcher.rs:146
-#: crates/helix-portals/src/print.rs:146
+#: crates/helix-portals/src/print.rs:156
 #: crates/helix-portals/src/wallpaper.rs:118
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
@@ -118,7 +118,7 @@ msgstr "이 컴퓨터의 전원을 끌까요?"
 #: crates/helix-shell/src/mount_handler.rs:174
 #: crates/helix-shell/src/network_agent.rs:206
 #: crates/helix-shell/src/network_agent.rs:441
-#: crates/helix-shell/src/notifications.rs:518
+#: crates/helix-shell/src/notifications.rs:529
 #: crates/helix-shell/src/obex.rs:500 crates/helix-shell/src/obex.rs:548
 #: crates/helix-shell/src/polkit.rs:231 crates/helix-shell/src/polkit.rs:314
 #: crates/helix-shell/src/portal_dialog.rs:122
@@ -334,8 +334,8 @@ msgstr "선택"
 
 #: crates/helix-portals/src/file_chooser.rs:202
 #: crates/helix-shell/src/file_chooser.rs:90
-#: crates/helix-shell/src/notifications.rs:233
-#: crates/helix-shell/src/notifications.rs:348
+#: crates/helix-shell/src/notifications.rs:244
+#: crates/helix-shell/src/notifications.rs:359
 #: crates/helix-shell/src/portal_dialog.rs:121
 #: crates/helix-shell/src/ui/dock.rs:1474
 #: crates/helix-shell/src/ui/dock.rs:1489
@@ -395,24 +395,24 @@ msgstr "입력 캡처를 허용할까요?"
 msgid "Print to File"
 msgstr "파일로 인쇄"
 
-#: crates/helix-portals/src/print.rs:138 crates/helix-portals/src/print.rs:193
-#: crates/helix-portals/src/print.rs:249
+#: crates/helix-portals/src/print.rs:148 crates/helix-portals/src/print.rs:203
+#: crates/helix-portals/src/print.rs:259
 msgid "Print"
 msgstr "인쇄"
 
-#: crates/helix-portals/src/print.rs:139
+#: crates/helix-portals/src/print.rs:149
 msgid "Choose a printer."
 msgstr "프린터를 선택하십시오."
 
-#: crates/helix-portals/src/print.rs:139
+#: crates/helix-portals/src/print.rs:149
 msgid "Print “{title}” on:"
 msgstr "“{title}” 인쇄할 프린터:"
 
-#: crates/helix-portals/src/print.rs:142
+#: crates/helix-portals/src/print.rs:152
 msgid "Copies"
 msgstr "매수"
 
-#: crates/helix-portals/src/print.rs:152
+#: crates/helix-portals/src/print.rs:162
 msgid "The number of copies must be 1 to 999."
 msgstr "매수는 1에서 999 사이여야 합니다."
 
@@ -603,6 +603,18 @@ msgid "{n} more"
 msgid_plural "{n} more"
 msgstr[0] "{n}개 더"
 
+#: crates/helix-shell/src/ext_host/approval.rs:46
+msgid "It is not sandboxed: it can do anything you can."
+msgstr ""
+"샌드박스에 격리되어 있지 않습니다. 사용자가 할 수 있는 모든 일을 할 수 있습니"
+"다."
+
+#: crates/helix-shell/src/ext_host/approval.rs:48
+msgid "Its permissions let it out of its sandbox: it can do anything you can."
+msgstr ""
+"권한 때문에 샌드박스 밖으로 나갈 수 있습니다. 사용자가 할 수 있는 모든 일을 "
+"할 수 있습니다."
+
 #: crates/helix-shell/src/ext_host/manifest.rs:12
 msgid "show notifications"
 msgstr "알림 표시"
@@ -624,8 +636,9 @@ msgid "use the network"
 msgstr "네트워크 사용"
 
 #: crates/helix-shell/src/ext_host/manifest.rs:19
-msgid "read and change all your files"
-msgstr "모든 파일 읽기 및 변경"
+msgid "read and change all your files, which lets it do anything you can"
+msgstr ""
+"모든 파일 읽기 및 변경(이를 통해 사용자가 할 수 있는 모든 일을 할 수 있음)"
 
 #: crates/helix-shell/src/ext_host/manifest.rs:20
 msgid "read and change your Documents"
@@ -652,8 +665,9 @@ msgid "read and change your Desktop"
 msgstr "바탕 화면 폴더 읽기 및 변경"
 
 #: crates/helix-shell/src/ext_host/manifest.rs:26
-msgid "talk to your other programs"
-msgstr "다른 프로그램과 통신"
+msgid "talk to all your other programs, which lets it do anything you can"
+msgstr ""
+"다른 모든 프로그램과 통신(이를 통해 사용자가 할 수 있는 모든 일을 할 수 있음)"
 
 #: crates/helix-shell/src/ext_host/manifest.rs:27
 msgid "talk to system services"
@@ -795,7 +809,7 @@ msgid "Yesterday, {time}"
 msgstr "어제 {time}"
 
 #: crates/helix-shell/src/file_chooser.rs:343
-#: crates/helix-shell/src/notifications.rs:98
+#: crates/helix-shell/src/notifications.rs:109
 msgid "Yesterday"
 msgstr "어제"
 
@@ -950,7 +964,7 @@ msgid "Do not unplug until finished."
 msgstr "끝날 때까지 분리하지 마십시오."
 
 #: crates/helix-shell/src/media.rs:378
-#: crates/helix-shell/src/notifications.rs:261
+#: crates/helix-shell/src/notifications.rs:272
 msgid "Removable Media"
 msgstr "이동식 미디어"
 
@@ -1119,144 +1133,144 @@ msgstr "개인 키"
 msgid "This key is not valid."
 msgstr "올바른 키가 아닙니다."
 
-#: crates/helix-shell/src/notifications.rs:85
+#: crates/helix-shell/src/notifications.rs:96
 msgid "just now"
 msgstr "방금"
 
-#: crates/helix-shell/src/notifications.rs:85
+#: crates/helix-shell/src/notifications.rs:96
 msgid "now"
 msgstr "지금"
 
 #. Translators: how long ago a notification came, for a screen reader.
-#: crates/helix-shell/src/notifications.rs:90
+#: crates/helix-shell/src/notifications.rs:101
 msgid "{m} min"
 msgstr "{m}분"
 
 #. Translators: how long ago a notification came, for a screen reader.
-#: crates/helix-shell/src/notifications.rs:90
+#: crates/helix-shell/src/notifications.rs:101
 msgid "{n} minute ago"
 msgid_plural "{n} minutes ago"
 msgstr[0] "{n}분 전"
 
 #. Translators: "h" is short for hours; how long ago a notification came.
-#: crates/helix-shell/src/notifications.rs:95
+#: crates/helix-shell/src/notifications.rs:106
 msgid "{h} h"
 msgstr "{h}시간"
 
 #. Translators: "h" is short for hours; how long ago a notification came.
-#: crates/helix-shell/src/notifications.rs:95
+#: crates/helix-shell/src/notifications.rs:106
 msgid "{n} hour ago"
 msgid_plural "{n} hours ago"
 msgstr[0] "{n}시간 전"
 
-#: crates/helix-shell/src/notifications.rs:104
+#: crates/helix-shell/src/notifications.rs:115
 msgid "%A"
 msgstr "%A"
 
-#: crates/helix-shell/src/notifications.rs:106
+#: crates/helix-shell/src/notifications.rs:117
 msgid "%-d %B"
 msgstr "%-m월 %-d일"
 
-#: crates/helix-shell/src/notifications.rs:106
+#: crates/helix-shell/src/notifications.rs:117
 msgid "%-d %b"
 msgstr "%-m월 %-d일"
 
-#: crates/helix-shell/src/notifications.rs:108
+#: crates/helix-shell/src/notifications.rs:119
 msgid "%-d %B %Y"
 msgstr "%Y년 %-m월 %-d일"
 
-#: crates/helix-shell/src/notifications.rs:110
+#: crates/helix-shell/src/notifications.rs:121
 msgid "%-d %b %Y"
 msgstr "%Y년 %-m월 %-d일"
 
-#: crates/helix-shell/src/notifications.rs:230
+#: crates/helix-shell/src/notifications.rs:241
 #: crates/helix-shell/src/ui/atspi.rs:481
 #: crates/helix-shell/src/ui/capture.rs:388
 #: crates/helix-shell/src/ui/capture.rs:461
 msgid "Screenshot"
 msgstr "스크린샷"
 
-#: crates/helix-shell/src/notifications.rs:231
+#: crates/helix-shell/src/notifications.rs:242
 msgid "Screenshot captured"
 msgstr "스크린샷을 찍었습니다"
 
-#: crates/helix-shell/src/notifications.rs:232
+#: crates/helix-shell/src/notifications.rs:243
 msgid "You can paste the image from the clipboard."
 msgstr "클립보드에서 이미지를 붙여넣을 수 있습니다."
 
-#: crates/helix-shell/src/notifications.rs:233
-#: crates/helix-shell/src/notifications.rs:348
+#: crates/helix-shell/src/notifications.rs:244
+#: crates/helix-shell/src/notifications.rs:359
 msgid "Show in Files"
 msgstr "파일에서 보기"
 
-#: crates/helix-shell/src/notifications.rs:258
+#: crates/helix-shell/src/notifications.rs:269
 #: crates/helix-shell/src/ui/dock.rs:1476
 msgid "Eject"
 msgstr "꺼내기"
 
-#: crates/helix-shell/src/notifications.rs:258
+#: crates/helix-shell/src/notifications.rs:269
 msgid "Open with Files"
 msgstr "파일로 열기"
 
-#: crates/helix-shell/src/notifications.rs:279
+#: crates/helix-shell/src/notifications.rs:290
 #: crates/helix-shell/src/panel_layout.rs:55
 msgid "Power"
 msgstr "전원"
 
-#: crates/helix-shell/src/notifications.rs:323
+#: crates/helix-shell/src/notifications.rs:334
 msgid "{title} is ready"
 msgstr "{title} 준비 완료"
 
-#: crates/helix-shell/src/notifications.rs:345
+#: crates/helix-shell/src/notifications.rs:356
 msgid "Screencast"
 msgstr "스크린캐스트"
 
-#: crates/helix-shell/src/notifications.rs:346
+#: crates/helix-shell/src/notifications.rs:357
 msgid "Screencast recorded"
 msgstr "스크린캐스트를 녹화했습니다"
 
-#: crates/helix-shell/src/notifications.rs:347
+#: crates/helix-shell/src/notifications.rs:358
 msgid "Saved as {name}."
 msgstr "{name}(으)로 저장했습니다."
 
-#: crates/helix-shell/src/notifications.rs:513
+#: crates/helix-shell/src/notifications.rs:524
 msgid "Reply to {}"
 msgstr "{}에게 답장"
 
-#: crates/helix-shell/src/notifications.rs:516
-#: crates/helix-shell/src/notifications.rs:813
+#: crates/helix-shell/src/notifications.rs:527
+#: crates/helix-shell/src/notifications.rs:824
 msgid "Reply"
 msgstr "답장"
 
-#: crates/helix-shell/src/notifications.rs:517
+#: crates/helix-shell/src/notifications.rs:528
 #: crates/helix-shell/src/obex.rs:517 crates/helix-shell/src/obex.rs:547
 msgid "Send"
 msgstr "보내기"
 
-#: crates/helix-shell/src/notifications.rs:669
+#: crates/helix-shell/src/notifications.rs:680
 #: crates/helix-shell/src/ui/desktop_icons.rs:191
 msgid "Application"
 msgstr "프로그램"
 
-#: crates/helix-shell/src/notifications.rs:814
+#: crates/helix-shell/src/notifications.rs:825
 #: crates/helix-shell/src/obex.rs:458
 msgid "Accept"
 msgstr "수락"
 
-#: crates/helix-shell/src/notifications.rs:815
+#: crates/helix-shell/src/notifications.rs:826
 #: crates/helix-shell/src/obex.rs:459
 msgid "Decline"
 msgstr "거절"
 
-#: crates/helix-shell/src/notifications.rs:816
+#: crates/helix-shell/src/notifications.rs:827
 msgid "Hang Up"
 msgstr "끊기"
 
-#: crates/helix-shell/src/notifications.rs:817
+#: crates/helix-shell/src/notifications.rs:828
 msgid "Speaker On"
 msgstr "스피커 켜짐"
 
-#: crates/helix-shell/src/notifications.rs:818
+#: crates/helix-shell/src/notifications.rs:829
 msgid "Speaker Off"
 msgstr "스피커 꺼짐"
 

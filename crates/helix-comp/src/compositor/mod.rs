@@ -293,7 +293,9 @@ impl Helix {
             socket_name,
             compositor_state: CompositorState::new::<Self>(&dh),
             xdg_shell_state: XdgShellState::new::<Self>(&dh),
-            layer_shell_state: WlrLayerShellState::new::<Self>(&dh),
+            // Not for apps in a sandbox: an overlay surface could take the
+            // keyboard (and with it the clipboard) and draw over everything.
+            layer_shell_state: WlrLayerShellState::new_with_filter::<Self, _>(&dh, |client| !client.get_data::<ClientState>().is_some_and(|c| c.sandboxed)),
             shm_state: ShmState::new::<Self>(&dh, vec![]),
             output_manager_state: OutputManagerState::new_with_xdg_output::<Self>(&dh),
             data_device_state: DataDeviceState::new::<Self>(&dh),
@@ -576,6 +578,10 @@ impl Helix {
             Some(n) => cmd.env("DISPLAY", format!(":{n}")),
             None => cmd.env_remove("DISPLAY"),
         };
+        match helix_comp::xauth::current().filter(|_| self.xdisplay.is_some()) {
+            Some(auth) => cmd.env("XAUTHORITY", auth.path),
+            None => cmd.env_remove("XAUTHORITY"),
+        };
     }
 
     pub fn send(&self, event: Event) {
@@ -710,15 +716,22 @@ pub struct ClientState {
     /// has not read yet; closed when it disconnects (so the connection
     /// really ends however long this state is kept).
     pub socket: std::sync::Mutex<Option<std::os::fd::OwnedFd>>,
+    /// It runs in an app sandbox (Flatpak, snap), as its process shows.
+    pub sandboxed: bool,
 }
 
 impl ClientState {
     /// A client that connected on `stream`: who it is.
     fn connected(stream: &std::os::unix::net::UnixStream) -> Self {
         use std::os::fd::AsFd;
-        let state = Self::default();
-        if let Some(pid) = helix_comp::client_socket::peer_pid(stream.as_fd()) {
-            let _ = state.identity.set((pid, helix_comp::client_socket::command_of(pid)));
+        let mut state = Self::default();
+        match helix_comp::client_socket::peer_pid(stream.as_fd()) {
+            Some(pid) => {
+                let _ = state.identity.set((pid, helix_comp::client_socket::command_of(pid)));
+                state.sandboxed = helix_comp::client_socket::sandboxed(pid);
+            }
+            // Who it is can't be told: as sandboxed.
+            None => state.sandboxed = true,
         }
         state
     }

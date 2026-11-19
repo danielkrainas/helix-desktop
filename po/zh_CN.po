@@ -107,7 +107,7 @@ msgstr "要关闭此计算机吗？"
 #: crates/helix-greeter/src/atspi.rs:101 crates/helix-greeter/src/paint.rs:507
 #: crates/helix-portals/src/dialogs.rs:181
 #: crates/helix-portals/src/dynamic_launcher.rs:146
-#: crates/helix-portals/src/print.rs:146
+#: crates/helix-portals/src/print.rs:156
 #: crates/helix-portals/src/wallpaper.rs:118
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
@@ -118,7 +118,7 @@ msgstr "要关闭此计算机吗？"
 #: crates/helix-shell/src/mount_handler.rs:174
 #: crates/helix-shell/src/network_agent.rs:206
 #: crates/helix-shell/src/network_agent.rs:441
-#: crates/helix-shell/src/notifications.rs:518
+#: crates/helix-shell/src/notifications.rs:529
 #: crates/helix-shell/src/obex.rs:500 crates/helix-shell/src/obex.rs:548
 #: crates/helix-shell/src/polkit.rs:231 crates/helix-shell/src/polkit.rs:314
 #: crates/helix-shell/src/portal_dialog.rs:122
@@ -334,8 +334,8 @@ msgstr "选择"
 
 #: crates/helix-portals/src/file_chooser.rs:202
 #: crates/helix-shell/src/file_chooser.rs:90
-#: crates/helix-shell/src/notifications.rs:233
-#: crates/helix-shell/src/notifications.rs:348
+#: crates/helix-shell/src/notifications.rs:244
+#: crates/helix-shell/src/notifications.rs:359
 #: crates/helix-shell/src/portal_dialog.rs:121
 #: crates/helix-shell/src/ui/dock.rs:1474
 #: crates/helix-shell/src/ui/dock.rs:1489
@@ -393,24 +393,24 @@ msgstr "要允许输入捕获吗？"
 msgid "Print to File"
 msgstr "打印到文件"
 
-#: crates/helix-portals/src/print.rs:138 crates/helix-portals/src/print.rs:193
-#: crates/helix-portals/src/print.rs:249
+#: crates/helix-portals/src/print.rs:148 crates/helix-portals/src/print.rs:203
+#: crates/helix-portals/src/print.rs:259
 msgid "Print"
 msgstr "打印"
 
-#: crates/helix-portals/src/print.rs:139
+#: crates/helix-portals/src/print.rs:149
 msgid "Choose a printer."
 msgstr "选择打印机。"
 
-#: crates/helix-portals/src/print.rs:139
+#: crates/helix-portals/src/print.rs:149
 msgid "Print “{title}” on:"
 msgstr "将“{title}”打印到："
 
-#: crates/helix-portals/src/print.rs:142
+#: crates/helix-portals/src/print.rs:152
 msgid "Copies"
 msgstr "份数"
 
-#: crates/helix-portals/src/print.rs:152
+#: crates/helix-portals/src/print.rs:162
 msgid "The number of copies must be 1 to 999."
 msgstr "份数必须介于 1 到 999 之间。"
 
@@ -601,6 +601,14 @@ msgid "{n} more"
 msgid_plural "{n} more"
 msgstr[0] "另外 {n} 个"
 
+#: crates/helix-shell/src/ext_host/approval.rs:46
+msgid "It is not sandboxed: it can do anything you can."
+msgstr "它未在沙盒中运行：它可以做您能做的任何事。"
+
+#: crates/helix-shell/src/ext_host/approval.rs:48
+msgid "Its permissions let it out of its sandbox: it can do anything you can."
+msgstr "它的权限使其可以离开沙盒：它可以做您能做的任何事。"
+
 #: crates/helix-shell/src/ext_host/manifest.rs:12
 msgid "show notifications"
 msgstr "显示通知"
@@ -622,8 +630,8 @@ msgid "use the network"
 msgstr "使用网络"
 
 #: crates/helix-shell/src/ext_host/manifest.rs:19
-msgid "read and change all your files"
-msgstr "读取和更改您的所有文件"
+msgid "read and change all your files, which lets it do anything you can"
+msgstr "读取和更改您的所有文件，这使其可以做您能做的任何事"
 
 #: crates/helix-shell/src/ext_host/manifest.rs:20
 msgid "read and change your Documents"
@@ -650,8 +658,8 @@ msgid "read and change your Desktop"
 msgstr "读取和更改您的“桌面”"
 
 #: crates/helix-shell/src/ext_host/manifest.rs:26
-msgid "talk to your other programs"
-msgstr "与您的其他程序通信"
+msgid "talk to all your other programs, which lets it do anything you can"
+msgstr "与您的所有其他程序通信，这使其可以做您能做的任何事"
 
 #: crates/helix-shell/src/ext_host/manifest.rs:27
 msgid "talk to system services"
@@ -793,7 +801,7 @@ msgid "Yesterday, {time}"
 msgstr "昨天 {time}"
 
 #: crates/helix-shell/src/file_chooser.rs:343
-#: crates/helix-shell/src/notifications.rs:98
+#: crates/helix-shell/src/notifications.rs:109
 msgid "Yesterday"
 msgstr "昨天"
 
@@ -948,7 +956,7 @@ msgid "Do not unplug until finished."
 msgstr "完成前请勿拔出。"
 
 #: crates/helix-shell/src/media.rs:378
-#: crates/helix-shell/src/notifications.rs:261
+#: crates/helix-shell/src/notifications.rs:272
 msgid "Removable Media"
 msgstr "可移动介质"
 
@@ -1117,144 +1125,144 @@ msgstr "私钥"
 msgid "This key is not valid."
 msgstr "此密钥无效。"
 
-#: crates/helix-shell/src/notifications.rs:85
+#: crates/helix-shell/src/notifications.rs:96
 msgid "just now"
 msgstr "刚刚"
 
-#: crates/helix-shell/src/notifications.rs:85
+#: crates/helix-shell/src/notifications.rs:96
 msgid "now"
 msgstr "现在"
 
 #. Translators: how long ago a notification came, for a screen reader.
-#: crates/helix-shell/src/notifications.rs:90
+#: crates/helix-shell/src/notifications.rs:101
 msgid "{m} min"
 msgstr "{m} 分钟"
 
 #. Translators: how long ago a notification came, for a screen reader.
-#: crates/helix-shell/src/notifications.rs:90
+#: crates/helix-shell/src/notifications.rs:101
 msgid "{n} minute ago"
 msgid_plural "{n} minutes ago"
 msgstr[0] "{n} 分钟前"
 
 #. Translators: "h" is short for hours; how long ago a notification came.
-#: crates/helix-shell/src/notifications.rs:95
+#: crates/helix-shell/src/notifications.rs:106
 msgid "{h} h"
 msgstr "{h} 小时"
 
 #. Translators: "h" is short for hours; how long ago a notification came.
-#: crates/helix-shell/src/notifications.rs:95
+#: crates/helix-shell/src/notifications.rs:106
 msgid "{n} hour ago"
 msgid_plural "{n} hours ago"
 msgstr[0] "{n} 小时前"
 
-#: crates/helix-shell/src/notifications.rs:104
+#: crates/helix-shell/src/notifications.rs:115
 msgid "%A"
 msgstr "%A"
 
-#: crates/helix-shell/src/notifications.rs:106
+#: crates/helix-shell/src/notifications.rs:117
 msgid "%-d %B"
 msgstr "%-m月%-d日"
 
-#: crates/helix-shell/src/notifications.rs:106
+#: crates/helix-shell/src/notifications.rs:117
 msgid "%-d %b"
 msgstr "%-m月%-d日"
 
-#: crates/helix-shell/src/notifications.rs:108
+#: crates/helix-shell/src/notifications.rs:119
 msgid "%-d %B %Y"
 msgstr "%Y年%-m月%-d日"
 
-#: crates/helix-shell/src/notifications.rs:110
+#: crates/helix-shell/src/notifications.rs:121
 msgid "%-d %b %Y"
 msgstr "%Y年%-m月%-d日"
 
-#: crates/helix-shell/src/notifications.rs:230
+#: crates/helix-shell/src/notifications.rs:241
 #: crates/helix-shell/src/ui/atspi.rs:481
 #: crates/helix-shell/src/ui/capture.rs:388
 #: crates/helix-shell/src/ui/capture.rs:461
 msgid "Screenshot"
 msgstr "截图"
 
-#: crates/helix-shell/src/notifications.rs:231
+#: crates/helix-shell/src/notifications.rs:242
 msgid "Screenshot captured"
 msgstr "已截图"
 
-#: crates/helix-shell/src/notifications.rs:232
+#: crates/helix-shell/src/notifications.rs:243
 msgid "You can paste the image from the clipboard."
 msgstr "您可以从剪贴板粘贴该图像。"
 
-#: crates/helix-shell/src/notifications.rs:233
-#: crates/helix-shell/src/notifications.rs:348
+#: crates/helix-shell/src/notifications.rs:244
+#: crates/helix-shell/src/notifications.rs:359
 msgid "Show in Files"
 msgstr "在“文件”中显示"
 
-#: crates/helix-shell/src/notifications.rs:258
+#: crates/helix-shell/src/notifications.rs:269
 #: crates/helix-shell/src/ui/dock.rs:1476
 msgid "Eject"
 msgstr "弹出"
 
-#: crates/helix-shell/src/notifications.rs:258
+#: crates/helix-shell/src/notifications.rs:269
 msgid "Open with Files"
 msgstr "用“文件”打开"
 
-#: crates/helix-shell/src/notifications.rs:279
+#: crates/helix-shell/src/notifications.rs:290
 #: crates/helix-shell/src/panel_layout.rs:55
 msgid "Power"
 msgstr "电源"
 
-#: crates/helix-shell/src/notifications.rs:323
+#: crates/helix-shell/src/notifications.rs:334
 msgid "{title} is ready"
 msgstr "{title} 已就绪"
 
-#: crates/helix-shell/src/notifications.rs:345
+#: crates/helix-shell/src/notifications.rs:356
 msgid "Screencast"
 msgstr "屏幕录像"
 
-#: crates/helix-shell/src/notifications.rs:346
+#: crates/helix-shell/src/notifications.rs:357
 msgid "Screencast recorded"
 msgstr "已录制屏幕"
 
-#: crates/helix-shell/src/notifications.rs:347
+#: crates/helix-shell/src/notifications.rs:358
 msgid "Saved as {name}."
 msgstr "已保存为 {name}。"
 
-#: crates/helix-shell/src/notifications.rs:513
+#: crates/helix-shell/src/notifications.rs:524
 msgid "Reply to {}"
 msgstr "回复 {}"
 
-#: crates/helix-shell/src/notifications.rs:516
-#: crates/helix-shell/src/notifications.rs:813
+#: crates/helix-shell/src/notifications.rs:527
+#: crates/helix-shell/src/notifications.rs:824
 msgid "Reply"
 msgstr "回复"
 
-#: crates/helix-shell/src/notifications.rs:517
+#: crates/helix-shell/src/notifications.rs:528
 #: crates/helix-shell/src/obex.rs:517 crates/helix-shell/src/obex.rs:547
 msgid "Send"
 msgstr "发送"
 
-#: crates/helix-shell/src/notifications.rs:669
+#: crates/helix-shell/src/notifications.rs:680
 #: crates/helix-shell/src/ui/desktop_icons.rs:191
 msgid "Application"
 msgstr "应用"
 
-#: crates/helix-shell/src/notifications.rs:814
+#: crates/helix-shell/src/notifications.rs:825
 #: crates/helix-shell/src/obex.rs:458
 msgid "Accept"
 msgstr "接听"
 
-#: crates/helix-shell/src/notifications.rs:815
+#: crates/helix-shell/src/notifications.rs:826
 #: crates/helix-shell/src/obex.rs:459
 msgid "Decline"
 msgstr "拒绝"
 
-#: crates/helix-shell/src/notifications.rs:816
+#: crates/helix-shell/src/notifications.rs:827
 msgid "Hang Up"
 msgstr "挂断"
 
-#: crates/helix-shell/src/notifications.rs:817
+#: crates/helix-shell/src/notifications.rs:828
 msgid "Speaker On"
 msgstr "打开扬声器"
 
-#: crates/helix-shell/src/notifications.rs:818
+#: crates/helix-shell/src/notifications.rs:829
 msgid "Speaker Off"
 msgstr "关闭扬声器"
 

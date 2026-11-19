@@ -35,6 +35,8 @@ pub struct HeadlessSession {
     /// command.
     pub wayland_display: PathBuf,
     pub x_display: String,
+    /// `XAUTHORITY` as the compositor gave it: X11 clients need its cookie.
+    pub x_authority: String,
 }
 
 /// What to start.
@@ -74,7 +76,7 @@ impl HeadlessSession {
         let input_path = home.join("run/input");
         let announce = home.join("announce.sh");
         let displays = home.join("displays");
-        std::fs::write(&announce, format!("#!/bin/sh\nprintf '%s\\n%s\\n' \"$WAYLAND_DISPLAY\" \"$DISPLAY\" > {}\n", displays.display())).unwrap();
+        std::fs::write(&announce, format!("#!/bin/sh\nprintf '%s\\n%s\\n%s\\n' \"$WAYLAND_DISPLAY\" \"$DISPLAY\" \"$XAUTHORITY\" > {}\n", displays.display())).unwrap();
         std::fs::set_permissions(&announce, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         let mut cmd = Command::new(options.comp);
         cmd.args(["--backend", "headless", "--command"]).arg(&announce);
@@ -112,12 +114,12 @@ impl HeadlessSession {
             .stderr(std::fs::File::create(home.join("session.log")).map(Stdio::from).unwrap_or(Stdio::null()));
         let comp = cmd.spawn().expect("start helix-comp");
         let deadline = Instant::now() + Duration::from_secs(30);
-        let (wayland, x) = loop {
+        let (wayland, x, xauth) = loop {
             let lines = std::fs::read_to_string(&displays).unwrap_or_default();
             let mut lines = lines.lines();
-            if let (Some(w), Some(x)) = (lines.next(), lines.next()) {
+            if let (Some(w), Some(x), Some(a)) = (lines.next(), lines.next(), lines.next()) {
                 if !w.is_empty() {
-                    break (w.to_owned(), x.to_owned());
+                    break (w.to_owned(), x.to_owned(), a.to_owned());
                 }
             }
             assert!(Instant::now() < deadline, "the headless compositor did not start (log: {})", home.join("session.log").display());
@@ -132,7 +134,7 @@ impl HeadlessSession {
         };
         stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let wayland_display = if Path::new(&wayland).is_absolute() { PathBuf::from(&wayland) } else { home.join("run").join(&wayland) };
-        Some(Self { comp, bus, home, input: BufReader::new(stream), wayland_display, x_display: x })
+        Some(Self { comp, bus, home, input: BufReader::new(stream), wayland_display, x_display: x, x_authority: xauth })
     }
 
     /// The session's private bus.

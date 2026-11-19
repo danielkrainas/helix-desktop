@@ -19,6 +19,7 @@ helix-draw.workspace = true
 tracing-subscriber.workspace = true
 gio.workspace = true
 serde.workspace = true
+libc.workspace = true
 
 [[bin]]
 name = "helix-portals"

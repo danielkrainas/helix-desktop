@@ -83,7 +83,7 @@ pub fn pick_icon(values: &[u32]) -> Option<X11Icon> {
 impl X11Ping {
     /// Connect to Xwayland `:display`; answers (their window) go to `answers`.
     pub fn start(display: u32, answers: Sender<X11Note>) -> Result<Self, String> {
-        let (conn, screen) = RustConnection::connect(Some(&format!(":{display}"))).map_err(|e| e.to_string())?;
+        let (conn, screen) = helix_comp::xauth::connect(display)?;
         let root = conn.setup().roots[screen].root;
         let atom = |name: &str| -> Result<Atom, String> {
             Ok(conn.intern_atom(false, name.as_bytes()).map_err(|e| e.to_string())?.reply().map_err(|e| e.to_string())?.atom)

@@ -108,7 +108,7 @@ msgstr ""
 #: crates/helix-greeter/src/atspi.rs:101 crates/helix-greeter/src/paint.rs:507
 #: crates/helix-portals/src/dialogs.rs:181
 #: crates/helix-portals/src/dynamic_launcher.rs:146
-#: crates/helix-portals/src/print.rs:146
+#: crates/helix-portals/src/print.rs:156
 #: crates/helix-portals/src/wallpaper.rs:118
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
@@ -119,7 +119,7 @@ msgstr ""
 #: crates/helix-shell/src/mount_handler.rs:174
 #: crates/helix-shell/src/network_agent.rs:206
 #: crates/helix-shell/src/network_agent.rs:441
-#: crates/helix-shell/src/notifications.rs:518
+#: crates/helix-shell/src/notifications.rs:529
 #: crates/helix-shell/src/obex.rs:500 crates/helix-shell/src/obex.rs:548
 #: crates/helix-shell/src/polkit.rs:231 crates/helix-shell/src/polkit.rs:314
 #: crates/helix-shell/src/portal_dialog.rs:122
@@ -335,8 +335,8 @@ msgstr ""
 
 #: crates/helix-portals/src/file_chooser.rs:202
 #: crates/helix-shell/src/file_chooser.rs:90
-#: crates/helix-shell/src/notifications.rs:233
-#: crates/helix-shell/src/notifications.rs:348
+#: crates/helix-shell/src/notifications.rs:244
+#: crates/helix-shell/src/notifications.rs:359
 #: crates/helix-shell/src/portal_dialog.rs:121
 #: crates/helix-shell/src/ui/dock.rs:1474
 #: crates/helix-shell/src/ui/dock.rs:1489
@@ -394,24 +394,24 @@ msgstr ""
 msgid "Print to File"
 msgstr ""
 
-#: crates/helix-portals/src/print.rs:138 crates/helix-portals/src/print.rs:193
-#: crates/helix-portals/src/print.rs:249
+#: crates/helix-portals/src/print.rs:148 crates/helix-portals/src/print.rs:203
+#: crates/helix-portals/src/print.rs:259
 msgid "Print"
 msgstr ""
 
-#: crates/helix-portals/src/print.rs:139
+#: crates/helix-portals/src/print.rs:149
 msgid "Choose a printer."
 msgstr ""
 
-#: crates/helix-portals/src/print.rs:139
+#: crates/helix-portals/src/print.rs:149
 msgid "Print “{title}” on:"
 msgstr ""
 
-#: crates/helix-portals/src/print.rs:142
+#: crates/helix-portals/src/print.rs:152
 msgid "Copies"
 msgstr ""
 
-#: crates/helix-portals/src/print.rs:152
+#: crates/helix-portals/src/print.rs:162
 msgid "The number of copies must be 1 to 999."
 msgstr ""
 
@@ -605,6 +605,14 @@ msgid_plural "{n} more"
 msgstr[0] ""
 msgstr[1] ""
 
+#: crates/helix-shell/src/ext_host/approval.rs:46
+msgid "It is not sandboxed: it can do anything you can."
+msgstr ""
+
+#: crates/helix-shell/src/ext_host/approval.rs:48
+msgid "Its permissions let it out of its sandbox: it can do anything you can."
+msgstr ""
+
 #: crates/helix-shell/src/ext_host/manifest.rs:12
 msgid "show notifications"
 msgstr ""
@@ -626,7 +634,7 @@ msgid "use the network"
 msgstr ""
 
 #: crates/helix-shell/src/ext_host/manifest.rs:19
-msgid "read and change all your files"
+msgid "read and change all your files, which lets it do anything you can"
 msgstr ""
 
 #: crates/helix-shell/src/ext_host/manifest.rs:20
@@ -654,7 +662,7 @@ msgid "read and change your Desktop"
 msgstr ""
 
 #: crates/helix-shell/src/ext_host/manifest.rs:26
-msgid "talk to your other programs"
+msgid "talk to all your other programs, which lets it do anything you can"
 msgstr ""
 
 #: crates/helix-shell/src/ext_host/manifest.rs:27
@@ -797,7 +805,7 @@ msgid "Yesterday, {time}"
 msgstr ""
 
 #: crates/helix-shell/src/file_chooser.rs:343
-#: crates/helix-shell/src/notifications.rs:98
+#: crates/helix-shell/src/notifications.rs:109
 msgid "Yesterday"
 msgstr ""
 
@@ -953,7 +961,7 @@ msgid "Do not unplug until finished."
 msgstr ""
 
 #: crates/helix-shell/src/media.rs:378
-#: crates/helix-shell/src/notifications.rs:261
+#: crates/helix-shell/src/notifications.rs:272
 msgid "Removable Media"
 msgstr ""
 
@@ -1122,146 +1130,146 @@ msgstr ""
 msgid "This key is not valid."
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:85
+#: crates/helix-shell/src/notifications.rs:96
 msgid "just now"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:85
+#: crates/helix-shell/src/notifications.rs:96
 msgid "now"
 msgstr ""
 
 #. Translators: how long ago a notification came, for a screen reader.
-#: crates/helix-shell/src/notifications.rs:90
+#: crates/helix-shell/src/notifications.rs:101
 msgid "{m} min"
 msgstr ""
 
 #. Translators: how long ago a notification came, for a screen reader.
-#: crates/helix-shell/src/notifications.rs:90
+#: crates/helix-shell/src/notifications.rs:101
 msgid "{n} minute ago"
 msgid_plural "{n} minutes ago"
 msgstr[0] ""
 msgstr[1] ""
 
 #. Translators: "h" is short for hours; how long ago a notification came.
-#: crates/helix-shell/src/notifications.rs:95
+#: crates/helix-shell/src/notifications.rs:106
 msgid "{h} h"
 msgstr ""
 
 #. Translators: "h" is short for hours; how long ago a notification came.
-#: crates/helix-shell/src/notifications.rs:95
+#: crates/helix-shell/src/notifications.rs:106
 msgid "{n} hour ago"
 msgid_plural "{n} hours ago"
 msgstr[0] ""
 msgstr[1] ""
 
-#: crates/helix-shell/src/notifications.rs:104
+#: crates/helix-shell/src/notifications.rs:115
 msgid "%A"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:106
+#: crates/helix-shell/src/notifications.rs:117
 msgid "%-d %B"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:106
+#: crates/helix-shell/src/notifications.rs:117
 msgid "%-d %b"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:108
+#: crates/helix-shell/src/notifications.rs:119
 msgid "%-d %B %Y"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:110
+#: crates/helix-shell/src/notifications.rs:121
 msgid "%-d %b %Y"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:230
+#: crates/helix-shell/src/notifications.rs:241
 #: crates/helix-shell/src/ui/atspi.rs:481
 #: crates/helix-shell/src/ui/capture.rs:388
 #: crates/helix-shell/src/ui/capture.rs:461
 msgid "Screenshot"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:231
+#: crates/helix-shell/src/notifications.rs:242
 msgid "Screenshot captured"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:232
+#: crates/helix-shell/src/notifications.rs:243
 msgid "You can paste the image from the clipboard."
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:233
-#: crates/helix-shell/src/notifications.rs:348
+#: crates/helix-shell/src/notifications.rs:244
+#: crates/helix-shell/src/notifications.rs:359
 msgid "Show in Files"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:258
+#: crates/helix-shell/src/notifications.rs:269
 #: crates/helix-shell/src/ui/dock.rs:1476
 msgid "Eject"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:258
+#: crates/helix-shell/src/notifications.rs:269
 msgid "Open with Files"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:279
+#: crates/helix-shell/src/notifications.rs:290
 #: crates/helix-shell/src/panel_layout.rs:55
 msgid "Power"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:323
+#: crates/helix-shell/src/notifications.rs:334
 msgid "{title} is ready"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:345
+#: crates/helix-shell/src/notifications.rs:356
 msgid "Screencast"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:346
+#: crates/helix-shell/src/notifications.rs:357
 msgid "Screencast recorded"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:347
+#: crates/helix-shell/src/notifications.rs:358
 msgid "Saved as {name}."
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:513
+#: crates/helix-shell/src/notifications.rs:524
 msgid "Reply to {}"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:516
-#: crates/helix-shell/src/notifications.rs:813
+#: crates/helix-shell/src/notifications.rs:527
+#: crates/helix-shell/src/notifications.rs:824
 msgid "Reply"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:517
+#: crates/helix-shell/src/notifications.rs:528
 #: crates/helix-shell/src/obex.rs:517 crates/helix-shell/src/obex.rs:547
 msgid "Send"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:669
+#: crates/helix-shell/src/notifications.rs:680
 #: crates/helix-shell/src/ui/desktop_icons.rs:191
 msgid "Application"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:814
+#: crates/helix-shell/src/notifications.rs:825
 #: crates/helix-shell/src/obex.rs:458
 msgid "Accept"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:815
+#: crates/helix-shell/src/notifications.rs:826
 #: crates/helix-shell/src/obex.rs:459
 msgid "Decline"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:816
+#: crates/helix-shell/src/notifications.rs:827
 msgid "Hang Up"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:817
+#: crates/helix-shell/src/notifications.rs:828
 msgid "Speaker On"
 msgstr ""
 
-#: crates/helix-shell/src/notifications.rs:818
+#: crates/helix-shell/src/notifications.rs:829
 msgid "Speaker Off"
 msgstr ""
 

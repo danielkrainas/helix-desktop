@@ -44,6 +44,7 @@ fn x_client(session: &HeadlessSession, program: &str, args: &[&str]) -> Option<C
         .env("PATH", "/usr/local/bin:/usr/bin:/bin")
         .env("HOME", session.home())
         .env("DISPLAY", &session.x_display)
+        .env("XAUTHORITY", &session.x_authority)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
