@@ -76,6 +76,57 @@ impl Options {
     }
 }
 
+/// Elements a caller's `pipeline` may use: encoders and the filters and
+/// parsers around them. Nothing that reads or writes files, or reaches
+/// anything beyond the frames.
+const PIPELINE_ELEMENTS: &[&str] = &[
+    "videoconvert", "videoscale", "videorate", "videoflip", "queue",
+    "vp8enc", "vp9enc", "x264enc", "x265enc", "openh264enc", "av1enc", "svtav1enc", "rav1enc", "theoraenc", "vaapih264enc", "vah264enc", "vah265enc", "vaav1enc", "nvh264enc", "nvh265enc",
+    "h264parse", "h265parse", "vp9parse", "av1parse",
+];
+
+/// A caller's `pipeline` split into `gst-launch` arguments, or `None` when
+/// it is more than a chain of [`PIPELINE_ELEMENTS`] with plain properties
+/// and raw-video caps: no other elements, names, branches, bins or quoting.
+pub fn pipeline_args(pipeline: &str) -> Option<Vec<String>> {
+    let plain_value = |v: &str| !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || "_+-:.".contains(c)) && !v.ends_with('.');
+    let property = |t: &str| {
+        t.split_once('=').is_some_and(|(k, v)| {
+            !k.is_empty() && k.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') && !matches!(k, "name" | "location") && plain_value(v)
+        })
+    };
+    let caps = |t: &str| {
+        let mut parts = t.split(',');
+        let field = |p: &str| {
+            p.split_once('=').is_some_and(|(k, v)| {
+                !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') && !v.is_empty() && v.chars().all(|c| c.is_ascii_alphanumeric() || "_+-:./()".contains(c))
+            })
+        };
+        parts.next() == Some("video/x-raw") && parts.all(field)
+    };
+    let tokens: Vec<&str> = pipeline.split_ascii_whitespace().collect();
+    // Element or caps, then properties (of an element), separated by `!`.
+    let mut expect_link_target = true;
+    let mut in_element = false;
+    for t in &tokens {
+        if expect_link_target {
+            if PIPELINE_ELEMENTS.contains(t) {
+                in_element = true;
+            } else if caps(t) {
+                in_element = false;
+            } else {
+                return None;
+            }
+            expect_link_target = false;
+        } else if *t == "!" {
+            expect_link_target = true;
+        } else if !(in_element && property(t)) {
+            return None;
+        }
+    }
+    (!tokens.is_empty() && !expect_link_target).then(|| tokens.iter().map(|t| t.to_string()).collect())
+}
+
 /// `file_template` with `%d` and `%t` replaced (`%%` is a `%`).
 pub fn expand(template: &str, date: &str, time: &str) -> String {
     let mut out = String::new();
@@ -139,9 +190,9 @@ pub fn gst_args(node: u32, options: &Options, file: &Path) -> Vec<String> {
         .collect();
     args.push(format!("video/x-raw,framerate={}/1", options.framerate));
     args.extend(["!", "videoconvert", "!", "queue", "!"].map(String::from));
-    match &options.pipeline {
+    match options.pipeline.as_deref().and_then(pipeline_args) {
         Some(pipeline) => {
-            args.push(pipeline.clone());
+            args.extend(pipeline);
             args.extend(["!", "queue", "!", "matroskamux"].map(String::from));
         }
         None => {
@@ -454,8 +505,11 @@ pub struct Screencast {
     pub recorder: Recorder,
 }
 
+/// Only Helix's portal backend may record through the bus (the shell
+/// records for itself without it), and not from a sandbox: unlike
+/// `Screenshot`, no app (`org.gnome.Screenshot`) may record silently.
 async fn check(conn: &Connection, header: &Header<'_>) -> fdo::Result<()> {
-    if crate::screenshot::allowed(conn, header).await {
+    if crate::caller::owns_any(conn, header, &[crate::caller::portal_name().as_str()]).await && !crate::caller::sandboxed(conn, header).await {
         Ok(())
     } else {
         Err(fdo::Error::AccessDenied("screen recording is restricted".into()))
@@ -463,14 +517,18 @@ async fn check(conn: &Connection, header: &Header<'_>) -> fdo::Result<()> {
 }
 
 impl Screencast {
-    async fn record(&self, conn: &Connection, target: Target, template: &str, options: &HashMap<String, OwnedValue>) -> (bool, String) {
-        match self.recorder.start(conn, target, template, &Options::from_dict(options)).await {
+    async fn record(&self, conn: &Connection, target: Target, template: &str, options: &HashMap<String, OwnedValue>) -> fdo::Result<(bool, String)> {
+        let options = Options::from_dict(options);
+        if options.pipeline.as_deref().is_some_and(|p| pipeline_args(p).is_none()) {
+            return Err(fdo::Error::InvalidArgs("pipeline may only chain encoder elements".into()));
+        }
+        Ok(match self.recorder.start(conn, target, template, &options).await {
             Ok(path) => (true, path.to_string_lossy().into_owned()),
             Err(err) => {
                 tracing::info!(err, "no recording");
                 (false, String::new())
             }
-        }
+        })
     }
 }
 
@@ -484,7 +542,7 @@ impl Screencast {
         #[zbus(connection)] conn: &Connection,
     ) -> fdo::Result<(bool, String)> {
         check(conn, &header).await?;
-        Ok(self.record(conn, Target::Screen, file_template, &options).await)
+        self.record(conn, Target::Screen, file_template, &options).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -500,7 +558,7 @@ impl Screencast {
         #[zbus(connection)] conn: &Connection,
     ) -> fdo::Result<(bool, String)> {
         check(conn, &header).await?;
-        Ok(self.record(conn, Target::Area(Rect::new(x, y, width, height)), file_template, &options).await)
+        self.record(conn, Target::Area(Rect::new(x, y, width, height)), file_template, &options).await
     }
 
     async fn stop_screencast(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<bool> {
@@ -553,5 +611,31 @@ mod tests {
         );
         let custom = Options { pipeline: Some("x264enc".into()), framerate: 10, ..Options::default() };
         assert!(gst_args(1, &custom, Path::new("/a.mkv")).join(" ").contains("framerate=10/1 ! videoconvert ! queue ! x264enc ! queue ! matroskamux ! filesink"));
+        // A pipeline of encoders, their properties and raw-video caps is
+        // passed on as separate arguments.
+        let ok = "videoscale ! video/x-raw,width=1280,height=(int)720 ! x264enc speed-preset=ultrafast bitrate=2000 ! h264parse";
+        assert_eq!(pipeline_args(ok).unwrap().len(), 9);
+        let custom = Options { pipeline: Some(ok.into()), ..Options::default() };
+        assert!(gst_args(1, &custom, Path::new("/a.mkv")).contains(&"speed-preset=ultrafast".to_owned()));
+        // Anything that could read or write files, branch or name elements
+        // is refused.
+        for bad in [
+            "",
+            "!",
+            "x264enc !",
+            "! x264enc",
+            "x264enc ! filesink location=/home/u/.bashrc",
+            "x264enc ! tee name=t t. ! queue ! filesink location=/tmp/x",
+            "filesrc location=/etc/passwd ! x264enc",
+            "x264enc name=t",
+            "x264enc bitrate=\"1 ! filesink\"",
+            "x264enc t.",
+            "( x264enc )",
+            "x264enc ! video/x-raw,format=\"I420\"",
+            "x264enc ! audio/x-raw",
+            "x264enc bitrate=",
+        ] {
+            assert_eq!(pipeline_args(bad), None, "{bad}");
+        }
     }
 }

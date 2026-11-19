@@ -9,6 +9,8 @@
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::path::Path;
 
+use zeroize::{Zeroize, Zeroizing};
+
 pub const SERVICE: &str = "helix";
 const SERVICE_FILES: [&str; 3] = ["/etc/pam.d/helix", "/usr/lib/pam.d/helix", "/usr/share/pam.d/helix"];
 
@@ -74,6 +76,78 @@ impl Drop for Secret {
             // SAFETY: plain byte write; volatile so it is not optimized away.
             unsafe { std::ptr::write_volatile(b, 0) };
         }
+    }
+}
+
+/// Room for this many bytes from the start, so typing a password does not
+/// reallocate (and leave copies behind) in all but extreme cases.
+const TYPED_CAPACITY: usize = 256;
+
+/// The password being typed into the lock screen: one buffer, wiped when
+/// characters are erased, when cleared and when dropped, and grown only by
+/// copying into a new buffer and wiping the old one.
+pub struct SecretText(Zeroizing<String>);
+
+impl Default for SecretText {
+    fn default() -> Self {
+        Self(Zeroizing::new(String::with_capacity(TYPED_CAPACITY)))
+    }
+}
+
+impl SecretText {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The number of characters typed (one dot each).
+    pub fn chars(&self) -> usize {
+        self.0.chars().count()
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn push(&mut self, c: char) {
+        self.push_str(c.encode_utf8(&mut [0; 4]));
+    }
+
+    pub fn push_str(&mut self, s: &str) {
+        let needed = self.0.len() + s.len();
+        if needed > self.0.capacity() {
+            let mut bigger = Zeroizing::new(String::with_capacity(needed.next_power_of_two()));
+            bigger.push_str(&self.0);
+            // The old buffer is wiped as it is dropped.
+            self.0 = bigger;
+        }
+        self.0.push_str(s);
+    }
+
+    /// Replace the text (an assistive technology or a paste set it).
+    pub fn set(&mut self, s: &str) {
+        self.clear();
+        self.push_str(s);
+    }
+
+    /// Erase the last character, wiping its bytes.
+    pub fn pop(&mut self) {
+        let Some((start, _)) = self.0.char_indices().next_back() else { return };
+        // SAFETY: zero bytes are valid UTF-8, and they are cut off at once.
+        unsafe { self.0.as_mut_vec()[start..].zeroize() };
+        self.0.truncate(start);
+    }
+
+    /// Wipe and empty (keeping the buffer).
+    pub fn clear(&mut self) {
+        self.0.zeroize();
+    }
+
+    /// Hand the password over for checking, leaving this empty.
+    pub fn take(&mut self) -> Secret {
+        // `to_vec` allocates exactly once: no copies are left behind.
+        let secret = Secret(self.0.as_bytes().to_vec());
+        self.clear();
+        secret
     }
 }
 
@@ -265,6 +339,32 @@ unsafe fn free_replies(replies: *mut PamResponse, count: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_password_stays_in_one_wiped_buffer() {
+        let mut t = SecretText::default();
+        let start = t.0.as_ptr();
+        for _ in 0..TYPED_CAPACITY / 2 {
+            t.push('é');
+        }
+        assert_eq!(t.0.as_ptr(), start, "no reallocation within the reserved room");
+        t.pop();
+        assert_eq!(t.chars(), TYPED_CAPACITY / 2 - 1);
+        // SAFETY: bytes within the capacity, written before.
+        let tail = unsafe { std::slice::from_raw_parts(start.add(t.0.len()), 2) };
+        assert_eq!(tail, [0, 0], "erased characters are wiped");
+        let secret = t.take();
+        assert_eq!(secret.bytes(), "é".repeat(TYPED_CAPACITY / 2 - 1).as_bytes());
+        assert!(t.is_empty());
+        // SAFETY: as above.
+        let all = unsafe { std::slice::from_raw_parts(start, TYPED_CAPACITY) };
+        assert!(all.iter().all(|&b| b == 0), "taking wipes the field");
+        // Growing past the room keeps the text.
+        for _ in 0..TYPED_CAPACITY + 10 {
+            t.push('x');
+        }
+        assert_eq!(t.chars(), TYPED_CAPACITY + 10);
+    }
 
     #[test]
     fn conversation_answers_prompts() {

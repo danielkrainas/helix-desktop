@@ -1439,6 +1439,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zbus",
+ "zeroize",
  "zune-jpeg",
 ]
 
@@ -1552,6 +1553,7 @@ dependencies = [
  "wayland-protocols-misc",
  "xkbcommon",
  "zbus",
+ "zeroize",
  "zune-jpeg",
 ]
 

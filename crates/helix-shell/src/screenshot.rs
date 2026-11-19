@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use gio::prelude::*;
 use tokio::sync::{mpsc, oneshot};
-use zbus::fdo::{self, DBusProxy};
+use zbus::fdo;
 use zbus::message::Header;
 use zbus::zvariant::{OwnedValue, Value};
 use zbus::{interface, Connection};
@@ -315,17 +315,11 @@ pub fn screenshot_name(stamp: &str) -> String {
     trf!("Screenshot From {stamp}.png", stamp = stamp)
 }
 
-/// Whether the caller owns one of [`ALLOWED_CALLERS`].
+/// Whether the caller owns one of [`ALLOWED_CALLERS`] and is not
+/// sandboxed: an app could otherwise ship under one of those IDs (a
+/// Flatpak may own its own ID as a bus name).
 pub(crate) async fn allowed(conn: &Connection, header: &Header<'_>) -> bool {
-    let Some(sender) = header.sender() else { return false };
-    let Ok(dbus) = DBusProxy::new(conn).await else { return false };
-    for name in ALLOWED_CALLERS {
-        let Ok(name) = zbus::names::BusName::try_from(name) else { continue };
-        if dbus.get_name_owner(name).await.is_ok_and(|owner| owner.as_str() == sender.as_str()) {
-            return true;
-        }
-    }
-    false
+    crate::caller::owns_any(conn, header, &ALLOWED_CALLERS).await && !crate::caller::sandboxed(conn, header).await
 }
 
 async fn check(conn: &Connection, header: &Header<'_>) -> fdo::Result<()> {

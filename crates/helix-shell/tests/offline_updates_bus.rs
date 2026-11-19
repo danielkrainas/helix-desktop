@@ -114,7 +114,11 @@ async fn updates_installed_on_restart_and_power_off() {
         .unwrap();
     let (shell, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let bridge = shell.ui_bridge();
-    let conn = bus.connect().await;
+    // Only the session manager may open the dialog.
+    let stranger = bus.connect().await;
+    let refused = stranger.call_method(Some("org.gnome.Shell"), OBJECT_PATH, Some("org.gnome.SessionManager.EndSessionDialog"), "Open", &(REBOOT, 0u32, 60u32, Vec::<OwnedObjectPath>::new())).await;
+    assert!(refused.is_err(), "a stranger opened the end-session dialog");
+    let conn = bus.builder().name("org.gnome.SessionManager").unwrap().build().await.unwrap();
     let rule = zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface("org.gnome.SessionManager.EndSessionDialog").unwrap().build();
     let mut signals = zbus::MessageStream::for_match_rule(rule, &conn, None).await.unwrap();
     let open = |kind: u32| {

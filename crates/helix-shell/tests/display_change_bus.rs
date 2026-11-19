@@ -12,7 +12,11 @@ async fn asks_the_ui_and_reports_the_answer() {
     let Some(bus) = TestBus::start() else { return };
     let (shell, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let bridge = shell.ui_bridge();
-    let conn = bus.connect().await;
+    // Only the compositor (DisplayConfig's owner) may ask.
+    let stranger = bus.connect().await;
+    let refused = stranger.call_method(Some("org.gnome.Shell"), "/org/helixdesktop/DisplayChangeDialog", Some("org.helixdesktop.DisplayChangeDialog"), "Open", &(20u32,)).await;
+    assert!(refused.is_err(), "a stranger opened the display change dialog");
+    let conn = bus.builder().name("org.gnome.Mutter.DisplayConfig").unwrap().build().await.unwrap();
     let rule = MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .interface("org.helixdesktop.DisplayChangeDialog")

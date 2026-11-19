@@ -11,6 +11,7 @@ description = "Helix shell: org.gnome.Shell and the shell UI"
 helix-i18n.workspace = true
 zbus.workspace = true
 serde_json.workspace = true
+zeroize.workspace = true
 ureq.workspace = true
 pipewire.workspace = true
 tokio.workspace = true

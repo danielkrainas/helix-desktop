@@ -71,6 +71,10 @@ async fn properties_eval_overview_and_osd() {
     shell.set_overview_active(false).await.unwrap();
     assert_eq!(ui.recv().await, Some(UiEvent::Overview(false)));
 
+    // Only the media keys daemon, Settings and the compositor show OSDs.
+    assert!(shell.show_osd(HashMap::from([("label", Value::from("Fake"))])).await.is_err());
+    let settings = grabber(&bus, "org.gnome.Settings").await;
+    let shell = proxy(&settings).await;
     shell
         .show_osd(HashMap::from([
             ("icon", Value::from("audio-volume-high-symbolic")),

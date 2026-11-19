@@ -231,8 +231,8 @@ impl Ui {
         if self.lock.session.is_some() {
             let on_lock = self.lock_primary().is_some_and(|v| v.surface.wl_surface() == surface);
             if id == "password" && on_lock && !self.lock.checking && self.lock.revealed {
-                let mut new = edited(&self.lock.password, true, value, range);
-                std::mem::swap(&mut self.lock.password, &mut new);
+                let mut new = edited(self.lock.password.as_str(), true, value, range);
+                self.lock.password.set(&new);
                 wipe(&mut new);
                 self.lock.failed = false;
                 self.lock.focus = None;

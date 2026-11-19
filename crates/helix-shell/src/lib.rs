@@ -120,6 +120,12 @@ pub const OBJECT_PATH: &str = "/org/gnome/Shell";
 /// GNOME.
 pub const GRAB_CALLERS: &[&str] = &["org.gnome.SettingsDaemon.MediaKeys", "org.gnome.Settings"];
 
+/// Who may show the shell's own UI (`ShowOSD`, `ShowMonitorLabels`,
+/// `HideMonitorLabels`, `ScreenTransition`): GNOME's media keys daemon and
+/// Settings, as in GNOME, and Helix's compositor (it owns
+/// `org.gnome.Mutter.DisplayConfig`; the display-mode OSD).
+pub const UI_CALLERS: &[&str] = &["org.gnome.SettingsDaemon.MediaKeys", "org.gnome.Settings", "org.gnome.Mutter.DisplayConfig"];
+
 /// Refuse callers that may not grab accelerators.
 async fn check_grabber(conn: &Connection, header: &Header<'_>) -> zbus::fdo::Result<()> {
     let portal = caller::portal_name();
@@ -542,18 +548,22 @@ impl Shell {
         (false, String::new())
     }
 
-    async fn focus_search(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+    async fn focus_search(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        caller::require_unsandboxed(conn, &header).await?;
         Ok(self.show_overview(&e).await?)
     }
 
     #[zbus(name = "ShowOSD")]
-    async fn show_osd(&self, params: HashMap<String, OwnedValue>) {
+    async fn show_osd(&self, params: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        caller::require_owner(conn, &header, UI_CALLERS).await?;
         let osd = Osd::from_params(&params);
         tracing::info!(?osd, "OSD");
         let _ = self.ui.send(UiEvent::Osd(osd));
+        Ok(())
     }
 
-    async fn show_monitor_labels(&self, params: HashMap<String, OwnedValue>) {
+    async fn show_monitor_labels(&self, params: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        caller::require_owner(conn, &header, UI_CALLERS).await?;
         let labels = params
             .iter()
             .filter_map(|(connector, v)| match &**v {
@@ -566,18 +576,23 @@ impl Shell {
             })
             .collect();
         let _ = self.ui.send(UiEvent::MonitorLabels(labels));
+        Ok(())
     }
 
-    async fn hide_monitor_labels(&self) {
+    async fn hide_monitor_labels(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        caller::require_owner(conn, &header, UI_CALLERS).await?;
         let _ = self.ui.send(UiEvent::HideMonitorLabels);
+        Ok(())
     }
 
-    async fn focus_app(&self, id: &str, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+    async fn focus_app(&self, id: &str, #[zbus(signal_emitter)] e: SignalEmitter<'_>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        caller::require_unsandboxed(conn, &header).await?;
         tracing::info!(id, "FocusApp");
         Ok(self.show_overview(&e).await?)
     }
 
-    async fn show_applications(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+    async fn show_applications(&self, #[zbus(signal_emitter)] e: SignalEmitter<'_>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        caller::require_unsandboxed(conn, &header).await?;
         Ok(self.show_overview(&e).await?)
     }
 
@@ -657,8 +672,10 @@ impl Shell {
         Ok(all_found)
     }
 
-    async fn screen_transition(&self) {
+    async fn screen_transition(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        caller::require_owner(conn, &header, UI_CALLERS).await?;
         // No transition effect yet.
+        Ok(())
     }
 
     #[zbus(property)]
@@ -672,10 +689,15 @@ impl Shell {
     }
 
     #[zbus(property)]
-    async fn set_overview_active(&self, active: bool) {
+    async fn set_overview_active(&self, active: bool, #[zbus(header)] header: Option<Header<'_>>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        // No header: set from within the shell.
+        if let Some(header) = &header {
+            caller::require_unsandboxed(conn, header).await?;
+        }
         if self.state().set_overview_active(active) {
             let _ = self.ui.send(UiEvent::Overview(active));
         }
+        Ok(())
     }
 
     #[zbus(property)]
@@ -969,7 +991,7 @@ fn preview_image(path: &str) -> Option<Preview> {
     if thumbnails::is_text(&mime) {
         return Some(Preview::Text(thumbnails::text_lines(path, PREVIEW_LINES)));
     }
-    let source = if thumbnails::is_picture(&mime) { path.to_path_buf() } else { thumbnails::thumbnail(path)? };
+    let source = if thumbnails::is_picture(&mime) { path.to_path_buf() } else { thumbnails::thumbnail(path, &ext_host::sandbox::thumbnailer_sandbox())? };
     let image = wallpaper::decode_within(&source, wallpaper::Limits::PREVIEW).ok()?;
     Some(Preview::Image(std::sync::Arc::new(wallpaper::thumbnail(&image, 480, 480))))
 }

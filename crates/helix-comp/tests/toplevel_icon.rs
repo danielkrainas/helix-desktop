@@ -321,6 +321,28 @@ fn names_and_replacing_images() {
 }
 
 #[test]
+fn what_an_icon_holds_is_limited() {
+    use helix_comp::toplevel_icon::{MAX_IMAGES, MAX_SIZE};
+    let (mut app, tx, gone) = pair();
+    let icon = app.icons.create_icon(&app.qh, ());
+    // Too large: left out, the client keeps its connection.
+    let big = app.buffer(MAX_SIZE as i32 + 1, MAX_SIZE as i32 + 1, 0xff00_0009);
+    icon.add_buffer(&big, 1);
+    // One image more than an icon holds (each scale is a new one).
+    let small = app.buffer(2, 2, 0xff00_0001);
+    for scale in 1..=MAX_IMAGES as i32 + 1 {
+        icon.add_buffer(&small, scale);
+    }
+    app.icons.set_icon(&app.toplevel, Some(&icon));
+    app.surface.commit();
+    assert!(app.sync());
+    assert!(!gone.load(std::sync::atomic::Ordering::SeqCst));
+    let (_, images) = server_icon(&tx).unwrap();
+    assert_eq!(images.len(), MAX_IMAGES);
+    assert!(images.iter().all(|(size, _)| *size == 2), "the large image was left out");
+}
+
+#[test]
 fn a_non_square_buffer_is_refused() {
     let (mut app, _server, gone) = pair();
     let icon = app.icons.create_icon(&app.qh, ());

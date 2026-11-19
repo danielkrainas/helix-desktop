@@ -18,8 +18,8 @@ pub struct DesktopItem {
     pub icon: IconSource,
     /// A folder (sorted first).
     pub folder: bool,
-    /// An executable `.desktop` launcher of an application: opening it
-    /// starts the application.
+    /// A trusted, executable `.desktop` launcher of an application:
+    /// opening it starts the application.
     pub launcher: bool,
 }
 
@@ -36,8 +36,20 @@ pub fn folder() -> Option<PathBuf> {
     (dir != gio::glib::home_dir()).then_some(dir)
 }
 
-/// What a `.desktop` file shows: name, icon, whether it launches.
-fn launcher(path: &Path) -> Option<(String, Option<IconSource>, bool)> {
+/// Whether the file is marked trusted to launch: `metadata::trusted` is
+/// "true", as a file manager's "Allow Launching" (or `gio set FILE
+/// metadata::trusted true`) leaves it, as in GNOME.
+pub fn marked_trusted(path: &Path) -> bool {
+    use gio::prelude::*;
+    let info = gio::File::for_path(path).query_info("metadata::trusted", gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS, gio::Cancellable::NONE);
+    info.ok().and_then(|i| i.attribute_as_string("metadata::trusted")).is_some_and(|v| v == "true")
+}
+
+/// What a `.desktop` launcher shows, name and icon, if it launches: an
+/// application's entry, executable and trusted. Others (an archive keeps
+/// the executable bit, and anyone can write any name and icon) show as
+/// plain files, under their own file name, as in GNOME.
+fn launcher(path: &Path, trusted: &dyn Fn(&Path) -> bool) -> Option<(String, Option<IconSource>)> {
     let file = gio::glib::KeyFile::new();
     file.load_from_file(path, gio::glib::KeyFileFlags::NONE).ok()?;
     const GROUP: &str = "Desktop Entry";
@@ -45,8 +57,8 @@ fn launcher(path: &Path) -> Option<(String, Option<IconSource>, bool)> {
     let icon = file.locale_string(GROUP, "Icon", None).ok().and_then(|i| IconSource::from_string(&i));
     let application = file.string(GROUP, "Type").is_ok_and(|t| t == "Application");
     use std::os::unix::fs::PermissionsExt;
-    let executable = std::fs::metadata(path).is_ok_and(|m| m.permissions().mode() & 0o111 != 0);
-    Some((name, icon, application && executable))
+    let executable = std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    (application && executable && trusted(path)).then_some((name, icon))
 }
 
 /// The theme icon names for a file called `name` (by its guessed type).
@@ -62,6 +74,11 @@ fn type_icon(name: &str) -> Vec<String> {
 /// The items of folder `dir`: hidden (`.name`) and backup (`name~`)
 /// files left out; folders first, then by name ignoring case.
 pub fn list(dir: &Path) -> Vec<DesktopItem> {
+    list_with(dir, &marked_trusted)
+}
+
+/// [`list`], with `trusted` telling which launchers are trusted.
+fn list_with(dir: &Path, trusted: &dyn Fn(&Path) -> bool) -> Vec<DesktopItem> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut items: Vec<DesktopItem> = entries
         .filter_map(Result::ok)
@@ -76,9 +93,9 @@ pub fn list(dir: &Path) -> Vec<DesktopItem> {
                 return Some(DesktopItem { path, name: file_name, icon: IconSource::Names(vec!["folder".into()]), folder, launcher: false });
             }
             if file_name.ends_with(".desktop") {
-                if let Some((name, icon, launches)) = launcher(&path) {
+                if let Some((name, icon)) = launcher(&path, trusted) {
                     let icon = icon.unwrap_or_else(|| IconSource::Names(vec!["application-x-executable".into()]));
-                    return Some(DesktopItem { path, name, icon, folder, launcher: launches });
+                    return Some(DesktopItem { path, name, icon, folder, launcher: true });
                 }
             }
             Some(DesktopItem { icon: IconSource::Names(type_icon(&file_name)), path, name: file_name, folder, launcher: false })
@@ -105,7 +122,8 @@ pub const DOUBLE_CLICK_MS: u32 = 400;
 pub fn open(item: &DesktopItem) {
     use gio::prelude::*;
     tracing::info!(path = %item.path.display(), launcher = item.launcher, "opening a desktop item");
-    let result = if item.launcher {
+    // Looked at again: the file may have changed since it was listed.
+    let result = if item.launcher && launcher(&item.path, &marked_trusted).is_some() {
         // gio's own tool starts a desktop file's application.
         std::process::Command::new("gio").arg("launch").arg(&item.path).spawn().map(drop).map_err(|e| e.to_string())
     } else {
@@ -163,15 +181,23 @@ mod tests {
         let entry = "[Desktop Entry]\nType=Application\nName=Calculator\nIcon=accessories-calculator\nExec=true\n";
         std::fs::write(dir.join("calc.desktop"), entry).unwrap();
         std::fs::write(dir.join("calc2.desktop"), entry).unwrap();
+        std::fs::write(dir.join("invoice.desktop"), "[Desktop Entry]\nType=Application\nName=Invoice.pdf\nIcon=application-pdf\nExec=sh -c evil\n").unwrap();
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir.join("calc.desktop"), std::fs::Permissions::from_mode(0o755)).unwrap();
-        let items = list(&dir);
+        for f in ["calc.desktop", "invoice.desktop"] {
+            std::fs::set_permissions(dir.join(f), std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        // Trusted: only calc.desktop (and calc2.desktop, not executable).
+        let trusted = |p: &Path| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("calc"));
+        let items = list_with(&dir, &trusted);
         let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
-        assert_eq!(names, ["Projects", "Alpha.png", "Calculator", "Calculator", "notes.txt"]);
+        assert_eq!(names, ["Projects", "Alpha.png", "calc2.desktop", "Calculator", "invoice.desktop", "notes.txt"]);
         assert!(items[0].folder);
-        assert_eq!(items[2].icon, IconSource::Names(vec!["accessories-calculator".into()]));
-        let launches: Vec<bool> = items.iter().map(|i| i.launcher).collect();
-        assert_eq!(launches.iter().filter(|l| **l).count(), 1, "only the executable launcher starts its app");
+        assert_eq!(items[3].icon, IconSource::Names(vec!["accessories-calculator".into()]));
+        let launches: Vec<&str> = items.iter().filter(|i| i.launcher).map(|i| i.name.as_str()).collect();
+        assert_eq!(launches, ["Calculator"], "only the trusted executable launcher starts its app");
+        // The untrusted executable one shows its file name and the file
+        // type's icon, not the PDF it claims to be.
+        assert_eq!(items[4].icon, IconSource::Names(type_icon("invoice.desktop")));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

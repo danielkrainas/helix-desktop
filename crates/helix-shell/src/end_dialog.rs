@@ -9,6 +9,7 @@
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
+use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::OwnedObjectPath;
 use zbus::{interface, Connection};
@@ -16,6 +17,8 @@ use zbus::{interface, Connection};
 use crate::UiEvent;
 
 pub const OBJECT_PATH: &str = "/org/gnome/SessionManager/EndSessionDialog";
+/// Only the session manager opens and closes the dialog.
+pub const SESSION_MANAGER: &str = "org.gnome.SessionManager";
 
 /// `Open` types.
 pub const LOGOUT: u32 = 0;
@@ -166,6 +169,7 @@ impl EndSessionDialog {
 
 #[interface(name = "org.gnome.SessionManager.EndSessionDialog")]
 impl EndSessionDialog {
+    #[allow(clippy::too_many_arguments)]
     async fn open(
         &self,
         r#type: u32,
@@ -174,7 +178,9 @@ impl EndSessionDialog {
         inhibitor_object_paths: Vec<OwnedObjectPath>,
         #[zbus(connection)] conn: &Connection,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
-    ) {
+        #[zbus(header)] header: Header<'_>,
+    ) -> zbus::fdo::Result<()> {
+        crate::caller::require_owner(conn, &header, &[SESSION_MANAGER]).await?;
         let preconfirmed = PRECONFIRMED.lock().unwrap_or_else(|e| e.into_inner()).take();
         if preconfirmed == Some(r#type) {
             tracing::info!(kind = r#type, "end of session confirmed on the lock screen");
@@ -185,7 +191,7 @@ impl EndSessionDialog {
             if let Err(err) = sent {
                 tracing::warn!(%err, "cannot confirm the end of the session");
             }
-            return;
+            return Ok(());
         }
         let mut blockers = Vec::new();
         let mut blocker_apps = Vec::new();
@@ -219,9 +225,11 @@ impl EndSessionDialog {
             install,
             upgrade,
         })));
+        Ok(())
     }
 
-    async fn close(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
+    async fn close(&self, #[zbus(signal_emitter)] emitter: SignalEmitter<'_>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_owner(conn, &header, &[SESSION_MANAGER]).await?;
         if self.open_kind.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() {
             let _ = self.ui.send(UiEvent::EndDialog(None));
             Self::closed(&emitter).await?;

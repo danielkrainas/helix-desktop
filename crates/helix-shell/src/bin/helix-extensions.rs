@@ -142,24 +142,49 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// A new directory only this user can enter, with a name nobody can
+/// guess or create first (`mkdtemp`: mode 0700, fails rather than reuse).
+fn private_dir() -> std::io::Result<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let base = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|d| d.is_dir()).unwrap_or_else(std::env::temp_dir);
+    let mut template = base.join("helix-extensions-install-XXXXXX").into_os_string().into_vec();
+    template.push(0);
+    // SAFETY: a writable NUL-terminated template, as mkdtemp wants.
+    if unsafe { libc::mkdtemp(template.as_mut_ptr().cast()) }.is_null() {
+        return Err(std::io::Error::last_os_error());
+    }
+    template.pop();
+    Ok(PathBuf::from(std::ffi::OsString::from_vec(template)))
+}
+
+/// Removes the unpacking directory however `install` ends.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 fn install(path: &Path) -> Result<String, String> {
-    let scratch = std::env::temp_dir().join(format!("helix-extensions-install-{}", std::process::id()));
+    let mut _scratch = None;
     let source: PathBuf = if path.is_dir() {
         path.to_owned()
     } else {
-        std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
+        let scratch = private_dir().map_err(|e| format!("cannot make a directory to unpack into: {e}"))?;
+        _scratch = Some(Scratch(scratch.clone()));
         let status = std::process::Command::new("tar").arg("-xf").arg(path).arg("-C").arg(&scratch).arg("--no-same-owner").status().map_err(|e| format!("cannot run tar: {e}"))?;
         if !status.success() {
             return Err(format!("cannot unpack {}", path.display()));
         }
-        let dirs: Vec<PathBuf> = std::fs::read_dir(&scratch).map_err(|e| e.to_string())?.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        let dirs: Vec<PathBuf> = std::fs::read_dir(&scratch).map_err(|e| e.to_string())?.flatten().map(|e| e.path()).filter(|p| p.is_dir() && !p.is_symlink()).collect();
         match dirs.as_slice() {
             [one] => one.clone(),
             _ => return Err("the archive must hold exactly one directory".into()),
         }
     };
     let found = store::load(&source, Kind::Development);
-    let result = (|| {
+    (|| {
         let m = found.manifest.map_err(|e| format!("not a valid extension: {e}"))?;
         let dest = store::user_dir().join(&m.id);
         let staging = store::user_dir().join(format!(".{}.new", m.id));
@@ -170,9 +195,7 @@ fn install(path: &Path) -> Result<String, String> {
         }
         std::fs::rename(&staging, &dest).map_err(|e| e.to_string())?;
         Ok(m.id)
-    })();
-    let _ = std::fs::remove_dir_all(&scratch);
-    result
+    })()
 }
 
 async fn run(args: &[String]) -> Result<(), String> {

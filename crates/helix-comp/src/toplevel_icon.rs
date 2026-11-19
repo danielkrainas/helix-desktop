@@ -7,6 +7,10 @@
 //! lifetime from a hook which, when a client destroys the icon and then
 //! its buffer in one batch (as Chromium-based apps do), fires after the
 //! icon is gone and disconnects the client.
+//!
+//! What a client can make the compositor hold is limited: images larger
+//! than [`MAX_SIZE`] pixels, past [`MAX_IMAGES`] in one icon, or past
+//! [`CLIENT_BYTES`] of pixels per client are left out.
 
 use std::sync::{Arc, Mutex};
 
@@ -20,12 +24,26 @@ use smithay::reexports::wayland_server::{Client, DataInit, Dispatch, DisplayHand
 use smithay::wayland::compositor::{with_states, Cacheable};
 use smithay::wayland::shm::{with_buffer_contents, BufferAccessError};
 
+use crate::client_budget::{Budgets, Charge};
+
+/// The largest image taken, in pixels a side: well above the largest
+/// Helix asks for (96 at scale 4 is 384).
+pub const MAX_SIZE: u32 = 512;
+/// Images one icon may hold.
+pub const MAX_IMAGES: usize = 8;
+/// Icon pixels one client's icons may hold in all (live icons and those
+/// given to its windows).
+pub const CLIENT_BYTES: usize = 32 * 1024 * 1024;
+static BUDGETS: Budgets = Budgets::new(CLIENT_BYTES);
+
 /// One image of an icon: square, premultiplied ARGB8888 (native order).
 #[derive(Debug, Clone)]
 pub struct IconImage {
     pub size: u32,
     pub scale: i32,
     pub pixels: Arc<Vec<u8>>,
+    /// Its bytes, counted against the client's [`CLIENT_BYTES`].
+    _charge: Arc<Charge>,
 }
 
 /// An icon as a client built it.
@@ -70,6 +88,8 @@ pub enum BufferProblem {
     /// Fine by the protocol, but in a format Helix does not read: the
     /// image is left out.
     Unreadable,
+    /// Larger than [`MAX_SIZE`]: left out.
+    TooLarge,
 }
 
 /// Copy a square wl_shm buffer's image as premultiplied ARGB8888
@@ -79,6 +99,9 @@ fn copy_image(buffer: &WlBuffer) -> Result<(Vec<u8>, u32), BufferProblem> {
         let (w, h, stride, offset) = (data.width as usize, data.height as usize, data.stride as usize, data.offset as usize);
         if w != h || w == 0 {
             return Err(BufferProblem::Invalid("The wl_buffer must be a square"));
+        }
+        if w > MAX_SIZE as usize {
+            return Err(BufferProblem::TooLarge);
         }
         if offset + stride * h > len || stride < w * 4 {
             return Err(BufferProblem::Unreadable);
@@ -160,7 +183,7 @@ impl<D: ToplevelIconHandler> Dispatch<XdgToplevelIconManagerV1, (), D> for Tople
 }
 
 impl<D: ToplevelIconHandler> Dispatch<XdgToplevelIconV1, IconBuilder, D> for ToplevelIcons {
-    fn request(_: &mut D, _: &Client, icon: &XdgToplevelIconV1, request: xdg_toplevel_icon_v1::Request, data: &IconBuilder, _: &DisplayHandle, _: &mut DataInit<'_, D>) {
+    fn request(_: &mut D, client: &Client, icon: &XdgToplevelIconV1, request: xdg_toplevel_icon_v1::Request, data: &IconBuilder, _: &DisplayHandle, _: &mut DataInit<'_, D>) {
         use xdg_toplevel_icon_v1::Request;
         let immutable = || icon.post_error(xdg_toplevel_icon_v1::Error::Immutable, "the icon was already given to a toplevel with set_icon");
         match request {
@@ -179,10 +202,19 @@ impl<D: ToplevelIconHandler> Dispatch<XdgToplevelIconV1, IconBuilder, D> for Top
                         let mut built = data.icon.lock().unwrap_or_else(|e| e.into_inner());
                         // A later image of the same size and scale replaces the earlier.
                         built.images.retain(|m| !(m.size == size && m.scale == scale));
-                        built.images.push(IconImage { size, scale, pixels: Arc::new(pixels) });
+                        if built.images.len() >= MAX_IMAGES {
+                            tracing::debug!("icon has {MAX_IMAGES} images already; left out");
+                            return;
+                        }
+                        let Some(charge) = BUDGETS.charge(client.id(), pixels.len()) else {
+                            tracing::debug!("client's icons hold too many pixels; image left out");
+                            return;
+                        };
+                        built.images.push(IconImage { size, scale, pixels: Arc::new(pixels), _charge: Arc::new(charge) });
                     }
                     Err(BufferProblem::Invalid(message)) => icon.post_error(xdg_toplevel_icon_v1::Error::InvalidBuffer, message),
                     Err(BufferProblem::Unreadable) => tracing::debug!("icon buffer in a format Helix does not read; left out"),
+                    Err(BufferProblem::TooLarge) => tracing::debug!("icon image larger than {MAX_SIZE} pixels; left out"),
                 }
             }
             Request::Destroy => {}

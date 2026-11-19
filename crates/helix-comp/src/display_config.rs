@@ -1163,17 +1163,29 @@ impl DisplayConfig {
     }
 }
 
+/// The dialog's answers: only from the shell that was asked.
+struct Answers {
+    signals: MessageStream,
+    shell: zbus::names::OwnedUniqueName,
+}
+
 /// Subscribe to the dialog's answers, then open it.
-async fn open_dialog(conn: &Connection, seconds: u32) -> zbus::Result<MessageStream> {
+async fn open_dialog(conn: &Connection, seconds: u32) -> zbus::Result<Answers> {
+    // Any other client could otherwise answer for the user.
+    let shell = zbus::fdo::DBusProxy::new(conn)
+        .await?
+        .get_name_owner(zbus::names::BusName::try_from(DIALOG_BUS_NAME)?)
+        .await?;
     let rule = MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
+        .sender(shell.clone())?
         .interface(DIALOG_IFACE)?
         .path(DIALOG_PATH)?
         .build();
     let signals = MessageStream::for_match_rule(rule, conn, None).await?;
     conn.call_method(Some(DIALOG_BUS_NAME), DIALOG_PATH, Some(DIALOG_IFACE), "Open", &(seconds,))
         .await?;
-    Ok(signals)
+    Ok(Answers { signals, shell })
 }
 
 async fn close_dialog(conn: &Connection) {
@@ -1183,10 +1195,15 @@ async fn close_dialog(conn: &Connection) {
 }
 
 /// `Some(true)` kept, `Some(false)` reverted, `None` no answer in time.
-async fn wait_for_answer(mut signals: MessageStream, timeout: std::time::Duration) -> Option<bool> {
+async fn wait_for_answer(answers: Answers, timeout: std::time::Duration) -> Option<bool> {
+    let Answers { mut signals, shell } = answers;
     let answer = async {
         while let Some(Ok(message)) = signals.next().await {
-            match message.header().member().map(|m| m.as_str()) {
+            let header = message.header();
+            if header.sender().is_none_or(|s| s.as_str() != shell.as_str()) {
+                continue;
+            }
+            match header.member().map(|m| m.as_str()) {
                 Some("Kept") => return Some(true),
                 Some("Reverted") => return Some(false),
                 _ => {}

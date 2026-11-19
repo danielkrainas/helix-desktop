@@ -7,6 +7,7 @@ use crate::greetd::{Request, Response};
 use crate::login::{Login, Note, Question, Step};
 use crate::osk::Osk;
 use crate::power::{Offered, PowerAction};
+use crate::secret::SecretText;
 use crate::sessions::{self, Session};
 use crate::state::{Accessibility, State};
 use crate::users::User;
@@ -142,7 +143,8 @@ pub enum Main {
         login: String,
         /// The question; `None` before greetd asks one.
         question: Option<Question>,
-        /// Typed so far (shown as dots for secret questions).
+        /// Typed so far; for secret questions only a mask of one "•" per
+        /// character, so the view never holds the password.
         text: String,
         /// Waiting for greetd: the field takes no typing.
         busy: bool,
@@ -186,7 +188,7 @@ pub struct Greeter {
     login: Login,
     /// The question shown, kept while its answer is checked.
     question: Option<Question>,
-    answer: String,
+    answer: SecretText,
     /// Display name of the user logging in.
     login_display: String,
     last_user: Option<String>,
@@ -215,7 +217,7 @@ impl Greeter {
             confirming: None,
             login: Login::default(),
             question: None,
-            answer: String::new(),
+            answer: SecretText::default(),
             login_display: String::new(),
             last_user: state.last_user.clone(),
             state: state.clone(),
@@ -501,7 +503,7 @@ impl Greeter {
         if self.login.question().is_some() {
             match key {
                 // The answer stays shown while it is checked.
-                Key::Return => return self.login.answer(&self.answer).map(Effect::Greetd).into_iter().collect(),
+                Key::Return => return self.login.answer(self.answer.as_str()).map(Effect::Greetd).into_iter().collect(),
                 Key::Backspace => {
                     self.answer.pop();
                 }
@@ -576,9 +578,18 @@ impl Greeter {
         effects
     }
 
+    /// The answer as the view shows it: a secret one only as a mask, so
+    /// the password is not copied into views.
+    fn shown_answer(&self) -> String {
+        match &self.question {
+            Some(q) if !q.secret => self.answer.as_str().to_owned(),
+            _ => self.answer.mask(),
+        }
+    }
+
     pub fn view(&self, now: i64) -> View {
         let main = if !self.login.idle() {
-            Main::Login { user: self.login_display.clone(), login: self.login.user().unwrap_or_default().to_owned(), question: self.question.clone(), text: self.answer.clone(), busy: self.login.busy() || self.login.question().is_none() }
+            Main::Login { user: self.login_display.clone(), login: self.login.user().unwrap_or_default().to_owned(), question: self.question.clone(), text: self.shown_answer(), busy: self.login.busy() || self.login.question().is_none() }
         } else if self.ask_username() {
             Main::Username { text: self.username.clone() }
         } else if self.users.is_none() {
@@ -647,7 +658,7 @@ mod tests {
         typed(&mut g, "pw!");
         g.key(Key::Backspace);
         typed(&mut g, "x");
-        assert!(matches!(&g.view(0).main, Main::Login { text, busy: false, .. } if text == "pwx"));
+        assert!(matches!(&g.view(0).main, Main::Login { text, busy: false, .. } if text == "•••"), "the view holds only a mask");
         assert_eq!(g.key(Key::Return), vec![Effect::Greetd(Request::PostAuthMessageResponse { response: Some("pwx".into()) })]);
         assert!(matches!(&g.view(0).main, Main::Login { text, busy: true, .. } if text.chars().count() == 3), "dots kept while checking");
         let effects = g.greetd_reply(Response::Success);
@@ -887,7 +898,7 @@ mod tests {
         g.click(Some(key(&g, Action::Page(crate::osk::Page::Symbols))));
         g.click(Some(key(&g, Action::Char('1'))));
         g.click(Some(key(&g, Action::Space)));
-        assert!(matches!(&g.view(0).main, Main::Login { text, .. } if text == "Pw1 "), "{:?}", g.view(0).main);
+        assert!(matches!(&g.view(0).main, Main::Login { text, .. } if text == "••••"), "{:?}", g.view(0).main);
         assert_eq!(g.click(Some(key(&g, Action::Return))), vec![Effect::Greetd(Request::PostAuthMessageResponse { response: Some("Pw1 ".into()) })]);
         // Off again: the keyboard goes, back on its first page.
         g.click(Some(Hit::A11yButton));

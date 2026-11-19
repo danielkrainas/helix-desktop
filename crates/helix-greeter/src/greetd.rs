@@ -6,15 +6,18 @@ use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
-/// A request to greetd.
+use crate::secret::Secret;
+
+/// A request to greetd. Its `Debug` hides the password.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Request {
     CreateSession { username: String },
     PostAuthMessageResponse {
         #[serde(skip_serializing_if = "Option::is_none", default)]
-        response: Option<String>,
+        response: Option<Secret>,
     },
     StartSession { cmd: Vec<String>, env: Vec<String> },
     CancelSession,
@@ -53,13 +56,31 @@ pub trait Greetd: Send {
     fn request(&mut self, request: &Request) -> io::Result<Response>;
 }
 
-/// Write one length-prefixed JSON message.
+/// Write one length-prefixed JSON message. The JSON may hold a password:
+/// it is built in one buffer of the right size, wiped when dropped.
 pub fn write_message<W: Write, T: Serialize>(w: &mut W, message: &T) -> io::Result<()> {
-    let body = serde_json::to_vec(message).map_err(io::Error::other)?;
+    let mut size = Counter(0);
+    serde_json::to_writer(&mut size, message).map_err(io::Error::other)?;
+    let mut body = Zeroizing::new(Vec::with_capacity(size.0));
+    serde_json::to_writer(&mut *body, message).map_err(io::Error::other)?;
     let len = u32::try_from(body.len()).map_err(io::Error::other)?;
     w.write_all(&len.to_ne_bytes())?;
     w.write_all(&body)?;
     w.flush()
+}
+
+/// Counts the bytes written to it.
+struct Counter(usize);
+
+impl Write for Counter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Read one length-prefixed JSON message.
@@ -123,7 +144,7 @@ impl Greetd for Demo {
                 if self.user.is_none() {
                     return Ok(Response::Error { error_type: ErrorType::Error, description: "no login in progress".into() });
                 }
-                if response.as_deref() == Some(DEMO_PASSWORD) {
+                if response.as_ref().map(Secret::as_str) == Some(DEMO_PASSWORD) {
                     self.authenticated = true;
                     Response::Success
                 } else {
@@ -160,6 +181,8 @@ mod tests {
         assert_eq!(json(&Request::PostAuthMessageResponse { response: None }), r#"{"type":"post_auth_message_response"}"#);
         assert_eq!(json(&Request::PostAuthMessageResponse { response: Some("pw".into()) }), r#"{"type":"post_auth_message_response","response":"pw"}"#);
         assert_eq!(json(&Request::CancelSession), r#"{"type":"cancel_session"}"#);
+        // Logged requests never show the password.
+        assert!(!format!("{:?}", Request::PostAuthMessageResponse { response: Some("hunter2".into()) }).contains("hunter2"));
         assert_eq!(
             json(&Request::StartSession { cmd: vec!["/bin/sh".into()], env: vec!["A=b".into()] }),
             r#"{"type":"start_session","cmd":["/bin/sh"],"env":["A=b"]}"#

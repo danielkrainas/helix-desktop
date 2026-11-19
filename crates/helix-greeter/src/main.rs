@@ -25,6 +25,7 @@ mod paint;
 mod picture;
 mod power;
 mod screen_reader;
+mod secret;
 mod sessions;
 mod state;
 mod ui;

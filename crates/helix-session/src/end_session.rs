@@ -103,14 +103,20 @@ impl ForceSignal {
 /// The dialog, while we wait for it.
 pub struct Dialog {
     signals: MessageStream,
+    /// The shell's unique name: answers from anyone else are ignored.
+    shell: zbus::names::OwnedUniqueName,
 }
 
 impl Dialog {
     /// Subscribe, then open (or update) the dialog. Errors mean there is no
     /// dialog to ask.
     pub async fn open(conn: &Connection, action: EndSessionAction, blockers: &[OwnedObjectPath]) -> zbus::Result<Self> {
+        // Only the shell answers: any other client could otherwise send a
+        // forged confirmation.
+        let shell = zbus::fdo::DBusProxy::new(conn).await?.get_name_owner(zbus::names::BusName::try_from(DIALOG_BUS_NAME)?).await?;
         let rule = zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
+            .sender(shell.clone())?
             .interface(DIALOG_IFACE)?
             .path(DIALOG_PATH)?
             .build();
@@ -124,7 +130,7 @@ impl Dialog {
             &(dialog_type(action), 0u32, DIALOG_SECONDS, paths),
         )
         .await?;
-        Ok(Self { signals })
+        Ok(Self { signals, shell })
     }
 
     pub async fn decision(self, timeout: Duration, force: &ForceSignal) -> Decision {
@@ -138,6 +144,9 @@ impl Dialog {
         let wait = async {
             while let Some(Ok(message)) = self.signals.next().await {
                 let header = message.header();
+                if header.sender().is_none_or(|s| s.as_str() != self.shell.as_str()) {
+                    continue;
+                }
                 match header.member().map(|m| m.as_str()) {
                     Some("ConfirmedLogout" | "ConfirmedShutdown" | "ConfirmedReboot") => return Decision::Confirmed,
                     Some("Canceled" | "Closed") => return Decision::Canceled,

@@ -171,7 +171,7 @@ impl Ui {
     fn field_text(&self, surface: &wl_surface::WlSurface, id: &str) -> Option<(String, bool)> {
         if self.lock.session.is_some() {
             let on_lock = self.lock_primary().is_some_and(|v| v.surface.wl_surface() == surface);
-            return (on_lock && id == "password").then(|| (self.lock.password.clone(), true));
+            return (on_lock && id == "password").then(|| (self.lock.password.as_str().to_owned(), true));
         }
         if let Some(view) = self.launcher.as_ref().filter(|v| v.layer.wl_surface() == surface) {
             return (id == "search").then(|| (view.model.query.clone(), false));

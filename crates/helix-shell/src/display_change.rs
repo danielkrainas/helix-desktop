@@ -5,7 +5,8 @@
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
-use zbus::interface;
+use zbus::message::Header;
+use zbus::{interface, Connection};
 use zbus::object_server::SignalEmitter;
 
 use crate::UiEvent;
@@ -37,17 +38,24 @@ impl DisplayChangeDialog {
     }
 }
 
+/// Only the compositor (the owner of its `DisplayConfig` name) asks.
+pub const ASKER: &str = "org.gnome.Mutter.DisplayConfig";
+
 #[interface(name = "org.helixdesktop.DisplayChangeDialog")]
 impl DisplayChangeDialog {
-    async fn open(&self, seconds: u32) {
+    async fn open(&self, seconds: u32, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_owner(conn, &header, &[ASKER]).await?;
         self.set_open(true);
         let _ = self.ui.send(UiEvent::DisplayChange(Some(seconds.max(1))));
+        Ok(())
     }
 
-    async fn close(&self) {
+    async fn close(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_owner(conn, &header, &[ASKER]).await?;
         if self.set_open(false) {
             let _ = self.ui.send(UiEvent::DisplayChange(None));
         }
+        Ok(())
     }
 
     #[zbus(signal)]

@@ -133,7 +133,7 @@ impl Login {
         self.question()?;
         self.notes.clear();
         self.phase = Phase::Busy(Awaiting::Answer);
-        Some(Request::PostAuthMessageResponse { response: Some(text.to_owned()) })
+        Some(Request::PostAuthMessageResponse { response: Some(text.into()) })
     }
 
     /// Escape or Back: give up the login and return to the user list.

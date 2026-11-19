@@ -21,6 +21,7 @@ use smithay::reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surfa
 use smithay::reexports::wayland_server::{Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, WEnum, Weak};
 use smithay::wayland::compositor::with_states;
 
+use crate::client_budget::{Budgets, Charge};
 use crate::colorimetry::{named_primaries, Chromaticities, Colorimetry, Tf, NAMED_PRIMARIES, NAMED_TFS};
 
 /// What the compositor tells about its outputs.
@@ -44,12 +45,34 @@ pub const FEATURES: [u32; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
 /// The largest ICC profile taken (the protocol's limit).
 const ICC_MAX: u32 = 32 * 1024 * 1024;
+/// ICC files one client may have set on creators not yet used: each is
+/// kept open (and read only by `create`, then let go), so a client cannot
+/// make the compositor hold its profiles' bytes, or many of its files.
+pub const ICC_FILES_PER_CLIENT: usize = 8;
+static ICC_FILES: Budgets = Budgets::new(ICC_FILES_PER_CLIENT);
 
-/// An ICC creator's profile: read, or why reading failed (not the
+/// Where an ICC profile is, until `create` reads it.
+#[derive(Debug)]
+struct IccFile {
+    file: std::fs::File,
+    offset: u32,
+    length: u32,
+    _charge: Charge,
+}
+
+impl IccFile {
+    fn read(&self) -> Result<Vec<u8>, String> {
+        use std::os::unix::fs::FileExt;
+        let mut buf = vec![0u8; self.length as usize];
+        self.file.read_exact_at(&mut buf, u64::from(self.offset)).map(|()| buf).map_err(|e| e.to_string())
+    }
+}
+
+/// An ICC creator's profile: its file, or why it cannot be used (not the
 /// client's fault).
 #[derive(Debug, Default)]
 pub struct IccState {
-    profile: Option<Result<Vec<u8>, String>>,
+    profile: Option<Result<IccFile, String>>,
 }
 
 pub type IccData = Mutex<IccState>;
@@ -100,15 +123,25 @@ impl ColorManager {
     }
 }
 
-/// Identities: equal descriptions share one (for the client's caching).
+/// Descriptions remembered for [`identity`]; past these, each new one
+/// gets an identity of its own (clients could otherwise grow the list
+/// without end with ever-different parameters).
+const KNOWN_IDENTITIES: usize = 256;
+
+/// Identities: equal descriptions share one (for the client's caching),
+/// while fewer than [`KNOWN_IDENTITIES`] are known.
 fn identity(c: &Colorimetry) -> u32 {
     static KNOWN: Mutex<Vec<(Colorimetry, u32)>> = Mutex::new(Vec::new());
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     let mut known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, id)) = known.iter().find(|(k, _)| k == c) {
         return *id;
     }
-    let id = known.len() as u32 + 1;
-    known.push((c.clone(), id));
+    // Never 0: wrapping around skips it.
+    let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed).max(1);
+    if known.len() < KNOWN_IDENTITIES {
+        known.push((c.clone(), id));
+    }
     id
 }
 
@@ -367,7 +400,7 @@ impl<D> Dispatch<WpImageDescriptionCreatorIccV1, IccData, D> for ColorManager
 where
     D: Dispatch<WpImageDescriptionV1, Description> + 'static,
 {
-    fn request(_: &mut D, _: &Client, resource: &WpImageDescriptionCreatorIccV1, request: wp_image_description_creator_icc_v1::Request, data: &IccData, _: &DisplayHandle, init: &mut DataInit<'_, D>) {
+    fn request(_: &mut D, client: &Client, resource: &WpImageDescriptionCreatorIccV1, request: wp_image_description_creator_icc_v1::Request, data: &IccData, _: &DisplayHandle, init: &mut DataInit<'_, D>) {
         use wp_image_description_creator_icc_v1::{Error as E, Request as R};
         let mut state = data.lock().unwrap_or_else(|e| e.into_inner());
         match request {
@@ -386,16 +419,18 @@ where
                 if u64::from(offset) + u64::from(length) > size {
                     return resource.post_error(E::OutOfFile, "the ICC profile runs past the end of the file");
                 }
-                let mut buf = vec![0u8; length as usize];
-                use std::os::unix::fs::FileExt;
-                state.profile = Some(file.read_exact_at(&mut buf, u64::from(offset)).map(|()| buf).map_err(|e| e.to_string()));
+                state.profile = Some(match ICC_FILES.charge(client.id(), 1) {
+                    Some(charge) => Ok(IccFile { file, offset, length, _charge: charge }),
+                    None => Err(format!("more than {ICC_FILES_PER_CLIENT} ICC profiles waiting to be used")),
+                });
             }
             R::Create { image_description } => {
                 let Some(profile) = state.profile.take() else {
                     let _ = image_description;
                     return resource.post_error(E::IncompleteSet, "no ICC file was set");
                 };
-                match profile {
+                // Read now, and let go once parsed.
+                match profile.and_then(|f| f.read()) {
                     Ok(bytes) => match crate::colorimetry::from_icc(&bytes) {
                         Ok(c) => init_description(init, image_description, c, false),
                         Err(err) => {

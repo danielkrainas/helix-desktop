@@ -36,7 +36,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::launcher::{self, Launcher};
 use crate::text::{physical, Canvas, Style, Text};
-use crate::auth::{AuthError, Authenticator, Secret};
+use crate::auth::{AuthError, Authenticator, SecretText};
 use crate::end_dialog::{Choice, EndDialog, REBOOT, SHUTDOWN, UPDATE_REBOOT, UPGRADE_REBOOT};
 use crate::{font, Osd, PowerAction, UiEvent, UiRequest};
 use smithay_client_toolkit::session_lock::{
@@ -763,7 +763,7 @@ struct LockScreen {
     state: SessionLockState,
     session: Option<SessionLock>,
     surfaces: Vec<LockView>,
-    password: String,
+    password: SecretText,
     message: Option<String>,
     checking: bool,
     auth: Arc<dyn Authenticator>,
@@ -2542,7 +2542,7 @@ impl Ui {
                 false
             }
             Keysym::Escape => {
-                wipe(&mut self.lock.password);
+                self.lock.password.clear();
                 self.lock.message = None;
                 true
             }
@@ -2552,7 +2552,7 @@ impl Ui {
             }
             _ => match &event.utf8 {
                 Some(text) if text.chars().any(|c| !c.is_control()) => {
-                    self.lock.password.extend(text.chars().filter(|c| !c.is_control()));
+                    text.chars().filter(|c| !c.is_control()).for_each(|c| self.lock.password.push(c));
                     true
                 }
                 _ => false,
@@ -2569,8 +2569,8 @@ impl Ui {
         if self.lock.password.is_empty() {
             return;
         }
-        self.lock.checked_len = self.lock.password.chars().count();
-        let secret = Secret::new(std::mem::take(&mut self.lock.password));
+        self.lock.checked_len = self.lock.password.chars();
+        let secret = self.lock.password.take();
         self.lock.checking = true;
         self.lock.checking_since = Instant::now();
         self.lock.failed = false;
@@ -2666,7 +2666,7 @@ impl Ui {
         let d = self.lock_duration(LOCK_REVEAL);
         self.lock.reveal.go(if show { 1.0 } else { 0.0 }, d);
         if !show {
-            wipe(&mut self.lock.password);
+            self.lock.password.clear();
             self.lock.focus = None;
             self.lock.failed = false;
             self.lock.message = None;
@@ -2799,7 +2799,7 @@ impl Ui {
             date: &date,
             user: if self.lock.identity.name.is_empty() { &self.lock.user } else { &self.lock.identity.name },
             picture: self.lock.identity.picture.as_ref(),
-            typed: if self.lock.checking { self.lock.checked_len } else { self.lock.password.chars().count() },
+            typed: if self.lock.checking { self.lock.checked_len } else { self.lock.password.chars() },
             checking: self.lock.checking,
             failed: self.lock.failed,
             shake: self.lock.shaken.map_or(0.0, |t| helix_draw::motion::shake(t.elapsed())),
@@ -4101,7 +4101,7 @@ pub fn run(
             state: SessionLockState::new(&globals, &qh),
             session: None,
             surfaces: Vec::new(),
-            password: String::new(),
+            password: SecretText::default(),
             message: None,
             checking: false,
             auth,
@@ -4923,7 +4923,7 @@ impl SessionLockHandler for Ui {
         tracing::warn!("session lock finished by the compositor");
         self.lock.session = None;
         self.lock.surfaces.clear();
-        wipe(&mut self.lock.password);
+        self.lock.password.clear();
         self.dock_update();
         let _ = self.requests.send(UiRequest::LockGone);
     }

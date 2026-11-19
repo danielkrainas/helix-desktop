@@ -93,6 +93,12 @@ pub fn launcher() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("bwrap"))
 }
 
+/// How thumbnailers run (`helix_settings::thumbnails`): in bubblewrap,
+/// started the way extension sandboxes are.
+pub fn thumbnailer_sandbox() -> helix_settings::thumbnails::Sandbox {
+    helix_settings::thumbnails::Sandbox { launcher: launcher(), disable_userns: can_disable_userns() }
+}
+
 /// Options `helix-extension-sandbox` refuses: they would give the
 /// sandboxed program capabilities or namespaces of its own, or read more
 /// options from elsewhere.

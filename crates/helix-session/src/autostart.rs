@@ -68,8 +68,34 @@ fn desktop_entry(text: &str) -> HashMap<String, String> {
         if let Some((k, v)) = line.split_once('=') {
             let k = k.trim();
             if !k.contains('[') {
-                out.entry(k.to_owned()).or_insert_with(|| v.trim().to_owned());
+                out.entry(k.to_owned()).or_insert_with(|| unescape(v.trim()));
             }
+        }
+    }
+    out
+}
+
+/// A string value's escapes (`\s`, `\n`, `\t`, `\r`, `\\`) undone, as
+/// GLib's key files do; any other backslash is kept as it is.
+fn unescape(v: &str) -> String {
+    let mut out = String::with_capacity(v.len());
+    let mut chars = v.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('s') => out.push(' '),
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('\\') => out.push('\\'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
         }
     }
     out
@@ -411,6 +437,9 @@ mod tests {
         assert_eq!(exec_args("app --flag %U"), ["app", "--flag"]);
         assert_eq!(exec_args(r#""/opt/my app/run" "a \"b\"" 100%%"#), ["/opt/my app/run", "a \"b\"", "100%"]);
         assert_eq!(exec_args("  sh  -c  'x' "), ["sh", "-c", "'x'"]);
+        // Key-file escapes come off before the Exec quoting is read.
+        let e = parse("e.desktop", Path::new("/x"), "[Desktop Entry]\nType=Application\nExec=say \"a\\\\$b\"\\s\"c\\\\\\\\d\"\n").unwrap();
+        assert_eq!(e.exec, ["say", "a$b", "c\\d"]);
     }
 
     #[test]

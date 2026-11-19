@@ -292,13 +292,34 @@ pub fn exec_line(args: &[String]) -> String {
         .join(" ")
 }
 
-/// The autostart file for `app_id`.
-pub fn autostart_entry(app_id: &str, commandline: &[String], dbus: bool) -> String {
-    let mut s = format!("[Desktop Entry]\nType=Application\nName={app_id}\nExec={}\nX-Flatpak={app_id}\n", exec_line(commandline));
+/// Whether `app_id` looks like an application ID (D-Bus name characters).
+fn valid_app_id(app_id: &str) -> bool {
+    !app_id.is_empty() && app_id.len() <= 255 && app_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// The autostart file for `app_id`, or `None` when the app ID or the
+/// command line would not make a sound entry: a control character (a
+/// newline would start a new key) is refused rather than escaped.
+pub fn autostart_entry(app_id: &str, commandline: &[String], dbus: bool) -> Option<String> {
+    if !valid_app_id(app_id) || commandline.is_empty() || commandline.iter().any(|a| a.chars().any(char::is_control)) {
+        return None;
+    }
+    // The Exec quoting's backslashes are doubled for the key file.
+    let exec = exec_line(commandline).replace('\\', "\\\\");
+    let mut s = format!("[Desktop Entry]\nType=Application\nName={app_id}\nExec={exec}\nX-Flatpak={app_id}\n");
     if dbus {
         s.push_str("DBusActivatable=true\n");
     }
-    s
+    Some(s)
+}
+
+/// Write `text` to `file` whole or not at all.
+fn write_atomically(file: &Path, text: &str) -> std::io::Result<()> {
+    let name = file.file_name().ok_or(std::io::ErrorKind::InvalidInput)?;
+    let tmp = file.with_file_name(format!(".{}.tmp", name.to_string_lossy()));
+    std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, file)).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
 }
 
 fn autostart_dir() -> Option<PathBuf> {
@@ -328,13 +349,18 @@ impl BackgroundBackend {
     }
 
     async fn enable_autostart(&self, app_id: String, enable: bool, commandline: Vec<String>, flags: u32) -> fdo::Result<bool> {
-        if app_id.is_empty() || app_id.contains('/') {
+        if !valid_app_id(&app_id) {
+            tracing::warn!(app_id, "autostart refused: not an application ID");
             return Ok(false);
         }
         let Some(dir) = autostart_dir() else { return Ok(false) };
         let file = dir.join(format!("{app_id}.desktop"));
         let done = if enable {
-            std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&file, autostart_entry(&app_id, &commandline, flags & 1 != 0)))
+            let Some(entry) = autostart_entry(&app_id, &commandline, flags & 1 != 0) else {
+                tracing::warn!(app_id, "autostart refused: control characters in the command line");
+                return Ok(false);
+            };
+            std::fs::create_dir_all(&dir).and_then(|()| write_atomically(&file, &entry))
         } else {
             match std::fs::remove_file(&file) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -387,8 +413,17 @@ mod tests {
         let args: Vec<String> = ["flatpak", "run", "--command=my app", "org.example.App", "100%"].iter().map(|s| s.to_string()).collect();
         assert_eq!(exec_line(&args), "flatpak run \"--command=my app\" org.example.App 100%%");
         assert_eq!(exec_line(&["say".into(), "a$b".into()]), "say \"a\\$b\"");
-        let entry = autostart_entry("org.example.App", &args[..2], true);
+        let entry = autostart_entry("org.example.App", &args[..2], true).unwrap();
         assert!(entry.contains("Exec=flatpak run\n") && entry.contains("X-Flatpak=org.example.App") && entry.ends_with("DBusActivatable=true\n"));
+        // Backslashes are doubled for the key file.
+        let entry = autostart_entry("org.example.App", &["say".into(), "a$b".into()], false).unwrap();
+        assert!(entry.contains("Exec=say \"a\\\\$b\"\n"), "{entry}");
+        // A newline would add keys: refused, as are odd app IDs.
+        assert_eq!(autostart_entry("org.example.App", &["app".into(), "x\nExec=evil".into()], false), None);
+        assert_eq!(autostart_entry("org.example.App", &["app\r".into()], false), None);
+        assert_eq!(autostart_entry("a\nb", &["app".into()], false), None);
+        assert_eq!(autostart_entry("../x", &["app".into()], false), None);
+        assert_eq!(autostart_entry("org.example.App", &[], false), None);
         assert_eq!(open_message(Some("file:///tmp/My%20Doc.pdf"), None), "Choose an app to open My Doc.pdf.");
         assert_eq!(open_message(None, None), "Choose an app.");
     }

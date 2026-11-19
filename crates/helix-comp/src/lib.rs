@@ -22,6 +22,7 @@ pub mod gestures;
 pub mod tablet_v2;
 pub mod tearing_control;
 pub mod toplevel_icon;
+pub mod client_budget;
 pub mod display_config;
 pub mod display_switch;
 pub mod login_monitors;

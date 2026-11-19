@@ -7,7 +7,7 @@ use smithay_client_toolkit::shell::WaylandSurface;
 use tokio::sync::oneshot;
 
 use super::{baseline, caret, label, text_field, physical, size, theme, wipe, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, DIM_FG, FG, SCRIM, ERROR_TEXT};
-use crate::auth::Secret;
+use crate::auth::SecretText;
 use crate::prompt::{Answer, Prompt, Request};
 use helix_i18n::tr;
 
@@ -21,7 +21,7 @@ pub(super) struct PromptView {
     prompt: Prompt,
     reply: Option<oneshot::Sender<Answer>>,
     /// The password and confirmation fields' text.
-    fields: [String; 2],
+    fields: [SecretText; 2],
     /// The plain text field's text.
     entry: String,
     /// 0, 1: a password field; 2: the check box; 3: the text field.
@@ -109,9 +109,7 @@ impl PromptView {
 impl Drop for PromptView {
     fn drop(&mut self) {
         self.cancel();
-        for f in &mut self.fields {
-            wipe(f);
-        }
+        // The fields wipe themselves.
     }
 }
 
@@ -176,9 +174,8 @@ impl Ui {
             self.dialog = None;
             return;
         }
-        let take = |s: &mut String| Secret::new(std::mem::take(s));
-        let password = view.prompt.password.is_some().then(|| take(&mut view.fields[0]));
-        let confirm = view.prompt.confirm.is_some().then(|| take(&mut view.fields[1]));
+        let password = view.prompt.password.is_some().then(|| view.fields[0].take());
+        let confirm = view.prompt.confirm.is_some().then(|| view.fields[1].take());
         let entry = view.prompt.entry.is_some().then(|| view.entry.clone());
         let picked = view.picked.iter().enumerate().filter(|(_, p)| **p).map(|(i, _)| i).collect();
         let answer = Answer::Continue { entry, password, confirm, choice: view.choice, checks: view.checks.clone(), selected: view.selected, picked };
@@ -335,8 +332,12 @@ impl Ui {
             }
             _ if view.focus < 2 || view.focus == 3 => {
                 if let Some(text) = &event.utf8 {
-                    let field = if view.focus == 3 { &mut view.entry } else { &mut view.fields[view.focus] };
-                    field.extend(text.chars().filter(|c| !c.is_control()));
+                    let typed = text.chars().filter(|c| !c.is_control());
+                    if view.focus == 3 {
+                        view.entry.extend(typed);
+                    } else {
+                        typed.for_each(|c| view.fields[view.focus].push(c));
+                    }
                 }
             }
             _ => {}
@@ -363,7 +364,7 @@ impl Ui {
             return Some((view.entry.clone(), false));
         }
         let i = id.strip_prefix("password:").and_then(|i| i.parse::<usize>().ok()).filter(|i| *i < 2)?;
-        Some((view.fields[i].clone(), true))
+        Some((view.fields[i].as_str().to_owned(), true))
     }
 
     /// An assistive technology set field `id`'s text (`ui/atspi.rs`).
@@ -376,8 +377,8 @@ impl Ui {
             view.entry = super::atspi::edited(&view.entry, false, value, range);
             view.focus = 3;
         } else if let Some(i) = id.strip_prefix("password:").and_then(|i| i.parse::<usize>().ok()).filter(|i| *i < 2) {
-            let mut new = super::atspi::edited(&view.fields[i], !view.shown[i], value, range);
-            std::mem::swap(&mut view.fields[i], &mut new);
+            let mut new = super::atspi::edited(view.fields[i].as_str(), !view.shown[i], value, range);
+            view.fields[i].set(&new);
             wipe(&mut new);
             view.focus = i;
         } else {
@@ -539,11 +540,11 @@ pub(super) fn paint_prompt_view(canvas: &mut Canvas, (text, bold): (Option<&crat
         let show_w = if view.can_show { SHOW_W } else { 0 };
         let end = if view.shown[index] {
             let room = (r.w - 24 - show_w) as f32;
-            label(text, canvas, &view.fields[index], (r.x + 10) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, room);
-            r.x + 10 + text.map_or(0.0, |t| t.width(&view.fields[index], size::LABEL).min(room)) as i32 + 1
+            label(text, canvas, view.fields[index].as_str(), (r.x + 10) as f32, baseline(text, r.y, r.h, size::LABEL), size::LABEL, FG, room);
+            r.x + 10 + text.map_or(0.0, |t| t.width(view.fields[index].as_str(), size::LABEL).min(room)) as i32 + 1
         } else {
             // One dot per character (drawn: not every font has a bullet).
-            let count = view.fields[index].chars().count().min(((r.w - 28 - show_w) / 12) as usize);
+            let count = view.fields[index].chars().min(((r.w - 28 - show_w) / 12) as usize);
             for i in 0..count {
                 canvas.circle(f64::from(r.x + 16 + i as i32 * 12), f64::from(r.y + r.h / 2), 4.0, FG);
             }
@@ -683,12 +684,12 @@ fn a11y(view: &PromptView, hits: &[(Rect, OverlayHit)], status: &str, (cancel, c
         let Some(name) = field else { continue };
         let r = at(OverlayHit::Field(index));
         let node = if view.shown[index] {
-            let advances = text.map(|t| t.advances(&view.fields[index], size::LABEL)).unwrap_or_default();
-            Node::text_field(Role::TextInput, name, &view.fields[index], r).chars(crate::a11y::Chars { x: (r.x + 10) as f32, y: r.y, h: r.h, advances })
+            let advances = text.map(|t| t.advances(view.fields[index].as_str(), size::LABEL)).unwrap_or_default();
+            Node::text_field(Role::TextInput, name, view.fields[index].as_str(), r).chars(crate::a11y::Chars { x: (r.x + 10) as f32, y: r.y, h: r.h, advances })
         } else {
             // One dot per character, 12 apart from r.x + 12.
-            let count = view.fields[index].chars().count();
-            Node::text_field(Role::PasswordInput, name, Node::mask(&view.fields[index]), r).chars(crate::a11y::Chars::even((r.x + 12) as f32, r.y, r.h, 12.0, count))
+            let count = view.fields[index].chars();
+            Node::text_field(Role::PasswordInput, name, Node::mask(view.fields[index].as_str()), r).chars(crate::a11y::Chars::even((r.x + 12) as f32, r.y, r.h, 12.0, count))
         };
         out = out.child(node.id(format!("password:{index}")).focused(typing(index)));
         if view.can_show {
