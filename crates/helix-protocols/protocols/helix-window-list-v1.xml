@@ -10,7 +10,7 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="10">
+  <interface name="helix_window_list_v1" version="11">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
       open window, topmost first, then a focused event (and, since version
@@ -208,6 +208,20 @@
       <arg name="name" type="string"/>
       <arg name="size" type="uint"/>
       <arg name="data" type="fd"/>
+    </event>
+    <enum name="window_state" bitfield="true" since="11">
+      <entry name="maximized" value="1"/>
+      <entry name="fullscreen" value="2"/>
+      <entry name="tiled_left" value="4" summary="the left half of the work area"/>
+      <entry name="tiled_right" value="8" summary="the right half of the work area"/>
+    </enum>
+    <event name="state" since="11">
+      <description summary="how a window is placed">
+        Window id's placement (0: none of these). Sent when it changes,
+        and for every window that has one when the list is first sent.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="state" type="uint" enum="window_state"/>
     </event>
     <event name="menu" since="4">
       <description summary="show the window menu">

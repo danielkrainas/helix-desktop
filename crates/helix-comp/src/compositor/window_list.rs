@@ -31,6 +31,8 @@ pub struct WindowList {
     sent_geometry: HashMap<u32, Geometry>,
     /// The primary monitor's area, as last sent.
     sent_primary: Option<(i32, i32, i32, i32)>,
+    /// Window placement (`window_state` bits), as last sent.
+    sent_state: HashMap<u32, u32>,
 }
 
 type Geometry = (i32, i32, i32, i32, u32);
@@ -132,6 +134,15 @@ impl Helix {
         }
     }
 
+    /// A window's placement for the protocol (`window_state` bits).
+    fn wire_state(&self, window: &Window) -> u32 {
+        use super::wm::Takeover;
+        [(Takeover::Maximized, 1), (Takeover::Fullscreen, 2), (Takeover::TiledLeft, 4), (Takeover::TiledRight, 8)]
+            .into_iter()
+            .filter(|(kind, _)| self.is_taken_over(window, *kind))
+            .fold(0, |bits, (_, bit)| bits | bit)
+    }
+
     fn layout_wire(&self) -> (u32, u32) {
         let layout = self.workspaces.layout;
         (layout.count as u32, layout.active as u32)
@@ -207,6 +218,18 @@ impl Helix {
                 list.sent_geometry.insert(id, g);
             }
         }
+        // How windows are placed (version 11).
+        let states: Vec<(u32, u32)> = self.listed_windows().into_iter().map(|(id, w)| (id, self.wire_state(&w))).collect();
+        let list = &mut self.window_list;
+        list.sent_state.retain(|id, _| list.sent.contains_key(id));
+        for (id, bits) in states {
+            if list.sent_state.get(&id).copied().unwrap_or(0) != bits {
+                for l in list.listeners.iter().filter(|l| l.version() >= 11) {
+                    l.state(id, helix_window_list_v1::WindowState::from_bits_truncate(bits));
+                }
+                list.sent_state.insert(id, bits);
+            }
+        }
         // Icons apps set (version 7).
         let listed = self.listed_windows();
         let x11_alive: Vec<u32> = listed.iter().filter_map(|(_, w)| w.x11_surface().map(|x| x.window_id())).collect();
@@ -279,6 +302,14 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
             }
             geometry.insert(*id, g);
         }
+        let mut states = HashMap::new();
+        for (id, window) in &windows {
+            let bits = state.wire_state(window);
+            if bits != 0 && listener.version() >= 11 {
+                listener.state(*id, helix_window_list_v1::WindowState::from_bits_truncate(bits));
+            }
+            states.insert(*id, bits);
+        }
         if listener.version() >= 9 {
             for (id, window) in &windows {
                 if state.attention.contains(window) {
@@ -304,6 +335,7 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
             state.window_list.sent_icons = icons;
             state.window_list.sent_geometry = geometry;
             state.window_list.sent_primary = Some(primary);
+            state.window_list.sent_state = states;
         }
     }
 

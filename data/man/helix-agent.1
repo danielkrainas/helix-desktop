@@ -75,7 +75,9 @@ The focused window, the workspace and quick settings.
 .TP
 .BR windows " [" \-\-app
 .IR APP_ID "] [" \fB\-\-focused\fR ]
-Open windows.
+Open windows, with the document each shows where its app tells (a media
+player's MPRIS URL, or the recent file whose name is in the title).
+Windows of excluded apps and of Settings are left out.
 .TP
 .BR apps " [" \-\-running ]
 Installed and running apps.
@@ -85,19 +87,30 @@ Workspaces; monitors.
 .TP
 .BR notifications " [" \-\-limit
 .IR N ]
-Recent notifications (contents only with \fINotifications access\fR).
+Recent notifications, newest first (at most 50). Their titles and bodies
+only with \fINotifications access\fR; otherwise only each one's app and
+time.
 .TP
 .B files recent \fR[\fB\-\-limit \fIN\fR] [\fB\-\-type \fIMIME\fR]
-Recently used files.
+Recently used files (\fIrecently-used.xbel\fR), newest first; files only
+excluded apps used are left out. \fIMIME\fR may be \fBimage/*\fR.
 .TP
 .B files search \fIQUERY\fR [\fB\-\-since \fIWHEN\fR] [\fB\-\-until \fIWHEN\fR] [\fB\-\-type \fIMIME\fR] [\fB\-\-in \fIFOLDER\fR] [\fB\-\-limit \fIN\fR]
-Search for files.
+Search for files below \fIFOLDER\fR (default: the home folder) whose names
+or contents have words starting with those of \fIQUERY\fR: through
+LocalSearch when it runs, else by looking through the folder (names, and
+small text files' contents). \fB\-\-since\fR and \fB\-\-until\fR are
+compared with the time each file was last changed. \fB\-\-limit\fR: at
+most 200 (default 50) for both \fBfiles\fR commands.
 .TP
 .B wait window \fR[\fB\-\-app \fIAPP_ID\fR] [\fB\-\-title \fITEXT\fR] [\fB\-\-focused\fR] [\fB\-\-timeout \fISECONDS\fR]
-Wait until a matching window is open.
+Wait until a matching window is open (at once if one is), and print it.
+\fITEXT\fR is matched anywhere in the title, ignoring case.
+\fB\-\-timeout\fR: default 60, \fB0\fR waits as long as it takes; exit 21
+when it runs out.
 .TP
 .B wait closed \fIWINDOW\fR [\fB\-\-timeout \fISECONDS\fR]
-Wait until a window is closed.
+Wait until a window is closed (exit 22 if there is no such window).
 .SS "Talk to the user (Read only)"
 .TP
 .B ask \fIQUESTION\fR [\fB\-\-choice \fITEXT\fR]... [\fB\-\-default \fITEXT\fR] [\fB\-\-timeout \fISECONDS\fR]
@@ -182,8 +195,9 @@ Records are the shell's dictionaries with the same keys; keys not listed
 here may be added.
 .TP
 .B Window
-id, app-id, title, workspace, monitor, focused, x, y, width, height, state,
-document.
+id, app-id, title, workspace, all-workspaces, monitor, focused, x, y, width,
+height, state (normal, maximized, fullscreen, minimized, tiled-left,
+tiled-right), document (only when the app tells it).
 .TP
 .B App
 id, name, running, windows.
@@ -196,13 +210,17 @@ connector, name, x, y, width, height, scale, primary.
 .TP
 .B State
 focused-window, active-workspace, dark-style, do-not-disturb, night-light,
-wifi, airplane-mode, muted, volume, brightness.
+wifi, airplane-mode, muted, volume, brightness (wifi and airplane-mode
+without NetworkManager, volume and muted without a sound server, and
+brightness without a controllable screen are left out).
 .TP
 .B Notification
-id, app-id, app-name, time, summary, body (or redacted).
+id, app-id, app-name, time, and summary and body, or redacted (true)
+without \fINotifications access\fR.
 .TP
 .B File
-uri, name, mime-type, modified, size.
+uri, name, mime-type, modified, size (local files), used (recent files:
+when last used).
 .TP
 .B Reminder
 id, time, text.
@@ -254,6 +272,8 @@ $ helix-agent status
 $ HELIX_AGENT_NAME="Build bot" helix-agent request \-\-level read-only
 $ helix-agent \-\-json windows \-\-app org.gnome.TextEditor
 $ helix-agent wait window \-\-app org.gnome.Nautilus \-\-timeout 10
+$ helix-agent files search pdf \-\-in ~/Downloads \-\-since yesterday \-\-type application/pdf
+$ helix-agent \-\-json windows \-\-focused
 .fi
 .SH SEE ALSO
 .BR gsettings (1),

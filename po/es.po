@@ -27,19 +27,23 @@ msgid "Give up after this long"
 msgstr "Rendirse tras este tiempo"
 
 #: crates/helix-agent/src/cli.rs:73
+msgid "Give up after this long [default: 60; 0: never]"
+msgstr "Rendirse tras este tiempo [predeterminado: 60; 0: nunca]"
+
+#: crates/helix-agent/src/cli.rs:74
 msgid "A window id from “helix-agent windows”"
 msgstr "Un id de ventana de «helix-agent windows»"
 
-#: crates/helix-agent/src/cli.rs:77
+#: crates/helix-agent/src/cli.rs:78
 msgid "Status:"
 msgstr "Estado:"
 
-#: crates/helix-agent/src/cli.rs:78
+#: crates/helix-agent/src/cli.rs:79
 msgid "Show whether agent access is on and what this agent may do"
 msgstr ""
 "Mostrar si el acceso de agentes está activado y qué puede hacer este agente"
 
-#: crates/helix-agent/src/cli.rs:81
+#: crates/helix-agent/src/cli.rs:82
 msgid ""
 "The level to ask for: read-only, desktop, apps or screen-and-input (default: "
 "the level set in Settings)"
@@ -47,194 +51,194 @@ msgstr ""
 "El nivel que pedir: read-only, desktop, apps o screen-and-input "
 "(predeterminado: el nivel elegido en Configuración)"
 
-#: crates/helix-agent/src/cli.rs:82
+#: crates/helix-agent/src/cli.rs:83
 msgid "Ask the user for access now"
 msgstr "Pedir acceso al usuario ahora"
 
-#: crates/helix-agent/src/cli.rs:85
+#: crates/helix-agent/src/cli.rs:86
 msgid "Read (Read only):"
 msgstr "Leer (Solo lectura):"
 
-#: crates/helix-agent/src/cli.rs:86
+#: crates/helix-agent/src/cli.rs:87
 msgid "Focused window, workspace and quick settings"
 msgstr "Ventana enfocada, área de trabajo y ajustes rápidos"
 
-#: crates/helix-agent/src/cli.rs:89
+#: crates/helix-agent/src/cli.rs:91
 msgid "Only the focused window"
 msgstr "Solo la ventana enfocada"
 
-#: crates/helix-agent/src/cli.rs:89
+#: crates/helix-agent/src/cli.rs:91
 msgid "Only this app's windows"
 msgstr "Solo las ventanas de esta aplicación"
 
-#: crates/helix-agent/src/cli.rs:90
+#: crates/helix-agent/src/cli.rs:92
 msgid "Open windows"
 msgstr "Ventanas abiertas"
 
-#: crates/helix-agent/src/cli.rs:92
+#: crates/helix-agent/src/cli.rs:94
 msgid "Installed and running apps"
 msgstr "Aplicaciones instaladas y en ejecución"
 
-#: crates/helix-agent/src/cli.rs:92
+#: crates/helix-agent/src/cli.rs:94
 msgid "Only running apps"
 msgstr "Solo aplicaciones en ejecución"
 
-#: crates/helix-agent/src/cli.rs:93 crates/helix-shell/src/panel_layout.rs:49
+#: crates/helix-agent/src/cli.rs:95 crates/helix-shell/src/panel_layout.rs:49
 #: crates/helix-shell/src/ui/atspi.rs:562
 #: crates/helix-shell/src/ui/overview.rs:1201
 #: crates/helix-shell/src/ui/workspace_popup.rs:171
 msgid "Workspaces"
 msgstr "Áreas de trabajo"
 
-#: crates/helix-agent/src/cli.rs:94
+#: crates/helix-agent/src/cli.rs:96
 msgid "Monitors"
 msgstr "Monitores"
 
-#: crates/helix-agent/src/cli.rs:95
+#: crates/helix-agent/src/cli.rs:97
 msgid "Recent notifications"
 msgstr "Notificaciones recientes"
 
-#: crates/helix-agent/src/cli.rs:98
+#: crates/helix-agent/src/cli.rs:100
 msgid "Recently used files"
 msgstr "Archivos usados recientemente"
 
-#: crates/helix-agent/src/cli.rs:101
+#: crates/helix-agent/src/cli.rs:104
 msgid "Words in the file's name or contents"
 msgstr "Palabras en el nombre o el contenido del archivo"
 
-#: crates/helix-agent/src/cli.rs:103
+#: crates/helix-agent/src/cli.rs:106
 msgid "Changed at or after WHEN"
 msgstr "Modificado en WHEN o después"
 
-#: crates/helix-agent/src/cli.rs:104
+#: crates/helix-agent/src/cli.rs:107
 msgid "Changed before WHEN"
 msgstr "Modificado antes de WHEN"
 
-#: crates/helix-agent/src/cli.rs:106
+#: crates/helix-agent/src/cli.rs:109
 msgid "Only in this folder"
 msgstr "Solo en esta carpeta"
 
-#: crates/helix-agent/src/cli.rs:109
+#: crates/helix-agent/src/cli.rs:112
 msgid "Search for files"
 msgstr "Buscar archivos"
 
-#: crates/helix-agent/src/cli.rs:112
+#: crates/helix-agent/src/cli.rs:116
 msgid "Recent files and file search"
 msgstr "Archivos recientes y búsqueda de archivos"
 
-#: crates/helix-agent/src/cli.rs:118
+#: crates/helix-agent/src/cli.rs:123
 msgid "A window of this app"
 msgstr "Una ventana de esta aplicación"
 
-#: crates/helix-agent/src/cli.rs:118
+#: crates/helix-agent/src/cli.rs:123
 msgid "A window whose title contains TEXT"
 msgstr "Una ventana cuyo título contiene TEXT"
 
-#: crates/helix-agent/src/cli.rs:118
+#: crates/helix-agent/src/cli.rs:123
 msgid "Only once it has the focus"
 msgstr "Solo cuando tenga el foco"
 
-#: crates/helix-agent/src/cli.rs:119
+#: crates/helix-agent/src/cli.rs:124
 msgid "Wait until a matching window is open"
 msgstr "Esperar a que haya una ventana coincidente abierta"
 
-#: crates/helix-agent/src/cli.rs:121
+#: crates/helix-agent/src/cli.rs:126
 msgid "Wait until a window is closed"
 msgstr "Esperar a que se cierre una ventana"
 
-#: crates/helix-agent/src/cli.rs:123
+#: crates/helix-agent/src/cli.rs:129
 msgid "Wait for a window to appear or close"
 msgstr "Esperar a que una ventana aparezca o se cierre"
 
-#: crates/helix-agent/src/cli.rs:126
+#: crates/helix-agent/src/cli.rs:132
 msgid "Talk to the user (Read only):"
 msgstr "Hablar con el usuario (Solo lectura):"
 
-#: crates/helix-agent/src/cli.rs:128 crates/helix-agent/src/cli.rs:137
+#: crates/helix-agent/src/cli.rs:134 crates/helix-agent/src/cli.rs:143
 msgid "What to ask"
 msgstr "Qué preguntar"
 
-#: crates/helix-agent/src/cli.rs:130
+#: crates/helix-agent/src/cli.rs:136
 msgid "An answer to offer (repeat for more)"
 msgstr "Una respuesta que ofrecer (repetir para más)"
 
-#: crates/helix-agent/src/cli.rs:131
+#: crates/helix-agent/src/cli.rs:137
 msgid "The answer filled in at first"
 msgstr "La respuesta escrita al principio"
 
-#: crates/helix-agent/src/cli.rs:134
+#: crates/helix-agent/src/cli.rs:140
 msgid "Ask the user a question"
 msgstr "Hacer una pregunta al usuario"
 
-#: crates/helix-agent/src/cli.rs:138
+#: crates/helix-agent/src/cli.rs:144
 msgid "The no button's label"
 msgstr "La etiqueta del botón «no»"
 
-#: crates/helix-agent/src/cli.rs:138
+#: crates/helix-agent/src/cli.rs:144
 msgid "The yes button's label"
 msgstr "La etiqueta del botón «sí»"
 
-#: crates/helix-agent/src/cli.rs:139
+#: crates/helix-agent/src/cli.rs:145
 msgid "Ask the user yes or no"
 msgstr "Preguntar al usuario sí o no"
 
-#: crates/helix-agent/src/cli.rs:143
+#: crates/helix-agent/src/cli.rs:149
 msgid "Add a reminder"
 msgstr "Añadir un recordatorio"
 
-#: crates/helix-agent/src/cli.rs:143
+#: crates/helix-agent/src/cli.rs:149
 msgid "What to say"
 msgstr "Qué decir"
 
-#: crates/helix-agent/src/cli.rs:143
+#: crates/helix-agent/src/cli.rs:149
 msgid "When to remind"
 msgstr "Cuándo recordar"
 
-#: crates/helix-agent/src/cli.rs:144
+#: crates/helix-agent/src/cli.rs:150
 msgid "This agent's reminders"
 msgstr "Los recordatorios de este agente"
 
-#: crates/helix-agent/src/cli.rs:145
+#: crates/helix-agent/src/cli.rs:151
 msgid "A reminder id from “helix-agent remind list”"
 msgstr "Un id de recordatorio de «helix-agent remind list»"
 
-#: crates/helix-agent/src/cli.rs:145
+#: crates/helix-agent/src/cli.rs:151
 msgid "Cancel a reminder"
 msgstr "Cancelar un recordatorio"
 
-#: crates/helix-agent/src/cli.rs:147
+#: crates/helix-agent/src/cli.rs:153
 msgid "Reminders for the user"
 msgstr "Recordatorios para el usuario"
 
-#: crates/helix-agent/src/cli.rs:150
+#: crates/helix-agent/src/cli.rs:156
 msgid "Act (Control the desktop):"
 msgstr "Actuar (Controlar el escritorio):"
 
-#: crates/helix-agent/src/cli.rs:151
+#: crates/helix-agent/src/cli.rs:157
 msgid "A file, folder or URL"
 msgstr "Un archivo, carpeta o URL"
 
-#: crates/helix-agent/src/cli.rs:151
+#: crates/helix-agent/src/cli.rs:157
 msgid "Open a file or URL in its app"
 msgstr "Abrir un archivo o URL en su aplicación"
 
-#: crates/helix-agent/src/cli.rs:151
+#: crates/helix-agent/src/cli.rs:157
 msgid "Open it with this app"
 msgstr "Abrirlo con esta aplicación"
 
-#: crates/helix-agent/src/cli.rs:153
+#: crates/helix-agent/src/cli.rs:159
 msgid "Files or URLs to open in it"
 msgstr "Archivos o URL que abrir en ella"
 
-#: crates/helix-agent/src/cli.rs:153
+#: crates/helix-agent/src/cli.rs:159
 msgid "The app's id, e.g. org.gnome.TextEditor"
 msgstr "El id de la aplicación, p. ej. org.gnome.TextEditor"
 
-#: crates/helix-agent/src/cli.rs:154
+#: crates/helix-agent/src/cli.rs:160
 msgid "Start an app"
 msgstr "Iniciar una aplicación"
 
-#: crates/helix-agent/src/cli.rs:158
+#: crates/helix-agent/src/cli.rs:164
 msgid ""
 "focus, close, minimize, maximize, unmaximize, fullscreen, unfullscreen, tile-"
 "left, tile-right, move X Y, resize WIDTH HEIGHT or to-workspace INDEX"
@@ -242,366 +246,366 @@ msgstr ""
 "focus, close, minimize, maximize, unmaximize, fullscreen, unfullscreen, tile-"
 "left, tile-right, move X Y, resize WIDTH HEIGHT o to-workspace INDEX"
 
-#: crates/helix-agent/src/cli.rs:160
+#: crates/helix-agent/src/cli.rs:166
 msgid "The action's numbers"
 msgstr "Los números de la acción"
 
-#: crates/helix-agent/src/cli.rs:162
+#: crates/helix-agent/src/cli.rs:168
 msgid "Focus, move, tile or close a window"
 msgstr "Enfocar, mover, organizar o cerrar una ventana"
 
-#: crates/helix-agent/src/cli.rs:164
+#: crates/helix-agent/src/cli.rs:170
 msgid "Switch to a workspace"
 msgstr "Cambiar a un área de trabajo"
 
-#: crates/helix-agent/src/cli.rs:164
+#: crates/helix-agent/src/cli.rs:170
 msgid "Switch workspaces"
 msgstr "Cambiar de área de trabajo"
 
-#: crates/helix-agent/src/cli.rs:164
+#: crates/helix-agent/src/cli.rs:170
 msgid "The workspace's number, from 0"
 msgstr "El número del área de trabajo, desde 0"
 
-#: crates/helix-agent/src/cli.rs:166
+#: crates/helix-agent/src/cli.rs:172
 msgid "dark-style, do-not-disturb, night-light, wifi, airplane-mode or mute"
 msgstr "dark-style, do-not-disturb, night-light, wifi, airplane-mode o mute"
 
-#: crates/helix-agent/src/cli.rs:166
+#: crates/helix-agent/src/cli.rs:172
 msgid "on or off (default: flip it)"
 msgstr "on u off (predeterminado: alternar)"
 
-#: crates/helix-agent/src/cli.rs:167
+#: crates/helix-agent/src/cli.rs:173
 msgid "Turn a quick setting on or off"
 msgstr "Activar o desactivar un ajuste rápido"
 
-#: crates/helix-agent/src/cli.rs:169
+#: crates/helix-agent/src/cli.rs:175
 msgid "A percentage"
 msgstr "Un porcentaje"
 
-#: crates/helix-agent/src/cli.rs:169
+#: crates/helix-agent/src/cli.rs:175
 msgid "Set volume or brightness"
 msgstr "Ajustar el volumen o el brillo"
 
-#: crates/helix-agent/src/cli.rs:169
+#: crates/helix-agent/src/cli.rs:175
 msgid "volume or brightness"
 msgstr "volume o brightness"
 
-#: crates/helix-agent/src/cli.rs:171
+#: crates/helix-agent/src/cli.rs:177
 msgid "More text below it"
 msgstr "Más texto debajo"
 
-#: crates/helix-agent/src/cli.rs:171
+#: crates/helix-agent/src/cli.rs:177
 msgid "The notification's title"
 msgstr "El título de la notificación"
 
-#: crates/helix-agent/src/cli.rs:172
+#: crates/helix-agent/src/cli.rs:178
 msgid "An icon name"
 msgstr "Un nombre de icono"
 
-#: crates/helix-agent/src/cli.rs:172
+#: crates/helix-agent/src/cli.rs:178
 msgid "low or normal"
 msgstr "low o normal"
 
-#: crates/helix-agent/src/cli.rs:173
+#: crates/helix-agent/src/cli.rs:179
 msgid "Show the user a notification"
 msgstr "Mostrar una notificación al usuario"
 
-#: crates/helix-agent/src/cli.rs:178
+#: crates/helix-agent/src/cli.rs:184
 msgid "Read the clipboard"
 msgstr "Leer el portapapeles"
 
-#: crates/helix-agent/src/cli.rs:179
+#: crates/helix-agent/src/cli.rs:185
 msgid "Set the clipboard"
 msgstr "Establecer el portapapeles"
 
-#: crates/helix-agent/src/cli.rs:179
+#: crates/helix-agent/src/cli.rs:185
 msgid "The text (default: read from standard input)"
 msgstr "El texto (predeterminado: leído de la entrada estándar)"
 
-#: crates/helix-agent/src/cli.rs:181
+#: crates/helix-agent/src/cli.rs:187
 msgid "Read or set the clipboard (needs Clipboard access)"
 msgstr "Leer o establecer el portapapeles (necesita acceso al portapapeles)"
 
-#: crates/helix-agent/src/cli.rs:184
+#: crates/helix-agent/src/cli.rs:190
 msgid "Apps (Control apps):"
 msgstr "Aplicaciones (Controlar aplicaciones):"
 
-#: crates/helix-agent/src/cli.rs:186
+#: crates/helix-agent/src/cli.rs:192
 msgid "An app window's controls"
 msgstr "Los controles de una ventana de aplicación"
 
-#: crates/helix-agent/src/cli.rs:186
+#: crates/helix-agent/src/cli.rs:192
 msgid "How many levels down to go"
 msgstr "Cuántos niveles bajar"
 
-#: crates/helix-agent/src/cli.rs:186
+#: crates/helix-agent/src/cli.rs:192
 msgid "Start at this node"
 msgstr "Empezar en este nodo"
 
-#: crates/helix-agent/src/cli.rs:187 crates/helix-agent/src/cli.rs:188
+#: crates/helix-agent/src/cli.rs:193 crates/helix-agent/src/cli.rs:194
 msgid "A node id from “helix-agent a11y tree”"
 msgstr "Un id de nodo de «helix-agent a11y tree»"
 
-#: crates/helix-agent/src/cli.rs:187
+#: crates/helix-agent/src/cli.rs:193
 msgid "One of the node's actions, e.g. click"
 msgstr "Una de las acciones del nodo, p. ej. click"
 
-#: crates/helix-agent/src/cli.rs:187
+#: crates/helix-agent/src/cli.rs:193
 msgid "Use a control"
 msgstr "Usar un control"
 
-#: crates/helix-agent/src/cli.rs:188
+#: crates/helix-agent/src/cli.rs:194
 msgid "Change a control's value"
 msgstr "Cambiar el valor de un control"
 
-#: crates/helix-agent/src/cli.rs:188
+#: crates/helix-agent/src/cli.rs:194
 msgid "The new text or number"
 msgstr "El nuevo texto o número"
 
-#: crates/helix-agent/src/cli.rs:190
+#: crates/helix-agent/src/cli.rs:196
 msgid "Read and use an app's controls"
 msgstr "Leer y usar los controles de una aplicación"
 
-#: crates/helix-agent/src/cli.rs:192
+#: crates/helix-agent/src/cli.rs:198
 msgid "Screen and input (Screen and input):"
 msgstr "Pantalla y entrada (Pantalla y entrada):"
 
-#: crates/helix-agent/src/cli.rs:195
+#: crates/helix-agent/src/cli.rs:201
 msgid "Only this monitor"
 msgstr "Solo este monitor"
 
-#: crates/helix-agent/src/cli.rs:195
+#: crates/helix-agent/src/cli.rs:201
 msgid "Only this window"
 msgstr "Solo esta ventana"
 
-#: crates/helix-agent/src/cli.rs:195
+#: crates/helix-agent/src/cli.rs:201
 msgid "Write the PNG to FILE"
 msgstr "Escribir el PNG en FILE"
 
-#: crates/helix-agent/src/cli.rs:196
+#: crates/helix-agent/src/cli.rs:202
 msgid "Take a screenshot"
 msgstr "Hacer una captura de pantalla"
 
-#: crates/helix-agent/src/cli.rs:200
+#: crates/helix-agent/src/cli.rs:206
 msgid "Key combinations such as ctrl+c, alt+F4 or Return"
 msgstr "Combinaciones de teclas como ctrl+c, alt+F4 o Return"
 
-#: crates/helix-agent/src/cli.rs:200
+#: crates/helix-agent/src/cli.rs:206
 msgid "Press keys"
 msgstr "Pulsar teclas"
 
-#: crates/helix-agent/src/cli.rs:201
+#: crates/helix-agent/src/cli.rs:207
 msgid "The text"
 msgstr "El texto"
 
-#: crates/helix-agent/src/cli.rs:201
+#: crates/helix-agent/src/cli.rs:207
 msgid "Type text"
 msgstr "Escribir texto"
 
-#: crates/helix-agent/src/cli.rs:202
+#: crates/helix-agent/src/cli.rs:208
 msgid "1 left, 2 middle, 3 right (default 1)"
 msgstr "1 izquierdo, 2 central, 3 derecho (predeterminado 1)"
 
-#: crates/helix-agent/src/cli.rs:202 crates/helix-agent/src/cli.rs:203
+#: crates/helix-agent/src/cli.rs:208 crates/helix-agent/src/cli.rs:209
 msgid "Across, in logical pixels"
 msgstr "En horizontal, en píxeles lógicos"
 
-#: crates/helix-agent/src/cli.rs:202
+#: crates/helix-agent/src/cli.rs:208
 msgid "Click at a point"
 msgstr "Hacer clic en un punto"
 
-#: crates/helix-agent/src/cli.rs:202 crates/helix-agent/src/cli.rs:203
+#: crates/helix-agent/src/cli.rs:208 crates/helix-agent/src/cli.rs:209
 msgid "Down, in logical pixels"
 msgstr "En vertical, en píxeles lógicos"
 
-#: crates/helix-agent/src/cli.rs:203
+#: crates/helix-agent/src/cli.rs:209
 msgid "Move the pointer"
 msgstr "Mover el puntero"
 
-#: crates/helix-agent/src/cli.rs:204
+#: crates/helix-agent/src/cli.rs:210
 msgid "Across, in pixels"
 msgstr "En horizontal, en píxeles"
 
-#: crates/helix-agent/src/cli.rs:204
+#: crates/helix-agent/src/cli.rs:210
 msgid "Down, in pixels"
 msgstr "En vertical, en píxeles"
 
-#: crates/helix-agent/src/cli.rs:204
+#: crates/helix-agent/src/cli.rs:210
 msgid "Scroll"
 msgstr "Desplazar"
 
-#: crates/helix-agent/src/cli.rs:206
+#: crates/helix-agent/src/cli.rs:212
 msgid "Send keys, text, clicks and scrolling"
 msgstr "Enviar teclas, texto, clics y desplazamiento"
 
-#: crates/helix-agent/src/cli.rs:209
+#: crates/helix-agent/src/cli.rs:215
 msgid "Other:"
 msgstr "Otros:"
 
-#: crates/helix-agent/src/cli.rs:210
+#: crates/helix-agent/src/cli.rs:216
 msgid "Only entries at or after WHEN"
 msgstr "Solo entradas en WHEN o después"
 
-#: crates/helix-agent/src/cli.rs:210
+#: crates/helix-agent/src/cli.rs:216
 msgid "Only this agent"
 msgstr "Solo este agente"
 
-#: crates/helix-agent/src/cli.rs:210
+#: crates/helix-agent/src/cli.rs:216
 msgid "Show what agents did"
 msgstr "Mostrar lo que hicieron los agentes"
 
-#: crates/helix-agent/src/cli.rs:211
+#: crates/helix-agent/src/cli.rs:217
 msgid "A command, or “exit-codes”"
 msgstr "Una orden, o «exit-codes»"
 
-#: crates/helix-agent/src/cli.rs:211
+#: crates/helix-agent/src/cli.rs:217
 msgid "Help for a command, or \"help exit-codes\""
 msgstr "Ayuda de una orden, o «help exit-codes»"
 
-#: crates/helix-agent/src/cli.rs:212
+#: crates/helix-agent/src/cli.rs:218
 msgid "Shell completions"
 msgstr "Completado de la shell"
 
-#: crates/helix-agent/src/cli.rs:212
+#: crates/helix-agent/src/cli.rs:218
 msgid "bash, zsh or fish"
 msgstr "bash, zsh o fish"
 
-#: crates/helix-agent/src/cli.rs:218
+#: crates/helix-agent/src/cli.rs:224
 msgid "JSON output (default when not on a terminal)"
 msgstr "Salida JSON (predeterminada fuera de una terminal)"
 
-#: crates/helix-agent/src/cli.rs:219
+#: crates/helix-agent/src/cli.rs:225
 msgid "Readable text (default on a terminal)"
 msgstr "Texto legible (predeterminado en una terminal)"
 
-#: crates/helix-agent/src/cli.rs:220
+#: crates/helix-agent/src/cli.rs:226
 msgid "Never ask the user; fail instead"
 msgstr "No preguntar nunca al usuario; fallar en su lugar"
 
-#: crates/helix-agent/src/cli.rs:221
+#: crates/helix-agent/src/cli.rs:227
 msgid "Mark this action sensitive"
 msgstr "Marcar esta acción como delicada"
 
-#: crates/helix-agent/src/cli.rs:222
+#: crates/helix-agent/src/cli.rs:228
 msgid "How long to wait for the shell [default: 30]"
 msgstr "Cuánto esperar a la shell [predeterminado: 30]"
 
-#: crates/helix-agent/src/cli.rs:242
+#: crates/helix-agent/src/cli.rs:248
 #: crates/helix-shell/src/ui/agent_prompt.rs:93
 msgid "Read only"
 msgstr "Solo lectura"
 
-#: crates/helix-agent/src/cli.rs:243
+#: crates/helix-agent/src/cli.rs:249
 #: crates/helix-shell/src/ui/agent_prompt.rs:94
 msgid "Control the desktop"
 msgstr "Controlar el escritorio"
 
-#: crates/helix-agent/src/cli.rs:244
+#: crates/helix-agent/src/cli.rs:250
 #: crates/helix-shell/src/ui/agent_prompt.rs:95
 msgid "Control apps"
 msgstr "Controlar aplicaciones"
 
-#: crates/helix-agent/src/cli.rs:245
+#: crates/helix-agent/src/cli.rs:251
 #: crates/helix-shell/src/ui/agent_prompt.rs:96
 msgid "Screen and input"
 msgstr "Pantalla y entrada"
 
-#: crates/helix-agent/src/cli.rs:312
+#: crates/helix-agent/src/cli.rs:318
 msgid "unknown option “{option}”"
 msgstr "opción desconocida «{option}»"
 
-#: crates/helix-agent/src/cli.rs:329
+#: crates/helix-agent/src/cli.rs:335
 msgid "unknown option “--{option}”"
 msgstr "opción desconocida «--{option}»"
 
-#: crates/helix-agent/src/cli.rs:333
+#: crates/helix-agent/src/cli.rs:339
 msgid "“--{option}” takes no value"
 msgstr "«--{option}» no admite valor"
 
-#: crates/helix-agent/src/cli.rs:340
+#: crates/helix-agent/src/cli.rs:346
 msgid "“--{option}” needs a value"
 msgstr "«--{option}» necesita un valor"
 
-#: crates/helix-agent/src/cli.rs:344 crates/helix-agent/src/cli.rs:413
+#: crates/helix-agent/src/cli.rs:350 crates/helix-agent/src/cli.rs:419
 msgid "“{value}” is not one of: {choices}"
 msgstr "«{value}» no es ninguno de: {choices}"
 
-#: crates/helix-agent/src/cli.rs:370 crates/helix-agent/src/main.rs:120
+#: crates/helix-agent/src/cli.rs:376 crates/helix-agent/src/main.rs:124
 msgid "unknown command “{command}”"
 msgstr "orden desconocida «{command}»"
 
-#: crates/helix-agent/src/cli.rs:372
+#: crates/helix-agent/src/cli.rs:378
 msgid "unknown command “{command}” for “{parent}”"
 msgstr "orden desconocida «{command}» para «{parent}»"
 
-#: crates/helix-agent/src/cli.rs:383
+#: crates/helix-agent/src/cli.rs:389
 msgid "“{command}” needs a subcommand: {subs}"
 msgstr "«{command}» necesita una suborden: {subs}"
 
-#: crates/helix-agent/src/cli.rs:397
+#: crates/helix-agent/src/cli.rs:403
 msgid "“{value}” is not a number of seconds"
 msgstr "«{value}» no es un número de segundos"
 
-#: crates/helix-agent/src/cli.rs:406
+#: crates/helix-agent/src/cli.rs:412
 msgid "missing argument: {names}"
 msgstr "falta un argumento: {names}"
 
-#: crates/helix-agent/src/cli.rs:409
+#: crates/helix-agent/src/cli.rs:415
 msgid "unexpected argument “{argument}”"
 msgstr "argumento inesperado «{argument}»"
 
-#: crates/helix-agent/src/cli.rs:442
+#: crates/helix-agent/src/cli.rs:448
 msgid "Print help"
 msgstr "Mostrar la ayuda"
 
-#: crates/helix-agent/src/cli.rs:443
+#: crates/helix-agent/src/cli.rs:449
 msgid "Print version"
 msgstr "Mostrar la versión"
 
-#: crates/helix-agent/src/cli.rs:449
+#: crates/helix-agent/src/cli.rs:455
 msgid "Let an agent read and act on your Helix session."
 msgstr "Permitir que un agente lea y actúe en su sesión de Helix."
 
-#: crates/helix-agent/src/cli.rs:449 crates/helix-agent/src/cli.rs:473
+#: crates/helix-agent/src/cli.rs:455 crates/helix-agent/src/cli.rs:479
 msgid "Usage:"
 msgstr "Uso:"
 
-#: crates/helix-agent/src/cli.rs:459 crates/helix-agent/src/cli.rs:507
+#: crates/helix-agent/src/cli.rs:465 crates/helix-agent/src/cli.rs:513
 msgid "Options:"
 msgstr "Opciones:"
 
-#: crates/helix-agent/src/cli.rs:463 crates/helix-agent/src/main.rs:199
+#: crates/helix-agent/src/cli.rs:469 crates/helix-agent/src/main.rs:212
 msgid ""
 "Agent access is controlled in Settings › Privacy & Security › Agent Access."
 msgstr ""
 "El acceso de agentes se controla en Configuración › Privacidad y seguridad › "
 "Acceso de agentes."
 
-#: crates/helix-agent/src/cli.rs:488
+#: crates/helix-agent/src/cli.rs:494
 msgid "Needs: the “{level}” access level and Clipboard access"
 msgstr "Necesita: el nivel de acceso «{level}» y acceso al portapapeles"
 
-#: crates/helix-agent/src/cli.rs:489
+#: crates/helix-agent/src/cli.rs:495
 msgid "Needs: the “{level}” access level"
 msgstr "Necesita: el nivel de acceso «{level}»"
 
-#: crates/helix-agent/src/cli.rs:496
+#: crates/helix-agent/src/cli.rs:502
 msgid "Commands:"
 msgstr "Órdenes:"
 
-#: crates/helix-agent/src/cli.rs:502
+#: crates/helix-agent/src/cli.rs:508
 msgid "Arguments:"
 msgstr "Argumentos:"
 
-#: crates/helix-agent/src/cli.rs:515
+#: crates/helix-agent/src/cli.rs:521
 msgid "JSON output: {record} records (helix-agent(1), “RECORDS”)."
 msgstr "Salida JSON: registros {record} (helix-agent(1), «RECORDS»)."
 
-#: crates/helix-agent/src/cli.rs:520
+#: crates/helix-agent/src/cli.rs:526
 msgid "This Helix session does not support this command yet."
 msgstr "Esta sesión de Helix aún no admite esta orden."
 
-#: crates/helix-agent/src/cli.rs:528
+#: crates/helix-agent/src/cli.rs:534
 msgid "Exit codes:"
 msgstr "Códigos de salida:"
 
@@ -730,51 +734,51 @@ msgstr "Los agentes no pueden actuar sobre la propia shell"
 msgid "{app} is excluded from agent access"
 msgstr "{app} está excluida del acceso de agentes"
 
-#: crates/helix-agent/src/main.rs:69
+#: crates/helix-agent/src/main.rs:70
 msgid "Run “helix-agent --help” for help."
 msgstr "Ejecute «helix-agent --help» para ver la ayuda."
 
-#: crates/helix-agent/src/main.rs:168
+#: crates/helix-agent/src/main.rs:181 crates/helix-agent/src/read.rs:185
 msgid "off"
 msgstr "desactivado"
 
-#: crates/helix-agent/src/main.rs:168
+#: crates/helix-agent/src/main.rs:181 crates/helix-agent/src/read.rs:185
 msgid "on"
 msgstr "activado"
 
-#: crates/helix-agent/src/main.rs:170
+#: crates/helix-agent/src/main.rs:183
 msgid "Agent access: {state}"
 msgstr "Acceso de agentes: {state}"
 
-#: crates/helix-agent/src/main.rs:171
+#: crates/helix-agent/src/main.rs:184
 msgid "Access level: {level}"
 msgstr "Nivel de acceso: {level}"
 
-#: crates/helix-agent/src/main.rs:175
+#: crates/helix-agent/src/main.rs:188
 msgid "This agent: {agent}"
 msgstr "Este agente: {agent}"
 
-#: crates/helix-agent/src/main.rs:175
+#: crates/helix-agent/src/main.rs:188
 msgid "This agent: {name} ({agent})"
 msgstr "Este agente: {name} ({agent})"
 
-#: crates/helix-agent/src/main.rs:178
+#: crates/helix-agent/src/main.rs:191
 msgid "Allowed for this session: {level}"
 msgstr "Permitido en esta sesión: {level}"
 
-#: crates/helix-agent/src/main.rs:179
+#: crates/helix-agent/src/main.rs:192
 msgid "Always allowed: {level}"
 msgstr "Permitido siempre: {level}"
 
-#: crates/helix-agent/src/main.rs:180
+#: crates/helix-agent/src/main.rs:193
 msgid "Denied by the user for this session"
 msgstr "Denegado por el usuario en esta sesión"
 
-#: crates/helix-agent/src/main.rs:181
+#: crates/helix-agent/src/main.rs:194
 msgid "Not allowed yet: the user is asked on first use"
 msgstr "Aún no permitido: se pregunta al usuario en el primer uso"
 
-#: crates/helix-agent/src/main.rs:184
+#: crates/helix-agent/src/main.rs:197
 msgid ""
 "This agent could not be told apart from the program that started it, so it "
 "can only be allowed for this session."
@@ -782,22 +786,22 @@ msgstr ""
 "Este agente no se pudo distinguir del programa que lo inició, así que solo "
 "puede permitirse para esta sesión."
 
-#: crates/helix-agent/src/main.rs:187
+#: crates/helix-agent/src/main.rs:200
 msgid "Running in a remote session (allowed)"
 msgstr "Ejecutándose en una sesión remota (permitido)"
 
-#: crates/helix-agent/src/main.rs:187
+#: crates/helix-agent/src/main.rs:200
 msgid ""
 "Running in a remote session; agent access from remote sessions is turned off"
 msgstr ""
 "Ejecutándose en una sesión remota; el acceso de agentes desde sesiones "
 "remotas está desactivado"
 
-#: crates/helix-agent/src/main.rs:190
+#: crates/helix-agent/src/main.rs:203
 msgid "The screen is locked"
 msgstr "La pantalla está bloqueada"
 
-#: crates/helix-agent/src/main.rs:192
+#: crates/helix-agent/src/main.rs:205
 msgid ""
 "Notifications access: {notifications}, Clipboard access: {clipboard}, "
 "Confirm sensitive actions: {confirm}"
@@ -805,23 +809,216 @@ msgstr ""
 "Acceso a notificaciones: {notifications}, acceso al portapapeles: "
 "{clipboard}, confirmar acciones delicadas: {confirm}"
 
-#: crates/helix-agent/src/main.rs:209
+#: crates/helix-agent/src/main.rs:222
 msgid "Agent Access version {version}"
 msgstr "Acceso de agentes versión {version}"
 
-#: crates/helix-agent/src/main.rs:210
+#: crates/helix-agent/src/main.rs:223
 msgid "Agent Access version unknown (cannot reach the Helix shell)"
 msgstr ""
 "Acceso de agentes versión desconocida (no se puede contactar con la shell de "
 "Helix)"
 
-#: crates/helix-agent/src/main.rs:243
+#: crates/helix-agent/src/main.rs:256
 msgid "Cannot read the activity log: {error}"
 msgstr "No se puede leer el registro de actividad: {error}"
 
-#: crates/helix-agent/src/main.rs:262
+#: crates/helix-agent/src/main.rs:275
 msgid "No agent activity recorded."
 msgstr "No hay actividad de agentes registrada."
+
+#: crates/helix-agent/src/read.rs:120
+msgid "“{value}” is not a number from 1"
+msgstr "«{value}» no es un número a partir de 1"
+
+#: crates/helix-agent/src/read.rs:126
+msgid "“{value}” is not a window id"
+msgstr "«{value}» no es un identificador de ventana"
+
+#: crates/helix-agent/src/read.rs:217
+msgid "Focused window: {id}"
+msgstr "Ventana con el foco: {id}"
+
+#: crates/helix-agent/src/read.rs:218
+msgid "Focused window: none"
+msgstr "Ventana con el foco: ninguna"
+
+#: crates/helix-agent/src/read.rs:220
+msgid "Active workspace: {index}"
+msgstr "Área de trabajo activa: {index}"
+
+#: crates/helix-agent/src/read.rs:222
+msgid "Dark style"
+msgstr "Estilo oscuro"
+
+#: crates/helix-agent/src/read.rs:223
+msgid "Do not disturb"
+msgstr "No molestar"
+
+#: crates/helix-agent/src/read.rs:224
+#: crates/helix-shell/src/panel_layout.rs:224
+#: crates/helix-shell/src/ui/quick.rs:417
+msgid "Night Light"
+msgstr "Luz nocturna"
+
+#: crates/helix-agent/src/read.rs:225
+#: crates/helix-shell/src/panel_layout.rs:220
+#: crates/helix-shell/src/ui/quick.rs:406
+msgid "Wi-Fi"
+msgstr "Wi-Fi"
+
+#: crates/helix-agent/src/read.rs:226
+msgid "Airplane mode"
+msgstr "Modo avión"
+
+#: crates/helix-agent/src/read.rs:234
+msgid "Volume: {percent}"
+msgstr "Volumen: {percent}"
+
+#: crates/helix-agent/src/read.rs:234
+msgid "Volume: {percent} (muted)"
+msgstr "Volumen: {percent} (silenciado)"
+
+#: crates/helix-agent/src/read.rs:237
+msgid "Brightness: {percent}"
+msgstr "Brillo: {percent}"
+
+#: crates/helix-agent/src/read.rs:245
+msgid "maximized"
+msgstr "maximizada"
+
+#: crates/helix-agent/src/read.rs:246
+msgid "full screen"
+msgstr "pantalla completa"
+
+#: crates/helix-agent/src/read.rs:247
+msgid "minimized"
+msgstr "minimizada"
+
+#: crates/helix-agent/src/read.rs:248
+msgid "left half"
+msgstr "mitad izquierda"
+
+#: crates/helix-agent/src/read.rs:249
+msgid "right half"
+msgstr "mitad derecha"
+
+#: crates/helix-agent/src/read.rs:250
+msgid "normal"
+msgstr "normal"
+
+#: crates/helix-agent/src/read.rs:256
+msgid "No windows."
+msgstr "No hay ventanas."
+
+#: crates/helix-agent/src/read.rs:258
+msgid "App"
+msgstr "Aplicación"
+
+#: crates/helix-agent/src/read.rs:258 crates/helix-agent/src/read.rs:279
+msgid "ID"
+msgstr "ID"
+
+#: crates/helix-agent/src/read.rs:258
+msgid "State"
+msgstr "Estado"
+
+#: crates/helix-agent/src/read.rs:258
+msgid "Title"
+msgstr "Título"
+
+#: crates/helix-agent/src/read.rs:258 crates/helix-agent/src/read.rs:285
+msgid "Workspace"
+msgstr "Área de trabajo"
+
+#: crates/helix-agent/src/read.rs:262
+msgid "{title} (focused)"
+msgstr "{title} (con el foco)"
+
+#: crates/helix-agent/src/read.rs:264
+msgid "all"
+msgstr "todas"
+
+#: crates/helix-agent/src/read.rs:269
+msgid "Window {id} shows {document}"
+msgstr "La ventana {id} muestra {document}"
+
+#: crates/helix-agent/src/read.rs:277
+msgid "No apps."
+msgstr "No hay aplicaciones."
+
+#: crates/helix-agent/src/read.rs:279 crates/helix-agent/src/read.rs:294
+#: crates/helix-portals/src/dynamic_launcher.rs:154
+#: crates/helix-shell/src/ui/file_chooser.rs:1068
+#: crates/helix-shell/src/ui/file_chooser.rs:1142
+#: crates/helix-shell/src/ui/file_chooser.rs:1472
+msgid "Name"
+msgstr "Nombre"
+
+#: crates/helix-agent/src/read.rs:279 crates/helix-agent/src/read.rs:285
+#: crates/helix-shell/src/ui/atspi.rs:676
+#: crates/helix-shell/src/ui/atspi.rs:688
+#: crates/helix-shell/src/ui/overview.rs:1210
+msgid "Windows"
+msgstr "Ventanas"
+
+#: crates/helix-agent/src/read.rs:286
+msgid "active"
+msgstr "activa"
+
+#: crates/helix-agent/src/read.rs:292
+msgid "No monitors."
+msgstr "No hay monitores."
+
+#: crates/helix-agent/src/read.rs:294 crates/helix-shell/src/ui/capture.rs:383
+msgid "Area"
+msgstr "Área"
+
+#: crates/helix-agent/src/read.rs:294
+msgid "Monitor"
+msgstr "Monitor"
+
+#: crates/helix-agent/src/read.rs:294
+msgid "Scale"
+msgstr "Escala"
+
+#: crates/helix-agent/src/read.rs:298
+msgid "primary"
+msgstr "principal"
+
+#: crates/helix-agent/src/read.rs:306
+msgid "No notifications."
+msgstr "No hay notificaciones."
+
+#: crates/helix-agent/src/read.rs:323
+msgid ""
+"Notification contents are hidden: Notifications access is turned off "
+"(Settings › Privacy & Security › Agent Access)."
+msgstr ""
+"El contenido de las notificaciones está oculto: el acceso a notificaciones "
+"está desactivado (Configuración › Privacidad y seguridad › Acceso de "
+"agentes)."
+
+#: crates/helix-agent/src/read.rs:331
+msgid "No files."
+msgstr "No hay archivos."
+
+#: crates/helix-agent/src/read.rs:333
+#: crates/helix-shell/src/ui/file_chooser.rs:1145
+#: crates/helix-shell/src/ui/file_chooser.rs:1445
+#: crates/helix-shell/src/ui/file_chooser.rs:1450
+msgid "Location"
+msgstr "Ubicación"
+
+#: crates/helix-agent/src/read.rs:333
+#: crates/helix-shell/src/ui/file_chooser.rs:1144
+msgid "Modified"
+msgstr "Modificado"
+
+#: crates/helix-agent/src/read.rs:333
+#: crates/helix-shell/src/ui/file_chooser.rs:1146
+msgid "Type"
+msgstr "Tipo"
 
 #: crates/helix-agent/src/when.rs:11
 msgid "“{when}” is not a date, a time or a relative time such as +10m or -1d"
@@ -885,19 +1082,19 @@ msgid "Back"
 msgstr "Atrás"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5493 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5545 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:587
 msgid "Power Off…"
 msgstr "Apagar…"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5490 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5542 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:586
 msgid "Restart…"
 msgstr "Reiniciar…"
 
 #: crates/helix-greeter/src/atspi.rs:97 crates/helix-greeter/src/paint.rs:504
-#: crates/helix-shell/src/ui.rs:1317 crates/helix-shell/src/ui/lock.rs:185
+#: crates/helix-shell/src/ui.rs:1319 crates/helix-shell/src/ui/lock.rs:185
 #: crates/helix-shell/src/ui/lock.rs:186 crates/helix-shell/src/ui/lock.rs:589
 msgid "Restart"
 msgstr "Reiniciar"
@@ -908,7 +1105,7 @@ msgid "Restart this computer?"
 msgstr "¿Reiniciar este equipo?"
 
 #: crates/helix-greeter/src/atspi.rs:98 crates/helix-greeter/src/paint.rs:505
-#: crates/helix-shell/src/ui.rs:1316 crates/helix-shell/src/ui/lock.rs:187
+#: crates/helix-shell/src/ui.rs:1318 crates/helix-shell/src/ui/lock.rs:187
 #: crates/helix-shell/src/ui/lock.rs:188 crates/helix-shell/src/ui/lock.rs:590
 msgid "Power Off"
 msgstr "Apagar"
@@ -926,18 +1123,18 @@ msgstr "¿Apagar este equipo?"
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 #: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1449 crates/helix-shell/src/lib.rs:1537
+#: crates/helix-shell/src/lib.rs:1453 crates/helix-shell/src/lib.rs:1541
 #: crates/helix-shell/src/mount_handler.rs:125
 #: crates/helix-shell/src/mount_handler.rs:139
 #: crates/helix-shell/src/mount_handler.rs:174
 #: crates/helix-shell/src/network_agent.rs:206
 #: crates/helix-shell/src/network_agent.rs:441
-#: crates/helix-shell/src/notifications.rs:529
+#: crates/helix-shell/src/notifications.rs:536
 #: crates/helix-shell/src/obex.rs:500 crates/helix-shell/src/obex.rs:548
 #: crates/helix-shell/src/polkit.rs:231 crates/helix-shell/src/polkit.rs:314
 #: crates/helix-shell/src/portal_dialog.rs:122
-#: crates/helix-shell/src/run_dialog.rs:184 crates/helix-shell/src/ui.rs:1350
-#: crates/helix-shell/src/ui.rs:1353 crates/helix-shell/src/ui.rs:3353
+#: crates/helix-shell/src/run_dialog.rs:184 crates/helix-shell/src/ui.rs:1352
+#: crates/helix-shell/src/ui.rs:1355 crates/helix-shell/src/ui.rs:3355
 #: crates/helix-shell/src/ui/atspi.rs:942
 #: crates/helix-shell/src/ui/file_chooser.rs:1361
 #: crates/helix-shell/src/ui/file_chooser.rs:1414
@@ -1028,7 +1225,7 @@ msgstr "{} %"
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
 #: crates/helix-shell/src/geoclue_agent.rs:115
-#: crates/helix-shell/src/ui.rs:1358 crates/helix-shell/src/ui.rs:1365
+#: crates/helix-shell/src/ui.rs:1360 crates/helix-shell/src/ui.rs:1367
 #: crates/helix-shell/src/ui/agent_prompt.rs:68
 msgid "Allow"
 msgstr "Permitir"
@@ -1039,7 +1236,7 @@ msgstr "Permitir"
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
 #: crates/helix-shell/src/geoclue_agent.rs:116
-#: crates/helix-shell/src/ui.rs:1357 crates/helix-shell/src/ui.rs:1364
+#: crates/helix-shell/src/ui.rs:1359 crates/helix-shell/src/ui.rs:1366
 #: crates/helix-shell/src/ui/agent_prompt.rs:62
 #: crates/helix-shell/src/ui/agent_prompt.rs:68
 msgid "Deny"
@@ -1053,8 +1250,8 @@ msgstr "{} quiere saber su nombre."
 msgid "Name: {real} ({user})"
 msgstr "Nombre: {real} ({user})"
 
-#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3360
-#: crates/helix-shell/src/ui.rs:3361 crates/helix-shell/src/ui.rs:3363
+#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3362
+#: crates/helix-shell/src/ui.rs:3363 crates/helix-shell/src/ui.rs:3365
 #: crates/helix-shell/src/ui/atspi.rs:943
 msgid "Share"
 msgstr "Compartir"
@@ -1125,13 +1322,6 @@ msgstr "Añadir a aplicaciones"
 msgid "Add"
 msgstr "Añadir"
 
-#: crates/helix-portals/src/dynamic_launcher.rs:154
-#: crates/helix-shell/src/ui/file_chooser.rs:1068
-#: crates/helix-shell/src/ui/file_chooser.rs:1142
-#: crates/helix-shell/src/ui/file_chooser.rs:1472
-msgid "Name"
-msgstr "Nombre"
-
 #: crates/helix-portals/src/dynamic_launcher.rs:158
 msgid "Choose a different icon"
 msgstr "Elegir otro icono"
@@ -1157,8 +1347,8 @@ msgstr "Seleccionar"
 
 #: crates/helix-portals/src/file_chooser.rs:202
 #: crates/helix-shell/src/file_chooser.rs:90
-#: crates/helix-shell/src/notifications.rs:244
-#: crates/helix-shell/src/notifications.rs:359
+#: crates/helix-shell/src/notifications.rs:251
+#: crates/helix-shell/src/notifications.rs:366
 #: crates/helix-shell/src/portal_dialog.rs:121
 #: crates/helix-shell/src/ui/desktop_icons.rs:29
 #: crates/helix-shell/src/ui/dock.rs:1474
@@ -1315,7 +1505,7 @@ msgid "This code is not valid."
 msgstr "Este código no es válido."
 
 #: crates/helix-shell/src/bluetooth_agent.rs:124
-#: crates/helix-shell/src/lib.rs:1263 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/lib.rs:1267 crates/helix-shell/src/obex.rs:478
 #: crates/helix-shell/src/panel_layout.rs:221
 #: crates/helix-shell/src/ui/quick.rs:409
 msgid "Bluetooth"
@@ -1738,53 +1928,53 @@ msgstr "Continuar"
 msgid "More"
 msgstr "Más"
 
-#: crates/helix-shell/src/lib.rs:1114
+#: crates/helix-shell/src/lib.rs:1118
 msgid "Nothing was turned off or restarted. {err}"
 msgstr "No se ha apagado ni reiniciado nada. {err}"
 
-#: crates/helix-shell/src/lib.rs:1114
+#: crates/helix-shell/src/lib.rs:1118
 msgid "Software"
 msgstr "Software"
 
-#: crates/helix-shell/src/lib.rs:1114
+#: crates/helix-shell/src/lib.rs:1118
 msgid "Updates could not be scheduled"
 msgstr "No se han podido programar las actualizaciones"
 
-#: crates/helix-shell/src/lib.rs:1263
+#: crates/helix-shell/src/lib.rs:1267
 msgid "Cannot pair with {name}"
 msgstr "No se puede emparejar con {name}"
 
-#: crates/helix-shell/src/lib.rs:1350
+#: crates/helix-shell/src/lib.rs:1354
 #: crates/helix-shell/src/panel_layout.rs:223
 #: crates/helix-shell/src/ui/quick.rs:415
 msgid "Auto Rotate"
 msgstr "Rotación automática"
 
-#: crates/helix-shell/src/lib.rs:1350
+#: crates/helix-shell/src/lib.rs:1354
 msgid "Rotation Locked"
 msgstr "Rotación bloqueada"
 
-#: crates/helix-shell/src/lib.rs:1446
+#: crates/helix-shell/src/lib.rs:1450
 msgid "Rename Folder"
 msgstr "Renombrar carpeta"
 
-#: crates/helix-shell/src/lib.rs:1447
+#: crates/helix-shell/src/lib.rs:1451
 msgid "Folder name"
 msgstr "Nombre de la carpeta"
 
-#: crates/helix-shell/src/lib.rs:1448
+#: crates/helix-shell/src/lib.rs:1452
 msgid "Rename"
 msgstr "Renombrar"
 
-#: crates/helix-shell/src/lib.rs:1534
+#: crates/helix-shell/src/lib.rs:1538
 msgid "Empty Trash?"
 msgstr "¿Vaciar la papelera?"
 
-#: crates/helix-shell/src/lib.rs:1535
+#: crates/helix-shell/src/lib.rs:1539
 msgid "All items in the Trash will be permanently deleted."
 msgstr "Todos los elementos de la papelera se eliminarán permanentemente."
 
-#: crates/helix-shell/src/lib.rs:1536 crates/helix-shell/src/ui/dock.rs:1491
+#: crates/helix-shell/src/lib.rs:1540 crates/helix-shell/src/ui/dock.rs:1491
 msgid "Empty Trash"
 msgstr "Vaciar la papelera"
 
@@ -1816,7 +2006,7 @@ msgid "Do not unplug until finished."
 msgstr "No lo desconecte hasta que termine."
 
 #: crates/helix-shell/src/media.rs:378
-#: crates/helix-shell/src/notifications.rs:272
+#: crates/helix-shell/src/notifications.rs:279
 msgid "Removable Media"
 msgstr "Soportes extraíbles"
 
@@ -2042,94 +2232,94 @@ msgstr "%-d de %B de %Y"
 msgid "%-d %b %Y"
 msgstr "%-d %b %Y"
 
-#: crates/helix-shell/src/notifications.rs:241
+#: crates/helix-shell/src/notifications.rs:248
 #: crates/helix-shell/src/ui/atspi.rs:488
 #: crates/helix-shell/src/ui/capture.rs:388
 #: crates/helix-shell/src/ui/capture.rs:461
 msgid "Screenshot"
 msgstr "Captura de pantalla"
 
-#: crates/helix-shell/src/notifications.rs:242
+#: crates/helix-shell/src/notifications.rs:249
 msgid "Screenshot captured"
 msgstr "Captura de pantalla realizada"
 
-#: crates/helix-shell/src/notifications.rs:243
+#: crates/helix-shell/src/notifications.rs:250
 msgid "You can paste the image from the clipboard."
 msgstr "Puede pegar la imagen desde el portapapeles."
 
-#: crates/helix-shell/src/notifications.rs:244
-#: crates/helix-shell/src/notifications.rs:359
+#: crates/helix-shell/src/notifications.rs:251
+#: crates/helix-shell/src/notifications.rs:366
 msgid "Show in Files"
 msgstr "Mostrar en Archivos"
 
-#: crates/helix-shell/src/notifications.rs:269
+#: crates/helix-shell/src/notifications.rs:276
 #: crates/helix-shell/src/ui/dock.rs:1476
 msgid "Eject"
 msgstr "Expulsar"
 
-#: crates/helix-shell/src/notifications.rs:269
+#: crates/helix-shell/src/notifications.rs:276
 msgid "Open with Files"
 msgstr "Abrir con Archivos"
 
-#: crates/helix-shell/src/notifications.rs:290
+#: crates/helix-shell/src/notifications.rs:297
 #: crates/helix-shell/src/panel_layout.rs:55
 msgid "Power"
 msgstr "Energía"
 
-#: crates/helix-shell/src/notifications.rs:334
+#: crates/helix-shell/src/notifications.rs:341
 msgid "{title} is ready"
 msgstr "{title} está listo"
 
-#: crates/helix-shell/src/notifications.rs:356
+#: crates/helix-shell/src/notifications.rs:363
 msgid "Screencast"
 msgstr "Grabación de pantalla"
 
-#: crates/helix-shell/src/notifications.rs:357
+#: crates/helix-shell/src/notifications.rs:364
 msgid "Screencast recorded"
 msgstr "Grabación de pantalla realizada"
 
-#: crates/helix-shell/src/notifications.rs:358
+#: crates/helix-shell/src/notifications.rs:365
 msgid "Saved as {name}."
 msgstr "Guardada como {name}."
 
-#: crates/helix-shell/src/notifications.rs:524
+#: crates/helix-shell/src/notifications.rs:531
 msgid "Reply to {}"
 msgstr "Responder a {}"
 
-#: crates/helix-shell/src/notifications.rs:527
-#: crates/helix-shell/src/notifications.rs:824
+#: crates/helix-shell/src/notifications.rs:534
+#: crates/helix-shell/src/notifications.rs:831
 msgid "Reply"
 msgstr "Responder"
 
-#: crates/helix-shell/src/notifications.rs:528
+#: crates/helix-shell/src/notifications.rs:535
 #: crates/helix-shell/src/obex.rs:517 crates/helix-shell/src/obex.rs:547
 msgid "Send"
 msgstr "Enviar"
 
-#: crates/helix-shell/src/notifications.rs:680
+#: crates/helix-shell/src/notifications.rs:687
 #: crates/helix-shell/src/ui/desktop_icons.rs:378
 msgid "Application"
 msgstr "Aplicación"
 
-#: crates/helix-shell/src/notifications.rs:825
+#: crates/helix-shell/src/notifications.rs:832
 #: crates/helix-shell/src/obex.rs:458
 msgid "Accept"
 msgstr "Aceptar"
 
-#: crates/helix-shell/src/notifications.rs:826
+#: crates/helix-shell/src/notifications.rs:833
 #: crates/helix-shell/src/obex.rs:459
 msgid "Decline"
 msgstr "Rechazar"
 
-#: crates/helix-shell/src/notifications.rs:827
+#: crates/helix-shell/src/notifications.rs:834
 msgid "Hang Up"
 msgstr "Colgar"
 
-#: crates/helix-shell/src/notifications.rs:828
+#: crates/helix-shell/src/notifications.rs:835
 msgid "Speaker On"
 msgstr "Altavoz activado"
 
-#: crates/helix-shell/src/notifications.rs:829
+#: crates/helix-shell/src/notifications.rs:836
 msgid "Speaker Off"
 msgstr "Altavoz desactivado"
 
@@ -2247,7 +2437,7 @@ msgstr "No se ha recibido «{}» de {}."
 msgid "A new version of the system"
 msgstr "Una nueva versión del sistema"
 
-#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5186
+#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5238
 msgid "Apps"
 msgstr "Aplicaciones"
 
@@ -2285,20 +2475,10 @@ msgstr "Configuración rápida"
 msgid "Right"
 msgstr "Derecha"
 
-#: crates/helix-shell/src/panel_layout.rs:220
-#: crates/helix-shell/src/ui/quick.rs:406
-msgid "Wi-Fi"
-msgstr "Wi-Fi"
-
 #: crates/helix-shell/src/panel_layout.rs:222
 #: crates/helix-shell/src/ui/quick.rs:412
 msgid "Airplane Mode"
 msgstr "Modo avión"
-
-#: crates/helix-shell/src/panel_layout.rs:224
-#: crates/helix-shell/src/ui/quick.rs:417
-msgid "Night Light"
-msgstr "Luz nocturna"
 
 #: crates/helix-shell/src/panel_layout.rs:225
 #: crates/helix-shell/src/ui/quick.rs:417
@@ -2458,47 +2638,47 @@ msgstr "{app} quiere ver su pantalla y controlar sus dispositivos de entrada."
 msgid "An application"
 msgstr "Una aplicación"
 
-#: crates/helix-shell/src/ui.rs:1309
+#: crates/helix-shell/src/ui.rs:1311
 msgid "It will be able to:"
 msgstr "Podrá:"
 
-#: crates/helix-shell/src/ui.rs:1311
+#: crates/helix-shell/src/ui.rs:1313
 msgid "Some applications are busy or have unsaved work:"
 msgstr "Algunas aplicaciones están ocupadas o tienen trabajo sin guardar:"
 
-#: crates/helix-shell/src/ui.rs:1318 crates/helix-shell/src/ui.rs:1319
+#: crates/helix-shell/src/ui.rs:1320 crates/helix-shell/src/ui.rs:1321
 msgid "Restart & Install"
 msgstr "Reiniciar e instalar"
 
-#: crates/helix-shell/src/ui.rs:1318
+#: crates/helix-shell/src/ui.rs:1320
 msgid "Restart & Install Updates"
 msgstr "Reiniciar e instalar actualizaciones"
 
-#: crates/helix-shell/src/ui.rs:1319
+#: crates/helix-shell/src/ui.rs:1321
 msgid "Restart & Install Upgrade"
 msgstr "Reiniciar e instalar la actualización de versión"
 
-#: crates/helix-shell/src/ui.rs:1320
+#: crates/helix-shell/src/ui.rs:1322
 msgid "Log Out"
 msgstr "Cerrar la sesión"
 
-#: crates/helix-shell/src/ui.rs:1327
+#: crates/helix-shell/src/ui.rs:1329
 msgid "Power Off Anyway"
 msgstr "Apagar de todos modos"
 
-#: crates/helix-shell/src/ui.rs:1328
+#: crates/helix-shell/src/ui.rs:1330
 msgid "Restart Anyway"
 msgstr "Reiniciar de todos modos"
 
-#: crates/helix-shell/src/ui.rs:1329
+#: crates/helix-shell/src/ui.rs:1331
 msgid "Restart & Install Anyway"
 msgstr "Reiniciar e instalar de todos modos"
 
-#: crates/helix-shell/src/ui.rs:1330
+#: crates/helix-shell/src/ui.rs:1332
 msgid "Log Out Anyway"
 msgstr "Cerrar la sesión de todos modos"
 
-#: crates/helix-shell/src/ui.rs:1335
+#: crates/helix-shell/src/ui.rs:1337
 msgid ""
 "The computer will restart and install updates in {remaining} second. "
 "Installing can take a while."
@@ -2512,7 +2692,7 @@ msgstr[1] ""
 "El equipo se reiniciará e instalará las actualizaciones en {remaining} "
 "segundos. La instalación puede tardar un rato."
 
-#: crates/helix-shell/src/ui.rs:1341
+#: crates/helix-shell/src/ui.rs:1343
 msgid ""
 "{name} will be installed after the restart, in {remaining} second. "
 "Installing can take a long time."
@@ -2526,29 +2706,29 @@ msgstr[1] ""
 "{name} se instalará después de reiniciar, en {remaining} segundos. La "
 "instalación puede tardar mucho."
 
-#: crates/helix-shell/src/ui.rs:1348
+#: crates/helix-shell/src/ui.rs:1350
 msgid "The session will end automatically in {remaining} second."
 msgid_plural "The session will end automatically in {remaining} seconds."
 msgstr[0] "La sesión terminará automáticamente en {remaining} segundo."
 msgstr[1] "La sesión terminará automáticamente en {remaining} segundos."
 
-#: crates/helix-shell/src/ui.rs:1353
+#: crates/helix-shell/src/ui.rs:1355
 msgid "Turn On"
 msgstr "Activar"
 
-#: crates/helix-shell/src/ui.rs:1353
+#: crates/helix-shell/src/ui.rs:1355
 msgid "Turn on {name}?"
 msgstr "¿Activar {name}?"
 
-#: crates/helix-shell/src/ui.rs:1355
+#: crates/helix-shell/src/ui.rs:1357
 msgid "Allow remote control?"
 msgstr "¿Permitir el control remoto?"
 
-#: crates/helix-shell/src/ui.rs:1362
+#: crates/helix-shell/src/ui.rs:1364
 msgid "Allow {app} to use all keyboard shortcuts?"
 msgstr "¿Permitir que {app} use todos los atajos de teclado?"
 
-#: crates/helix-shell/src/ui.rs:1363
+#: crates/helix-shell/src/ui.rs:1365
 msgid ""
 "While it has the keyboard, the desktop's shortcuts go to it. Super+Escape "
 "gives them back."
@@ -2556,145 +2736,145 @@ msgstr ""
 "Mientras tenga el teclado, los atajos del escritorio irán a ella. "
 "Super+Escape los devuelve."
 
-#: crates/helix-shell/src/ui.rs:1369
+#: crates/helix-shell/src/ui.rs:1371
 msgid "“{title}” is not responding."
 msgstr "«{title}» no responde."
 
-#: crates/helix-shell/src/ui.rs:1370
+#: crates/helix-shell/src/ui.rs:1372
 msgid ""
 "You may choose to wait a short while for it to continue or force the app to "
 "quit entirely."
 msgstr ""
 "Puede esperar un poco a que continúe o forzar el cierre de la aplicación."
 
-#: crates/helix-shell/src/ui.rs:1371
+#: crates/helix-shell/src/ui.rs:1373
 msgid "Wait"
 msgstr "Esperar"
 
-#: crates/helix-shell/src/ui.rs:1372
+#: crates/helix-shell/src/ui.rs:1374
 msgid "Force Quit"
 msgstr "Forzar la salida"
 
-#: crates/helix-shell/src/ui.rs:1376
+#: crates/helix-shell/src/ui.rs:1378
 msgid "Keep the new display settings?"
 msgstr "¿Mantener la nueva configuración de pantalla?"
 
-#: crates/helix-shell/src/ui.rs:1377
+#: crates/helix-shell/src/ui.rs:1379
 msgid "The previous settings come back in {remaining} second."
 msgid_plural "The previous settings come back in {remaining} seconds."
 msgstr[0] "La configuración anterior volverá en {remaining} segundo."
 msgstr[1] "La configuración anterior volverá en {remaining} segundos."
 
-#: crates/helix-shell/src/ui.rs:1378
+#: crates/helix-shell/src/ui.rs:1380
 msgid "Revert"
 msgstr "Revertir"
 
-#: crates/helix-shell/src/ui.rs:1379
+#: crates/helix-shell/src/ui.rs:1381
 msgid "Keep"
 msgstr "Mantener"
 
-#: crates/helix-shell/src/ui.rs:1437 crates/helix-shell/src/ui/atspi.rs:919
+#: crates/helix-shell/src/ui.rs:1439 crates/helix-shell/src/ui/atspi.rs:919
 msgid "Install pending software updates"
 msgstr "Instalar las actualizaciones de software pendientes"
 
-#: crates/helix-shell/src/ui.rs:1466
+#: crates/helix-shell/src/ui.rs:1468
 msgid "Muted"
 msgstr "Silenciado"
 
-#: crates/helix-shell/src/ui.rs:1467 crates/helix-shell/src/ui/atspi.rs:984
+#: crates/helix-shell/src/ui.rs:1469 crates/helix-shell/src/ui/atspi.rs:984
 #: crates/helix-shell/src/ui/gallery.rs:1245
 #: crates/helix-shell/src/ui/quick.rs:449
 msgid "Volume"
 msgstr "Volumen"
 
-#: crates/helix-shell/src/ui.rs:1468 crates/helix-shell/src/ui/quick.rs:453
+#: crates/helix-shell/src/ui.rs:1470 crates/helix-shell/src/ui/quick.rs:453
 msgid "Brightness"
 msgstr "Brillo"
 
-#: crates/helix-shell/src/ui.rs:1469
+#: crates/helix-shell/src/ui.rs:1471
 msgid "Microphone off"
 msgstr "Micrófono desactivado"
 
-#: crates/helix-shell/src/ui.rs:1470
+#: crates/helix-shell/src/ui.rs:1472
 msgid "Microphone on"
 msgstr "Micrófono activado"
 
-#: crates/helix-shell/src/ui.rs:2424 crates/helix-shell/src/ui/gallery.rs:295
+#: crates/helix-shell/src/ui.rs:2426 crates/helix-shell/src/ui/gallery.rs:295
 #: crates/helix-shell/src/ui/overview.rs:682
 msgid "Type to search…"
 msgstr "Escriba para buscar…"
 
-#: crates/helix-shell/src/ui.rs:2638
+#: crates/helix-shell/src/ui.rs:2640
 msgid "Checking…"
 msgstr "Comprobando…"
 
-#: crates/helix-shell/src/ui.rs:2680
+#: crates/helix-shell/src/ui.rs:2682
 msgid "Incorrect password. Try again."
 msgstr "Contraseña incorrecta. Inténtelo de nuevo."
 
-#: crates/helix-shell/src/ui.rs:2690
+#: crates/helix-shell/src/ui.rs:2692
 msgid "Cannot check password: {err}"
 msgstr "No se puede comprobar la contraseña: {err}"
 
-#: crates/helix-shell/src/ui.rs:3309 crates/helix-shell/src/ui/atspi.rs:929
+#: crates/helix-shell/src/ui.rs:3311 crates/helix-shell/src/ui/atspi.rs:929
 msgid "Share your screen?"
 msgstr "¿Compartir su pantalla?"
 
-#: crates/helix-shell/src/ui.rs:3314
+#: crates/helix-shell/src/ui.rs:3316
 msgid "{app} wants to see your screen. Choose what to share."
 msgstr "{app} quiere ver su pantalla. Elija qué compartir."
 
-#: crates/helix-shell/src/ui.rs:3320 crates/helix-shell/src/ui/atspi.rs:931
+#: crates/helix-shell/src/ui.rs:3322 crates/helix-shell/src/ui/atspi.rs:931
 msgid "It will be able to share the same screen again without asking."
 msgstr "Podrá volver a compartir la misma pantalla sin preguntar."
 
-#: crates/helix-shell/src/ui.rs:3555
+#: crates/helix-shell/src/ui.rs:3601
 msgid "New virtual monitor"
 msgstr "Nuevo monitor virtual"
 
-#: crates/helix-shell/src/ui.rs:5178 crates/helix-shell/src/ui/atspi.rs:785
+#: crates/helix-shell/src/ui.rs:5230 crates/helix-shell/src/ui/atspi.rs:785
 msgid "No matching apps"
 msgstr "No hay aplicaciones coincidentes"
 
-#: crates/helix-shell/src/ui.rs:5185
+#: crates/helix-shell/src/ui.rs:5237
 msgid "Open Windows"
 msgstr "Ventanas abiertas"
 
-#: crates/helix-shell/src/ui.rs:5226
+#: crates/helix-shell/src/ui.rs:5278
 msgid "Search for “{query}” in {name}"
 msgstr "Buscar «{query}» en {name}"
 
-#: crates/helix-shell/src/ui.rs:5291
+#: crates/helix-shell/src/ui.rs:5343
 msgid "{n} more result"
 msgid_plural "{n} more results"
 msgstr[0] "{n} resultado más"
 msgstr[1] "{n} resultados más"
 
-#: crates/helix-shell/src/ui.rs:5293
+#: crates/helix-shell/src/ui.rs:5345
 msgid "{n} result above"
 msgid_plural "{n} results above"
 msgstr[0] "{n} resultado arriba"
 msgstr[1] "{n} resultados arriba"
 
-#: crates/helix-shell/src/ui.rs:5478 crates/helix-shell/src/ui/atspi.rs:417
+#: crates/helix-shell/src/ui.rs:5530 crates/helix-shell/src/ui/atspi.rs:417
 #: crates/helix-shell/src/ui/quick.rs:560
 msgid "Lock Screen"
 msgstr "Bloquear la pantalla"
 
-#: crates/helix-shell/src/ui.rs:5481 crates/helix-shell/src/ui/lock.rs:515
+#: crates/helix-shell/src/ui.rs:5533 crates/helix-shell/src/ui/lock.rs:515
 #: crates/helix-shell/src/ui/lock.rs:597
 msgid "Switch User…"
 msgstr "Cambiar de usuario…"
 
-#: crates/helix-shell/src/ui.rs:5484
+#: crates/helix-shell/src/ui.rs:5536
 msgid "Suspend"
 msgstr "Suspender"
 
-#: crates/helix-shell/src/ui.rs:5487
+#: crates/helix-shell/src/ui.rs:5539
 msgid "Log Out…"
 msgstr "Cerrar la sesión…"
 
-#: crates/helix-shell/src/ui.rs:5573
+#: crates/helix-shell/src/ui.rs:5626
 msgid "The app"
 msgstr "La aplicación"
 
@@ -2956,12 +3136,6 @@ msgstr "Fondo"
 msgid "Trash"
 msgstr "Papelera"
 
-#: crates/helix-shell/src/ui/atspi.rs:676
-#: crates/helix-shell/src/ui/atspi.rs:688
-#: crates/helix-shell/src/ui/overview.rs:1210
-msgid "Windows"
-msgstr "Ventanas"
-
 #: crates/helix-shell/src/ui/atspi.rs:678
 msgid "Window Menu"
 msgstr "Menú de la ventana"
@@ -3123,16 +3297,16 @@ msgctxt "calendar day for screen readers"
 msgid "%e %B %Y"
 msgstr "%e de %B de %Y"
 
-#: crates/helix-shell/src/ui/background_menu.rs:60
+#: crates/helix-shell/src/ui/background_menu.rs:62
 msgid "Change Background…"
 msgstr "Cambiar el fondo…"
 
-#: crates/helix-shell/src/ui/background_menu.rs:62
+#: crates/helix-shell/src/ui/background_menu.rs:64
 msgid "Display Settings"
 msgstr "Configuración de pantalla"
 
-#: crates/helix-shell/src/ui/background_menu.rs:63
-#: crates/helix-shell/src/ui/background_menu.rs:105
+#: crates/helix-shell/src/ui/background_menu.rs:65
+#: crates/helix-shell/src/ui/background_menu.rs:107
 #: crates/helix-shell/src/ui/extensions_dialog.rs:62
 #: crates/helix-shell/src/ui/extensions_dialog.rs:126
 #: crates/helix-shell/src/ui/extensions_dialog.rs:265
@@ -3272,10 +3446,6 @@ msgstr ""
 #: crates/helix-shell/src/ui/capture.rs:354
 msgid "{w} × {h}"
 msgstr "{w} × {h}"
-
-#: crates/helix-shell/src/ui/capture.rs:383
-msgid "Area"
-msgstr "Área"
 
 #: crates/helix-shell/src/ui/capture.rs:384
 msgid "Screen"
@@ -3539,20 +3709,6 @@ msgstr "Buscar «{query}»"
 #: crates/helix-shell/src/ui/file_chooser.rs:1143
 msgid "Size"
 msgstr "Tamaño"
-
-#: crates/helix-shell/src/ui/file_chooser.rs:1144
-msgid "Modified"
-msgstr "Modificado"
-
-#: crates/helix-shell/src/ui/file_chooser.rs:1145
-#: crates/helix-shell/src/ui/file_chooser.rs:1445
-#: crates/helix-shell/src/ui/file_chooser.rs:1450
-msgid "Location"
-msgstr "Ubicación"
-
-#: crates/helix-shell/src/ui/file_chooser.rs:1146
-msgid "Type"
-msgstr "Tipo"
 
 #: crates/helix-shell/src/ui/file_chooser.rs:1253
 msgid "This folder cannot be shown: {error}"

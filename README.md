@@ -254,6 +254,9 @@ helixdesktop/spec `contracts/agent-access/`.
 ```sh
 helix-agent status                 # is it on, and what may this agent do
 helix-agent request --level read-only
+helix-agent windows                # open windows (and the file each shows)
+helix-agent wait window --app org.gnome.TextEditor
+helix-agent files search report --since yesterday
 helix-agent --help                 # every command; JSON when piped
 man helix-agent
 ```

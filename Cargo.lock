@@ -1357,6 +1357,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "smithay-client-toolkit 0.21.1",
  "tokio",
  "zbus",
 ]

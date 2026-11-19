@@ -42,12 +42,14 @@ impl SettingsPanel {
         }
     }
 
-    /// The panel's command-line name (both settings apps take these).
-    fn arg(self) -> Option<&'static str> {
+    /// The panel's command-line name (both settings apps take these, but
+    /// only Helix's has an Agent Access page; GNOME's opens at Privacy).
+    fn arg(self, helix: bool) -> Option<&'static str> {
         match self {
             SettingsPanel::Background => Some("background"),
             SettingsPanel::Display => Some("display"),
             SettingsPanel::Overview => None,
+            SettingsPanel::AgentAccess if helix => Some("agent-access"),
             SettingsPanel::AgentAccess => Some("privacy"),
         }
     }
@@ -77,7 +79,7 @@ pub(super) enum Launch {
 /// settings finds it) when GNOME's desktop file for it is `gnome_desktop`
 /// installed; `None` with no settings app at all.
 pub(super) fn launch_for(panel: SettingsPanel, app: Option<&str>, gnome_desktop: bool) -> Option<Launch> {
-    let with_arg = |program: &str| match panel.arg() {
+    let with_arg = |program: &str| match panel.arg(program == "helix-settings-app") {
         Some(arg) => format!("{program} {arg}"),
         None => program.to_owned(),
     };
@@ -224,6 +226,10 @@ mod tests {
         // Helix's settings app first, at the panel.
         assert_eq!(launch_for(Background, Some("helix-settings-app"), true), Some(Launch::Command { line: "helix-settings-app background".into(), desktop_id: "org.helixdesktop.Settings.desktop" }));
         assert_eq!(launch_for(Overview, Some("helix-settings-app"), false), Some(Launch::Command { line: "helix-settings-app".into(), desktop_id: "org.helixdesktop.Settings.desktop" }));
+        // The indicator's "Agent Access Settings": the page itself in
+        // Helix's app, Privacy in GNOME's.
+        assert_eq!(launch_for(AgentAccess, Some("helix-settings-app"), true), Some(Launch::Command { line: "helix-settings-app agent-access".into(), desktop_id: "org.helixdesktop.Settings.desktop" }));
+        assert_eq!(launch_for(AgentAccess, Some("gnome-control-center"), false), Some(Launch::Command { line: "gnome-control-center privacy".into(), desktop_id: "org.gnome.Settings.desktop" }));
         // GNOME's desktop files, as GNOME Shell starts them.
         assert_eq!(launch_for(Display, Some("gnome-control-center"), true), Some(Launch::Desktop("gnome-display-panel.desktop")));
         assert_eq!(launch_for(Overview, None, true), Some(Launch::Desktop("org.gnome.Settings.desktop")));

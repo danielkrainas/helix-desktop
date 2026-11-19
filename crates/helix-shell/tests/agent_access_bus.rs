@@ -161,11 +161,10 @@ async fn policy_over_the_bus() {
     let conn = bus.connect().await;
 
     // The interfaces match their contracts (methods of later stages are
-    // not there yet).
+    // not there yet; the read methods, without a desktop to read, fail).
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
     let later: Vec<String> = [
-        "GetState", "ListWindows", "ListApps", "ListWorkspaces", "ListMonitors", "ListNotifications", "RecentFiles", "SearchFiles",
-        "WaitForWindow", "WaitForWindowClosed", "Ask", "Confirm", "AddReminder", "ListReminders", "CancelReminder", "Open", "Launch",
+        "Ask", "Confirm", "AddReminder", "ListReminders", "CancelReminder", "Open", "Launch",
         "WindowAction", "SwitchWorkspace", "SetToggle", "SetValue", "Notify", "GetClipboard", "SetClipboard", "A11yTree",
         "A11yAction", "A11ySetValue", "Screenshot", "Input",
     ]

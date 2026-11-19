@@ -15,7 +15,15 @@
 //! fail with `NotGranted`. The shell's UI fills them in ([`prompt`]) and
 //! shows the indicator ([`AgentAccess::set_indicator`]). The activity log
 //! is [`record`] (helixdesktop/desktop#144).
+//!
+//! The *Read only* methods (helixdesktop/desktop#146) read the UI's
+//! windows, workspaces and monitors ([`desktop`]), the notification list,
+//! the quick settings' state, recent files and file search ([`files`]),
+//! and what document a window shows ([`document`]).
 
+pub mod desktop;
+pub mod document;
+pub mod files;
 pub mod grants;
 pub mod identity;
 pub mod policy;
@@ -24,7 +32,7 @@ pub mod prompt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::future::BoxFuture;
 use zbus::message::Header;
@@ -166,7 +174,20 @@ struct Inner {
     shown: Mutex<Vec<prompt::Active>>,
     /// Calls running now (waits, questions, input), by agent id.
     running: Mutex<HashMap<String, usize>>,
+    /// Where the desktop's state comes from (the UI, the notifications).
+    desktop: OnceLock<Desktop>,
 }
+
+/// Where the *Read only* methods read the desktop's state.
+#[derive(Clone)]
+pub struct Desktop {
+    /// The UI, which answers [`UiEvent::AgentSnapshot`](crate::UiEvent::AgentSnapshot).
+    pub ui: tokio::sync::mpsc::UnboundedSender<crate::UiEvent>,
+    pub notifications: Option<crate::notifications::Center>,
+}
+
+/// How often waits look at the windows again.
+const WAIT_POLL: Duration = Duration::from_millis(200);
 
 /// Agent Access's state: grants and the policy check.
 #[derive(Clone)]
@@ -183,7 +204,7 @@ fn my_uid() -> u32 {
     unsafe { libc::getuid() }
 }
 
-fn value<'a>(v: impl Into<Value<'a>>) -> OwnedValue {
+pub(crate) fn value<'a>(v: impl Into<Value<'a>>) -> OwnedValue {
     OwnedValue::try_from(v.into()).expect("plain values hold no file descriptors")
 }
 
@@ -255,6 +276,7 @@ impl AgentAccess {
                 indicator: OnceLock::new(),
                 shown: Mutex::new(Vec::new()),
                 running: Mutex::new(HashMap::new()),
+                desktop: OnceLock::new(),
             }),
         }
     }
@@ -432,6 +454,39 @@ impl AgentAccess {
     /// that read or act on one.
     pub fn check_target(&self, config: &Config, target: Target<'_>) -> Result<(), AgentError> {
         policy::check_target(config, target)
+    }
+
+    /// Read the desktop's state from `desktop` from now on.
+    pub fn set_desktop(&self, desktop: Desktop) {
+        let _ = self.inner.desktop.set(desktop);
+    }
+
+    /// The windows, workspaces and monitors as the UI knows them now.
+    pub async fn snapshot(&self) -> Result<desktop::Snapshot, AgentError> {
+        let unavailable = || AgentError::Failed("the desktop's state is not available".into());
+        let ui = self.inner.desktop.get().ok_or_else(unavailable)?.ui.clone();
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        ui.send(crate::UiEvent::AgentSnapshot(desktop::SnapshotSlot::new(reply))).map_err(|_| unavailable())?;
+        tokio::time::timeout(Duration::from_secs(5), answer).await.map_err(|_| unavailable())?.map_err(|_| unavailable())
+    }
+
+    /// The notification list, newest first.
+    fn notifications(&self) -> Vec<(crate::notify_store::Notification, i64)> {
+        self.inner.desktop.get().and_then(|d| d.notifications.as_ref()).map(|c| c.listed()).unwrap_or_default()
+    }
+
+    /// Whether `agent` may still make a call needing `need` (steps 3–8
+    /// without asking): for calls that keep running (README.md,
+    /// "Settings take effect at once").
+    pub async fn recheck(&self, agent: &Agent, need: Need) -> Result<Config, AgentError> {
+        let config = Config::read();
+        self.gate(agent, &config, need).await?;
+        let decision = self.grants().decide(&agent.id, need.level.unwrap_or(Level::ReadOnly), &config);
+        match decision {
+            Decision::Allowed => Ok(config),
+            Decision::Denied => Err(AgentError::DeniedByUser("the user denied this agent access".into())),
+            Decision::Ask => Err(AgentError::NotGranted("this agent's access ended".into())),
+        }
     }
 
     /// The status dictionary of `GetStatus` and `RequestAccess`.
@@ -626,6 +681,74 @@ impl Drop for Busy {
     }
 }
 
+/// The common options and the policy check of a *Read only* method.
+const READ: Need = Need::level(Level::ReadOnly);
+
+type Records = Vec<HashMap<String, OwnedValue>>;
+
+/// The quick settings' state for `GetState` (README.md, "Records",
+/// State): the settings, and what the sound server, NetworkManager and
+/// the backlight say when they answer.
+async fn quick_state(conn: &Connection, system: Option<&Connection>) -> HashMap<String, OwnedValue> {
+    let mut out = {
+        let interface = helix_settings::Schema::open("org.gnome.desktop.interface");
+        let notifications = helix_settings::Schema::open("org.gnome.desktop.notifications");
+        let color = helix_settings::Schema::open("org.gnome.settings-daemon.plugins.color");
+        HashMap::from([
+            ("dark-style".to_owned(), value(interface.get::<String>("color-scheme").as_deref() == Some("prefer-dark"))),
+            ("do-not-disturb".to_owned(), value(!notifications.get_or("show-banners", true))),
+            ("night-light".to_owned(), value(color.get_or("night-light-enabled", false))),
+        ])
+    };
+    let status = match system {
+        Some(system) => tokio::time::timeout(Duration::from_secs(3), crate::status::read(Some(system))).await.ok(),
+        None => None,
+    };
+    if let Some(status) = status {
+        if let Some((wifi, _)) = status.wifi {
+            out.insert("wifi".to_owned(), value(wifi));
+        }
+        if status.wifi.is_some() || status.bluetooth.is_some() {
+            out.insert("airplane-mode".to_owned(), value(status.airplane));
+        }
+    }
+    if let Ok(Some((percent, muted))) = tokio::time::timeout(Duration::from_secs(3), crate::shell_keys::volume_state()).await {
+        out.insert("volume".to_owned(), value(f64::from(percent) / 100.0));
+        out.insert("muted".to_owned(), value(muted));
+    }
+    if let Ok(Some(percent)) = tokio::time::timeout(Duration::from_secs(3), crate::shell_keys::brightness_percent(conn)).await {
+        out.insert("brightness".to_owned(), value(f64::from(percent) / 100.0));
+    }
+    out
+}
+
+/// A timeout in milliseconds (0: none) as a deadline.
+fn deadline(timeout_ms: u32) -> Option<Instant> {
+    (timeout_ms > 0).then(|| Instant::now() + Duration::from_millis(u64::from(timeout_ms)))
+}
+
+impl Agent1 {
+    /// The documents the visible windows show, where their apps tell.
+    async fn documents(conn: &Connection, windows: &[&desktop::WindowInfo]) -> HashMap<u32, String> {
+        let players = document::players(conn).await;
+        let windows: Vec<desktop::WindowInfo> = windows.iter().map(|w| (*w).clone()).collect();
+        tokio::task::spawn_blocking(move || {
+            let installed = desktop::installed();
+            let recent = files::read_xbel(&files::xbel_path());
+            let refs: Vec<&desktop::WindowInfo> = windows.iter().collect();
+            document::documents(&refs, &installed, &players, &recent)
+        })
+        .await
+        .unwrap_or_default()
+    }
+
+    /// Window records of `windows`, with their documents.
+    async fn window_records(conn: &Connection, snapshot: &desktop::Snapshot, windows: &[&desktop::WindowInfo]) -> Records {
+        let docs = Self::documents(conn, windows).await;
+        windows.iter().map(|w| desktop::window_record(snapshot, w, docs.get(&w.id).map(String::as_str))).collect()
+    }
+}
+
 /// `org.helixdesktop.Agent1`.
 pub struct Agent1 {
     pub access: AgentAccess,
@@ -661,6 +784,166 @@ impl Agent1 {
         let need = Need { exact: true, ..Need::level(level) };
         let caller = self.access.check(conn, &header, "RequestAccess", need, options).await?;
         Ok(self.access.status(&caller.agent, &caller.config).await)
+    }
+
+    async fn get_state(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<HashMap<String, OwnedValue>, AgentError> {
+        let caller = self.access.check(conn, &header, "GetState", READ, CallOptions::from_dict(&options)).await?;
+        let snapshot = self.access.snapshot().await?;
+        let shown = desktop::visible(&snapshot, &caller.config);
+        let focused = if shown.iter().any(|w| w.id == snapshot.focused) { snapshot.focused } else { 0 };
+        let system = self.access.system_bus().await;
+        let mut state = quick_state(conn, system.as_ref()).await;
+        state.insert("focused-window".to_owned(), value(focused));
+        state.insert("active-workspace".to_owned(), value(snapshot.active));
+        Ok(state)
+    }
+
+    async fn list_windows(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        let caller = self.access.check(conn, &header, "ListWindows", READ, CallOptions::from_dict(&options)).await?;
+        let wanted = desktop::Match::from_dict(&options)?;
+        if let Some(app) = &wanted.app {
+            self.access.check_target(&caller.config, Target::App(app))?;
+        }
+        let snapshot = self.access.snapshot().await?;
+        let shown: Vec<&desktop::WindowInfo> = desktop::visible(&snapshot, &caller.config).into_iter().filter(|w| wanted.matches(&snapshot, w)).collect();
+        Ok(Self::window_records(conn, &snapshot, &shown).await)
+    }
+
+    async fn list_apps(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        let caller = self.access.check(conn, &header, "ListApps", READ, CallOptions::from_dict(&options)).await?;
+        let running = match options.get("running") {
+            None => false,
+            Some(v) => bool::try_from(v.clone()).map_err(|_| AgentError::invalid_args("“running” must be a boolean"))?,
+        };
+        let snapshot = self.access.snapshot().await?;
+        let windows: Vec<desktop::WindowInfo> = desktop::visible(&snapshot, &caller.config).into_iter().cloned().collect();
+        let config = caller.config.clone();
+        tokio::task::spawn_blocking(move || {
+            let refs: Vec<&desktop::WindowInfo> = windows.iter().collect();
+            desktop::app_records(&desktop::installed(), &refs, &config, running)
+        })
+        .await
+        .map_err(|e| AgentError::Failed(e.to_string()))
+    }
+
+    async fn list_workspaces(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        let caller = self.access.check(conn, &header, "ListWorkspaces", READ, CallOptions::from_dict(&options)).await?;
+        let snapshot = self.access.snapshot().await?;
+        Ok(desktop::workspace_records(&snapshot, &desktop::visible(&snapshot, &caller.config)))
+    }
+
+    async fn list_monitors(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        self.access.check(conn, &header, "ListMonitors", READ, CallOptions::from_dict(&options)).await?;
+        let snapshot = self.access.snapshot().await?;
+        Ok(desktop::monitor_records(&snapshot))
+    }
+
+    async fn list_notifications(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        let caller = self.access.check(conn, &header, "ListNotifications", READ, CallOptions::from_dict(&options)).await?;
+        let limit = match options.get("limit") {
+            None => crate::notify_store::LIST_LIMIT,
+            Some(v) => u32::try_from(v.clone()).map_err(|_| AgentError::invalid_args("“limit” must be a number (u)"))?.max(1) as usize,
+        };
+        let snapshot = self.access.snapshot().await.unwrap_or_default();
+        let notes: Vec<desktop::NoteInfo> = self
+            .access
+            .notifications()
+            .into_iter()
+            .map(|(n, time)| desktop::NoteInfo {
+                id: n.id,
+                app_id: n.app_id.clone(),
+                app_name: n.app_name.clone(),
+                time,
+                summary: n.summary.clone(),
+                body: if n.markup { crate::markup::plain(&n.body) } else { n.body.clone() },
+                window: match n.origin {
+                    crate::notify_store::Origin::Window { id } => Some(id),
+                    _ => None,
+                },
+            })
+            .collect();
+        let config = caller.config.clone();
+        let contents = config.notifications;
+        tokio::task::spawn_blocking(move || {
+            let installed = desktop::installed();
+            notes.iter().filter(|n| !desktop::note_hidden(n, &snapshot, &installed, &config)).take(limit).map(|n| desktop::note_record(n, contents)).collect()
+        })
+        .await
+        .map_err(|e| AgentError::Failed(e.to_string()))
+    }
+
+    async fn recent_files(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        let caller = self.access.check(conn, &header, "RecentFiles", READ, CallOptions::from_dict(&options)).await?;
+        let limit = files::limit(&options)?;
+        let mime = match options.get("type") {
+            None => None,
+            Some(v) => Some(String::try_from(v.clone()).map_err(|_| AgentError::invalid_args("“type” must be a string"))?).filter(|m| !m.is_empty()),
+        };
+        let config = caller.config.clone();
+        tokio::task::spawn_blocking(move || {
+            // Nothing when the user turned recent files off.
+            let Some(cutoff) = helix_settings::files::privacy_cutoff() else { return Vec::new() };
+            let found = files::recent(files::read_xbel(&files::xbel_path()), &desktop::installed(), &config, cutoff, mime.as_deref(), limit);
+            found.iter().map(files::FileInfo::record).collect()
+        })
+        .await
+        .map_err(|e| AgentError::Failed(e.to_string()))
+    }
+
+    async fn search_files(&self, query: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        let caller = self.access.check(conn, &header, "SearchFiles", READ, CallOptions::from_dict(&options)).await?;
+        let search = files::search_options(query, &options)?;
+        let _busy = self.access.busy(&caller.agent);
+        Ok(files::search(conn, &search).await.iter().map(files::FileInfo::record).collect())
+    }
+
+    async fn wait_for_window(
+        &self,
+        wanted_match: HashMap<String, OwnedValue>,
+        timeout_ms: u32,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<HashMap<String, OwnedValue>, AgentError> {
+        let caller = self.access.check(conn, &header, "WaitForWindow", READ, CallOptions::from_dict(&wanted_match)).await?;
+        let wanted = desktop::Match::from_dict(&wanted_match)?;
+        if let Some(app) = &wanted.app {
+            self.access.check_target(&caller.config, Target::App(app))?;
+        }
+        let _busy = self.access.busy(&caller.agent);
+        let until = deadline(timeout_ms);
+        let mut config = caller.config;
+        loop {
+            let snapshot = self.access.snapshot().await?;
+            if let Some(w) = desktop::visible(&snapshot, &config).into_iter().find(|w| wanted.matches(&snapshot, w)) {
+                let mut records = Self::window_records(conn, &snapshot, &[w]).await;
+                return Ok(records.remove(0));
+            }
+            if until.is_some_and(|u| Instant::now() >= u) {
+                return Err(AgentError::TimedOut("no such window appeared".into()));
+            }
+            tokio::time::sleep(WAIT_POLL).await;
+            config = self.access.recheck(&caller.agent, READ).await?;
+        }
+    }
+
+    async fn wait_for_window_closed(&self, window: u32, timeout_ms: u32, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), AgentError> {
+        let caller = self.access.check(conn, &header, "WaitForWindowClosed", READ, CallOptions::default()).await?;
+        let snapshot = self.access.snapshot().await?;
+        let Some(w) = snapshot.windows.iter().find(|w| w.id == window) else { return Err(AgentError::NotFound(format!("window {window}"))) };
+        self.access.check_target(&caller.config, Target::App(&w.app_id))?;
+        let _busy = self.access.busy(&caller.agent);
+        let until = deadline(timeout_ms);
+        loop {
+            let snapshot = self.access.snapshot().await?;
+            if !snapshot.windows.iter().any(|w| w.id == window) {
+                return Ok(());
+            }
+            if until.is_some_and(|u| Instant::now() >= u) {
+                return Err(AgentError::TimedOut("the window is still open".into()));
+            }
+            tokio::time::sleep(WAIT_POLL).await;
+            self.access.recheck(&caller.agent, READ).await?;
+        }
     }
 
     #[zbus(signal)]

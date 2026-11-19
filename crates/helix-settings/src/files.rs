@@ -420,7 +420,9 @@ pub fn recent_cutoff(remember: bool, max_age_days: i32, now: i64) -> Option<i64>
     }
 }
 
-fn privacy_cutoff() -> Option<i64> {
+/// The oldest use of a recent file still shown (Unix seconds), as the
+/// privacy settings say; `None` when recent files are not remembered.
+pub fn privacy_cutoff() -> Option<i64> {
     const PRIVACY: &str = "org.gnome.desktop.privacy";
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
     let Some(schema) = gio::SettingsSchemaSource::default().and_then(|src| src.lookup(PRIVACY, true)) else { return recent_cutoff(true, -1, now) };

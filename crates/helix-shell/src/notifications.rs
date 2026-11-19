@@ -219,6 +219,13 @@ impl Center {
         }
     }
 
+    /// The list as agents read it (helixdesktop/desktop#146): newest
+    /// first, each with when it arrived (Unix seconds).
+    pub fn listed(&self) -> Vec<(Notification, i64)> {
+        let store = self.store();
+        store.list().into_iter().map(|n| (n.clone(), store.arrived(n.id))).collect()
+    }
+
     /// The user opened the list: nothing is unseen any more.
     pub fn mark_seen(&self) {
         self.store().unseen = false;

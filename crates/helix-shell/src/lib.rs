@@ -321,6 +321,9 @@ pub enum UiEvent {
     AgentPrompt(agent::prompt::RequestSlot),
     /// The agents the top bar's indicator lists (none: no indicator).
     AgentsActive(Vec<agent::prompt::Active>),
+    /// What agents may read of the windows, workspaces and monitors
+    /// (helixdesktop/desktop#146).
+    AgentSnapshot(agent::desktop::SnapshotSlot),
 }
 
 /// What the quick settings menu changes.
@@ -781,6 +784,7 @@ impl ShellService {
             agent::Setup { consent: agent::prompt::consent(ui.clone()), confirm: agent::prompt::confirm(ui.clone()), ..agent::Setup::default() },
         );
         agent_access.set_indicator(ui.clone());
+        agent_access.set_desktop(agent::Desktop { ui: ui.clone(), notifications: Some(center.clone()) });
         // The shell's own lookups of the screen saver use this copy; the
         // name's owner serves the other (they share their state).
         let public_saver = screensaver::ScreenSaver { status: saver.status.clone(), ui: saver.ui.clone(), auth: saver.auth.clone() };

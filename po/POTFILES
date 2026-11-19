@@ -2,6 +2,7 @@
 crates/helix-agent/src/cli.rs
 crates/helix-agent/src/errors.rs
 crates/helix-agent/src/main.rs
+crates/helix-agent/src/read.rs
 crates/helix-agent/src/when.rs
 crates/helix-comp/src/display_switch.rs
 crates/helix-greeter/src/app.rs

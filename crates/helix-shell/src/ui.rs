@@ -362,6 +362,8 @@ struct Ui {
     lock_background_serial: u64,
     /// Where windows are, from the compositor (window list v8).
     window_geometry: HashMap<u32, overview::Geometry>,
+    /// How windows are placed (window list v11 `window_state` bits).
+    window_state: HashMap<u32, u32>,
     /// The primary monitor's area (x, y, w, h).
     primary_area: (i32, i32, i32, i32),
     /// Numbers identifying monitors (`ShowMonitorLabels`), one per output.
@@ -3376,6 +3378,50 @@ impl Ui {
         }
     }
 
+    /// What agents may read of the windows, workspaces and monitors
+    /// (helixdesktop/desktop#146); the agent code leaves out what they may
+    /// not see.
+    fn agent_snapshot(&self) -> crate::agent::desktop::Snapshot {
+        use crate::agent::desktop::{MonitorInfo, Snapshot, WindowInfo};
+        let windows = self
+            .windows
+            .mru()
+            .iter()
+            .map(|w| {
+                let g = self.window_geometry.get(&w.id).copied();
+                WindowInfo {
+                    id: w.id,
+                    app_id: w.app_id.clone(),
+                    title: w.title.clone(),
+                    workspace: w.workspace,
+                    geometry: g.map_or((0, 0, 0, 0), |g| (g.0, g.1, g.2, g.3)),
+                    minimized: g.is_some_and(|g| g.4),
+                    state: self.window_state.get(&w.id).copied().unwrap_or(0),
+                }
+            })
+            .collect();
+        let monitors = self
+            .output_state
+            .outputs()
+            .filter_map(|output| {
+                let info = self.output_state.info(&output)?;
+                let (x, y) = info.logical_position.unwrap_or((0, 0));
+                let (lw, lh) = info.logical_size?;
+                // The scale (fractional too): the mode's pixels over the
+                // logical area, whichever way the monitor is turned.
+                let mode = info.modes.iter().find(|m| m.current).map(|m| m.dimensions);
+                let scale = match mode {
+                    Some((mw, mh)) if lw > 0 && lh > 0 => ((f64::from(mw) * f64::from(mh)) / (f64::from(lw) * f64::from(lh))).sqrt(),
+                    _ => f64::from(info.scale_factor.max(1)),
+                };
+                let scale = (scale * 1000.0).round() / 1000.0;
+                let name = info.description.clone().filter(|d| !d.is_empty()).unwrap_or_else(|| format!("{} {}", info.make, info.model).trim().to_owned());
+                Some(MonitorInfo { connector: info.name.clone().unwrap_or_default(), name, area: (x, y, lw, lh), scale })
+            })
+            .collect();
+        Snapshot { windows, focused: self.windows.focused(), workspaces: self.windows.count, active: self.windows.active, monitors, primary: self.primary_area }
+    }
+
     /// One label per output whose connector is in `labels`, top left below
     /// the panel. Labels take no input.
     fn show_monitor_labels(&mut self, labels: &HashMap<String, i32>) {
@@ -3561,6 +3607,11 @@ impl Ui {
                             self.show_dialog(DialogState::new(kind, 0));
                         }
                     }
+                }
+            }
+            UiEvent::AgentSnapshot(slot) => {
+                if let Some(reply) = slot.take() {
+                    let _ = reply.send(self.agent_snapshot());
                 }
             }
             UiEvent::Windows(slot) => {
@@ -4031,7 +4082,7 @@ pub fn run(
     let primary_selections = smithay_client_toolkit::primary_selection::PrimarySelectionManagerState::bind(&globals, &qh).ok();
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=10, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=11, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=6, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
@@ -4154,6 +4205,7 @@ pub fn run(
         lock_background: Default::default(),
         lock_background_serial: 0,
         window_geometry: HashMap::new(),
+        window_state: HashMap::new(),
         primary_area: (0, 0, 1920, 1080),
         monitor_labels: Vec::new(),
         power: Default::default(),
@@ -5524,6 +5576,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
             helix_window_list_v1::Event::Closed { id } => {
                 ui.window_icons.remove(&id);
                 ui.window_geometry.remove(&id);
+                ui.window_state.remove(&id);
                 if let Some(overview) = ui.overview.as_mut() {
                     if overview.state.selected == Some(id) {
                         overview.state.selected = None;
@@ -5597,6 +5650,13 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                 ui.window_geometry.insert(id, (x, y, width, height, minimized != 0));
                 ui.draw_overview();
                 ui.dock_update();
+            }
+            helix_window_list_v1::Event::State { id, state } => {
+                let bits = match state {
+                    WEnum::Value(s) => s.bits(),
+                    WEnum::Unknown(bits) => bits,
+                };
+                ui.window_state.insert(id, bits);
             }
             helix_window_list_v1::Event::Primary { x, y, width, height } => {
                 ui.primary_area = (x, y, width, height);

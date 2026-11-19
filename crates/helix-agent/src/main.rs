@@ -7,6 +7,7 @@ mod cli;
 mod complete;
 mod errors;
 mod json;
+mod read;
 mod when;
 
 use std::collections::HashMap;
@@ -22,12 +23,12 @@ const BUS: &str = "org.gnome.Shell";
 const PATH: &str = "/org/helixdesktop/Agent1";
 const IFACE: &str = "org.helixdesktop.Agent1";
 /// `--timeout`'s default (seconds).
-const DEFAULT_TIMEOUT: f64 = 30.0;
+pub(crate) const DEFAULT_TIMEOUT: f64 = 30.0;
 
 /// What a command printed: JSON, and the text for people.
-struct Done {
-    json: Json,
-    text: String,
+pub(crate) struct Done {
+    pub json: Json,
+    pub text: String,
 }
 
 fn main() {
@@ -105,6 +106,9 @@ fn run(p: &cli::Parsed) -> Result<Option<Done>, Failure> {
             let level = p.opt("level").unwrap_or("");
             status(p, call(p, "RequestAccess", &(level, options(p)))).map(Some)
         }
+        "state" | "windows" | "apps" | "workspaces" | "monitors" | "notifications" | "files recent" | "files search" | "wait window" | "wait closed" => {
+            read::run(p, &path).map(Some)
+        }
         // The shell's methods for the rest come with helixdesktop/desktop
         // #146–#151 (`Cmd::ready`); until then this session cannot do them.
         _ => Err(Failure::not_supported()),
@@ -123,7 +127,7 @@ fn help(path: &[&str]) -> Result<Option<Done>, Failure> {
 }
 
 /// The common options every method with `options` takes.
-fn options(p: &cli::Parsed) -> HashMap<&'static str, Value<'static>> {
+pub(crate) fn options(p: &cli::Parsed) -> HashMap<&'static str, Value<'static>> {
     let mut out = HashMap::new();
     out.insert("interactive", Value::from(!p.no_ask));
     if p.sensitive {
@@ -137,14 +141,23 @@ fn call<B>(p: &cli::Parsed, method: &str, body: &B) -> Result<HashMap<String, Ow
 where
     B: serde::Serialize + zbus::zvariant::DynamicType,
 {
-    let timeout = p.timeout.unwrap_or(DEFAULT_TIMEOUT);
+    call_for::<_, (HashMap<String, OwnedValue>,)>(p, method, body, p.timeout.unwrap_or(DEFAULT_TIMEOUT)).map(|(map,)| map)
+}
+
+/// Call `method`, waiting at most `timeout` seconds (0: no limit), and
+/// read its reply as `R`.
+pub(crate) fn call_for<B, R>(_p: &cli::Parsed, method: &str, body: &B, timeout: f64) -> Result<R, Failure>
+where
+    B: serde::Serialize + zbus::zvariant::DynamicType,
+    R: serde::de::DeserializeOwned + zbus::zvariant::Type,
+{
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| Failure::new("failed", e.to_string()))?;
     runtime.block_on(async {
         let work = async {
             let conn = zbus::Connection::session().await.map_err(|_| Failure::no_shell())?;
             let reply = conn.call_method(Some(BUS), PATH, Some(IFACE), method, body).await.map_err(errors::from_zbus)?;
-            let (map,): (HashMap<String, OwnedValue>,) = reply.body().deserialize().map_err(|e| Failure::new("failed", e.to_string()))?;
-            Ok(map)
+            let out: R = reply.body().deserialize().map_err(|e| Failure::new("failed", e.to_string()))?;
+            Ok(out)
         };
         if timeout == 0.0 {
             work.await
@@ -228,7 +241,7 @@ fn entry_time(entry: &Json) -> Option<i64> {
     }
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 

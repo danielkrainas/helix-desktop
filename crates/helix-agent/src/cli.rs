@@ -70,6 +70,7 @@ const fn cmd(name: &'static str, summary: &'static str, level: Option<&'static s
 const LIMIT: Opt = valued("limit", "N", n_("Show at most N"));
 const MIME: Opt = valued("type", "MIME", n_("Only this type, e.g. application/pdf"));
 const WAIT_TIMEOUT: Opt = valued("timeout", "SECONDS", n_("Give up after this long"));
+const WAIT_FOR: Opt = valued("timeout", "SECONDS", n_("Give up after this long [default: 60; 0: never]"));
 const WINDOW: Arg = arg("WINDOW", n_("A window id from “helix-agent windows”"));
 
 /// The top-level commands, in `--help`'s groups.
@@ -83,20 +84,22 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
         },
     ]),
     (n_("Read (Read only):"), &[
-        Cmd { records: Some("State"), ..cmd("state", n_("Focused window, workspace and quick settings"), Some("read-only")) },
+        Cmd { ready: true, records: Some("State"), ..cmd("state", n_("Focused window, workspace and quick settings"), Some("read-only")) },
         Cmd {
+            ready: true,
             records: Some("Window"),
             opts: &[valued("app", "APP_ID", n_("Only this app's windows")), flag("focused", n_("Only the focused window"))],
             ..cmd("windows", n_("Open windows"), Some("read-only"))
         },
-        Cmd { records: Some("App"), opts: &[flag("running", n_("Only running apps"))], ..cmd("apps", n_("Installed and running apps"), Some("read-only")) },
-        Cmd { records: Some("Workspace"), ..cmd("workspaces", n_("Workspaces"), Some("read-only")) },
-        Cmd { records: Some("Monitor"), ..cmd("monitors", n_("Monitors"), Some("read-only")) },
-        Cmd { records: Some("Notification"), opts: &[LIMIT], ..cmd("notifications", n_("Recent notifications"), Some("read-only")) },
+        Cmd { ready: true, records: Some("App"), opts: &[flag("running", n_("Only running apps"))], ..cmd("apps", n_("Installed and running apps"), Some("read-only")) },
+        Cmd { ready: true, records: Some("Workspace"), ..cmd("workspaces", n_("Workspaces"), Some("read-only")) },
+        Cmd { ready: true, records: Some("Monitor"), ..cmd("monitors", n_("Monitors"), Some("read-only")) },
+        Cmd { ready: true, records: Some("Notification"), opts: &[LIMIT], ..cmd("notifications", n_("Recent notifications"), Some("read-only")) },
         Cmd {
             subs: &[
-                Cmd { records: Some("File"), opts: &[LIMIT, MIME], ..cmd("recent", n_("Recently used files"), Some("read-only")) },
+                Cmd { ready: true, records: Some("File"), opts: &[LIMIT, MIME], ..cmd("recent", n_("Recently used files"), Some("read-only")) },
                 Cmd {
+                    ready: true,
                     records: Some("File"),
                     args: &[arg("QUERY", n_("Words in the file's name or contents"))],
                     opts: &[
@@ -109,17 +112,20 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
                     ..cmd("search", n_("Search for files"), Some("read-only"))
                 },
             ],
+            ready: true,
             ..cmd("files", n_("Recent files and file search"), Some("read-only"))
         },
         Cmd {
             subs: &[
                 Cmd {
+                    ready: true,
                     records: Some("Window"),
-                    opts: &[valued("app", "APP_ID", n_("A window of this app")), valued("title", "TEXT", n_("A window whose title contains TEXT")), flag("focused", n_("Only once it has the focus")), WAIT_TIMEOUT],
+                    opts: &[valued("app", "APP_ID", n_("A window of this app")), valued("title", "TEXT", n_("A window whose title contains TEXT")), flag("focused", n_("Only once it has the focus")), WAIT_FOR],
                     ..cmd("window", n_("Wait until a matching window is open"), Some("read-only"))
                 },
-                Cmd { args: &[WINDOW], opts: &[WAIT_TIMEOUT], ..cmd("closed", n_("Wait until a window is closed"), Some("read-only")) },
+                Cmd { ready: true, args: &[WINDOW], opts: &[WAIT_FOR], ..cmd("closed", n_("Wait until a window is closed"), Some("read-only")) },
             ],
+            ready: true,
             ..cmd("wait", n_("Wait for a window to appear or close"), Some("read-only"))
         },
     ]),
