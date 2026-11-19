@@ -114,15 +114,17 @@ overrides:
       - libpipewire-0.3-0t64 | libpipewire-0.3-0
       - libpam0g
       - dbus
+      # A sandboxed extension's filtered session bus.
+      - xdg-dbus-proxy
     recommends:
       - xwayland
       - xdg-desktop-portal
       - gsettings-desktop-schemas
       - dconf-service
       - pipewire
-      # Extension sandboxes, and their filtered session bus.
+      # Extension sandboxes (their session bus is filtered through
+      # xdg-dbus-proxy, a dependency above).
       - bubblewrap
-      - xdg-dbus-proxy
       # The login screen's monitor layout (helix-login-monitors).
       - pkexec
     # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
@@ -143,15 +145,17 @@ overrides:
       - pipewire-libs
       - pam
       - dbus
+      # A sandboxed extension's filtered session bus.
+      - xdg-dbus-proxy
     recommends:
       - xorg-x11-server-Xwayland
       - xdg-desktop-portal
       - gsettings-desktop-schemas
       - dconf
       - pipewire
-      # Extension sandboxes, and their filtered session bus.
+      # Extension sandboxes (their session bus is filtered through
+      # xdg-dbus-proxy, a dependency above).
       - bubblewrap
-      - xdg-dbus-proxy
       # The login screen's monitor layout (helix-login-monitors).
       - polkit
     # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
@@ -174,15 +178,17 @@ overrides:
       - libpipewire
       - pam
       - dbus
+      # A sandboxed extension's filtered session bus.
+      - xdg-dbus-proxy
     recommends:
       - xorg-xwayland
       - xdg-desktop-portal
       - gsettings-desktop-schemas
       - dconf
       - pipewire
-      # Extension sandboxes, and their filtered session bus.
+      # Extension sandboxes (their session bus is filtered through
+      # xdg-dbus-proxy, a dependency above).
       - bubblewrap
-      - xdg-dbus-proxy
       # The login screen's monitor layout (helix-login-monitors).
       - polkit
     # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
