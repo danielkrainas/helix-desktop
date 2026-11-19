@@ -133,6 +133,29 @@ async fn shortcuts_flow() {
     }
     assert_eq!(seen, [format!("Activated {session_path} talk 1234"), format!("Deactivated {session_path} talk 1300")]);
 
+    // Another client sending the shell's signal presses nothing.
+    let next = |signals: &mut zbus::MessageStream| futures_util::FutureExt::now_or_never(signals.next());
+    let spoofer = bus.connect().await;
+    let fake = SignalEmitter::new(&spoofer, "/org/gnome/Shell").unwrap();
+    Shell::accelerator_activated(&fake, 1, HashMap::from([("timestamp", Value::from(1400u32))])).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(next(&mut signals).is_none(), "a spoofed activation was passed on");
+    // The shell is followed when another client takes its name: the old
+    // owner is not heard any more, the new one is.
+    shell.release_name("org.gnome.Shell").await.unwrap();
+    spoofer.request_name("org.gnome.Shell").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    Shell::accelerator_activated(&emitter, 1, HashMap::from([("timestamp", Value::from(1500u32))])).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(next(&mut signals).is_none(), "a signal from the shell's old owner was passed on");
+    Shell::accelerator_activated(&fake, 1, HashMap::from([("timestamp", Value::from(1600u32))])).await.unwrap();
+    let m = tokio::time::timeout(Duration::from_secs(5), signals.next()).await.unwrap().unwrap().unwrap();
+    let (_, id, time, _): (OwnedObjectPath, String, u64, HashMap<String, OwnedValue>) = m.body().deserialize().unwrap();
+    assert_eq!((m.header().member().unwrap().as_str(), id.as_str(), time), ("Activated", "talk", 1600));
+    spoofer.release_name("org.gnome.Shell").await.unwrap();
+    shell.request_name("org.gnome.Shell").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
     // The same set again: not asked; the old grab released first.
     let (code, _) = bind(3, shortcuts.clone()).await;
     assert_eq!(code, 0);

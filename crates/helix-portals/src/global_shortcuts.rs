@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
 use zbus::message::Header;
+use zbus::names::OwnedUniqueName;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
 use zbus::{fdo, interface, Connection, ObjectServer};
@@ -224,15 +225,46 @@ async fn bind(conn: &Connection, sessions: &Sessions, session: &OwnedObjectPath,
 }
 
 /// Pass the shell's accelerator signals on as the sessions' shortcuts.
+/// Only the client owning the shell's name may fire them: any other
+/// session-bus client could otherwise press an app's shortcuts. The
+/// owner is followed through `NameOwnerChanged` (the shell may restart).
 pub async fn follow(conn: Connection, sessions: Sessions) {
-    let rule = match zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(SHELL).and_then(|r| r.path(SHELL_PATH)) {
+    let Ok(dbus) = fdo::DBusProxy::new(&conn).await else { return };
+    let Ok(mut owners) = dbus.receive_name_owner_changed_with_args(&[(0, SHELL)]).await else { return };
+    let rule = match zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).sender(SHELL).and_then(|r| r.interface(SHELL)).and_then(|r| r.path(SHELL_PATH)) {
         Ok(rule) => rule.build(),
         Err(_) => return,
     };
     let Ok(mut signals) = zbus::MessageStream::for_match_rule(rule, &conn, None).await else { return };
     let Ok(emitter) = SignalEmitter::new(&conn, crate::OBJECT_PATH) else { return };
-    while let Some(Ok(message)) = signals.next().await {
-        let member = message.header().member().map(|m| m.to_string()).unwrap_or_default();
+    let mut shell: Option<OwnedUniqueName> = match zbus::names::BusName::try_from(SHELL) {
+        Ok(name) => dbus.get_name_owner(name).await.ok(),
+        Err(_) => None,
+    };
+    loop {
+        // Owner changes first: one queued before a signal took effect
+        // before it was sent.
+        let message = tokio::select! {
+            biased;
+            change = owners.next() => {
+                let Some(change) = change else { return };
+                if let Ok(args) = change.args() {
+                    shell = args.new_owner().as_ref().map(|n| OwnedUniqueName::from(n.to_owned()));
+                }
+                continue;
+            }
+            message = signals.next() => match message {
+                Some(Ok(message)) => message,
+                Some(Err(_)) => continue,
+                None => return,
+            },
+        };
+        let header = message.header();
+        if !from_owner(header.sender(), shell.as_ref()) {
+            tracing::warn!(sender = ?header.sender(), "global shortcut signal not from the shell: ignored");
+            continue;
+        }
+        let member = header.member().map(|m| m.to_string()).unwrap_or_default();
         if member != "AcceleratorActivated" && member != "AcceleratorDeactivated" {
             continue;
         }
@@ -250,6 +282,11 @@ pub async fn follow(conn: Connection, sessions: Sessions) {
             tracing::warn!(%err, "cannot pass a global shortcut on");
         }
     }
+}
+
+/// Whether a signal's `sender` is the shell's name's current `owner`.
+fn from_owner(sender: Option<&zbus::names::UniqueName<'_>>, owner: Option<&OwnedUniqueName>) -> bool {
+    matches!((sender, owner), (Some(sender), Some(owner)) if *sender == **owner)
 }
 
 pub struct ShortcutsSession {
@@ -346,6 +383,16 @@ impl GlobalShortcutsBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_shell_fires() {
+        let shell = OwnedUniqueName::try_from(":1.5").unwrap();
+        let other = zbus::names::UniqueName::try_from(":1.9").unwrap();
+        assert!(from_owner(Some(&*shell), Some(&shell)));
+        assert!(!from_owner(Some(&other), Some(&shell)), "another client");
+        assert!(!from_owner(Some(&other), None), "no shell running");
+        assert!(!from_owner(None, Some(&shell)));
+    }
 
     #[test]
     fn triggers() {
