@@ -66,24 +66,24 @@ msgstr "ユーザー名"
 
 #: crates/helix-greeter/src/atspi.rs:79 crates/helix-greeter/src/paint.rs:479
 #: crates/helix-shell/src/ui/file_chooser.rs:1446
-#: crates/helix-shell/src/ui/window_menu.rs:407
+#: crates/helix-shell/src/ui/window_menu.rs:427
 msgid "Back"
 msgstr "戻る"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5394 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5493 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:587
 msgid "Power Off…"
 msgstr "電源オフ…"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5391 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5490 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:586
 msgid "Restart…"
 msgstr "再起動…"
 
 #: crates/helix-greeter/src/atspi.rs:97 crates/helix-greeter/src/paint.rs:504
-#: crates/helix-shell/src/ui.rs:1269 crates/helix-shell/src/ui/lock.rs:185
+#: crates/helix-shell/src/ui.rs:1317 crates/helix-shell/src/ui/lock.rs:185
 #: crates/helix-shell/src/ui/lock.rs:186 crates/helix-shell/src/ui/lock.rs:589
 msgid "Restart"
 msgstr "再起動"
@@ -94,7 +94,7 @@ msgid "Restart this computer?"
 msgstr "このコンピューターを再起動しますか？"
 
 #: crates/helix-greeter/src/atspi.rs:98 crates/helix-greeter/src/paint.rs:505
-#: crates/helix-shell/src/ui.rs:1268 crates/helix-shell/src/ui/lock.rs:187
+#: crates/helix-shell/src/ui.rs:1316 crates/helix-shell/src/ui/lock.rs:187
 #: crates/helix-shell/src/ui/lock.rs:188 crates/helix-shell/src/ui/lock.rs:590
 msgid "Power Off"
 msgstr "電源オフ"
@@ -112,7 +112,7 @@ msgstr "このコンピューターの電源を切りますか？"
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 #: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1418 crates/helix-shell/src/lib.rs:1506
+#: crates/helix-shell/src/lib.rs:1449 crates/helix-shell/src/lib.rs:1537
 #: crates/helix-shell/src/mount_handler.rs:125
 #: crates/helix-shell/src/mount_handler.rs:139
 #: crates/helix-shell/src/mount_handler.rs:174
@@ -122,9 +122,9 @@ msgstr "このコンピューターの電源を切りますか？"
 #: crates/helix-shell/src/obex.rs:500 crates/helix-shell/src/obex.rs:548
 #: crates/helix-shell/src/polkit.rs:231 crates/helix-shell/src/polkit.rs:314
 #: crates/helix-shell/src/portal_dialog.rs:122
-#: crates/helix-shell/src/run_dialog.rs:184 crates/helix-shell/src/ui.rs:1302
-#: crates/helix-shell/src/ui.rs:1305 crates/helix-shell/src/ui.rs:3273
-#: crates/helix-shell/src/ui/atspi.rs:927
+#: crates/helix-shell/src/run_dialog.rs:184 crates/helix-shell/src/ui.rs:1350
+#: crates/helix-shell/src/ui.rs:1353 crates/helix-shell/src/ui.rs:3353
+#: crates/helix-shell/src/ui/atspi.rs:942
 #: crates/helix-shell/src/ui/file_chooser.rs:1361
 #: crates/helix-shell/src/ui/file_chooser.rs:1414
 #: crates/helix-shell/src/ui/file_chooser.rs:1440
@@ -141,8 +141,8 @@ msgstr "セッション"
 
 #: crates/helix-greeter/src/atspi.rs:113 crates/helix-greeter/src/atspi.rs:116
 #: crates/helix-shell/src/panel_layout.rs:52
-#: crates/helix-shell/src/ui/atspi.rs:572
-#: crates/helix-shell/src/ui/atspi.rs:629
+#: crates/helix-shell/src/ui/atspi.rs:579
+#: crates/helix-shell/src/ui/atspi.rs:641
 msgid "Accessibility"
 msgstr "アクセシビリティ"
 
@@ -214,7 +214,8 @@ msgstr "{}%"
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
 #: crates/helix-shell/src/geoclue_agent.rs:115
-#: crates/helix-shell/src/ui.rs:1310 crates/helix-shell/src/ui.rs:1317
+#: crates/helix-shell/src/ui.rs:1358 crates/helix-shell/src/ui.rs:1365
+#: crates/helix-shell/src/ui/agent_prompt.rs:68
 msgid "Allow"
 msgstr "許可"
 
@@ -224,7 +225,9 @@ msgstr "許可"
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
 #: crates/helix-shell/src/geoclue_agent.rs:116
-#: crates/helix-shell/src/ui.rs:1309 crates/helix-shell/src/ui.rs:1316
+#: crates/helix-shell/src/ui.rs:1357 crates/helix-shell/src/ui.rs:1364
+#: crates/helix-shell/src/ui/agent_prompt.rs:62
+#: crates/helix-shell/src/ui/agent_prompt.rs:68
 msgid "Deny"
 msgstr "拒否"
 
@@ -236,9 +239,9 @@ msgstr "{} があなたの名前を知りたがっています。"
 msgid "Name: {real} ({user})"
 msgstr "名前: {real} ({user})"
 
-#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3280
-#: crates/helix-shell/src/ui.rs:3281 crates/helix-shell/src/ui.rs:3283
-#: crates/helix-shell/src/ui/atspi.rs:928
+#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3360
+#: crates/helix-shell/src/ui.rs:3361 crates/helix-shell/src/ui.rs:3363
+#: crates/helix-shell/src/ui/atspi.rs:943
 msgid "Share"
 msgstr "共有"
 
@@ -493,8 +496,8 @@ msgid "This code is not valid."
 msgstr "このコードは無効です。"
 
 #: crates/helix-shell/src/bluetooth_agent.rs:124
-#: crates/helix-shell/src/lib.rs:1232 crates/helix-shell/src/obex.rs:478
-#: crates/helix-shell/src/panel_layout.rs:219
+#: crates/helix-shell/src/lib.rs:1263 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/panel_layout.rs:221
 #: crates/helix-shell/src/ui/quick.rs:409
 msgid "Bluetooth"
 msgstr "Bluetooth"
@@ -700,7 +703,7 @@ msgstr "{name} から {rule} シグナルを受け取る"
 #: crates/helix-shell/src/ext_host/runner.rs:339
 #: crates/helix-shell/src/ext_host/runner.rs:570
 #: crates/helix-shell/src/ext_host/runner.rs:952
-#: crates/helix-shell/src/ui/atspi.rs:497
+#: crates/helix-shell/src/ui/atspi.rs:504
 #: crates/helix-shell/src/ui/extensions_dialog.rs:112
 #: crates/helix-shell/src/ui/extensions_dialog.rs:217
 msgid "Extensions"
@@ -759,7 +762,7 @@ msgstr "Bluetooth オフ"
 #. Translators: the type of a folder in the file chooser.
 #: crates/helix-shell/src/favorites.rs:147
 #: crates/helix-shell/src/file_chooser.rs:267
-#: crates/helix-shell/src/ui/atspi.rs:757
+#: crates/helix-shell/src/ui/atspi.rs:772
 #: crates/helix-shell/src/ui/desktop_icons.rs:378
 #: crates/helix-shell/src/ui/file_chooser.rs:1490
 msgid "Folder"
@@ -911,53 +914,53 @@ msgstr "続行"
 msgid "More"
 msgstr "その他"
 
-#: crates/helix-shell/src/lib.rs:1087
+#: crates/helix-shell/src/lib.rs:1114
 msgid "Nothing was turned off or restarted. {err}"
 msgstr "電源オフや再起動は行われませんでした。{err}"
 
-#: crates/helix-shell/src/lib.rs:1087
+#: crates/helix-shell/src/lib.rs:1114
 msgid "Software"
 msgstr "ソフトウェア"
 
-#: crates/helix-shell/src/lib.rs:1087
+#: crates/helix-shell/src/lib.rs:1114
 msgid "Updates could not be scheduled"
 msgstr "アップデートをスケジュールできませんでした"
 
-#: crates/helix-shell/src/lib.rs:1232
+#: crates/helix-shell/src/lib.rs:1263
 msgid "Cannot pair with {name}"
 msgstr "{name} とペアリングできません"
 
-#: crates/helix-shell/src/lib.rs:1319
-#: crates/helix-shell/src/panel_layout.rs:221
+#: crates/helix-shell/src/lib.rs:1350
+#: crates/helix-shell/src/panel_layout.rs:223
 #: crates/helix-shell/src/ui/quick.rs:415
 msgid "Auto Rotate"
 msgstr "自動回転"
 
-#: crates/helix-shell/src/lib.rs:1319
+#: crates/helix-shell/src/lib.rs:1350
 msgid "Rotation Locked"
 msgstr "回転ロック"
 
-#: crates/helix-shell/src/lib.rs:1415
+#: crates/helix-shell/src/lib.rs:1446
 msgid "Rename Folder"
 msgstr "フォルダー名の変更"
 
-#: crates/helix-shell/src/lib.rs:1416
+#: crates/helix-shell/src/lib.rs:1447
 msgid "Folder name"
 msgstr "フォルダー名"
 
-#: crates/helix-shell/src/lib.rs:1417
+#: crates/helix-shell/src/lib.rs:1448
 msgid "Rename"
 msgstr "名前を変更"
 
-#: crates/helix-shell/src/lib.rs:1503
+#: crates/helix-shell/src/lib.rs:1534
 msgid "Empty Trash?"
 msgstr "ゴミ箱を空にしますか？"
 
-#: crates/helix-shell/src/lib.rs:1504
+#: crates/helix-shell/src/lib.rs:1535
 msgid "All items in the Trash will be permanently deleted."
 msgstr "ゴミ箱内のすべてのアイテムが完全に削除されます。"
 
-#: crates/helix-shell/src/lib.rs:1505 crates/helix-shell/src/ui/dock.rs:1491
+#: crates/helix-shell/src/lib.rs:1536 crates/helix-shell/src/ui/dock.rs:1491
 msgid "Empty Trash"
 msgstr "ゴミ箱を空にする"
 
@@ -1208,7 +1211,7 @@ msgid "%-d %b %Y"
 msgstr "%Y年%-m月%-d日"
 
 #: crates/helix-shell/src/notifications.rs:241
-#: crates/helix-shell/src/ui/atspi.rs:481
+#: crates/helix-shell/src/ui/atspi.rs:488
 #: crates/helix-shell/src/ui/capture.rs:388
 #: crates/helix-shell/src/ui/capture.rs:461
 msgid "Screenshot"
@@ -1409,12 +1412,12 @@ msgstr "{1} からの「{0}」を受信できませんでした。"
 msgid "A new version of the system"
 msgstr "新しいバージョンのシステム"
 
-#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5087
+#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5186
 msgid "Apps"
 msgstr "アプリ"
 
 #: crates/helix-shell/src/panel_layout.rs:49
-#: crates/helix-shell/src/ui/atspi.rs:555
+#: crates/helix-shell/src/ui/atspi.rs:562
 #: crates/helix-shell/src/ui/overview.rs:1201
 #: crates/helix-shell/src/ui/workspace_popup.rs:171
 msgid "Workspaces"
@@ -1436,46 +1439,46 @@ msgstr "入力ソース"
 msgid "System Status"
 msgstr "システムステータス"
 
-#: crates/helix-shell/src/panel_layout.rs:212
+#: crates/helix-shell/src/panel_layout.rs:214
 msgid "Center"
 msgstr "中央"
 
-#: crates/helix-shell/src/panel_layout.rs:212
+#: crates/helix-shell/src/panel_layout.rs:214
 #: crates/helix-shell/src/ui/osk.rs:888
 msgid "Left"
 msgstr "左"
 
-#: crates/helix-shell/src/panel_layout.rs:212
+#: crates/helix-shell/src/panel_layout.rs:214
 msgid "Quick Settings"
 msgstr "クイック設定"
 
-#: crates/helix-shell/src/panel_layout.rs:212
+#: crates/helix-shell/src/panel_layout.rs:214
 #: crates/helix-shell/src/ui/osk.rs:889
 msgid "Right"
 msgstr "右"
 
-#: crates/helix-shell/src/panel_layout.rs:218
+#: crates/helix-shell/src/panel_layout.rs:220
 #: crates/helix-shell/src/ui/quick.rs:406
 msgid "Wi-Fi"
 msgstr "Wi-Fi"
 
-#: crates/helix-shell/src/panel_layout.rs:220
+#: crates/helix-shell/src/panel_layout.rs:222
 #: crates/helix-shell/src/ui/quick.rs:412
 msgid "Airplane Mode"
 msgstr "機内モード"
 
-#: crates/helix-shell/src/panel_layout.rs:222
+#: crates/helix-shell/src/panel_layout.rs:224
 #: crates/helix-shell/src/ui/quick.rs:417
 msgid "Night Light"
 msgstr "夜間モード"
 
-#: crates/helix-shell/src/panel_layout.rs:223
+#: crates/helix-shell/src/panel_layout.rs:225
 #: crates/helix-shell/src/ui/quick.rs:417
 msgid "Dark Style"
 msgstr "ダークスタイル"
 
-#: crates/helix-shell/src/panel_layout.rs:224
-#: crates/helix-shell/src/ui/atspi.rs:840
+#: crates/helix-shell/src/panel_layout.rs:226
+#: crates/helix-shell/src/ui/atspi.rs:855
 #: crates/helix-shell/src/ui/notify.rs:944
 #: crates/helix-shell/src/ui/notify.rs:945
 #: crates/helix-shell/src/ui/quick.rs:417
@@ -1626,49 +1629,49 @@ msgstr "{app} が画面の表示と入力デバイスの操作を求めていま
 msgid "An application"
 msgstr "あるアプリケーション"
 
-#: crates/helix-shell/src/ui.rs:1261
+#: crates/helix-shell/src/ui.rs:1309
 msgid "It will be able to:"
 msgstr "次のことができるようになります:"
 
-#: crates/helix-shell/src/ui.rs:1263
+#: crates/helix-shell/src/ui.rs:1311
 msgid "Some applications are busy or have unsaved work:"
 msgstr ""
 "ビジー状態のアプリケーションか、保存されていない作業があるアプリケーションが"
 "あります:"
 
-#: crates/helix-shell/src/ui.rs:1270 crates/helix-shell/src/ui.rs:1271
+#: crates/helix-shell/src/ui.rs:1318 crates/helix-shell/src/ui.rs:1319
 msgid "Restart & Install"
 msgstr "再起動してインストール"
 
-#: crates/helix-shell/src/ui.rs:1270
+#: crates/helix-shell/src/ui.rs:1318
 msgid "Restart & Install Updates"
 msgstr "再起動してアップデートをインストール"
 
-#: crates/helix-shell/src/ui.rs:1271
+#: crates/helix-shell/src/ui.rs:1319
 msgid "Restart & Install Upgrade"
 msgstr "再起動してアップグレードをインストール"
 
-#: crates/helix-shell/src/ui.rs:1272
+#: crates/helix-shell/src/ui.rs:1320
 msgid "Log Out"
 msgstr "ログアウト"
 
-#: crates/helix-shell/src/ui.rs:1279
+#: crates/helix-shell/src/ui.rs:1327
 msgid "Power Off Anyway"
 msgstr "それでも電源オフ"
 
-#: crates/helix-shell/src/ui.rs:1280
+#: crates/helix-shell/src/ui.rs:1328
 msgid "Restart Anyway"
 msgstr "それでも再起動"
 
-#: crates/helix-shell/src/ui.rs:1281
+#: crates/helix-shell/src/ui.rs:1329
 msgid "Restart & Install Anyway"
 msgstr "それでも再起動してインストール"
 
-#: crates/helix-shell/src/ui.rs:1282
+#: crates/helix-shell/src/ui.rs:1330
 msgid "Log Out Anyway"
 msgstr "それでもログアウト"
 
-#: crates/helix-shell/src/ui.rs:1287
+#: crates/helix-shell/src/ui.rs:1335
 msgid ""
 "The computer will restart and install updates in {remaining} second. "
 "Installing can take a while."
@@ -1679,7 +1682,7 @@ msgstr[0] ""
 "{remaining} 秒後にコンピューターを再起動してアップデートをインストールしま"
 "す。インストールには時間がかかる場合があります。"
 
-#: crates/helix-shell/src/ui.rs:1293
+#: crates/helix-shell/src/ui.rs:1341
 msgid ""
 "{name} will be installed after the restart, in {remaining} second. "
 "Installing can take a long time."
@@ -1690,28 +1693,28 @@ msgstr[0] ""
 "{name} は再起動後にインストールされます。再起動まで {remaining} 秒です。イン"
 "ストールには長い時間がかかる場合があります。"
 
-#: crates/helix-shell/src/ui.rs:1300
+#: crates/helix-shell/src/ui.rs:1348
 msgid "The session will end automatically in {remaining} second."
 msgid_plural "The session will end automatically in {remaining} seconds."
 msgstr[0] "{remaining} 秒後に自動的にセッションを終了します。"
 
-#: crates/helix-shell/src/ui.rs:1305
+#: crates/helix-shell/src/ui.rs:1353
 msgid "Turn On"
 msgstr "オンにする"
 
-#: crates/helix-shell/src/ui.rs:1305
+#: crates/helix-shell/src/ui.rs:1353
 msgid "Turn on {name}?"
 msgstr "{name} をオンにしますか？"
 
-#: crates/helix-shell/src/ui.rs:1307
+#: crates/helix-shell/src/ui.rs:1355
 msgid "Allow remote control?"
 msgstr "リモート操作を許可しますか？"
 
-#: crates/helix-shell/src/ui.rs:1314
+#: crates/helix-shell/src/ui.rs:1362
 msgid "Allow {app} to use all keyboard shortcuts?"
 msgstr "{app} にすべてのキーボードショートカットの使用を許可しますか？"
 
-#: crates/helix-shell/src/ui.rs:1315
+#: crates/helix-shell/src/ui.rs:1363
 msgid ""
 "While it has the keyboard, the desktop's shortcuts go to it. Super+Escape "
 "gives them back."
@@ -1719,144 +1722,264 @@ msgstr ""
 "キーボードを占有している間は、デスクトップのショートカットがそのアプリに送ら"
 "れます。Super+Escape で元に戻せます。"
 
-#: crates/helix-shell/src/ui.rs:1321
+#: crates/helix-shell/src/ui.rs:1369
 msgid "“{title}” is not responding."
 msgstr "「{title}」が応答していません。"
 
-#: crates/helix-shell/src/ui.rs:1322
+#: crates/helix-shell/src/ui.rs:1370
 msgid ""
 "You may choose to wait a short while for it to continue or force the app to "
 "quit entirely."
 msgstr "しばらく待って処理の続行を待つか、アプリを強制終了することができます。"
 
-#: crates/helix-shell/src/ui.rs:1323
+#: crates/helix-shell/src/ui.rs:1371
 msgid "Wait"
 msgstr "待機"
 
-#: crates/helix-shell/src/ui.rs:1324
+#: crates/helix-shell/src/ui.rs:1372
 msgid "Force Quit"
 msgstr "強制終了"
 
-#: crates/helix-shell/src/ui.rs:1328
+#: crates/helix-shell/src/ui.rs:1376
 msgid "Keep the new display settings?"
 msgstr "新しいディスプレイ設定を維持しますか？"
 
-#: crates/helix-shell/src/ui.rs:1329
+#: crates/helix-shell/src/ui.rs:1377
 msgid "The previous settings come back in {remaining} second."
 msgid_plural "The previous settings come back in {remaining} seconds."
 msgstr[0] "{remaining} 秒後に以前の設定に戻ります。"
 
-#: crates/helix-shell/src/ui.rs:1330
+#: crates/helix-shell/src/ui.rs:1378
 msgid "Revert"
 msgstr "元に戻す"
 
-#: crates/helix-shell/src/ui.rs:1331
+#: crates/helix-shell/src/ui.rs:1379
 msgid "Keep"
 msgstr "維持する"
 
-#: crates/helix-shell/src/ui.rs:1389 crates/helix-shell/src/ui/atspi.rs:904
+#: crates/helix-shell/src/ui.rs:1437 crates/helix-shell/src/ui/atspi.rs:919
 msgid "Install pending software updates"
 msgstr "保留中のソフトウェアアップデートをインストール"
 
-#: crates/helix-shell/src/ui.rs:1418
+#: crates/helix-shell/src/ui.rs:1466
 msgid "Muted"
 msgstr "ミュート"
 
-#: crates/helix-shell/src/ui.rs:1419 crates/helix-shell/src/ui/atspi.rs:969
-#: crates/helix-shell/src/ui/gallery.rs:1243
+#: crates/helix-shell/src/ui.rs:1467 crates/helix-shell/src/ui/atspi.rs:984
+#: crates/helix-shell/src/ui/gallery.rs:1245
 #: crates/helix-shell/src/ui/quick.rs:449
 msgid "Volume"
 msgstr "音量"
 
-#: crates/helix-shell/src/ui.rs:1420 crates/helix-shell/src/ui/quick.rs:453
+#: crates/helix-shell/src/ui.rs:1468 crates/helix-shell/src/ui/quick.rs:453
 msgid "Brightness"
 msgstr "明るさ"
 
-#: crates/helix-shell/src/ui.rs:1421
+#: crates/helix-shell/src/ui.rs:1469
 msgid "Microphone off"
 msgstr "マイクオフ"
 
-#: crates/helix-shell/src/ui.rs:1422
+#: crates/helix-shell/src/ui.rs:1470
 msgid "Microphone on"
 msgstr "マイクオン"
 
-#: crates/helix-shell/src/ui.rs:2365 crates/helix-shell/src/ui/gallery.rs:295
+#: crates/helix-shell/src/ui.rs:2424 crates/helix-shell/src/ui/gallery.rs:295
 #: crates/helix-shell/src/ui/overview.rs:682
 msgid "Type to search…"
 msgstr "入力して検索…"
 
-#: crates/helix-shell/src/ui.rs:2577
+#: crates/helix-shell/src/ui.rs:2638
 msgid "Checking…"
 msgstr "確認中…"
 
-#: crates/helix-shell/src/ui.rs:2619
+#: crates/helix-shell/src/ui.rs:2680
 msgid "Incorrect password. Try again."
 msgstr "パスワードが正しくありません。もう一度お試しください。"
 
-#: crates/helix-shell/src/ui.rs:2629
+#: crates/helix-shell/src/ui.rs:2690
 msgid "Cannot check password: {err}"
 msgstr "パスワードを確認できません: {err}"
 
-#: crates/helix-shell/src/ui.rs:3229 crates/helix-shell/src/ui/atspi.rs:914
+#: crates/helix-shell/src/ui.rs:3309 crates/helix-shell/src/ui/atspi.rs:929
 msgid "Share your screen?"
 msgstr "画面を共有しますか？"
 
-#: crates/helix-shell/src/ui.rs:3234
+#: crates/helix-shell/src/ui.rs:3314
 msgid "{app} wants to see your screen. Choose what to share."
 msgstr ""
 "{app} があなたの画面を見ようとしています。共有するものを選択してください。"
 
-#: crates/helix-shell/src/ui.rs:3240 crates/helix-shell/src/ui/atspi.rs:916
+#: crates/helix-shell/src/ui.rs:3320 crates/helix-shell/src/ui/atspi.rs:931
 msgid "It will be able to share the same screen again without asking."
 msgstr "今後は確認なしで同じ画面を再び共有できるようになります。"
 
-#: crates/helix-shell/src/ui.rs:3475
+#: crates/helix-shell/src/ui.rs:3555
 msgid "New virtual monitor"
 msgstr "新しい仮想モニター"
 
-#: crates/helix-shell/src/ui.rs:5079 crates/helix-shell/src/ui/atspi.rs:770
+#: crates/helix-shell/src/ui.rs:5178 crates/helix-shell/src/ui/atspi.rs:785
 msgid "No matching apps"
 msgstr "一致するアプリはありません"
 
-#: crates/helix-shell/src/ui.rs:5086
+#: crates/helix-shell/src/ui.rs:5185
 msgid "Open Windows"
 msgstr "開いているウィンドウ"
 
-#: crates/helix-shell/src/ui.rs:5127
+#: crates/helix-shell/src/ui.rs:5226
 msgid "Search for “{query}” in {name}"
 msgstr "{name} で「{query}」を検索"
 
-#: crates/helix-shell/src/ui.rs:5192
+#: crates/helix-shell/src/ui.rs:5291
 msgid "{n} more result"
 msgid_plural "{n} more results"
 msgstr[0] "ほか {n} 件の結果"
 
-#: crates/helix-shell/src/ui.rs:5194
+#: crates/helix-shell/src/ui.rs:5293
 msgid "{n} result above"
 msgid_plural "{n} results above"
 msgstr[0] "上に {n} 件の結果"
 
-#: crates/helix-shell/src/ui.rs:5379 crates/helix-shell/src/ui/atspi.rs:410
+#: crates/helix-shell/src/ui.rs:5478 crates/helix-shell/src/ui/atspi.rs:417
 #: crates/helix-shell/src/ui/quick.rs:560
 msgid "Lock Screen"
 msgstr "画面をロック"
 
-#: crates/helix-shell/src/ui.rs:5382 crates/helix-shell/src/ui/lock.rs:515
+#: crates/helix-shell/src/ui.rs:5481 crates/helix-shell/src/ui/lock.rs:515
 #: crates/helix-shell/src/ui/lock.rs:597
 msgid "Switch User…"
 msgstr "ユーザーの切り替え…"
 
-#: crates/helix-shell/src/ui.rs:5385
+#: crates/helix-shell/src/ui.rs:5484
 msgid "Suspend"
 msgstr "サスペンド"
 
-#: crates/helix-shell/src/ui.rs:5388
+#: crates/helix-shell/src/ui.rs:5487
 msgid "Log Out…"
 msgstr "ログアウト…"
 
-#: crates/helix-shell/src/ui.rs:5474
+#: crates/helix-shell/src/ui.rs:5573
 msgid "The app"
 msgstr "そのアプリ"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:62
+msgid "Allow for This Session"
+msgstr "このセッションで許可"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:64
+msgid "Always Allow"
+msgstr "常に許可"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:93
+msgid "Read only"
+msgstr "読み取りのみ"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:94
+msgid "Control the desktop"
+msgstr "デスクトップを操作"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:95
+msgid "Control apps"
+msgstr "アプリを操作"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:96
+msgid "Screen and input"
+msgstr "画面と入力"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:103
+msgid ""
+"See your open windows, apps, notifications and recent files, and ask you "
+"questions."
+msgstr ""
+"開いているウィンドウ、アプリ、通知、最近使ったファイルを見たり、質問したりし"
+"ます。"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:104
+msgid ""
+"Also open files and apps, manage windows, and change quick settings, volume "
+"and brightness."
+msgstr ""
+"さらに、ファイルやアプリを開き、ウィンドウを管理し、クイック設定・音量・明る"
+"さを変更します。"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:105
+msgid "Also read and use the controls inside your apps."
+msgstr "さらに、アプリ内のコントロールを読み取って操作します。"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:106
+msgid "Also take screenshots and use your keyboard and pointer."
+msgstr "さらに、スクリーンショットを撮り、キーボードとポインターを使います。"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:113
+msgid "Allow {agent} to open a file or link?"
+msgstr "{agent} にファイルやリンクを開くことを許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:114
+msgid "Allow {agent} to start an app?"
+msgstr "{agent} にアプリの起動を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:115
+msgid "Allow {agent} to change a window?"
+msgstr "{agent} にウィンドウの変更を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:116
+msgid "Allow {agent} to switch workspaces?"
+msgstr "{agent} にワークスペースの切り替えを許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:117
+msgid "Allow {agent} to change a quick setting?"
+msgstr "{agent} にクイック設定の変更を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:118
+msgid "Allow {agent} to change the volume or brightness?"
+msgstr "{agent} に音量や明るさの変更を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:119
+msgid "Allow {agent} to show a notification?"
+msgstr "{agent} に通知の表示を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:120
+msgid "Allow {agent} to change the clipboard?"
+msgstr "{agent} にクリップボードの変更を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:121
+msgid "Allow {agent} to use a control in an app?"
+msgstr "{agent} にアプリ内のコントロールの操作を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:122
+msgid "Allow {agent} to change a value in an app?"
+msgstr "{agent} にアプリ内の値の変更を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:123
+msgid "Allow {agent} to use your keyboard and pointer?"
+msgstr "{agent} にキーボードとポインターの使用を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:124
+msgid "Allow {agent} to do this?"
+msgstr "{agent} にこの操作を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:137
+msgid "Program: {program}"
+msgstr "プログラム: {program}"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:140
+msgid "Allow {agent} to use your desktop?"
+msgstr "{agent} にデスクトップの使用を許可しますか？"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:143
+msgid "Access: {level}"
+msgstr "アクセス: {level}"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:145
+msgid "While it is active, the top bar shows it, and you can stop it there."
+msgstr "動作中はトップバーに表示され、そこから停止できます。"
+
+#: crates/helix-shell/src/ui/agent_prompt.rs:150
+msgid ""
+"You asked to confirm actions agents mark as sensitive, such as deleting, "
+"sending or changing settings."
+msgstr ""
+"削除、送信、設定の変更など、エージェントが重要とマークした操作を確認するよう"
+"設定されています。"
 
 #: crates/helix-shell/src/ui/app_grid.rs:327
 #: crates/helix-shell/src/ui/app_grid.rs:478
@@ -1880,7 +2003,7 @@ msgstr "ウィンドウオーバービュー"
 msgid "Recent Apps"
 msgstr "最近使用したアプリ"
 
-#: crates/helix-shell/src/ui/atspi.rs:96 crates/helix-shell/src/ui/atspi.rs:672
+#: crates/helix-shell/src/ui/atspi.rs:96 crates/helix-shell/src/ui/atspi.rs:687
 msgid "Applications"
 msgstr "アプリケーション"
 
@@ -1892,294 +2015,302 @@ msgstr "{} ページ"
 msgid "Pages"
 msgstr "ページ"
 
-#: crates/helix-shell/src/ui/atspi.rs:412
-#: crates/helix-shell/src/ui/atspi.rs:632
+#: crates/helix-shell/src/ui/atspi.rs:419
+#: crates/helix-shell/src/ui/atspi.rs:647
 msgid "Top Bar"
 msgstr "トップバー"
 
-#: crates/helix-shell/src/ui/atspi.rs:416
+#: crates/helix-shell/src/ui/atspi.rs:423
 msgid "Dialog"
 msgstr "ダイアログ"
 
-#: crates/helix-shell/src/ui/atspi.rs:421
+#: crates/helix-shell/src/ui/atspi.rs:428
 msgid "System Menu"
 msgstr "システムメニュー"
 
-#: crates/helix-shell/src/ui/atspi.rs:438
+#: crates/helix-shell/src/ui/atspi.rs:445
 msgid "On-screen display"
 msgstr "オンスクリーン表示"
 
-#: crates/helix-shell/src/ui/atspi.rs:444
+#: crates/helix-shell/src/ui/atspi.rs:451
 msgid "Notification"
 msgstr "通知"
 
-#: crates/helix-shell/src/ui/atspi.rs:448
-#: crates/helix-shell/src/ui/atspi.rs:850
+#: crates/helix-shell/src/ui/atspi.rs:455
+#: crates/helix-shell/src/ui/atspi.rs:865
 msgid "Notifications"
 msgstr "通知"
 
-#: crates/helix-shell/src/ui/atspi.rs:461
+#: crates/helix-shell/src/ui/atspi.rs:468
 msgid "Workspace Switcher"
 msgstr "ワークスペーススイッチャー"
 
-#: crates/helix-shell/src/ui/atspi.rs:467
+#: crates/helix-shell/src/ui/atspi.rs:474
 msgid "On-screen Keyboard"
 msgstr "スクリーンキーボード"
 
-#: crates/helix-shell/src/ui/atspi.rs:473
+#: crates/helix-shell/src/ui/atspi.rs:480
 #: crates/helix-shell/src/ui/click_type.rs:136
 msgid "Click Type"
 msgstr "クリックの種類"
 
-#: crates/helix-shell/src/ui/atspi.rs:477
+#: crates/helix-shell/src/ui/atspi.rs:484
 #: crates/helix-shell/src/ui/desktop_icons.rs:382
 msgid "Desktop"
 msgstr "デスクトップ"
 
-#: crates/helix-shell/src/ui/atspi.rs:486
+#: crates/helix-shell/src/ui/atspi.rs:493
 msgid "Break"
 msgstr "休憩"
 
-#: crates/helix-shell/src/ui/atspi.rs:493
+#: crates/helix-shell/src/ui/atspi.rs:500
 #: crates/helix-shell/src/ui/panel_editor.rs:124
 #: crates/helix-shell/src/ui/panel_editor.rs:314
 msgid "Customize Panel"
 msgstr "パネルのカスタマイズ"
 
-#: crates/helix-shell/src/ui/atspi.rs:501
+#: crates/helix-shell/src/ui/atspi.rs:508
 msgid "Tooltip"
 msgstr "ツールチップ"
 
-#: crates/helix-shell/src/ui/atspi.rs:516
+#: crates/helix-shell/src/ui/atspi.rs:523
 msgid "Monitor {}"
 msgstr "モニター {}"
 
-#: crates/helix-shell/src/ui/atspi.rs:530
-#: crates/helix-shell/src/ui/atspi.rs:883
+#: crates/helix-shell/src/ui/atspi.rs:537
+#: crates/helix-shell/src/ui/atspi.rs:898
 msgid "Dock"
 msgstr "ドック"
 
-#: crates/helix-shell/src/ui/atspi.rs:554
+#: crates/helix-shell/src/ui/atspi.rs:561
 msgid "Workspace {} of {}"
 msgstr "ワークスペース {}/{}"
 
-#: crates/helix-shell/src/ui/atspi.rs:560
+#: crates/helix-shell/src/ui/atspi.rs:567
 msgid "Notifications and calendar"
 msgstr "通知とカレンダー"
 
-#: crates/helix-shell/src/ui/atspi.rs:560
+#: crates/helix-shell/src/ui/atspi.rs:567
 msgid "Notifications and calendar, unread notifications"
 msgstr "通知とカレンダー、未読の通知あり"
 
-#: crates/helix-shell/src/ui/atspi.rs:573
+#: crates/helix-shell/src/ui/atspi.rs:580
 msgid "Input source"
 msgstr "入力ソース"
 
-#: crates/helix-shell/src/ui/atspi.rs:575
+#: crates/helix-shell/src/ui/atspi.rs:582
 #: crates/helix-shell/src/ui/quick.rs:1287
 msgid "System"
 msgstr "システム"
 
-#: crates/helix-shell/src/ui/atspi.rs:585
+#: crates/helix-shell/src/ui/atspi.rs:593
+msgid "Agents active"
+msgstr "エージェント動作中"
+
+#: crates/helix-shell/src/ui/atspi.rs:597
 msgid "Sharing"
 msgstr "共有中"
 
-#: crates/helix-shell/src/ui/atspi.rs:590
+#: crates/helix-shell/src/ui/atspi.rs:602
 msgid "Stop recording"
 msgstr "録画を停止"
 
-#: crates/helix-shell/src/ui/atspi.rs:626
-#: crates/helix-shell/src/ui/atspi.rs:671
+#: crates/helix-shell/src/ui/atspi.rs:638
+#: crates/helix-shell/src/ui/atspi.rs:686
 msgid "Input Sources"
 msgstr "入力ソース"
 
-#: crates/helix-shell/src/ui/atspi.rs:635
+#: crates/helix-shell/src/ui/atspi.rs:644
+msgid "Agents"
+msgstr "エージェント"
+
+#: crates/helix-shell/src/ui/atspi.rs:650
 msgid "Background"
 msgstr "背景"
 
-#: crates/helix-shell/src/ui/atspi.rs:652
-#: crates/helix-shell/src/ui/atspi.rs:877 crates/helix-shell/src/ui/dock.rs:652
+#: crates/helix-shell/src/ui/atspi.rs:667
+#: crates/helix-shell/src/ui/atspi.rs:892 crates/helix-shell/src/ui/dock.rs:652
 #: crates/helix-shell/src/ui/dock.rs:1804
 msgid "Trash"
 msgstr "ゴミ箱"
 
-#: crates/helix-shell/src/ui/atspi.rs:661
-#: crates/helix-shell/src/ui/atspi.rs:673
+#: crates/helix-shell/src/ui/atspi.rs:676
+#: crates/helix-shell/src/ui/atspi.rs:688
 #: crates/helix-shell/src/ui/overview.rs:1210
 msgid "Windows"
 msgstr "ウィンドウ"
 
-#: crates/helix-shell/src/ui/atspi.rs:663
+#: crates/helix-shell/src/ui/atspi.rs:678
 msgid "Window Menu"
 msgstr "ウィンドウメニュー"
 
-#: crates/helix-shell/src/ui/atspi.rs:696
+#: crates/helix-shell/src/ui/atspi.rs:711
 #: crates/helix-shell/src/ui/file_chooser.rs:1451
 #: crates/helix-shell/src/ui/file_chooser.rs:1465
 #: crates/helix-shell/src/ui/overview.rs:1194
 msgid "Search"
 msgstr "検索"
 
-#: crates/helix-shell/src/ui/atspi.rs:727
-#: crates/helix-shell/src/ui/atspi.rs:815
+#: crates/helix-shell/src/ui/atspi.rs:742
+#: crates/helix-shell/src/ui/atspi.rs:830
 #: crates/helix-shell/src/ui/capture.rs:450
 #: crates/helix-shell/src/ui/capture.rs:452
 #: crates/helix-shell/src/ui/dock.rs:1394
-#: crates/helix-shell/src/ui/window_menu.rs:117
+#: crates/helix-shell/src/ui/window_menu.rs:119
 msgid "Close"
 msgstr "閉じる"
 
-#: crates/helix-shell/src/ui/atspi.rs:752
+#: crates/helix-shell/src/ui/atspi.rs:767
 msgid "Search for “{query}” in {label}"
 msgstr "{label} で「{query}」を検索"
 
-#: crates/helix-shell/src/ui/atspi.rs:756
+#: crates/helix-shell/src/ui/atspi.rs:771
 msgid "Open window"
 msgstr "開いているウィンドウ"
 
-#: crates/helix-shell/src/ui/atspi.rs:758
+#: crates/helix-shell/src/ui/atspi.rs:773
 msgid "Favorite"
 msgstr "お気に入り"
 
-#: crates/helix-shell/src/ui/atspi.rs:768
+#: crates/helix-shell/src/ui/atspi.rs:783
 msgid "Search Results"
 msgstr "検索結果"
 
-#: crates/helix-shell/src/ui/atspi.rs:780
+#: crates/helix-shell/src/ui/atspi.rs:795
 msgid "{app}: {summary}"
 msgstr "{app}: {summary}"
 
-#: crates/helix-shell/src/ui/atspi.rs:783
+#: crates/helix-shell/src/ui/atspi.rs:798
 msgid "{summary}. {body}"
 msgstr "{summary}。{body}"
 
-#: crates/helix-shell/src/ui/atspi.rs:817
-#: crates/helix-shell/src/ui/atspi.rs:839
+#: crates/helix-shell/src/ui/atspi.rs:832
+#: crates/helix-shell/src/ui/atspi.rs:854
 #: crates/helix-shell/src/ui/notify.rs:948
 #: crates/helix-shell/src/ui/notify.rs:950 crates/helix-shell/src/weather.rs:59
 #: crates/helix-shell/src/weather.rs:60
 msgid "Clear"
 msgstr "消去"
 
-#: crates/helix-shell/src/ui/atspi.rs:821
+#: crates/helix-shell/src/ui/atspi.rs:836
 msgid "{app}, {count} notifications"
 msgstr "{app}、{count} 件の通知"
 
-#: crates/helix-shell/src/ui/atspi.rs:823
+#: crates/helix-shell/src/ui/atspi.rs:838
 msgid "Next Month"
 msgstr "次の月"
 
-#: crates/helix-shell/src/ui/atspi.rs:823
+#: crates/helix-shell/src/ui/atspi.rs:838
 msgid "Previous Month"
 msgstr "前の月"
 
-#: crates/helix-shell/src/ui/atspi.rs:848
+#: crates/helix-shell/src/ui/atspi.rs:863
 #: crates/helix-shell/src/ui/calendar.rs:342
 msgid "No Events"
 msgstr "予定なし"
 
-#: crates/helix-shell/src/ui/atspi.rs:849
+#: crates/helix-shell/src/ui/atspi.rs:864
 msgid "Events, {}"
 msgstr "予定、{}"
 
-#: crates/helix-shell/src/ui/atspi.rs:851
+#: crates/helix-shell/src/ui/atspi.rs:866
 #: crates/helix-shell/src/ui/notify.rs:972
 msgid "No Notifications"
 msgstr "通知なし"
 
-#: crates/helix-shell/src/ui/atspi.rs:878 crates/helix-shell/src/ui/dock.rs:653
+#: crates/helix-shell/src/ui/atspi.rs:893 crates/helix-shell/src/ui/dock.rs:653
 msgid "Show Apps"
 msgstr "アプリを表示"
 
-#: crates/helix-shell/src/ui/atspi.rs:962
+#: crates/helix-shell/src/ui/atspi.rs:977
 msgid "No network"
 msgstr "ネットワークなし"
 
-#: crates/helix-shell/src/ui/atspi.rs:963
+#: crates/helix-shell/src/ui/atspi.rs:978
 msgid "Wired network"
 msgstr "有線ネットワーク"
 
-#: crates/helix-shell/src/ui/atspi.rs:965
+#: crates/helix-shell/src/ui/atspi.rs:980
 msgid "Network"
 msgstr "ネットワーク"
 
-#: crates/helix-shell/src/ui/atspi.rs:969
+#: crates/helix-shell/src/ui/atspi.rs:984
 msgid "Volume muted"
 msgstr "音量ミュート"
 
-#: crates/helix-shell/src/ui/atspi.rs:974
+#: crates/helix-shell/src/ui/atspi.rs:989
 msgid "Battery {percent}"
 msgstr "バッテリー {percent}"
 
-#: crates/helix-shell/src/ui/atspi.rs:974
+#: crates/helix-shell/src/ui/atspi.rs:989
 msgid "Battery {percent}, charging"
 msgstr "バッテリー {percent}、充電中"
 
-#: crates/helix-shell/src/ui/atspi.rs:976
+#: crates/helix-shell/src/ui/atspi.rs:991
 msgid "Camera in use"
 msgstr "カメラ使用中"
 
-#: crates/helix-shell/src/ui/atspi.rs:976
+#: crates/helix-shell/src/ui/atspi.rs:991
 msgid "Location in use"
 msgstr "位置情報使用中"
 
-#: crates/helix-shell/src/ui/atspi.rs:976
+#: crates/helix-shell/src/ui/atspi.rs:991
 msgid "Microphone in use"
 msgstr "マイク使用中"
 
-#: crates/helix-shell/src/ui/atspi.rs:987
-#: crates/helix-shell/src/ui/atspi.rs:989
+#: crates/helix-shell/src/ui/atspi.rs:1002
+#: crates/helix-shell/src/ui/atspi.rs:1004
 msgid "Pause"
 msgstr "一時停止"
 
-#: crates/helix-shell/src/ui/atspi.rs:988
+#: crates/helix-shell/src/ui/atspi.rs:1003
 msgid "Play"
 msgstr "再生"
 
-#: crates/helix-shell/src/ui/atspi.rs:990
+#: crates/helix-shell/src/ui/atspi.rs:1005
 msgid "Stop"
 msgstr "停止"
 
-#: crates/helix-shell/src/ui/atspi.rs:991
+#: crates/helix-shell/src/ui/atspi.rs:1006
 msgid "Next Track"
 msgstr "次のトラック"
 
-#: crates/helix-shell/src/ui/atspi.rs:992
+#: crates/helix-shell/src/ui/atspi.rs:1007
 msgid "Previous Track"
 msgstr "前のトラック"
 
-#: crates/helix-shell/src/ui/atspi.rs:993
+#: crates/helix-shell/src/ui/atspi.rs:1008
 msgid "Rewind"
 msgstr "巻き戻し"
 
-#: crates/helix-shell/src/ui/atspi.rs:994
+#: crates/helix-shell/src/ui/atspi.rs:1009
 msgid "Fast Forward"
 msgstr "早送り"
 
-#: crates/helix-shell/src/ui/atspi.rs:995
+#: crates/helix-shell/src/ui/atspi.rs:1010
 msgid "Repeat"
 msgstr "リピート"
 
-#: crates/helix-shell/src/ui/atspi.rs:996
+#: crates/helix-shell/src/ui/atspi.rs:1011
 msgid "Shuffle"
 msgstr "シャッフル"
 
 #. Translators: a calendar day read out by screen readers (GLib DateTime format): "14 November 2026".
-#: crates/helix-shell/src/ui/atspi.rs:1005
+#: crates/helix-shell/src/ui/atspi.rs:1020
 msgctxt "calendar day for screen readers"
 msgid "%e %B %Y"
 msgstr "%Y年%-m月%-d日"
 
-#: crates/helix-shell/src/ui/background_menu.rs:57
+#: crates/helix-shell/src/ui/background_menu.rs:60
 msgid "Change Background…"
 msgstr "背景を変更…"
 
-#: crates/helix-shell/src/ui/background_menu.rs:59
+#: crates/helix-shell/src/ui/background_menu.rs:62
 msgid "Display Settings"
 msgstr "ディスプレイ設定"
 
-#: crates/helix-shell/src/ui/background_menu.rs:60
-#: crates/helix-shell/src/ui/background_menu.rs:102
+#: crates/helix-shell/src/ui/background_menu.rs:63
+#: crates/helix-shell/src/ui/background_menu.rs:105
 #: crates/helix-shell/src/ui/extensions_dialog.rs:62
 #: crates/helix-shell/src/ui/extensions_dialog.rs:126
 #: crates/helix-shell/src/ui/extensions_dialog.rs:265
@@ -2935,57 +3066,69 @@ msgstr "ミュート"
 msgid "Secured"
 msgstr "セキュリティ保護あり"
 
-#: crates/helix-shell/src/ui/window_menu.rs:79
+#: crates/helix-shell/src/ui/window_menu.rs:81
 msgid "Minimize"
 msgstr "最小化"
 
-#: crates/helix-shell/src/ui/window_menu.rs:81
+#: crates/helix-shell/src/ui/window_menu.rs:83
 msgid "Restore"
 msgstr "元のサイズに戻す"
 
-#: crates/helix-shell/src/ui/window_menu.rs:83
+#: crates/helix-shell/src/ui/window_menu.rs:85
 msgid "Maximize"
 msgstr "最大化"
 
-#: crates/helix-shell/src/ui/window_menu.rs:86
+#: crates/helix-shell/src/ui/window_menu.rs:88
 msgid "Move"
 msgstr "移動"
 
-#: crates/helix-shell/src/ui/window_menu.rs:87
+#: crates/helix-shell/src/ui/window_menu.rs:89
 msgid "Resize"
 msgstr "サイズ変更"
 
-#: crates/helix-shell/src/ui/window_menu.rs:91
+#: crates/helix-shell/src/ui/window_menu.rs:93
 msgid "Always on Top"
 msgstr "常に最前面に表示"
 
-#: crates/helix-shell/src/ui/window_menu.rs:93
+#: crates/helix-shell/src/ui/window_menu.rs:95
 msgid "Always on Visible Workspace"
 msgstr "常に表示中のワークスペースに配置"
 
-#: crates/helix-shell/src/ui/window_menu.rs:96
+#: crates/helix-shell/src/ui/window_menu.rs:98
 msgid "Move to Workspace Left"
 msgstr "左のワークスペースへ移動"
 
-#: crates/helix-shell/src/ui/window_menu.rs:99
+#: crates/helix-shell/src/ui/window_menu.rs:101
 msgid "Move to Workspace Right"
 msgstr "右のワークスペースへ移動"
 
-#: crates/helix-shell/src/ui/window_menu.rs:103
+#: crates/helix-shell/src/ui/window_menu.rs:105
 msgid "Move to Monitor Left"
 msgstr "左のモニターへ移動"
 
-#: crates/helix-shell/src/ui/window_menu.rs:104
+#: crates/helix-shell/src/ui/window_menu.rs:106
 msgid "Move to Monitor Right"
 msgstr "右のモニターへ移動"
 
-#: crates/helix-shell/src/ui/window_menu.rs:105
+#: crates/helix-shell/src/ui/window_menu.rs:107
 msgid "Move to Monitor Up"
 msgstr "上のモニターへ移動"
 
-#: crates/helix-shell/src/ui/window_menu.rs:106
+#: crates/helix-shell/src/ui/window_menu.rs:108
 msgid "Move to Monitor Down"
 msgstr "下のモニターへ移動"
+
+#: crates/helix-shell/src/ui/window_menu.rs:273
+msgid "Agents are using your desktop"
+msgstr "エージェントがデスクトップを使用中"
+
+#: crates/helix-shell/src/ui/window_menu.rs:277
+msgid "Stop {agent} ({level})"
+msgstr "{agent} を停止 ({level})"
+
+#: crates/helix-shell/src/ui/window_menu.rs:281
+msgid "Agent Access Settings"
+msgstr "エージェントアクセスの設定"
 
 #: crates/helix-shell/src/ui/workspace_popup.rs:22
 msgid "Workspace {}"

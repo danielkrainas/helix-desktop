@@ -153,20 +153,22 @@ pub fn resolve(keys: &Keys, ext: &[ExtPanel]) -> Layout {
 }
 
 /// Something placed on the panel: a layout item, an extension's item (by
-/// index into the extensions' panel items), or the privacy indicators
-/// ("Recording", "Sharing"), which are not layout items.
+/// index into the extensions' panel items), the privacy indicators
+/// ("Recording", "Sharing"), or the agent indicator (Agent Access); the
+/// indicators are not layout items, and cannot be removed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
     Item(Item),
     Ext(usize),
     Privacy,
+    Agents,
 }
 
 pub const GAP: i32 = 4;
 
 /// Where everything goes on a panel `width` wide: (slot, x, width), left
-/// to right. `size` gives each slot's width (0: not shown). The privacy
-/// indicators go left of the right zone's items; center items are
+/// to right. `size` gives each slot's width (0: not shown). The agent and
+/// privacy indicators go left of the right zone's items; center items are
 /// centered, moved clear of the other zones, and left out when they
 /// still do not fit.
 pub fn place(layout: &Layout, width: i32, size: impl Fn(Slot) -> i32) -> Vec<(Slot, i32, i32)> {
@@ -181,7 +183,7 @@ pub fn place(layout: &Layout, width: i32, size: impl Fn(Slot) -> i32) -> Vec<(Sl
     }
     let left_end = x;
     let mut right: Vec<(Slot, i32)> = Vec::new();
-    let mut slots: Vec<Slot> = vec![Slot::Privacy];
+    let mut slots: Vec<Slot> = vec![Slot::Agents, Slot::Privacy];
     slots.extend(layout.right.iter().copied());
     let mut rx = width;
     for slot in slots.into_iter().rev() {

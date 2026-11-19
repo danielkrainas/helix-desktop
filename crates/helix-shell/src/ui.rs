@@ -57,6 +57,7 @@ use std::collections::HashMap;
 use helix_i18n::tr;
 use helix_i18n::trf;
 
+mod agent_prompt;
 mod app_grid;
 mod atspi;
 #[cfg(test)]
@@ -374,6 +375,12 @@ struct Ui {
     attention: std::collections::HashSet<u32>,
     /// The screen is being shared (panel indicator).
     sharing: bool,
+    /// Agents the indicator lists (Agent Access; none: no indicator).
+    agents_active: Vec<crate::agent::prompt::Active>,
+    /// The agents the indicator's open menu stops, by entry.
+    agent_menu: Vec<String>,
+    /// An agent prompt waiting for the dialog shown to go.
+    agent_waiting: Option<agent_prompt::AgentPromptView>,
     /// The screen is being recorded (panel indicator): since when.
     recording: Option<std::time::Instant>,
     /// The recording time the panel shows.
@@ -501,6 +508,8 @@ enum OverlayHit {
     QuickScreenshot,
     QuickSettingsApp,
     PowerMenu,
+    /// A button of an agent prompt, left to right.
+    AgentButton(usize),
     Outside,
 }
 
@@ -642,6 +651,8 @@ enum DialogKind {
     Prompt(Box<prompt::PromptView>),
     /// The file chooser (`org.helixdesktop.PortalDialog.ChooseFiles`).
     Files(Box<file_chooser::ChooserView>),
+    /// Agent Access's consent or sensitive-action prompt.
+    Agent(Box<agent_prompt::AgentPromptView>),
 }
 
 impl DialogKind {
@@ -653,7 +664,7 @@ impl DialogKind {
             // Wait; Force Quit must be chosen.
             DialogKind::NotResponding { .. } => Choice::Canceled,
             // Deny, Cancel.
-            DialogKind::ShortcutsInhibit { .. } | DialogKind::RemoteControl { .. } | DialogKind::ApproveExtension { .. } => Choice::Canceled,
+            DialogKind::ShortcutsInhibit { .. } | DialogKind::RemoteControl { .. } | DialogKind::ApproveExtension { .. } | DialogKind::Agent(_) => Choice::Canceled,
         }
     }
 
@@ -669,6 +680,10 @@ impl DialogKind {
     }
 }
 
+/// The agent indicator's width (its icon alone).
+fn agents_w() -> i32 {
+    helix_draw::theme::grow(PRIVACY_PAD * 2 + status::ICON)
+}
 /// The screen sharing pill's width (its icon alone).
 fn sharing_w() -> i32 {
     helix_draw::theme::grow(PRIVACY_PAD * 2 + status::ICON)
@@ -976,6 +991,10 @@ struct PanelModel<'a> {
     pub recording: Option<&'a str>,
     /// The privacy pills' icons (white): screen shared, recording.
     pub privacy_icons: (Option<&'a helix_draw::Image>, Option<&'a helix_draw::Image>),
+    /// How many agents are active (Agent Access), and the indicator's
+    /// icon (white).
+    pub agents: usize,
+    pub agent_icon: Option<&'a helix_draw::Image>,
     /// Dragging in the panel editor: where the item would go.
     pub drag_target: Option<i32>,
     /// The control with the keyboard focus (`switch-panels`).
@@ -993,7 +1012,7 @@ struct PanelModel<'a> {
 /// pressed looks).
 fn panel_clickable(slot: crate::panel_layout::Slot) -> bool {
     use crate::panel_layout::{Item, Slot};
-    !matches!(slot, Slot::Privacy | Slot::Item(Item::Tray) | Slot::Ext(_))
+    !matches!(slot, Slot::Privacy | Slot::Agents | Slot::Item(Item::Tray) | Slot::Ext(_))
 }
 
 /// A panel control's pill (x, iw across the panel `h` tall): clear at
@@ -1087,6 +1106,9 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
             None if m.sharing => sharing_w(),
             None => 0,
         },
+        // Mandatory while an agent is active; not while locked.
+        Slot::Agents if m.agents > 0 && !m.locked => agents_w(),
+        Slot::Agents => 0,
         // Nothing from extensions while locked.
         Slot::Ext(_) if m.locked => 0,
         Slot::Ext(i) => m.ext_widths.get(i).copied().unwrap_or(0),
@@ -1178,6 +1200,32 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
             Slot::Ext(i) => {
                 if let Some(item) = m.ext_items.get(i) {
                     ext_items::draw_ext_item(text, canvas, item, m.ext_icons.get(i).and_then(Option::as_ref), x, iw, h as i32);
+                }
+            }
+            Slot::Agents => {
+                // A white icon on a red pill, as the screen sharing one; a
+                // button (its menu stops agents).
+                let (py, ph) = (4.0, f64::from(h as i32 - 8));
+                let color = if m.pressed == Some(slot) {
+                    PRIVACY_PILL_PRESSED
+                } else if m.hover == Some(slot) {
+                    PRIVACY_PILL_HOVER
+                } else {
+                    PRIVACY_PILL
+                };
+                canvas.round_rect(f64::from(x), py, f64::from(iw), ph, ph / 2.0, color);
+                if helix_draw::high_contrast() {
+                    canvas.round_outline(f64::from(x) + 0.5, py + 0.5, f64::from(iw) - 1.0, ph - 1.0, ph / 2.0 - 0.5, 1.0, 0xFFFFFFFF);
+                }
+                let (ix, iy) = (x + helix_draw::theme::grow(PRIVACY_PAD), (h as i32 - status::ICON) / 2);
+                match m.agent_icon {
+                    Some(image) => canvas.image(f64::from(ix), f64::from(iy), f64::from(status::ICON), f64::from(status::ICON), image),
+                    // A ring with a dot.
+                    None => {
+                        let (cx, cy) = (f64::from(ix + status::ICON / 2), f64::from(h as i32) / 2.0);
+                        canvas.round_outline(cx - 6.0, cy - 6.0, 12.0, 12.0, 6.0, 1.5, 0xFFFFFFFF);
+                        canvas.circle(cx, cy, 2.5, 0xFFFFFFFF);
+                    }
                 }
             }
             Slot::Privacy => {
@@ -1301,7 +1349,7 @@ fn paint_question_with(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option
             };
             (title.to_owned(), message, tr("Cancel"), confirm, &d.blockers)
         }
-        DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) | DialogKind::Files(_) => return None,
+        DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) | DialogKind::Files(_) | DialogKind::Agent(_) => return None,
         DialogKind::ApproveExtension { name, .. } => (trf!("Turn on {name}?", name = name), String::new(), tr("Cancel"), tr("Turn On").to_owned(), &approval_rows),
         DialogKind::RemoteControl { app, devices, .. } => (
             tr("Allow remote control?").to_owned(),
@@ -1440,6 +1488,7 @@ impl Ui {
         let power_icon = self.symbolic_icon("system-shutdown-symbolic", scale);
         let sharing_icon = if self.sharing { self.symbolic_icon_color("screen-shared-symbolic", f64::from(status::ICON), scale, 0xFFFFFFFF) } else { None };
         let record_icon = if self.recording.is_some() { self.symbolic_icon_color("media-record-symbolic", f64::from(status::ICON), scale, 0xFFFFFFFF) } else { None };
+        let agent_icon = if self.agents_active.is_empty() { None } else { self.symbolic_icon_color("system-run-symbolic", f64::from(status::ICON), scale, 0xFFFFFFFF) };
         let elapsed = self.recording_elapsed();
         self.shown_elapsed = elapsed.clone();
         let tray_images = self.tray_images(scale);
@@ -1474,6 +1523,8 @@ impl Ui {
             sharing: self.sharing,
             recording: elapsed.as_deref(),
             privacy_icons: (sharing_icon.as_ref(), record_icon.as_ref()),
+            agents: self.agents_active.len(),
+            agent_icon: agent_icon.as_ref(),
             drag_target: self.panel_drag.as_ref().filter(|d| d.moving && !d.off_panel).and_then(|d| d.target.as_ref()).map(|t| t.2),
             focus: self.panel_focus,
             hover: self.panel_lit,
@@ -1738,7 +1789,7 @@ impl Ui {
         // The recording pill too (the sharing one does nothing).
         let recording = self.recording.is_some();
         let sharing = self.sharing;
-        let clickable = |slot, px: i32| panel_clickable(slot) || (slot == crate::panel_layout::Slot::Privacy && recording && x >= f64::from(recording_x(px, sharing)));
+        let clickable = |slot, px: i32| panel_clickable(slot) || slot == crate::panel_layout::Slot::Agents || (slot == crate::panel_layout::Slot::Privacy && recording && x >= f64::from(recording_x(px, sharing)));
         let hit = self.panel_placed.iter().copied().find(|&(slot, px, pw)| pw > 0 && clickable(slot, px) && x >= f64::from(px) && x < f64::from(px + pw));
         let under = hit.map(|h| h.0);
         match event.kind {
@@ -1871,6 +1922,14 @@ impl Ui {
                 if self.recording.is_some() {
                     let _ = self.requests.send(UiRequest::StopRecording);
                 }
+            }
+            Slot::Agents => {
+                if self.window_menu.take().is_none() {
+                    self.show_agents_menu(x);
+                } else {
+                    self.agent_menu.clear();
+                }
+                self.draw_panel();
             }
         }
     }
@@ -2463,6 +2522,8 @@ impl Ui {
         if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::ShareScreen { .. } | DialogKind::RemoteControl { .. } | DialogKind::ApproveExtension { .. })) {
             self.answer_dialog(Choice::Canceled);
         }
+        // Locking dismisses an agent prompt unanswered.
+        self.dismiss_agent_prompt();
         self.close_launcher(true);
         // Who is shown (AccountsService may have changed it).
         let _ = self.requests.send(UiRequest::LockIdentity(self.lock.user.clone()));
@@ -2994,7 +3055,11 @@ impl Ui {
                         list.allow_shortcuts_inhibit(id, 0);
                     }
                 }
-                open.state = state;
+                // An agent prompt comes back once this dialog is gone.
+                let old = std::mem::replace(&mut open.state, state);
+                if let DialogKind::Agent(view) = old.kind {
+                    self.agent_waiting = Some(*view);
+                }
                 self.draw_dialog();
             }
             None => {
@@ -3036,6 +3101,8 @@ impl Ui {
                 return;
             }
             DialogKind::Prompt(_) => return,
+            // (Its own buttons answer it; dropped, it goes unanswered.)
+            DialogKind::Agent(_) => return,
             // (The chooser's buttons answer it themselves.)
             DialogKind::Files(mut view) => {
                 view.cancel();
@@ -3081,6 +3148,14 @@ impl Ui {
 
     fn dialog_key(&mut self, event: &KeyEvent) {
         let Some(dialog) = self.dialog.as_mut() else { return };
+        if matches!(dialog.state.kind, DialogKind::Agent(_)) {
+            if agent_prompt::armed(dialog.state.shown, Instant::now()) {
+                self.agent_prompt_key(event);
+            } else {
+                tracing::debug!("key too soon after the agent prompt appeared; ignored");
+            }
+            return;
+        }
         let ready = dialog_takes_key(dialog.state.shown, Instant::now());
         if matches!(dialog.state.kind, DialogKind::Files(_)) {
             // Typing goes in at once; only Enter waits.
@@ -3136,7 +3211,8 @@ impl Ui {
             | DialogKind::ApproveExtension { .. }
             | DialogKind::ShortcutsInhibit { .. }
             | DialogKind::Prompt(_)
-            | DialogKind::Files(_) => return,
+            | DialogKind::Files(_)
+            | DialogKind::Agent(_) => return,
             DialogKind::End(data) if !data.blockers.is_empty() => return,
             DialogKind::End(_) => Choice::Confirmed,
             DialogKind::DisplayChange => Choice::Canceled,
@@ -3171,6 +3247,10 @@ impl Ui {
         }
         if matches!(overlay.state.kind, DialogKind::Files(_)) {
             self.paint_files_dialog(overlay);
+            return;
+        }
+        if matches!(overlay.state.kind, DialogKind::Agent(_)) {
+            self.paint_agent_prompt(overlay);
             return;
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
@@ -3516,6 +3596,20 @@ impl Ui {
             UiEvent::AskShortcuts { id, app_id } => self.ask_shortcuts(id, app_id),
             UiEvent::Sharing(on) => {
                 self.sharing = on;
+                self.draw_panel();
+            }
+            UiEvent::AgentPrompt(slot) => {
+                if let Some(request) = slot.take() {
+                    self.show_agent_prompt(request);
+                }
+            }
+            UiEvent::AgentsActive(agents) => {
+                self.agents_active = agents;
+                // A stale menu would stop the wrong agents.
+                if !self.agent_menu.is_empty() && self.window_menu.is_some() {
+                    self.close_window_menu();
+                    self.agent_menu.clear();
+                }
                 self.draw_panel();
             }
             UiEvent::SearchResults { serial, provider, hits } => {
@@ -3882,6 +3976,7 @@ impl Ui {
         self.report_running_apps();
         self.refresh_source_label();
         self.dialog_tick();
+        self.agent_prompt_next();
         self.files_tick();
         self.osd_tick();
         let minute_changed = self.shown_minute.as_deref() != Some(&clock_text());
@@ -4065,6 +4160,9 @@ pub fn run(
         user_switch: false,
         attention: Default::default(),
         sharing: false,
+        agents_active: Vec::new(),
+        agent_menu: Vec::new(),
+        agent_waiting: None,
         recording: None,
         shown_elapsed: None,
         heap_trim: Default::default(),
@@ -4817,6 +4915,7 @@ impl Ui {
             OverlayHit::Files(_) => return self.files_click(hit),
             OverlayHit::Field(f) => self.prompt_focus(f),
             OverlayHit::ShowPassword(f) => self.prompt_show_password(f),
+            OverlayHit::AgentButton(i) => self.agent_prompt_press(i),
             _ => {}
         }
         self.draw_dialog();
@@ -5530,7 +5629,7 @@ mod tests {
         let paint = |hover: Option<Slot>| {
             let mut data = vec![0u8; w * h * 4];
             let mut canvas = super::Canvas::scaled(&mut data, w, h, 1.0);
-            let model = super::PanelModel { layout: &layout, clock: "Sat 14:05", status_items: &[], tray_images: &[], tray_w: 0, ext_items: &[], ext_icons: &[], ext_widths: &[], locked: false, launcher_open: false, power_open: false, list_open: false, menu_open: None, unseen_dot: false, workspaces: (4, 1), a11y_shown: false, source_label: None, sharing: true, recording: Some("0:42"), privacy_icons: (None, None), drag_target: None, focus: None, hover, pressed: None, power_icon: None, bold: None };
+            let model = super::PanelModel { layout: &layout, clock: "Sat 14:05", status_items: &[], tray_images: &[], tray_w: 0, ext_items: &[], ext_icons: &[], ext_widths: &[], locked: false, launcher_open: false, power_open: false, list_open: false, menu_open: None, unseen_dot: false, workspaces: (4, 1), a11y_shown: false, source_label: None, sharing: true, recording: Some("0:42"), privacy_icons: (None, None), agents: 0, agent_icon: None, drag_target: None, focus: None, hover, pressed: None, power_icon: None, bold: None };
             let placed = super::paint_panel(&mut canvas, text.as_ref(), (w, h), &model);
             (data, placed)
         };

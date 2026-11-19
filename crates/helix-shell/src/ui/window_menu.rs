@@ -56,6 +56,8 @@ pub(super) enum Choice {
     Submenu,
     /// Back to the menu a submenu came from.
     Back,
+    /// The agent indicator's *Stop* (index into the menu's agents).
+    StopAgent(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,6 +265,24 @@ impl Ui {
         self.lit_by_panel(crate::panel_layout::Item::Accessibility);
     }
 
+    /// The agent indicator's menu, below it at `x` (helixdesktop/spec
+    /// `contracts/agent-access/README.md`, "Indicator"): *Stop* for each
+    /// active agent, and the Agent Access settings.
+    pub(super) fn show_agents_menu(&mut self, x: i32) {
+        let item = |label: String, choice| Some(Item { label, choice, checked: None, active: false, sub: Vec::new() });
+        let mut items = vec![item(tr("Agents are using your desktop").to_owned(), Choice::Disabled)];
+        let mut ids = Vec::new();
+        for (i, agent) in self.agents_active.iter().enumerate() {
+            let level = super::agent_prompt::level_name(agent.level);
+            items.push(item(helix_i18n::trf!("Stop {agent} ({level})", agent = agent.label(), level = level), Choice::StopAgent(i)));
+            ids.push(agent.agent.clone());
+        }
+        items.push(None);
+        items.push(item(tr("Agent Access Settings").to_owned(), Choice::Settings(super::background_menu::SettingsPanel::AgentAccess)));
+        self.open_menu(0, x, panel_height() as i32, items, Vec::new());
+        self.agent_menu = ids;
+    }
+
     /// The menu just opened belongs to the panel's `item`: its pill
     /// shows the open state until the menu closes.
     fn lit_by_panel(&mut self, item: crate::panel_layout::Item) {
@@ -460,7 +480,14 @@ impl Ui {
             return;
         }
         if let Choice::Settings(panel) = item.choice {
+            self.agent_menu.clear();
             self.background_menu_choice(panel);
+            return;
+        }
+        if let Choice::StopAgent(i) = item.choice {
+            if let Some(agent) = std::mem::take(&mut self.agent_menu).into_iter().nth(i) {
+                let _ = self.requests.send(UiRequest::StopAgent(agent));
+            }
             return;
         }
         if let Choice::DesktopIcon(action) = item.choice {

@@ -316,6 +316,11 @@ pub enum UiEvent {
     ShortcutsAnswer { id: u32, allowed: bool },
     /// Ask whether a window may have all shortcuts (no answer stored).
     AskShortcuts { id: u32, app_id: String },
+    /// Ask the user about an agent: consent or a sensitive action
+    /// (helixdesktop/desktop#143).
+    AgentPrompt(agent::prompt::RequestSlot),
+    /// The agents the top bar's indicator lists (none: no indicator).
+    AgentsActive(Vec<agent::prompt::Active>),
 }
 
 /// What the quick settings menu changes.
@@ -445,6 +450,9 @@ pub enum UiRequest {
     StoreShortcutsAnswer { app_id: String, allowed: bool },
     /// The panel's "Recording" indicator was clicked.
     StopRecording,
+    /// *Stop* in the agent indicator's menu: end that agent's session
+    /// grant (by agent id).
+    StopAgent(String),
     /// Ask the search providers (`query` empty: the launcher opened).
     Search { serial: u64, query: String },
     /// A search provider's result was chosen.
@@ -768,7 +776,11 @@ impl ShellService {
         let prompter = keyring_prompt::Prompter::new(ui.clone());
         let status_icons = tray::Tray::new(ui.clone());
         let extensions = ext_host::ExtHost::new(ui.clone());
-        let agent_access = agent::AgentAccess::new(lock_status.clone(), agent::Setup::default());
+        let agent_access = agent::AgentAccess::new(
+            lock_status.clone(),
+            agent::Setup { consent: agent::prompt::consent(ui.clone()), confirm: agent::prompt::confirm(ui.clone()), ..agent::Setup::default() },
+        );
+        agent_access.set_indicator(ui.clone());
         // The shell's own lookups of the screen saver use this copy; the
         // name's owner serves the other (they share their state).
         let public_saver = screensaver::ScreenSaver { status: saver.status.clone(), ui: saver.ui.clone(), auth: saver.auth.clone() };
@@ -1218,6 +1230,10 @@ impl UiBridge {
                 // Items hear from the watcher's owner.
                 let (tray, conn) = (self.tray.clone(), self.public.clone());
                 tokio::spawn(async move { tray.request(&conn, request).await });
+                Ok(())
+            }
+            UiRequest::StopAgent(agent) => {
+                self.agent.stop(&agent);
                 Ok(())
             }
             UiRequest::StopRecording => {

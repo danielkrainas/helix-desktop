@@ -184,6 +184,10 @@ impl Helix {
                     self.remote_input(input);
                 }
             }
+            // As remote input: not while an agent prompt is shown.
+            Command::Move(..) | Command::Click(..) | Command::Touch(Some(_), _) if self.protected_prompt_shown() => {
+                tracing::debug!("test input dropped: an agent prompt is shown");
+            }
             Command::Move(x, y) => self.headless_move(x, y),
             Command::Click(x, y, button) => {
                 self.headless_move(x, y);

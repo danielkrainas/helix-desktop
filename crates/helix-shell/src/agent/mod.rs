@@ -12,12 +12,14 @@
 //! The consent prompt and the sensitive-action prompt are hooks
 //! ([`Consent`], [`Confirm`]); until the shell draws them
 //! (helixdesktop/desktop#143) nobody can be asked, so calls without a grant
-//! fail with `NotGranted`. The activity log is [`record`]
-//! (helixdesktop/desktop#144).
+//! fail with `NotGranted`. The shell's UI fills them in ([`prompt`]) and
+//! shows the indicator ([`AgentAccess::set_indicator`]). The activity log
+//! is [`record`] (helixdesktop/desktop#144).
 
 pub mod grants;
 pub mod identity;
 pub mod policy;
+pub mod prompt;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -159,6 +161,11 @@ struct Inner {
     settings_exes: Vec<PathBuf>,
     /// The connection serving the interfaces, for signals.
     conn: OnceLock<Connection>,
+    /// Where the indicator's agents go (the UI), and what it was told last.
+    indicator: OnceLock<tokio::sync::mpsc::UnboundedSender<crate::UiEvent>>,
+    shown: Mutex<Vec<prompt::Active>>,
+    /// Calls running now (waits, questions, input), by agent id.
+    running: Mutex<HashMap<String, usize>>,
 }
 
 /// Agent Access's state: grants and the policy check.
@@ -245,6 +252,9 @@ impl AgentAccess {
                 proc_root: setup.proc_root,
                 settings_exes: setup.settings_exes,
                 conn: OnceLock::new(),
+                indicator: OnceLock::new(),
+                shown: Mutex::new(Vec::new()),
+                running: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -281,6 +291,7 @@ impl AgentAccess {
 
     /// Tell agents and Settings that something changed.
     pub fn changed(&self) {
+        self.publish();
         let Some(conn) = self.inner.conn.get().cloned() else { return };
         tokio::spawn(async move {
             if let Ok(emitter) = SignalEmitter::new(&conn, OBJECT_PATH) {
@@ -369,6 +380,7 @@ impl AgentAccess {
             self.gate(&agent, &config, need).await?;
         }
         self.grants().touch(&agent, now());
+        self.publish();
         Ok(Caller { agent, config })
     }
 
@@ -448,11 +460,79 @@ impl AgentAccess {
         ])
     }
 
+    /// Show the indicator through `ui` from now on (README.md,
+    /// "Indicator"): the active agents are sent as
+    /// [`UiEvent::AgentsActive`](crate::UiEvent::AgentsActive) whenever
+    /// they change, also when an agent goes quiet for a minute.
+    pub fn set_indicator(&self, ui: tokio::sync::mpsc::UnboundedSender<crate::UiEvent>) {
+        if self.inner.indicator.set(ui).is_err() {
+            return;
+        }
+        let weak = Arc::downgrade(&self.inner);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                tick.tick().await;
+                let Some(inner) = weak.upgrade() else { return };
+                AgentAccess { inner }.publish();
+            }
+        });
+    }
+
+    /// The agents the indicator lists at `now`: holding a grant, and with
+    /// an allowed call in the last minute or a call running.
+    pub fn active(&self, now: i64) -> Vec<prompt::Active> {
+        let config = Config::read();
+        if !config.enabled {
+            return Vec::new();
+        }
+        let running = self.inner.running.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let grants = self.grants();
+        let mut out: Vec<prompt::Active> = grants
+            .list()
+            .filter(|(id, e)| running.get(*id).is_some_and(|n| *n > 0) || (e.last_active > 0 && now - e.last_active < prompt::ACTIVE_FOR))
+            .filter_map(|(id, e)| {
+                let level = grants.effective(id, &config)?;
+                Some(prompt::Active { agent: id.clone(), executable: e.executable.clone(), name: e.name.clone(), level })
+            })
+            .collect();
+        out.sort_by(|a, b| a.agent.cmp(&b.agent));
+        out
+    }
+
+    /// Send the indicator's agents to the UI if they changed.
+    fn publish(&self) {
+        let Some(ui) = self.inner.indicator.get() else { return };
+        let active = self.active(now());
+        let mut shown = self.inner.shown.lock().unwrap_or_else(|e| e.into_inner());
+        if *shown != active {
+            *shown = active.clone();
+            let _ = ui.send(crate::UiEvent::AgentsActive(active));
+        }
+    }
+
+    /// A call of `agent`'s that keeps running (a wait, a question, input):
+    /// the indicator shows it until the guard is dropped.
+    pub fn busy(&self, agent: &Agent) -> Busy {
+        *self.inner.running.lock().unwrap_or_else(|e| e.into_inner()).entry(agent.id.clone()).or_default() += 1;
+        self.publish();
+        Busy { access: self.clone(), agent: agent.id.clone() }
+    }
+
     /// End `agent`'s session grant and denial (Settings' *Revoke*, the
     /// indicator's *Stop*).
     pub fn revoke(&self, agent: &str) {
         if self.grants().revoke(agent) {
             tracing::info!(agent, "agent access revoked");
+            self.changed();
+        }
+    }
+
+    /// *Stop* in the indicator: end `agent`'s session grant, and ask again
+    /// even if it is always allowed (README.md, "Indicator").
+    pub fn stop(&self, agent: &str) {
+        if self.grants().stop(agent) {
+            tracing::info!(agent, "agent stopped from the indicator");
             self.changed();
         }
     }
@@ -522,6 +602,27 @@ impl AgentAccess {
             tracing::warn!(exe = %exe.display(), "refused agent access management from a program other than Settings");
             Err(denied())
         }
+    }
+}
+
+/// A running call ([`AgentAccess::busy`]).
+pub struct Busy {
+    access: AgentAccess,
+    agent: String,
+}
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        {
+            let mut running = self.access.inner.running.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(n) = running.get_mut(&self.agent) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    running.remove(&self.agent);
+                }
+            }
+        }
+        self.access.publish();
     }
 }
 

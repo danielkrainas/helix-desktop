@@ -51,12 +51,15 @@ pub struct Entry {
     pub denied: bool,
     /// Its last allowed call this session (Unix seconds), 0 for none.
     pub last_active: i64,
+    /// Stopped from the indicator: its remembered grant is not honoured
+    /// for the rest of the session (it is asked again).
+    pub stopped: bool,
 }
 
 impl Entry {
     /// The level this agent's grants give, before `access-level`.
     fn granted(&self, remember: RememberMode) -> Option<Level> {
-        let always = self.always.as_ref().filter(|_| remember == RememberMode::Remember).map(|a| a.level);
+        let always = self.always.as_ref().filter(|_| remember == RememberMode::Remember && !self.stopped).map(|a| a.level);
         self.session.map(|(l, _)| l).max(always)
     }
 
@@ -160,7 +163,7 @@ impl Grants {
         match self.agents.get(agent) {
             Some(e) if e.denied => "denied",
             Some(e) if e.session.is_some() => "session",
-            Some(e) if e.always.is_some() && config.remember == RememberMode::Remember => "always",
+            Some(e) if e.always.is_some() && config.remember == RememberMode::Remember && !e.stopped => "always",
             _ => "none",
         }
     }
@@ -184,10 +187,12 @@ impl Grants {
             }
             Answer::Session => {
                 entry.denied = false;
+                entry.stopped = false;
                 entry.session = Some((level, now));
             }
             Answer::Always => {
                 entry.denied = false;
+                entry.stopped = false;
                 entry.session = Some((level, now));
                 if agent.identified {
                     entry.always = Some(Remembered { level, granted: now });
@@ -211,9 +216,25 @@ impl Grants {
     /// End `agent`'s session grant and denial. Whether anything changed.
     pub fn revoke(&mut self, agent: &str) -> bool {
         let Some(entry) = self.agents.get_mut(agent) else { return false };
-        let changed = entry.session.is_some() || entry.denied;
+        let changed = entry.session.is_some() || entry.denied || entry.stopped;
         entry.session = None;
         entry.denied = false;
+        entry.stopped = false;
+        if entry.is_empty() {
+            self.agents.remove(agent);
+        }
+        changed
+    }
+
+    /// *Stop* in the indicator: end `agent`'s session grant, and do not
+    /// honour its remembered grant for the rest of the session, so that its
+    /// next call asks the user again. Whether anything changed.
+    pub fn stop(&mut self, agent: &str) -> bool {
+        let Some(entry) = self.agents.get_mut(agent) else { return false };
+        let changed = entry.session.is_some() || (entry.always.is_some() && !entry.stopped);
+        entry.session = None;
+        entry.stopped = entry.always.is_some();
+        entry.last_active = 0;
         if entry.is_empty() {
             self.agents.remove(agent);
         }
@@ -293,6 +314,29 @@ mod tests {
         assert_eq!(g.decide(&a.id, Level::ReadOnly, &c), Decision::Ask);
         assert!(!g.revoke(&a.id), "nothing left");
         assert_eq!(g.list().count(), 0);
+    }
+
+    #[test]
+    fn stop_asks_again() {
+        let c = config(Level::Desktop, RememberMode::Remember);
+        let mut g = Grants::load(None);
+        let a = agent("/opt/a", true);
+        g.answer(&a, Level::ReadOnly, Answer::Always, 100);
+        g.touch(&a, 101);
+        assert!(g.stop(&a.id));
+        // The remembered grant waits until the user answers again.
+        assert_eq!(g.decide(&a.id, Level::ReadOnly, &c), Decision::Ask);
+        assert_eq!(g.kind(&a.id, &c), "none");
+        assert_eq!(g.list().next().map(|(_, e)| e.last_active), Some(0), "no longer active");
+        assert!(!g.stop(&a.id), "already stopped");
+        g.answer(&a, Level::ReadOnly, Answer::Session, 102);
+        assert_eq!(g.decide(&a.id, Level::ReadOnly, &c), Decision::Allowed);
+        // A session grant alone just ends.
+        let b = agent("/opt/b", true);
+        g.answer(&b, Level::ReadOnly, Answer::Session, 103);
+        assert!(g.stop(&b.id));
+        assert_eq!(g.decide(&b.id, Level::ReadOnly, &c), Decision::Ask);
+        assert!(g.list().all(|(id, _)| id != &b.id), "nothing left of it");
     }
 
     #[test]

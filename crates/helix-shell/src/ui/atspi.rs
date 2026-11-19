@@ -179,6 +179,13 @@ impl Ui {
         let Some(publisher) = self.atspi.publisher.as_mut() else { return };
         let activated = matches!(event, Event::Activated(_));
         if let Some((surface, target, request)) = publisher.event(event) {
+            // Only the user at the machine answers an agent prompt: an
+            // agent may drive the accessibility bus (README.md of
+            // contracts/agent-access, "Consent").
+            if self.is_agent_prompt(&surface) {
+                tracing::warn!(?request, "accessibility action on the agent prompt refused");
+                return;
+            }
             if target.text_input && self.atspi_edit(&surface, &target, &request) {
                 return;
             }
@@ -580,6 +587,11 @@ impl Ui {
                     let about = if item.tooltip.trim() == name { String::new() } else { item.tooltip.lines().map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n") };
                     Node::button(name, r).id(item.full_id.clone()).describe(about)
                 }
+                // The agent indicator: a button opening its menu.
+                Slot::Agents => {
+                    let names: Vec<String> = self.agents_active.iter().map(|a| if a.name.is_empty() { a.agent.clone() } else { format!("{} ({})", a.name, a.agent) }).collect();
+                    Node::button(tr("Agents active"), r).id("agents").describe(names.join("\n")).expanded(!self.agent_menu.is_empty() && self.window_menu.is_some())
+                }
                 Slot::Privacy => {
                     if self.sharing {
                         out.push(Node::label(tr("Sharing")).id("sharing").at(crate::a11y::Rect::new(x, 0, sharing_w(), h)));
@@ -627,6 +639,9 @@ impl Ui {
         }
         if has(&|c| matches!(c, Choice::A11y(_))) {
             return tr("Accessibility").to_owned();
+        }
+        if has(&|c| matches!(c, Choice::StopAgent(_))) {
+            return tr("Agents").to_owned();
         }
         if has(&|c| matches!(c, Choice::CustomizePanel | Choice::Extensions)) {
             return tr("Top Bar").to_owned();

@@ -373,7 +373,7 @@ impl Ui {
         match slot {
             Slot::Item(item) => Some(item.id().to_owned()),
             Slot::Ext(i) => self.ext.panel.get(i).map(|p| p.full_id.clone()),
-            Slot::Privacy => None,
+            Slot::Privacy | Slot::Agents => None,
         }
     }
 

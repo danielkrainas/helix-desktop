@@ -28,6 +28,8 @@ pub(super) enum SettingsPanel {
     Display,
     /// Settings itself, at no particular panel.
     Overview,
+    /// Privacy & Security, where the Agent Access page is.
+    AgentAccess,
 }
 
 impl SettingsPanel {
@@ -36,7 +38,7 @@ impl SettingsPanel {
         match self {
             SettingsPanel::Background => "gnome-background-panel.desktop",
             SettingsPanel::Display => "gnome-display-panel.desktop",
-            SettingsPanel::Overview => "org.gnome.Settings.desktop",
+            SettingsPanel::Overview | SettingsPanel::AgentAccess => "org.gnome.Settings.desktop",
         }
     }
 
@@ -46,6 +48,7 @@ impl SettingsPanel {
             SettingsPanel::Background => Some("background"),
             SettingsPanel::Display => Some("display"),
             SettingsPanel::Overview => None,
+            SettingsPanel::AgentAccess => Some("privacy"),
         }
     }
 }

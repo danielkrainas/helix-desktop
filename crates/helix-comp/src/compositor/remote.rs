@@ -25,6 +25,19 @@ const KEY_LEFTSHIFT: u32 = 42;
 /// Pixels per discrete scroll step.
 const STEP_PX: f64 = 15.0;
 
+/// The namespace of the shell's Agent Access prompts (helixdesktop/spec
+/// `contracts/agent-access/README.md`, "Consent"): while a layer surface of
+/// it is shown, input that does not come from the machine's own devices
+/// (remote desktop, EIS, the headless test socket) is dropped, so that an
+/// agent cannot answer its own prompt. Releases still go through, so
+/// nothing stays held down.
+pub const PROTECTED_NAMESPACE: &str = "helix-agent-prompt";
+
+/// Whether `input` only lets go of something (a key, a button, a finger).
+fn is_release(input: &RemoteInput) -> bool {
+    matches!(input, RemoteInput::Key { pressed: false, .. } | RemoteInput::Keysym { pressed: false, .. } | RemoteInput::Button { pressed: false, .. } | RemoteInput::TouchUp { .. })
+}
+
 /// EIS connections, by remote desktop session.
 #[derive(Default)]
 pub struct RemoteState {
@@ -76,8 +89,18 @@ impl Helix {
         self.start_time.elapsed().as_millis() as u32
     }
 
+    /// Whether a prompt only the user at the machine may answer is shown
+    /// ([`PROTECTED_NAMESPACE`]).
+    pub fn protected_prompt_shown(&self) -> bool {
+        self.space.outputs().any(|o| smithay::desktop::layer_map_for_output(o).layers().any(|l| l.namespace() == PROTECTED_NAMESPACE))
+    }
+
     /// Apply input from a remote desktop session.
     pub fn remote_input(&mut self, input: RemoteInput) {
+        if !is_release(&input) && self.protected_prompt_shown() {
+            tracing::debug!(?input, "remote input dropped: an agent prompt is shown");
+            return;
+        }
         self.note_activity();
         if self.capture_remote(&input) {
             return;
@@ -389,6 +412,10 @@ impl Helix {
                 }
             }
             EisRequest::PointerMotion(m) => self.remote_input(RemoteInput::Motion { dx: f64::from(m.dx), dy: f64::from(m.dy) }),
+            // (Not while an agent prompt is shown; see PROTECTED_NAMESPACE.)
+            EisRequest::PointerMotionAbsolute(_) | EisRequest::ScrollDiscrete(_) | EisRequest::TouchDown(_) | EisRequest::TouchMotion(_) if self.protected_prompt_shown() => {
+                tracing::debug!("remote input dropped: an agent prompt is shown");
+            }
             EisRequest::PointerMotionAbsolute(m) => {
                 let pos = self.clamp_to_outputs((f64::from(m.dx_absolute), f64::from(m.dy_absolute)).into());
                 let time = self.now_ms();
