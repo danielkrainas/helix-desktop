@@ -77,6 +77,7 @@ impl Manager {
                     ("permissions".to_owned(), value(i.permissions)),
                     ("commands".to_owned(), value(i.commands)),
                     ("sandboxed".to_owned(), value(i.sandboxed)),
+                    ("leaves-sandbox".to_owned(), value(i.leaves_sandbox)),
                 ]);
                 (i.id, entry)
             })

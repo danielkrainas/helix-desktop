@@ -644,6 +644,7 @@ async fn child() {
         settings: vec![setting("seconds", "Show seconds", SettingType::Bool, SettingValue::Bool(true)), setting("size", "Size", SettingType::Int, SettingValue::Int(3))],
         commands: vec![("show".into(), "Show the clocks".into(), "<Super>w".into())],
         sandboxed: true,
+        leaves_sandbox: false,
     };
     use super::extensions_dialog::DialogHit;
     let b = |y| Rect { x: 600, y, w: 44, h: 22 };

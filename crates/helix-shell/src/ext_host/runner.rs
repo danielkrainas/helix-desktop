@@ -199,6 +199,8 @@ pub struct Info {
     pub commands: Vec<(String, String, String)>,
     /// (1.2) It runs in a sandbox.
     pub sandboxed: bool,
+    /// (1.2) Sandboxed, with permissions that let it out of its sandbox.
+    pub leaves_sandbox: bool,
 }
 
 /// The user's answer to come, and the permissions asked about.
@@ -239,6 +241,8 @@ struct Run {
     stopping: bool,
     /// Calls that timed out in a row.
     timeouts: u32,
+    /// (1.2) Its session bus proxy, and where that listens.
+    proxy: Option<(tokio::process::Child, PathBuf)>,
 }
 
 struct Ext {
@@ -286,6 +290,16 @@ struct Inner {
 pub struct ExtHost {
     inner: Arc<Mutex<Inner>>,
     ui: mpsc::UnboundedSender<UiEvent>,
+}
+
+/// Stop a sandbox's session bus proxy (it also stops by itself once the
+/// sandbox has ended) and remove its socket.
+fn end_proxy(proxy: Option<(tokio::process::Child, PathBuf)>) {
+    if let Some((mut child, socket)) = proxy {
+        // Dropped, it is reaped in the background.
+        let _ = child.start_kill();
+        let _ = std::fs::remove_file(socket);
+    }
 }
 
 fn systemd_user() -> bool {
@@ -426,6 +440,13 @@ impl ExtHost {
                 if manifest.sandbox && !super::sandbox::available() {
                     if ext.run.is_none() {
                         ext.state = State::Invalid("needs bubblewrap (bwrap), which is not installed".into());
+                    }
+                    continue;
+                }
+                // (1.2) A sandbox's session bus goes through xdg-dbus-proxy.
+                if manifest.sandbox && manifest.permissions.iter().any(|p| p == "session-bus") && !super::sandbox::proxy_available() {
+                    if ext.run.is_none() {
+                        ext.state = State::Invalid("needs xdg-dbus-proxy, which is not installed".into());
                     }
                     continue;
                 }
@@ -614,7 +635,7 @@ impl ExtHost {
 
     /// Start extension `id`'s process.
     fn start(&self, id: &str) {
-        let (dir, exec, generation) = {
+        let (dir, exec, generation, proxy) = {
             let mut inner = self.lock();
             let Some(ext) = inner.exts.get_mut(id) else { return };
             // Already running, or starting from another path.
@@ -629,12 +650,21 @@ impl ExtHost {
             let Some(ext) = inner.exts.get_mut(id) else { return };
             let dir = ext.found.dir.clone();
             let program = if Path::new(&m.exec[0]).is_absolute() { PathBuf::from(&m.exec[0]) } else { dir.join(&m.exec[0]) };
-            // (1.2) In a sandbox: bubblewrap runs the program.
+            // (1.2) In a sandbox: bubblewrap runs the program, and its
+            // session bus is a proxy's.
+            let mut proxy = None;
             let exec: Vec<String> = if m.sandbox {
                 let host = super::sandbox::Host::current();
                 let _ = std::fs::create_dir_all(super::sandbox::data_dir(&host, &m.id));
+                if m.permissions.iter().any(|p| p == "session-bus") {
+                    let socket = super::sandbox::proxy_socket(&host, &m.id, &format!("{}-{}", std::process::id(), ext.generation + 1));
+                    match (socket, &host.session_bus) {
+                        (Some(socket), Some(address)) => proxy = Some(super::sandbox::ProxyPlan { socket, address: address.clone(), rules: super::sandbox::proxy_rules(&m) }),
+                        _ => tracing::warn!(id, "no session bus (or no XDG_RUNTIME_DIR) for the extension's sandbox"),
+                    }
+                }
                 let launcher = super::sandbox::launcher().to_string_lossy().into_owned();
-                std::iter::once(launcher).chain(super::sandbox::bwrap_args(&m, &dir, &host, &program, &m.exec[1..])).collect()
+                std::iter::once(launcher).chain(super::sandbox::bwrap_args(&m, &dir, &host, &program, &m.exec[1..], proxy.as_ref().map(|p| p.socket.as_path()))).collect()
             } else {
                 std::iter::once(program.to_string_lossy().into_owned()).chain(m.exec[1..].iter().cloned()).collect()
             };
@@ -642,12 +672,12 @@ impl ExtHost {
             ext.generation += 1;
             ext.state = State::Starting;
             ext.props.clear();
-            (ext.found.dir.clone(), exec, ext.generation)
+            (ext.found.dir.clone(), exec, ext.generation, proxy)
         };
         let host = self.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
-            if let Err(err) = host.spawn(&id, &dir, &exec, generation).await {
+            if let Err(err) = host.spawn(&id, &dir, &exec, generation, proxy).await {
                 if let Some(ext) = host.lock().exts.get_mut(&id).filter(|e| e.generation == generation) {
                     ext.in_flight = false;
                 }
@@ -657,10 +687,37 @@ impl ExtHost {
         });
     }
 
-    async fn spawn(&self, id: &str, dir: &Path, exec: &[String], generation: u64) -> std::io::Result<()> {
-        use std::os::fd::AsRawFd;
+    async fn spawn(&self, id: &str, dir: &Path, exec: &[String], generation: u64, plan: Option<super::sandbox::ProxyPlan>) -> std::io::Result<()> {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
         // `exec` is the full command line: the program (or bwrap) first.
         let program = PathBuf::from(&exec[0]);
+        // (1.2) Its session bus proxy first: the sandbox starts once that
+        // is ready, and holds its sync pipe (descriptor 4) so that it ends
+        // with the sandbox.
+        let mut proxy = None;
+        let mut sync: Option<OwnedFd> = None;
+        if let Some(plan) = plan {
+            let (mut child, read) = super::sandbox::start_proxy(&plan).await?;
+            if let Some(stderr) = child.stderr.take() {
+                let host = self.clone();
+                let id = id.to_owned();
+                tokio::spawn(async move {
+                    let mut lines = tokio::io::BufReader::new(stderr).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        host.log(&id, format!("session bus proxy: {line}"));
+                    }
+                });
+            }
+            proxy = Some((child, plan.socket));
+            // Above the descriptors the child is given (3 and 4).
+            // SAFETY: duplicating a descriptor we own.
+            let high = unsafe { libc::fcntl(read.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 10) };
+            if high < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // SAFETY: just made, ours alone.
+            sync = Some(unsafe { OwnedFd::from_raw_fd(high) });
+        }
         let (ours, theirs) = std::os::unix::net::UnixStream::pair()?;
         let mut cmd = if systemd_user() {
             let mut c = tokio::process::Command::new("systemd-run");
@@ -679,6 +736,7 @@ impl ExtHost {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         let fd = theirs.as_raw_fd();
+        let sync_fd = sync.as_ref().map(|s| s.as_raw_fd());
         // SAFETY: only async-signal-safe calls between fork and exec.
         unsafe {
             cmd.pre_exec(move || {
@@ -689,12 +747,26 @@ impl ExtHost {
                 if flags < 0 || libc::fcntl(3, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
                     return Err(std::io::Error::last_os_error());
                 }
+                // (`dup2` leaves the copy open across exec.)
+                if let Some(sync) = sync_fd {
+                    if libc::dup2(sync, super::sandbox::PROXY_SYNC_FD) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
                 Ok(())
             });
         }
-        let mut child = cmd.spawn()?;
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(err) => {
+                end_proxy(proxy);
+                return Err(err);
+            }
+        };
         let started = tokio::time::Instant::now();
         drop(theirs);
+        // Only the sandbox holds the proxy's pipe now.
+        drop(sync);
         let pid = child.id().map_or(0, |p| p as i32);
         self.log(id, format!("started (pid {pid})"));
         // Its output goes to its log.
@@ -715,7 +787,7 @@ impl ExtHost {
             }
             match inner.exts.get_mut(id).filter(|e| e.generation == generation && e.state == State::Starting) {
                 Some(ext) => {
-                    ext.run = Some(Run { pid, conn: None, said_hello: false, granted: Vec::new(), inhibitors: HashMap::new(), next_handle: 1, stopping: false, timeouts: 0 });
+                    ext.run = Some(Run { pid, conn: None, said_hello: false, granted: Vec::new(), inhibitors: HashMap::new(), next_handle: 1, stopping: false, timeouts: 0, proxy: proxy.take() });
                     true
                 }
                 None => false,
@@ -724,6 +796,7 @@ impl ExtHost {
         if !current {
             // Stopped or started again meanwhile: this one is not wanted.
             let _ = child.start_kill();
+            end_proxy(proxy);
             return Ok(());
         }
         // Waiting for it to end.
@@ -784,7 +857,7 @@ impl ExtHost {
         let generation = 1;
         {
             let mut inner = self.lock();
-            let run = Run { pid: 0, conn: None, said_hello: false, granted: Vec::new(), inhibitors: HashMap::new(), next_handle: 1, stopping: false, timeouts: 0 };
+            let run = Run { pid: 0, conn: None, said_hello: false, granted: Vec::new(), inhibitors: HashMap::new(), next_handle: 1, stopping: false, timeouts: 0, proxy: None };
             inner.exts.insert(id.clone(), Ext { found, state: State::Starting, log: Log::default(), run: Some(run), generation, crashes: Vec::new(), settings, props: HashMap::new(), dev_stamp: None, in_flight: false, counted: 0, pending: Vec::new() });
         }
         stream.set_nonblocking(true)?;
@@ -835,6 +908,10 @@ impl ExtHost {
             ext.props.clear();
             (ext.run.take(), session)
         };
+        let mut run = run;
+        if let Some(run) = run.as_mut() {
+            end_proxy(run.proxy.take());
+        }
         if let (Some(run), Some(session)) = (run, session) {
             for cookie in run.inhibitors.into_values() {
                 let session = session.clone();
@@ -1122,6 +1199,7 @@ impl ExtHost {
                     error,
                     settings: m.map(|m| m.settings.iter().map(|d| (d.clone(), e.settings.get(&d.key).cloned().unwrap_or_else(|| d.default.clone()))).collect()).unwrap_or_default(),
                     sandboxed: m.is_some_and(|m| m.sandbox),
+                    leaves_sandbox: m.is_some_and(|m| m.sandbox && manifest::leaves_sandbox(&m.permissions)),
                     commands: m
                         .map(|m| m.commands.iter().map(|c| (c.id.clone(), c.title.clone(), inner.keys.command_keys.get(&format!("{}/{}", m.id, c.id)).cloned().unwrap_or_default())).collect())
                         .unwrap_or_default(),
@@ -1145,7 +1223,7 @@ impl ExtHost {
         let (reply, answer) = oneshot::channel();
         let question = super::approval::ApprovalQuestion {
             name: manifest.name.clone(),
-            can: manifest.permissions.iter().map(|p| manifest::permission_text(p).to_owned()).collect(),
+            can: manifest.permissions.iter().map(|p| manifest::permission_text(p)).collect(),
             sandboxed: manifest.sandbox,
             leaves_sandbox: manifest.sandbox && manifest::leaves_sandbox(&manifest.permissions),
             reply,

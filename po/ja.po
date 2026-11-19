@@ -610,6 +610,7 @@ msgid "It is not sandboxed: it can do anything you can."
 msgstr "サンドボックス化されていません。あなたができることは何でもできます。"
 
 #: crates/helix-shell/src/ext_host/approval.rs:48
+#: crates/helix-shell/src/ui/extensions_dialog.rs:91
 msgid "Its permissions let it out of its sandbox: it can do anything you can."
 msgstr ""
 "その権限によりサンドボックスの外に出られます。あなたができることは何でもでき"
@@ -665,48 +666,68 @@ msgstr "「ビデオ」を読み取り・変更する"
 msgid "read and change your Desktop"
 msgstr "「デスクトップ」を読み取り・変更する"
 
-#: crates/helix-shell/src/ext_host/manifest.rs:26
-msgid "talk to all your other programs, which lets it do anything you can"
-msgstr ""
-"他のすべてのプログラムとの通信（これにより、あなたができることは何でもできま"
-"す）"
-
 #: crates/helix-shell/src/ext_host/manifest.rs:27
+msgid "offer its own services to your other programs"
+msgstr "ほかのプログラムに独自のサービスを提供する"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:28
 msgid "talk to system services"
 msgstr "システムサービスと通信する"
 
-#: crates/helix-shell/src/ext_host/runner.rs:325
-#: crates/helix-shell/src/ext_host/runner.rs:549
-#: crates/helix-shell/src/ext_host/runner.rs:875
+#. Translators: {name} is a D-Bus name, e.g. org.example.Weather.
+#: crates/helix-shell/src/ext_host/manifest.rs:165
+msgid "see whether {name} is running"
+msgstr "{name} が実行中かどうかを確認する"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:166
+msgid "talk to {name}"
+msgstr "{name} と通信する"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:167
+msgid "offer services as {name}"
+msgstr "{name} としてサービスを提供する"
+
+#. Translators: {rule} is a D-Bus rule, e.g. org.example.Player.*@/org/example.
+#: crates/helix-shell/src/ext_host/manifest.rs:169
+msgid "call {rule} on {name}"
+msgstr "{name} の {rule} を呼び出す"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:170
+msgid "hear {rule} signals from {name}"
+msgstr "{name} から {rule} シグナルを受け取る"
+
+#: crates/helix-shell/src/ext_host/runner.rs:339
+#: crates/helix-shell/src/ext_host/runner.rs:570
+#: crates/helix-shell/src/ext_host/runner.rs:952
 #: crates/helix-shell/src/ui/atspi.rs:497
-#: crates/helix-shell/src/ui/extensions_dialog.rs:111
-#: crates/helix-shell/src/ui/extensions_dialog.rs:216
+#: crates/helix-shell/src/ui/extensions_dialog.rs:112
+#: crates/helix-shell/src/ui/extensions_dialog.rs:217
 msgid "Extensions"
 msgstr "拡張機能"
 
-#: crates/helix-shell/src/ext_host/runner.rs:325
+#: crates/helix-shell/src/ext_host/runner.rs:339
 msgid "Extensions are off for this session"
 msgstr "このセッションでは拡張機能がオフです"
 
-#: crates/helix-shell/src/ext_host/runner.rs:325
+#: crates/helix-shell/src/ext_host/runner.rs:339
 msgid "Shift was held at login."
 msgstr "ログイン時に Shift キーが押されていました。"
 
 #. Translators: the separator between the names of a list ("a, b, c").
-#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/ext_host/runner.rs:570
 #: crates/helix-shell/src/media.rs:229
 msgid ", "
 msgstr "、"
 
-#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/ext_host/runner.rs:570
 msgid "Already in use: {keys}. Set them in Extensions…"
 msgstr "すでに使用中: {keys}。「拡張機能…」で設定してください。"
 
-#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/ext_host/runner.rs:570
 msgid "{name}: keys left unset"
 msgstr "{name}: キーが未設定です"
 
-#: crates/helix-shell/src/ext_host/runner.rs:875
+#: crates/helix-shell/src/ext_host/runner.rs:952
 msgid "{name} stopped working"
 msgstr "{name} が動作を停止しました"
 
@@ -2159,8 +2180,8 @@ msgstr "ディスプレイ設定"
 #: crates/helix-shell/src/ui/background_menu.rs:60
 #: crates/helix-shell/src/ui/background_menu.rs:102
 #: crates/helix-shell/src/ui/extensions_dialog.rs:62
-#: crates/helix-shell/src/ui/extensions_dialog.rs:125
-#: crates/helix-shell/src/ui/extensions_dialog.rs:264
+#: crates/helix-shell/src/ui/extensions_dialog.rs:126
+#: crates/helix-shell/src/ui/extensions_dialog.rs:265
 #: crates/helix-shell/src/ui/quick.rs:155
 #: crates/helix-shell/src/ui/quick.rs:556
 msgid "Settings"
@@ -2446,46 +2467,46 @@ msgstr "サンドボックス化"
 msgid "Sandboxed. Can: {}"
 msgstr "サンドボックス化。可能な操作: {}"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:92
+#: crates/helix-shell/src/ui/extensions_dialog.rs:93
 msgid "Full access: it can do anything you can"
 msgstr "フルアクセス: あなたができることはすべて実行できます"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:113
-#: crates/helix-shell/src/ui/extensions_dialog.rs:221
+#: crates/helix-shell/src/ui/extensions_dialog.rs:114
+#: crates/helix-shell/src/ui/extensions_dialog.rs:222
 msgid "No extensions are installed."
 msgstr "拡張機能はインストールされていません。"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:128
-#: crates/helix-shell/src/ui/extensions_dialog.rs:258
+#: crates/helix-shell/src/ui/extensions_dialog.rs:129
+#: crates/helix-shell/src/ui/extensions_dialog.rs:259
 msgid "None"
 msgstr "なし"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:147
+#: crates/helix-shell/src/ui/extensions_dialog.rs:148
 msgid "Decrease"
 msgstr "減らす"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:147
+#: crates/helix-shell/src/ui/extensions_dialog.rs:148
 msgid "Increase"
 msgstr "増やす"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:154
-#: crates/helix-shell/src/ui/extensions_dialog.rs:308
+#: crates/helix-shell/src/ui/extensions_dialog.rs:155
+#: crates/helix-shell/src/ui/extensions_dialog.rs:309
 msgid "(empty)"
 msgstr "（空）"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:164
-#: crates/helix-shell/src/ui/extensions_dialog.rs:319
+#: crates/helix-shell/src/ui/extensions_dialog.rs:165
+#: crates/helix-shell/src/ui/extensions_dialog.rs:320
 msgid "Scroll for more"
 msgstr "スクロールしてさらに表示"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:167
-#: crates/helix-shell/src/ui/extensions_dialog.rs:323
+#: crates/helix-shell/src/ui/extensions_dialog.rs:168
+#: crates/helix-shell/src/ui/extensions_dialog.rs:324
 #: crates/helix-shell/src/ui/panel_editor.rs:186
 #: crates/helix-shell/src/ui/panel_editor.rs:347
 msgid "Done"
 msgstr "完了"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:264
+#: crates/helix-shell/src/ui/extensions_dialog.rs:265
 msgid "Hide Settings"
 msgstr "設定を隠す"
 

@@ -612,6 +612,7 @@ msgid "It is not sandboxed: it can do anything you can."
 msgstr "Ze draait niet in een sandbox: ze kan alles wat u kunt."
 
 #: crates/helix-shell/src/ext_host/approval.rs:48
+#: crates/helix-shell/src/ui/extensions_dialog.rs:91
 msgid "Its permissions let it out of its sandbox: it can do anything you can."
 msgstr "Haar machtigingen laten haar uit de sandbox: ze kan alles wat u kunt."
 
@@ -663,46 +664,68 @@ msgstr "uw Video's lezen en wijzigen"
 msgid "read and change your Desktop"
 msgstr "uw Bureaublad lezen en wijzigen"
 
-#: crates/helix-shell/src/ext_host/manifest.rs:26
-msgid "talk to all your other programs, which lets it do anything you can"
-msgstr "met al uw andere programma’s praten, waardoor ze alles kan wat u kunt"
-
 #: crates/helix-shell/src/ext_host/manifest.rs:27
+msgid "offer its own services to your other programs"
+msgstr "eigen diensten aanbieden aan je andere programma's"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:28
 msgid "talk to system services"
 msgstr "communiceren met systeemdiensten"
 
-#: crates/helix-shell/src/ext_host/runner.rs:325
-#: crates/helix-shell/src/ext_host/runner.rs:549
-#: crates/helix-shell/src/ext_host/runner.rs:875
+#. Translators: {name} is a D-Bus name, e.g. org.example.Weather.
+#: crates/helix-shell/src/ext_host/manifest.rs:165
+msgid "see whether {name} is running"
+msgstr "zien of {name} actief is"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:166
+msgid "talk to {name}"
+msgstr "communiceren met {name}"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:167
+msgid "offer services as {name}"
+msgstr "diensten aanbieden als {name}"
+
+#. Translators: {rule} is a D-Bus rule, e.g. org.example.Player.*@/org/example.
+#: crates/helix-shell/src/ext_host/manifest.rs:169
+msgid "call {rule} on {name}"
+msgstr "{rule} aanroepen op {name}"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:170
+msgid "hear {rule} signals from {name}"
+msgstr "{rule}-signalen van {name} ontvangen"
+
+#: crates/helix-shell/src/ext_host/runner.rs:339
+#: crates/helix-shell/src/ext_host/runner.rs:570
+#: crates/helix-shell/src/ext_host/runner.rs:952
 #: crates/helix-shell/src/ui/atspi.rs:497
-#: crates/helix-shell/src/ui/extensions_dialog.rs:111
-#: crates/helix-shell/src/ui/extensions_dialog.rs:216
+#: crates/helix-shell/src/ui/extensions_dialog.rs:112
+#: crates/helix-shell/src/ui/extensions_dialog.rs:217
 msgid "Extensions"
 msgstr "Uitbreidingen"
 
-#: crates/helix-shell/src/ext_host/runner.rs:325
+#: crates/helix-shell/src/ext_host/runner.rs:339
 msgid "Extensions are off for this session"
 msgstr "Uitbreidingen zijn uitgeschakeld voor deze sessie"
 
-#: crates/helix-shell/src/ext_host/runner.rs:325
+#: crates/helix-shell/src/ext_host/runner.rs:339
 msgid "Shift was held at login."
 msgstr "Shift werd ingedrukt gehouden bij het aanmelden."
 
 #. Translators: the separator between the names of a list ("a, b, c").
-#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/ext_host/runner.rs:570
 #: crates/helix-shell/src/media.rs:229
 msgid ", "
 msgstr ", "
 
-#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/ext_host/runner.rs:570
 msgid "Already in use: {keys}. Set them in Extensions…"
 msgstr "Al in gebruik: {keys}. Stel ze in via Uitbreidingen…"
 
-#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/ext_host/runner.rs:570
 msgid "{name}: keys left unset"
 msgstr "{name}: toetsen niet ingesteld"
 
-#: crates/helix-shell/src/ext_host/runner.rs:875
+#: crates/helix-shell/src/ext_host/runner.rs:952
 msgid "{name} stopped working"
 msgstr "{name} werkt niet meer"
 
@@ -2177,8 +2200,8 @@ msgstr "Beeldscherminstellingen"
 #: crates/helix-shell/src/ui/background_menu.rs:60
 #: crates/helix-shell/src/ui/background_menu.rs:102
 #: crates/helix-shell/src/ui/extensions_dialog.rs:62
-#: crates/helix-shell/src/ui/extensions_dialog.rs:125
-#: crates/helix-shell/src/ui/extensions_dialog.rs:264
+#: crates/helix-shell/src/ui/extensions_dialog.rs:126
+#: crates/helix-shell/src/ui/extensions_dialog.rs:265
 #: crates/helix-shell/src/ui/quick.rs:155
 #: crates/helix-shell/src/ui/quick.rs:556
 msgid "Settings"
@@ -2470,46 +2493,46 @@ msgstr "In sandbox"
 msgid "Sandboxed. Can: {}"
 msgstr "In sandbox. Kan: {}"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:92
+#: crates/helix-shell/src/ui/extensions_dialog.rs:93
 msgid "Full access: it can do anything you can"
 msgstr "Volledige toegang: het kan alles wat u kunt"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:113
-#: crates/helix-shell/src/ui/extensions_dialog.rs:221
+#: crates/helix-shell/src/ui/extensions_dialog.rs:114
+#: crates/helix-shell/src/ui/extensions_dialog.rs:222
 msgid "No extensions are installed."
 msgstr "Er zijn geen uitbreidingen geïnstalleerd."
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:128
-#: crates/helix-shell/src/ui/extensions_dialog.rs:258
+#: crates/helix-shell/src/ui/extensions_dialog.rs:129
+#: crates/helix-shell/src/ui/extensions_dialog.rs:259
 msgid "None"
 msgstr "Geen"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:147
+#: crates/helix-shell/src/ui/extensions_dialog.rs:148
 msgid "Decrease"
 msgstr "Verlagen"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:147
+#: crates/helix-shell/src/ui/extensions_dialog.rs:148
 msgid "Increase"
 msgstr "Verhogen"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:154
-#: crates/helix-shell/src/ui/extensions_dialog.rs:308
+#: crates/helix-shell/src/ui/extensions_dialog.rs:155
+#: crates/helix-shell/src/ui/extensions_dialog.rs:309
 msgid "(empty)"
 msgstr "(leeg)"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:164
-#: crates/helix-shell/src/ui/extensions_dialog.rs:319
+#: crates/helix-shell/src/ui/extensions_dialog.rs:165
+#: crates/helix-shell/src/ui/extensions_dialog.rs:320
 msgid "Scroll for more"
 msgstr "Scroll voor meer"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:167
-#: crates/helix-shell/src/ui/extensions_dialog.rs:323
+#: crates/helix-shell/src/ui/extensions_dialog.rs:168
+#: crates/helix-shell/src/ui/extensions_dialog.rs:324
 #: crates/helix-shell/src/ui/panel_editor.rs:186
 #: crates/helix-shell/src/ui/panel_editor.rs:347
 msgid "Done"
 msgstr "Gereed"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:264
+#: crates/helix-shell/src/ui/extensions_dialog.rs:265
 msgid "Hide Settings"
 msgstr "Instellingen verbergen"
 

@@ -621,6 +621,7 @@ msgid "It is not sandboxed: it can do anything you can."
 msgstr "Оно не изолировано: оно может делать всё, что можете вы."
 
 #: crates/helix-shell/src/ext_host/approval.rs:48
+#: crates/helix-shell/src/ui/extensions_dialog.rs:91
 msgid "Its permissions let it out of its sandbox: it can do anything you can."
 msgstr ""
 "Его разрешения позволяют выйти из изоляции: оно может делать всё, что можете "
@@ -675,48 +676,68 @@ msgstr "читать и изменять папку «Видео»"
 msgid "read and change your Desktop"
 msgstr "читать и изменять папку «Рабочий стол»"
 
-#: crates/helix-shell/src/ext_host/manifest.rs:26
-msgid "talk to all your other programs, which lets it do anything you can"
-msgstr ""
-"взаимодействовать со всеми вашими программами, что позволяет делать всё, что "
-"можете вы"
-
 #: crates/helix-shell/src/ext_host/manifest.rs:27
+msgid "offer its own services to your other programs"
+msgstr "предоставлять собственные службы другим вашим программам"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:28
 msgid "talk to system services"
 msgstr "взаимодействовать с системными службами"
 
-#: crates/helix-shell/src/ext_host/runner.rs:325
-#: crates/helix-shell/src/ext_host/runner.rs:549
-#: crates/helix-shell/src/ext_host/runner.rs:875
+#. Translators: {name} is a D-Bus name, e.g. org.example.Weather.
+#: crates/helix-shell/src/ext_host/manifest.rs:165
+msgid "see whether {name} is running"
+msgstr "видеть, запущено ли {name}"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:166
+msgid "talk to {name}"
+msgstr "взаимодействовать с {name}"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:167
+msgid "offer services as {name}"
+msgstr "предоставлять службы под именем {name}"
+
+#. Translators: {rule} is a D-Bus rule, e.g. org.example.Player.*@/org/example.
+#: crates/helix-shell/src/ext_host/manifest.rs:169
+msgid "call {rule} on {name}"
+msgstr "вызывать {rule} у {name}"
+
+#: crates/helix-shell/src/ext_host/manifest.rs:170
+msgid "hear {rule} signals from {name}"
+msgstr "получать сигналы {rule} от {name}"
+
+#: crates/helix-shell/src/ext_host/runner.rs:339
+#: crates/helix-shell/src/ext_host/runner.rs:570
+#: crates/helix-shell/src/ext_host/runner.rs:952
 #: crates/helix-shell/src/ui/atspi.rs:497
-#: crates/helix-shell/src/ui/extensions_dialog.rs:111
-#: crates/helix-shell/src/ui/extensions_dialog.rs:216
+#: crates/helix-shell/src/ui/extensions_dialog.rs:112
+#: crates/helix-shell/src/ui/extensions_dialog.rs:217
 msgid "Extensions"
 msgstr "Расширения"
 
-#: crates/helix-shell/src/ext_host/runner.rs:325
+#: crates/helix-shell/src/ext_host/runner.rs:339
 msgid "Extensions are off for this session"
 msgstr "Расширения отключены в этом сеансе"
 
-#: crates/helix-shell/src/ext_host/runner.rs:325
+#: crates/helix-shell/src/ext_host/runner.rs:339
 msgid "Shift was held at login."
 msgstr "При входе была нажата клавиша Shift."
 
 #. Translators: the separator between the names of a list ("a, b, c").
-#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/ext_host/runner.rs:570
 #: crates/helix-shell/src/media.rs:229
 msgid ", "
 msgstr ", "
 
-#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/ext_host/runner.rs:570
 msgid "Already in use: {keys}. Set them in Extensions…"
 msgstr "Уже используются: {keys}. Назначьте их в окне «Расширения…»"
 
-#: crates/helix-shell/src/ext_host/runner.rs:549
+#: crates/helix-shell/src/ext_host/runner.rs:570
 msgid "{name}: keys left unset"
 msgstr "{name}: клавиши не назначены"
 
-#: crates/helix-shell/src/ext_host/runner.rs:875
+#: crates/helix-shell/src/ext_host/runner.rs:952
 msgid "{name} stopped working"
 msgstr "Расширение «{name}» перестало работать"
 
@@ -2208,8 +2229,8 @@ msgstr "Параметры дисплея"
 #: crates/helix-shell/src/ui/background_menu.rs:60
 #: crates/helix-shell/src/ui/background_menu.rs:102
 #: crates/helix-shell/src/ui/extensions_dialog.rs:62
-#: crates/helix-shell/src/ui/extensions_dialog.rs:125
-#: crates/helix-shell/src/ui/extensions_dialog.rs:264
+#: crates/helix-shell/src/ui/extensions_dialog.rs:126
+#: crates/helix-shell/src/ui/extensions_dialog.rs:265
 #: crates/helix-shell/src/ui/quick.rs:155
 #: crates/helix-shell/src/ui/quick.rs:556
 msgid "Settings"
@@ -2505,46 +2526,46 @@ msgstr "В песочнице"
 msgid "Sandboxed. Can: {}"
 msgstr "В песочнице. Может: {}"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:92
+#: crates/helix-shell/src/ui/extensions_dialog.rs:93
 msgid "Full access: it can do anything you can"
 msgstr "Полный доступ: может делать всё, что можете вы"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:113
-#: crates/helix-shell/src/ui/extensions_dialog.rs:221
+#: crates/helix-shell/src/ui/extensions_dialog.rs:114
+#: crates/helix-shell/src/ui/extensions_dialog.rs:222
 msgid "No extensions are installed."
 msgstr "Не установлено ни одного расширения."
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:128
-#: crates/helix-shell/src/ui/extensions_dialog.rs:258
+#: crates/helix-shell/src/ui/extensions_dialog.rs:129
+#: crates/helix-shell/src/ui/extensions_dialog.rs:259
 msgid "None"
 msgstr "Нет"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:147
+#: crates/helix-shell/src/ui/extensions_dialog.rs:148
 msgid "Decrease"
 msgstr "Уменьшить"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:147
+#: crates/helix-shell/src/ui/extensions_dialog.rs:148
 msgid "Increase"
 msgstr "Увеличить"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:154
-#: crates/helix-shell/src/ui/extensions_dialog.rs:308
+#: crates/helix-shell/src/ui/extensions_dialog.rs:155
+#: crates/helix-shell/src/ui/extensions_dialog.rs:309
 msgid "(empty)"
 msgstr "(пусто)"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:164
-#: crates/helix-shell/src/ui/extensions_dialog.rs:319
+#: crates/helix-shell/src/ui/extensions_dialog.rs:165
+#: crates/helix-shell/src/ui/extensions_dialog.rs:320
 msgid "Scroll for more"
 msgstr "Прокрутите, чтобы увидеть больше"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:167
-#: crates/helix-shell/src/ui/extensions_dialog.rs:323
+#: crates/helix-shell/src/ui/extensions_dialog.rs:168
+#: crates/helix-shell/src/ui/extensions_dialog.rs:324
 #: crates/helix-shell/src/ui/panel_editor.rs:186
 #: crates/helix-shell/src/ui/panel_editor.rs:347
 msgid "Done"
 msgstr "Готово"
 
-#: crates/helix-shell/src/ui/extensions_dialog.rs:264
+#: crates/helix-shell/src/ui/extensions_dialog.rs:265
 msgid "Hide Settings"
 msgstr "Скрыть настройки"
 

@@ -86,8 +86,9 @@ fn state_text(info: &Info) -> String {
 /// What an extension can do: sandboxed, with its permissions, or anything.
 fn can_text(info: &Info) -> String {
     if info.sandboxed {
-        let what: Vec<&str> = info.permissions.iter().map(|p| permission_text(p)).collect();
-        if what.is_empty() { tr("Sandboxed").to_owned() } else { trf!("Sandboxed. Can: {}", what.join(", ")) }
+        let what: Vec<String> = info.permissions.iter().map(|p| permission_text(p)).collect();
+        let text = if what.is_empty() { tr("Sandboxed").to_owned() } else { trf!("Sandboxed. Can: {}", what.join(", ")) };
+        if info.leaves_sandbox { format!("{text} {}", tr("Its permissions let it out of its sandbox: it can do anything you can.")) } else { text }
     } else {
         tr("Full access: it can do anything you can").to_owned()
     }

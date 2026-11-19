@@ -14,7 +14,7 @@ pub struct ApprovalQuestion {
     pub can: Vec<String>,
     pub sandboxed: bool,
     /// Sandboxed, but with a permission that leaves the sandbox
-    /// ([`super::manifest::LEAVE_SANDBOX`]).
+    /// ([`super::manifest::leaves_sandbox`]).
     pub leaves_sandbox: bool,
     pub reply: oneshot::Sender<bool>,
 }
@@ -60,7 +60,8 @@ mod tests {
         assert_eq!(lines(&can, true, false), can);
         assert_eq!(lines(&can, false, false).len(), 2);
         assert!(lines(&can, true, true)[1].contains("out of its sandbox"));
-        assert!(super::super::manifest::leaves_sandbox(&["network".into(), "session-bus".into()]));
+        assert!(!super::super::manifest::leaves_sandbox(&["network".into(), "session-bus".into()]), "filtered");
+        assert!(super::super::manifest::leaves_sandbox(&["session-bus".into(), "session-bus:talk=org.freedesktop.systemd1".into()]));
         assert!(super::super::manifest::leaves_sandbox(&["files:home".into()]));
         assert!(!super::super::manifest::leaves_sandbox(&["files:documents".into(), "network".into(), "system-bus".into()]));
     }

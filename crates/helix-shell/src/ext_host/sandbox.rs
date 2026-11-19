@@ -1,6 +1,6 @@
 //! Extension sandboxes (helixdesktop/spec `contracts/extensions/README.md`,
 //! "Sandboxes", API 1.2): the bubblewrap command line for a sandboxed
-//! extension.
+//! extension, and the xdg-dbus-proxy that filters its session bus.
 
 use std::path::{Path, PathBuf};
 
@@ -14,8 +14,8 @@ pub struct Host {
     pub runtime_dir: Option<PathBuf>,
     /// The Wayland socket's path.
     pub wayland: Option<PathBuf>,
-    /// The session bus socket's path.
-    pub session_bus: Option<PathBuf>,
+    /// The session bus's address (what its proxy connects to).
+    pub session_bus: Option<String>,
     pub system_bus: PathBuf,
     /// The user's XDG folders: (name as in `files:<name>`, path).
     pub xdg_dirs: Vec<(String, PathBuf)>,
@@ -31,7 +31,7 @@ impl Host {
     pub fn current() -> Host {
         let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
         let wayland = std::env::var_os("WAYLAND_DISPLAY").map(PathBuf::from).map(|w| if w.is_absolute() { w } else { runtime_dir.clone().unwrap_or_default().join(w) });
-        let session_bus = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok().and_then(|a| bus_path(&a));
+        let session_bus = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok().filter(|a| !a.is_empty());
         let user_dir = |d: gio::glib::UserDirectory| gio::glib::user_special_dir(d);
         let xdg_dirs = [
             ("documents", gio::glib::UserDirectory::Documents),
@@ -64,11 +64,6 @@ impl Host {
             disable_userns: can_disable_userns(),
         }
     }
-}
-
-/// The socket path of a `unix:path=…` D-Bus address.
-pub fn bus_path(address: &str) -> Option<PathBuf> {
-    address.split(';').find_map(|a| a.strip_prefix("unix:")?.split(',').find_map(|kv| kv.strip_prefix("path=")).map(PathBuf::from))
 }
 
 /// The writable home of extension `id`.
@@ -174,9 +169,131 @@ pub fn works() -> Result<(), String> {
         .clone()
 }
 
+const PROXY: &str = "xdg-dbus-proxy";
+/// The descriptor a sandbox gets its proxy's sync pipe on (3 is the
+/// connection to the shell).
+pub const PROXY_SYNC_FD: i32 = 4;
+/// How long a proxy may take to get ready.
+const PROXY_READY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Whether xdg-dbus-proxy is installed.
+pub fn proxy_available() -> bool {
+    std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(PROXY).is_file()))
+}
+
+/// Where the proxy for run `tag` of extension `id` listens (outside the
+/// sandbox): `$XDG_RUNTIME_DIR/helix/extension-bus/<id>-<tag>`.
+pub fn proxy_socket(host: &Host, id: &str, tag: &str) -> Option<PathBuf> {
+    host.runtime_dir.as_ref().map(|r| r.join("helix/extension-bus").join(format!("{id}-{tag}")))
+}
+
+/// xdg-dbus-proxy's options after `ADDRESS PATH` for `m`: filtering, the
+/// names under its id, and its `[session-bus]` rules (checked when the
+/// manifest was read).
+pub fn proxy_rules(m: &Manifest) -> Vec<String> {
+    let mut out = vec!["--filter".to_owned()];
+    out.extend(super::manifest::own_bus_name(&m.id).map(|n| format!("--own={n}")));
+    out.extend(m.permissions.iter().filter_map(|p| super::manifest::bus_rule(p)).map(|(kind, value)| format!("--{kind}={value}")));
+    out
+}
+
+/// A sandbox's session bus proxy to start: where it listens, the bus,
+/// and its options.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProxyPlan {
+    pub socket: PathBuf,
+    pub address: String,
+    pub rules: Vec<String>,
+}
+
+/// Start xdg-dbus-proxy for `plan` and wait until it is ready (it says so
+/// on its `--fd`). It stops when the read end of that pipe, returned for
+/// the sandbox to hold (`--sync-fd`), is closed everywhere, and when the
+/// child is dropped.
+pub async fn start_proxy(plan: &ProxyPlan) -> std::io::Result<(tokio::process::Child, std::os::fd::OwnedFd)> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::fs::PermissionsExt;
+    if let Some(dir) = plan.socket.parent() {
+        std::fs::create_dir_all(dir)?;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    let _ = std::fs::remove_file(&plan.socket);
+    let mut fds = [0; 2];
+    // SAFETY: `fds` has room for both ends.
+    if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: both were just made, and are ours alone.
+    let (read, write) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+    let mut cmd = tokio::process::Command::new(PROXY);
+    cmd.arg("--fd=3").arg(&plan.address).arg(&plan.socket).args(&plan.rules);
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
+    let fd = write.as_raw_fd();
+    // SAFETY: only async-signal-safe calls between fork and exec.
+    unsafe {
+        cmd.pre_exec(move || {
+            if fd != 3 && libc::dup2(fd, 3) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let flags = libc::fcntl(3, libc::F_GETFD);
+            if flags < 0 || libc::fcntl(3, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn()?;
+    drop(write);
+    let ready = tokio::task::spawn_blocking(move || wait_ready(read, PROXY_READY)).await.map_err(std::io::Error::other)?;
+    match ready {
+        Ok(read) => Ok((child, read)),
+        Err(err) => {
+            let _ = child.start_kill();
+            let mut complaint = String::new();
+            if let Some(mut stderr) = child.stderr.take() {
+                use tokio::io::AsyncReadExt;
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(1), stderr.read_to_string(&mut complaint)).await;
+            }
+            let _ = std::fs::remove_file(&plan.socket);
+            let line = complaint.lines().find(|l| !l.trim().is_empty()).map_or_else(|| err.to_string(), |l| l.trim().to_owned());
+            Err(std::io::Error::other(format!("the session bus proxy did not start: {line}")))
+        }
+    }
+}
+
+/// Wait up to `timeout` for a byte on `read` (a proxy's `--fd`).
+fn wait_ready(read: std::os::fd::OwnedFd, timeout: std::time::Duration) -> std::io::Result<std::os::fd::OwnedFd> {
+    use std::os::fd::AsRawFd;
+    let mut poll = libc::pollfd { fd: read.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        // SAFETY: one valid pollfd.
+        let n = unsafe { libc::poll(&mut poll, 1, left.as_millis().min(i32::MAX as u128) as i32) };
+        if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        if n < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if n == 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "not ready in time"));
+        }
+        let mut byte = 0u8;
+        // SAFETY: reading one byte into `byte`.
+        let got = unsafe { libc::read(read.as_raw_fd(), (&mut byte as *mut u8).cast(), 1) };
+        return match got {
+            1 => Ok(read),
+            0 => Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "it exited")),
+            _ => Err(std::io::Error::last_os_error()),
+        };
+    }
+}
+
 /// The arguments to `bwrap` for running `program` (with `args`) of `m`,
-/// whose directory is `dir`.
-pub fn bwrap_args(m: &Manifest, dir: &Path, host: &Host, program: &Path, args: &[String]) -> Vec<String> {
+/// whose directory is `dir`; `bus` is the socket of its session bus
+/// proxy, whose sync pipe it gets as descriptor [`PROXY_SYNC_FD`].
+pub fn bwrap_args(m: &Manifest, dir: &Path, host: &Host, program: &Path, args: &[String], bus: Option<&Path>) -> Vec<String> {
     let s = |p: &Path| p.to_string_lossy().into_owned();
     let has = |perm: &str| m.permissions.iter().any(|p| p == perm);
     let mut out: Vec<String> = Vec::new();
@@ -226,10 +343,15 @@ pub fn bwrap_args(m: &Manifest, dir: &Path, host: &Host, program: &Path, args: &
             push(&["--ro-bind", &s(w), &s(w)]);
         }
     }
-    if has("session-bus") {
-        if let Some(bus) = &host.session_bus {
-            push(&["--ro-bind", &s(bus), &s(bus)]);
+    // The session bus only through its proxy (never the bus itself), at
+    // the usual place; it ends with the sandbox.
+    match (bus, &host.runtime_dir) {
+        (Some(bus), Some(runtime)) if has("session-bus") => {
+            let inside = runtime.join("bus");
+            push(&["--ro-bind", &s(bus), &s(&inside), "--setenv", "DBUS_SESSION_BUS_ADDRESS", &format!("unix:path={}", s(&inside))]);
+            push(&["--sync-fd", &PROXY_SYNC_FD.to_string()]);
         }
+        _ => push(&["--unsetenv", "DBUS_SESSION_BUS_ADDRESS"]),
     }
     if has("system-bus") {
         push(&["--ro-bind", &s(&host.system_bus), &s(&host.system_bus)]);
@@ -258,7 +380,7 @@ mod tests {
             data_home: "/home/u/.local/share".into(),
             runtime_dir: Some("/run/user/1000".into()),
             wayland: Some("/run/user/1000/wayland-0".into()),
-            session_bus: Some("/run/user/1000/bus".into()),
+            session_bus: Some("unix:path=/run/user/1000/bus".into()),
             system_bus: "/run/dbus/system_bus_socket".into(),
             xdg_dirs: vec![("downloads".into(), "/home/u/Downloads".into())],
             root_entries: vec![("/bin".into(), Some("usr/bin".into())), ("/lib64".into(), None)],
@@ -273,33 +395,53 @@ mod tests {
 
     #[test]
     fn closed_by_default() {
-        let a = bwrap_args(&manifest(&[]), Path::new("/ext/org.x.S"), &host(), Path::new("/ext/org.x.S/bin/s"), &["--x".into()]);
+        let a = bwrap_args(&manifest(&[]), Path::new("/ext/org.x.S"), &host(), Path::new("/ext/org.x.S/bin/s"), &["--x".into()], None);
         assert!(has_seq(&a, &["--die-with-parent", "--new-session", "--unshare-all", "--unshare-user", "--disable-userns"]));
         let old = Host { disable_userns: false, ..host() };
-        let b = bwrap_args(&manifest(&[]), Path::new("/e"), &old, Path::new("/e/s"), &[]);
+        let b = bwrap_args(&manifest(&[]), Path::new("/e"), &old, Path::new("/e/s"), &[], None);
         assert!(!b.iter().any(|x| x == "--disable-userns"), "bubblewrap before 0.8");
         assert!(!a.contains(&"--share-net".to_owned()), "no network");
         assert!(has_seq(&a, &["--symlink", "usr/bin", "/bin"]) && has_seq(&a, &["--ro-bind", "/lib64", "/lib64"]));
         assert!(has_seq(&a, &["--ro-bind", "/ext/org.x.S", "/ext/org.x.S"]));
         assert!(has_seq(&a, &["--setenv", "HOME", "/home/u/.local/share/helix/extension-data/org.x.S"]));
         assert!(!a.iter().any(|x| x == "/home/u" || x.contains("wayland") || x.ends_with("/bus") || x.contains("system_bus")), "nothing else of the user's");
+        assert!(has_seq(&a, &["--unsetenv", "DBUS_SESSION_BUS_ADDRESS"]) && !a.iter().any(|x| x == "--sync-fd"));
+        // No bus without the permission, even with a proxy.
+        let c = bwrap_args(&manifest(&[]), Path::new("/e"), &host(), Path::new("/e/s"), &[], Some(Path::new("/p")));
+        assert!(!c.iter().any(|x| x == "/p") && has_seq(&c, &["--unsetenv", "DBUS_SESSION_BUS_ADDRESS"]));
         assert!(has_seq(&a, &["--chdir", "/ext/org.x.S", "--", "/ext/org.x.S/bin/s", "--x"]));
         assert_eq!(a.last().map(String::as_str), Some("--x"));
     }
 
     #[test]
     fn permissions_open_doors() {
-        let a = bwrap_args(&manifest(&["network", "files:downloads", "popover", "session-bus", "system-bus"]), Path::new("/e"), &host(), Path::new("/e/s"), &[]);
+        let proxy = Path::new("/run/user/1000/helix/extension-bus/org.x.S-1");
+        let a = bwrap_args(&manifest(&["network", "files:downloads", "popover", "session-bus", "system-bus"]), Path::new("/e"), &host(), Path::new("/e/s"), &[], Some(proxy));
         assert!(a.contains(&"--share-net".to_owned()));
         assert!(has_seq(&a, &["--bind", "/home/u/Downloads", "/home/u/Downloads"]));
         assert!(has_seq(&a, &["--ro-bind", "/run/user/1000/wayland-0", "/run/user/1000/wayland-0"]));
-        assert!(has_seq(&a, &["--ro-bind", "/run/user/1000/bus", "/run/user/1000/bus"]));
+        // The proxy's socket, never the bus's.
+        assert!(has_seq(&a, &["--ro-bind", "/run/user/1000/helix/extension-bus/org.x.S-1", "/run/user/1000/bus", "--setenv", "DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus", "--sync-fd", "4"]));
+        assert!(!has_seq(&a, &["--ro-bind", "/run/user/1000/bus"]));
         assert!(has_seq(&a, &["--ro-bind", "/run/dbus/system_bus_socket", "/run/dbus/system_bus_socket"]));
-        let home = bwrap_args(&manifest(&["files:home"]), Path::new("/e"), &host(), Path::new("/e/s"), &[]);
+        let home = bwrap_args(&manifest(&["files:home"]), Path::new("/e"), &host(), Path::new("/e/s"), &[], None);
         assert!(!home.windows(2).any(|w| w[0] == "--ro-bind" && w[1] == "/e/s"), "its own program comes with its directory");
-        let outside = bwrap_args(&manifest(&[]), Path::new("/e"), &host(), Path::new("/opt/tool/bin/s"), &[]);
+        let outside = bwrap_args(&manifest(&[]), Path::new("/e"), &host(), Path::new("/opt/tool/bin/s"), &[], None);
         assert!(has_seq(&outside, &["--ro-bind", "/opt/tool/bin/s", "/opt/tool/bin/s"]));
         assert!(has_seq(&home, &["--bind", "/home/u", "/home/u", "--setenv", "HOME", "/home/u"]));
+    }
+
+    #[test]
+    fn proxy_options() {
+        let source = "id = \"org.x.S\"\nname = \"S\"\nversion = \"1\"\napi = \"1.2\"\nexec = [\"bin/s\"]\nsandbox = true\npermissions = [\"session-bus\"]\n[session-bus]\ntalk = [\"org.example.A\"]\nsee = [\"org.example.B.*\"]\nown = [\"org.example.C\"]\ncall = [\"org.example.D=org.example.D.Get@/d\"]\nbroadcast = [\"org.example.D=org.example.D.*@/d/*\"]\n";
+        let m = super::super::manifest::parse(source, None).unwrap();
+        assert_eq!(
+            proxy_rules(&m),
+            ["--filter", "--own=org.x.S.*", "--see=org.example.B.*", "--talk=org.example.A", "--own=org.example.C", "--call=org.example.D=org.example.D.Get@/d", "--broadcast=org.example.D=org.example.D.*@/d/*"]
+        );
+        assert_eq!(proxy_rules(&manifest(&["session-bus"])), ["--filter", "--own=org.x.S.*"], "its own names only");
+        assert_eq!(proxy_socket(&host(), "org.x.S", "7-2"), Some("/run/user/1000/helix/extension-bus/org.x.S-7-2".into()));
+        assert_eq!(proxy_socket(&Host::default(), "org.x.S", "1"), None);
     }
 
     #[test]
@@ -327,12 +469,5 @@ mod tests {
         assert!(explain(ubuntu, true).contains("restricts user namespaces (AppArmor)"));
         assert!(!explain(ubuntu, false).contains("AppArmor"));
         assert_eq!(explain("", false), "the sandbox can't start: it failed");
-    }
-
-    #[test]
-    fn bus_addresses() {
-        assert_eq!(bus_path("unix:path=/run/user/1000/bus"), Some("/run/user/1000/bus".into()));
-        assert_eq!(bus_path("unix:abstract=/tmp/x,guid=1;unix:path=/tmp/b,guid=2"), Some("/tmp/b".into()));
-        assert_eq!(bus_path("tcp:host=x"), None);
     }
 }

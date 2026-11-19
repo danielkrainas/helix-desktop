@@ -120,8 +120,9 @@ overrides:
       - gsettings-desktop-schemas
       - dconf-service
       - pipewire
-      # Extension sandboxes.
+      # Extension sandboxes, and their filtered session bus.
       - bubblewrap
+      - xdg-dbus-proxy
       # The login screen's monitor layout (helix-login-monitors).
       - pkexec
     # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
@@ -148,8 +149,9 @@ overrides:
       - gsettings-desktop-schemas
       - dconf
       - pipewire
-      # Extension sandboxes.
+      # Extension sandboxes, and their filtered session bus.
       - bubblewrap
+      - xdg-dbus-proxy
       # The login screen's monitor layout (helix-login-monitors).
       - polkit
     # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
@@ -178,8 +180,9 @@ overrides:
       - gsettings-desktop-schemas
       - dconf
       - pipewire
-      # Extension sandboxes.
+      # Extension sandboxes, and their filtered session bus.
       - bubblewrap
+      - xdg-dbus-proxy
       # The login screen's monitor layout (helix-login-monitors).
       - polkit
     # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").

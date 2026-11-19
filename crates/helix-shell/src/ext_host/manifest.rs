@@ -23,28 +23,154 @@ pub const PERMISSIONS: [(&str, &str); 14] = [
     ("files:pictures", n_("read and change your Pictures")),
     ("files:videos", n_("read and change your Videos")),
     ("files:desktop", n_("read and change your Desktop")),
-    ("session-bus", n_("talk to all your other programs, which lets it do anything you can")),
+    // Filtered (`[session-bus]` adds names).
+    ("session-bus", n_("offer its own services to your other programs")),
     ("system-bus", n_("talk to system services")),
 ];
 
 /// System permissions that let a sandboxed extension do anything the
 /// user can, as if it had no sandbox: the whole home folder (startup
-/// files, autostart entries) and the unfiltered session bus (e.g.
-/// systemd's `StartTransientUnit`).
-pub const LEAVE_SANDBOX: [&str; 2] = ["files:home", "session-bus"];
+/// files, autostart entries).
+pub const LEAVE_SANDBOX: [&str; 1] = ["files:home"];
 
-/// Whether `permissions` include one of [`LEAVE_SANDBOX`].
+/// (1.2) The kinds of `[session-bus]` rules, as xdg-dbus-proxy names its
+/// options (`--see=NAME`…, `--call=NAME=RULE`, `--broadcast=NAME=RULE`).
+pub const BUS_RULES: [&str; 5] = ["see", "talk", "own", "call", "broadcast"];
+
+/// Session bus names whose services can do anything the user can: run
+/// commands (systemd's `StartTransientUnit`, Flatpak's `HostCommand`, a
+/// terminal), change any setting (dconf: a custom key's command) or file
+/// (gvfs), read passwords, drive other apps (accessibility), or act for
+/// unsandboxed programs (portals and their backends treat an extension
+/// as one), and the shell's own controls. A sandboxed extension that may
+/// talk to, call or own one of them (or a wildcard covering one) leaves
+/// its sandbox.
+pub const POWERFUL_NAMES: [&str; 14] = [
+    "org.freedesktop.systemd1",
+    "org.freedesktop.Flatpak.*",
+    "ca.desrt.dconf",
+    "org.gtk.vfs.*",
+    "org.freedesktop.secrets",
+    "org.gnome.keyring.*",
+    "org.a11y.Bus",
+    "org.gnome.Terminal.*",
+    "org.gnome.Console.*",
+    "org.freedesktop.portal.*",
+    "org.freedesktop.impl.portal.*",
+    "org.gnome.Shell.*",
+    "org.gnome.SessionManager",
+    "org.helixdesktop.*",
+];
+
+/// A `[session-bus]` rule as it is kept among the permissions:
+/// `session-bus:<kind>=<NAME>` or `session-bus:<kind>=<NAME>=<RULE>`.
+pub fn bus_permission(kind: &str, value: &str) -> String {
+    format!("session-bus:{kind}={value}")
+}
+
+/// A `[session-bus]` rule's kind and value (`NAME`, or `NAME=RULE`).
+pub fn bus_rule(permission: &str) -> Option<(&str, &str)> {
+    let (kind, value) = permission.strip_prefix("session-bus:")?.split_once('=')?;
+    BUS_RULES.contains(&kind).then_some((kind, value))
+}
+
+/// The name a sandboxed extension always owns on its session bus: its
+/// id and the names under it (`<id>.*`), when the id is a bus name.
+pub fn own_bus_name(id: &str) -> Option<String> {
+    zbus::names::WellKnownName::try_from(id).is_ok().then(|| format!("{id}.*"))
+}
+
+/// Check a rule's name: a well-known bus name, or the names under one
+/// (`org.example.App.*`, at least three parts before `.*`). The bus itself
+/// needs no rule.
+pub fn check_bus_name(name: &str) -> Result<(), String> {
+    let (base, wild) = match name.strip_suffix(".*") {
+        Some(base) => (base, true),
+        None => (name, false),
+    };
+    if zbus::names::WellKnownName::try_from(base).is_err() || base.contains('*') {
+        return Err(format!("{name:?} is not a bus name"));
+    }
+    if wild && base.split('.').count() < 3 {
+        return Err(format!("{name:?} matches too many names (a wildcard needs three parts before .*)"));
+    }
+    if base == "org.freedesktop.DBus" {
+        return Err(format!("{name:?} needs no rule: the bus itself is always reachable"));
+    }
+    Ok(())
+}
+
+/// Check a `call` or `broadcast` rule: `[METHOD][@PATH]`, where METHOD
+/// is `*`, an interface (optionally with `.*`) or a method's full name,
+/// and PATH an object path (optionally with `/*`).
+pub fn check_bus_call(rule: &str) -> Result<(), String> {
+    let (method, path) = match rule.split_once('@') {
+        Some((m, p)) => (m, Some(p)),
+        None => (rule, None),
+    };
+    let method_ok = match method {
+        "" => path.is_some(),
+        "*" => true,
+        m => zbus::names::InterfaceName::try_from(m.strip_suffix(".*").unwrap_or(m)).is_ok(),
+    };
+    let path_ok = path.is_none_or(|p| {
+        let base = p.strip_suffix("/*").map(|b| if b.is_empty() { "/" } else { b }).unwrap_or(p);
+        p.starts_with('/') && zbus::zvariant::ObjectPath::try_from(base).is_ok()
+    });
+    if method_ok && path_ok {
+        Ok(())
+    } else {
+        Err(format!("{rule:?} is not a rule ([METHOD][@PATH])"))
+    }
+}
+
+/// Whether two names, each perhaps with `.*`, can match the same name.
+fn names_overlap(a: &str, b: &str) -> bool {
+    let split = |n: &str| match n.strip_suffix(".*") {
+        Some(base) => (base.to_owned(), true),
+        None => (n.to_owned(), false),
+    };
+    let ((a, a_wild), (b, b_wild)) = (split(a), split(b));
+    a == b || (a_wild && b.starts_with(&format!("{a}."))) || (b_wild && a.starts_with(&format!("{b}.")))
+}
+
+/// Whether a `[session-bus]` rule (a permission) lets a sandboxed
+/// extension out of its sandbox: it may talk to, call or own one of
+/// [`POWERFUL_NAMES`].
+pub fn bus_rule_leaves_sandbox(permission: &str) -> bool {
+    let Some((kind, value)) = bus_rule(permission) else { return false };
+    let name = value.split_once('=').map_or(value, |(n, _)| n);
+    matches!(kind, "talk" | "own" | "call") && POWERFUL_NAMES.iter().any(|p| names_overlap(name, p))
+}
+
+/// Whether `permissions` include one of [`LEAVE_SANDBOX`], or a session
+/// bus rule that leaves the sandbox.
 pub fn leaves_sandbox(permissions: &[String]) -> bool {
-    permissions.iter().any(|p| LEAVE_SANDBOX.contains(&p.as_str()))
+    permissions.iter().any(|p| LEAVE_SANDBOX.contains(&p.as_str()) || bus_rule_leaves_sandbox(p))
 }
 
 /// The system permissions (1.2): meaningful in a sandbox only.
 pub fn is_system_permission(name: &str) -> bool {
-    PERMISSIONS[4..].iter().any(|(n, _)| *n == name)
+    PERMISSIONS[4..].iter().any(|(n, _)| *n == name) || bus_rule(name).is_some()
 }
 
-pub fn permission_text(name: &str) -> &str {
-    PERMISSIONS.iter().find(|(n, _)| *n == name).map_or(name, |(_, t)| helix_i18n::tr(t))
+/// How the user sees a permission (a `[session-bus]` rule names exactly
+/// what it allows).
+pub fn permission_text(name: &str) -> String {
+    use helix_i18n::trf;
+    if let Some((kind, value)) = bus_rule(name) {
+        let (name, rule) = value.split_once('=').unwrap_or((value, ""));
+        return match kind {
+            // Translators: {name} is a D-Bus name, e.g. org.example.Weather.
+            "see" => trf!("see whether {name} is running", name = name),
+            "talk" => trf!("talk to {name}", name = name),
+            "own" => trf!("offer services as {name}", name = name),
+            // Translators: {rule} is a D-Bus rule, e.g. org.example.Player.*@/org/example.
+            "call" => trf!("call {rule} on {name}", rule = rule, name = name),
+            _ => trf!("hear {rule} signals from {name}", rule = rule, name = name),
+        };
+    }
+    PERMISSIONS.iter().find(|(n, _)| *n == name).map_or_else(|| name.to_owned(), |(_, t)| helix_i18n::tr(t).to_owned())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -351,6 +477,35 @@ pub fn parse(source: &str, dir_name: Option<&str>) -> Result<Manifest, String> {
     if let Some(bad) = permissions.iter().find(|p| !PERMISSIONS.iter().any(|(n, _)| n == p)) {
         return Err(format!("unknown permission {bad:?}"));
     }
+    // (1.2) The session bus's rules, kept among the permissions (after
+    // `session-bus`), so that a change asks for approval again.
+    if let Some(value) = table.get("session-bus").filter(|_| api_minor >= 2) {
+        let toml::Value::Table(rules) = value else { return Err("session-bus must be a table of rules".into()) };
+        let Some(at) = permissions.iter().position(|p| p == "session-bus") else {
+            return Err("the [session-bus] rules need the session-bus permission".into());
+        };
+        let mut granted: Vec<String> = Vec::new();
+        for kind in BUS_RULES {
+            for entry in texts(rules, kind).map_err(|e| format!("session-bus.{e}"))? {
+                let (name, rule) = match entry.split_once('=') {
+                    Some((name, rule)) => (name, Some(rule)),
+                    None => (entry.as_str(), None),
+                };
+                check_bus_name(name).map_err(|e| format!("session-bus.{kind}: {e}"))?;
+                match (kind, rule) {
+                    ("call" | "broadcast", Some(rule)) => check_bus_call(rule).map_err(|e| format!("session-bus.{kind}: {e}"))?,
+                    ("call" | "broadcast", None) => return Err(format!("session-bus.{kind}: {entry:?} needs a rule (NAME=RULE)")),
+                    (_, Some(_)) => return Err(format!("session-bus.{kind}: {entry:?} is not a bus name")),
+                    (_, None) => {}
+                }
+                let permission = bus_permission(kind, &entry);
+                if !granted.contains(&permission) {
+                    granted.push(permission);
+                }
+            }
+        }
+        permissions.splice(at + 1..at + 1, granted);
+    }
     let enabled_by_default = match table.get("enabled-by-default") {
         None => false,
         Some(toml::Value::Boolean(b)) => *b,
@@ -588,5 +743,84 @@ mode = { type = "enum", choices = ["a", "b"], default = "b", label = "Mode" }
         assert!(!old.sandbox, "1.2 only");
         assert_eq!(old.permissions, ["notifications"]);
         assert!(parse(&base.replace("files:downloads", "files:root").replace("sandbox = true\n", "api = \"1.2\"\n"), None).unwrap_err().contains("permission"));
+    }
+
+    #[test]
+    fn session_bus_rules() {
+        let base = "id = \"org.x.Bus\"\nname = \"A\"\nversion = \"1\"\nexec = [\"x\"]\nsandbox = true\napi = \"1.2\"\npermissions = [\"network\", \"session-bus\", \"notifications\"]\n";
+        let with = |rules: &str| parse(&format!("{base}[session-bus]\n{rules}\n"), None);
+        let m = with("talk = [\"org.example.Weather\", \"org.example.Weather\"]\nown = [\"org.x.Other.*\"]\nsee = [\"org.mpris.MediaPlayer2.*\"]\ncall = [\"org.example.Player=org.example.Player.Pause@/org/example/*\"]\nbroadcast = [\"org.example.Player=*@/\"]").unwrap();
+        assert_eq!(
+            m.permissions,
+            [
+                "network",
+                "session-bus",
+                "session-bus:see=org.mpris.MediaPlayer2.*",
+                "session-bus:talk=org.example.Weather",
+                "session-bus:own=org.x.Other.*",
+                "session-bus:call=org.example.Player=org.example.Player.Pause@/org/example/*",
+                "session-bus:broadcast=org.example.Player=*@/",
+                "notifications",
+            ],
+            "after session-bus, once each"
+        );
+        assert!(m.permissions.iter().all(|p| is_system_permission(p) || p == "notifications"));
+        assert_eq!(bus_rule("session-bus:call=a.b=c.d"), Some(("call", "a.b=c.d")));
+        assert_eq!(bus_rule("session-bus:root=a.b"), None);
+        assert_eq!(permission_text("session-bus:talk=org.example.Weather"), "talk to org.example.Weather");
+        assert_eq!(permission_text("session-bus:call=org.example.P=org.example.P.Pause@/p"), "call org.example.P.Pause@/p on org.example.P");
+        assert_eq!(permission_text("session-bus:own=org.x.Other.*"), "offer services as org.x.Other.*");
+        assert_eq!(permission_text("session-bus"), "offer its own services to your other programs");
+        // Plain session-bus: its own names only.
+        assert_eq!(parse(base, None).unwrap().permissions, ["network", "session-bus", "notifications"]);
+        // Rules need the permission; names and rules are checked.
+        assert!(parse(&format!("{}[session-bus]\ntalk = [\"org.a.B\"]\n", base.replace("\"session-bus\", ", "")), None).unwrap_err().contains("need the session-bus permission"));
+        for bad in [
+            "talk = [\"*\"]",
+            "talk = [\"org.*\"]",
+            "talk = [\"org.gnome.*\"]",
+            "own = [\":1.42\"]",
+            "talk = [\"org..x\"]",
+            "talk = [\"org.freedesktop.DBus\"]",
+            "talk = [\"org.a.B=x\"]",
+            "call = [\"org.a.B\"]",
+            "call = [\"org.a.B=\"]",
+            "call = [\"org.a.B=org.a.B.M@nopath\"]",
+            "call = [\"org.a.B=bad iface\"]",
+            "broadcast = [\"org.a.*=*\"]",
+            "talk = \"org.a.B\"",
+        ] {
+            assert!(with(bad).is_err(), "{bad}");
+        }
+        assert!(parse(&format!("{base}session-bus = 3\n"), None).is_err());
+        assert!(with("call = [\"org.a.B=*\", \"org.a.B=org.a.B.*\", \"org.a.B=@/x/*\", \"org.a.B=org.a.B.Iface.M@/*\"]").is_ok());
+        assert!(parse("id = \"org.x.A\"\nname = \"A\"\nversion = \"1\"\nexec = [\"x\"]\napi = \"1.2\"\npermissions = [\"session-bus:talk=org.a.B\"]\n", None).unwrap_err().contains("unknown permission"), "rules only in [session-bus]");
+        // Under 1.1 the table means nothing.
+        let old = parse(&format!("{}[session-bus]\ntalk = [\"*\"]\n", base.replace("1.2", "1.1")), None).unwrap();
+        assert_eq!(old.permissions, ["notifications"]);
+        assert_eq!(own_bus_name("org.x.Bus"), Some("org.x.Bus.*".into()));
+        assert_eq!(own_bus_name("org.1x.Bus"), None, "not a bus name");
+    }
+
+    #[test]
+    fn rules_that_leave_the_sandbox() {
+        let leaves = |p: &str| leaves_sandbox(&[p.to_owned()]);
+        assert!(leaves("files:home"));
+        assert!(!leaves("session-bus"), "filtered: its own names only");
+        assert!(!leaves("files:documents") && !leaves("system-bus") && !leaves("network"));
+        assert!(leaves("session-bus:talk=org.freedesktop.systemd1"));
+        assert!(leaves("session-bus:call=ca.desrt.dconf=ca.desrt.dconf.Writer.*"));
+        assert!(leaves("session-bus:talk=org.freedesktop.Flatpak"));
+        assert!(leaves("session-bus:own=org.freedesktop.secrets"));
+        assert!(leaves("session-bus:talk=org.helixdesktop.Extensions1"));
+        assert!(leaves("session-bus:talk=org.gnome.Shell"));
+        assert!(leaves("session-bus:talk=org.freedesktop.portal.Desktop"));
+        assert!(leaves("session-bus:talk=org.gtk.vfs.*"), "a wildcard covering one");
+        assert!(leaves("session-bus:talk=org.freedesktop.systemd1.*"));
+        assert!(!leaves("session-bus:see=org.freedesktop.systemd1"), "seeing it is harmless");
+        assert!(!leaves("session-bus:broadcast=org.gnome.Shell=*"));
+        assert!(!leaves("session-bus:talk=org.freedesktop.Notifications"));
+        assert!(!leaves("session-bus:talk=org.freedesktop.systemd10"));
+        assert!(!leaves("session-bus:talk=org.mpris.MediaPlayer2.*"));
     }
 }
