@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/helix-a11y",
+    "crates/helix-agent",
     "crates/helix-comp",
     "crates/helix-draw",
     "crates/helix-extension",

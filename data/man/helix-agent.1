@@ -1,0 +1,260 @@
+'\" t
+.\" helix-agent(1), helixdesktop/spec contracts/agent-access/cli.md
+.TH HELIX-AGENT 1 "2026-11" "Helix" "User Commands"
+.SH NAME
+helix-agent \- let an agent read and act on your Helix session
+.SH SYNOPSIS
+.B helix-agent
+.RI [ OPTIONS ]
+.I COMMAND
+.RI [ ARGS ]
+.SH DESCRIPTION
+.B helix-agent
+is the command-line front end to Helix's Agent Access, for agents such as
+coding assistants and background automations. It is a thin client of the
+shell's D-Bus interface
+.B org.helixdesktop.Agent1
+and has no policy of its own: the shell decides what an agent may do.
+.PP
+Agent access is off by default. The user turns it on and chooses how much
+agents may do in
+.B Settings \[u203A] Privacy & Security \[u203A] Agent Access.
+The first time an agent asks for access in a session, the shell asks the
+user (\fIDeny\fR, \fIAllow for this session\fR, or \fIAlways allow\fR).
+While an agent is active, the top bar shows an indicator whose menu can
+stop it.
+.PP
+The agent is the program that runs
+.BR helix-agent ,
+found by the shell through the process tree (shells and
+.B env
+in between are skipped). Set
+.B HELIX_AGENT_NAME
+to the name the user should see; it is shown, never trusted for identity.
+.SH OPTIONS
+.TP
+.B \-\-json
+JSON output: one JSON object on standard output. The default when standard
+output is not a terminal.
+.TP
+.B \-\-text
+Readable text. The default on a terminal.
+.TP
+.B \-\-no\-ask
+Never make the shell ask the user; where it would have to, fail (exit 12 or 18).
+.TP
+.B \-\-sensitive
+Mark this action sensitive: with \fIConfirm sensitive actions\fR on, the user
+confirms it first.
+.TP
+.BI \-\-timeout " SECONDS"
+How long to wait for the shell's answer (default 30; 0: no limit). Waits and
+questions have their own \fB\-\-timeout\fR.
+.TP
+.BR \-h ", " \-\-help
+Help for the command (every command and subcommand has it).
+.TP
+.BR \-V ", " \-\-version
+The CLI's version and the shell's Agent Access version.
+.SH COMMANDS
+Each command needs an access level: \fIRead only\fR (read-only),
+\fIControl the desktop\fR (desktop), \fIControl apps\fR (apps), or
+\fIScreen and input\fR (screen-and-input); each includes the ones before it.
+.SS Status
+.TP
+.B status
+Whether agent access is on and what this agent may do. Never asks the user.
+.TP
+.BR request " [" \-\-level
+.IR LEVEL ]
+Ask the user for access now (default: the level set in Settings).
+.SS "Read (Read only)"
+.TP
+.B state
+The focused window, the workspace and quick settings.
+.TP
+.BR windows " [" \-\-app
+.IR APP_ID "] [" \fB\-\-focused\fR ]
+Open windows.
+.TP
+.BR apps " [" \-\-running ]
+Installed and running apps.
+.TP
+.BR workspaces ", " monitors
+Workspaces; monitors.
+.TP
+.BR notifications " [" \-\-limit
+.IR N ]
+Recent notifications (contents only with \fINotifications access\fR).
+.TP
+.B files recent \fR[\fB\-\-limit \fIN\fR] [\fB\-\-type \fIMIME\fR]
+Recently used files.
+.TP
+.B files search \fIQUERY\fR [\fB\-\-since \fIWHEN\fR] [\fB\-\-until \fIWHEN\fR] [\fB\-\-type \fIMIME\fR] [\fB\-\-in \fIFOLDER\fR] [\fB\-\-limit \fIN\fR]
+Search for files.
+.TP
+.B wait window \fR[\fB\-\-app \fIAPP_ID\fR] [\fB\-\-title \fITEXT\fR] [\fB\-\-focused\fR] [\fB\-\-timeout \fISECONDS\fR]
+Wait until a matching window is open.
+.TP
+.B wait closed \fIWINDOW\fR [\fB\-\-timeout \fISECONDS\fR]
+Wait until a window is closed.
+.SS "Talk to the user (Read only)"
+.TP
+.B ask \fIQUESTION\fR [\fB\-\-choice \fITEXT\fR]... [\fB\-\-default \fITEXT\fR] [\fB\-\-timeout \fISECONDS\fR]
+Ask the user a question.
+.TP
+.B confirm \fIQUESTION\fR [\fB\-\-yes \fILABEL\fR] [\fB\-\-no \fILABEL\fR] [\fB\-\-timeout \fISECONDS\fR]
+Ask the user yes or no; exits 0 for yes and 20 for no.
+.TP
+.B remind add \fIWHEN TEXT\fR; \fBremind list\fR; \fBremind cancel \fIID\fR
+Reminders for the user.
+.SS "Act (Control the desktop)"
+.TP
+.B open \fIURI-OR-PATH\fR [\fB\-\-app \fIAPP_ID\fR]
+Open a file or URL in its app.
+.TP
+.B launch \fIAPP_ID\fR [\fIURI-OR-PATH\fR...]
+Start an app.
+.TP
+.B window \fIACTION WINDOW\fR [\fIARGS\fR]
+\fBfocus\fR, \fBclose\fR, \fBminimize\fR, \fBmaximize\fR, \fBunmaximize\fR,
+\fBfullscreen\fR, \fBunfullscreen\fR, \fBtile-left\fR, \fBtile-right\fR,
+\fBmove \fIX Y\fR, \fBresize \fIWIDTH HEIGHT\fR, \fBto-workspace \fIINDEX\fR.
+.TP
+.B workspace switch \fIINDEX\fR
+Switch workspaces.
+.TP
+.B toggle \fINAME\fR [\fBon\fR|\fBoff\fR]
+\fBdark-style\fR, \fBdo-not-disturb\fR, \fBnight-light\fR, \fBwifi\fR,
+\fBairplane-mode\fR (sensitive), \fBmute\fR; without on or off it flips.
+.TP
+.B set \fINAME VALUE\fR
+\fBvolume\fR or \fBbrightness\fR, as a percentage.
+.TP
+.B notify \fITITLE\fR [\fIBODY\fR] [\fB\-\-icon \fIICON\fR] [\fB\-\-urgency low\fR|\fBnormal\fR]
+Show the user a notification.
+.TP
+.B clipboard get \fR[\fB\-\-type \fIMIME\fR]; \fBclipboard set \fR[\fITEXT\fR] [\fB\-\-type \fIMIME\fR]
+Read or set the clipboard (needs \fIClipboard access\fR; \fBset\fR reads
+standard input without \fITEXT\fR).
+.SS "Apps (Control apps)"
+.TP
+.B a11y tree \fIWINDOW\fR [\fB\-\-depth \fIN\fR] [\fB\-\-node \fINODE\fR]; \fBa11y do \fIWINDOW NODE ACTION\fR; \fBa11y set \fIWINDOW NODE VALUE\fR
+Read and use an app's controls through its accessibility tree.
+.SS "Screen and input (Screen and input)"
+.TP
+.B screenshot \fR[\fB\-\-window \fIWINDOW\fR | \fB\-\-monitor \fICONNECTOR\fR] [\fB\-\-output \fIFILE\fR]
+Take a screenshot.
+.TP
+.B input key \fIKEYS\fR...; \fBinput type \fITEXT\fR; \fBinput click \fIX Y\fR [\fB\-\-button \fIN\fR]; \fBinput move \fIX Y\fR; \fBinput scroll \fIDX DY\fR
+Send keys, text, clicks and scrolling.
+.SS Other
+.TP
+.B log \fR[\fB\-\-agent \fIID\fR] [\fB\-\-since \fIWHEN\fR]
+Show what agents did (reads the activity log; needs no access).
+.TP
+.B help \fR[\fICOMMAND\fR | \fBexit-codes\fR]
+Help for a command, or the exit codes.
+.TP
+.B completions bash\fR|\fBzsh\fR|\fBfish
+Print a shell completion script.
+.PP
+\fIWINDOW\fR is a window id from \fBwindows\fR. \fIWHEN\fR is an ISO 8601
+date or date and time (local time unless it has an offset), or a relative
+time: \fB+10m\fR, \fB+2h\fR, \fB\-1d\fR, \fByesterday\fR, \fBtoday\fR.
+.PP
+Commands whose shell support is still to come answer exit 23
+(\fBnot-supported\fR) in this version.
+.SH OUTPUT
+With \fB\-\-json\fR, success prints one JSON object: the status dictionary
+for \fBstatus\fR and \fBrequest\fR, \fB{"windows": [...]}\fR and similar for
+lists, the record itself for single records, and \fB{}\fR for commands
+without output. Failures print
+.PP
+.nf
+{"error": {"code": "access-off", "exit-code": 10, "message": "...", "dbus-error": "..."}}
+.fi
+.PP
+on standard output and nothing on standard error. Text output prints the
+message on standard error.
+.SH RECORDS
+Records are the shell's dictionaries with the same keys; keys not listed
+here may be added.
+.TP
+.B Window
+id, app-id, title, workspace, monitor, focused, x, y, width, height, state,
+document.
+.TP
+.B App
+id, name, running, windows.
+.TP
+.B Workspace
+index, active, windows.
+.TP
+.B Monitor
+connector, name, x, y, width, height, scale, primary.
+.TP
+.B State
+focused-window, active-workspace, dark-style, do-not-disturb, night-light,
+wifi, airplane-mode, muted, volume, brightness.
+.TP
+.B Notification
+id, app-id, app-name, time, summary, body (or redacted).
+.TP
+.B File
+uri, name, mime-type, modified, size.
+.TP
+.B Reminder
+id, time, text.
+.TP
+.B Accessible node
+id, role, name, description, states, value, actions, children.
+.TP
+.B Image
+png (base64) or path, width, height, scale.
+.SH EXIT STATUS
+.TS
+l l l.
+0	\-	success
+1	failed	anything else
+2	usage	bad arguments
+3	no-shell	the Helix shell cannot be reached
+10	access-off	agent access is turned off
+11	level-too-low	the access level in Settings is too low
+12	not-granted	not allowed, and the user could not be asked
+13	denied	the user denied this agent
+14	excluded	the target is excluded
+15	locked	the screen is locked
+16	remote	access from remote sessions is off
+17	sandboxed	sandboxed apps are refused
+18	needs-confirmation	needs confirmation, but \-\-no\-ask
+19	feature-off	clipboard access is off
+20	no	the user said no or cancelled
+21	timed-out	timed out
+22	not-found	no such window, app or item
+23	not-supported	not supported by this session
+.TE
+.SH ENVIRONMENT
+.TP
+.B HELIX_AGENT_NAME
+The agent's display name (at most 64 characters).
+.TP
+.B XDG_STATE_HOME
+Where \fBlog\fR finds the activity log (\fIhelix/agent-activity/\fR).
+.SH FILES
+.TP
+.I $XDG_STATE_HOME/helix/agent-activity/YYYY-MM-DD.jsonl
+The activity log.
+.TP
+.I $XDG_CONFIG_HOME/helix/agent-grants.toml
+Agents the user allowed always.
+.SH EXAMPLES
+.nf
+$ helix-agent status
+$ HELIX_AGENT_NAME="Build bot" helix-agent request \-\-level read-only
+$ helix-agent \-\-json windows \-\-app org.gnome.TextEditor
+$ helix-agent wait window \-\-app org.gnome.Nautilus \-\-timeout 10
+.fi
+.SH SEE ALSO
+.BR gsettings (1),
+.BR gdbus (1)

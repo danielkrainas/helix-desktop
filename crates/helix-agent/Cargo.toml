@@ -1,0 +1,24 @@
+[package]
+name = "helix-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "helix-agent: the command-line front end to Helix's Agent Access"
+
+[[bin]]
+name = "helix-agent"
+path = "src/main.rs"
+
+[dependencies]
+helix-i18n.workspace = true
+zbus.workspace = true
+tokio.workspace = true
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+gio.workspace = true
+
+[dev-dependencies]
+helix-test-support.workspace = true

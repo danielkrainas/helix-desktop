@@ -21,9 +21,18 @@ case $pam in
     *) echo "unknown PAM variant: $pam" >&2; exit 2 ;;
 esac
 
-for b in helix-comp helix-shell helix-session helix-portals helix-bluetooth-sendto helix-extensions; do
+for b in helix-comp helix-shell helix-session helix-portals helix-bluetooth-sendto helix-extensions helix-agent; do
     install -Dm755 "$bin/$b" "$dest/usr/bin/$b"
 done
+# helix-agent's man page and shell completions (data/completions is made by
+# `helix-agent completions SHELL`; a test keeps it current). zsh's goes to
+# Debian's vendor directory here; nfpm.yaml places it per distribution.
+install -d "$dest/usr/share/man/man1"
+gzip -9n -c "$root/data/man/helix-agent.1" > "$dest/usr/share/man/man1/helix-agent.1.gz"
+chmod 644 "$dest/usr/share/man/man1/helix-agent.1.gz"
+install -Dm644 "$root/data/completions/helix-agent.bash" "$dest/usr/share/bash-completion/completions/helix-agent"
+install -Dm644 "$root/data/completions/_helix-agent" "$dest/usr/share/zsh/vendor-completions/_helix-agent"
+install -Dm644 "$root/data/completions/helix-agent.fish" "$dest/usr/share/fish/vendor_completions.d/helix-agent.fish"
 # The extension sandbox's launcher and its AppArmor profile.
 install -Dm755 "$bin/helix-extension-sandbox" "$dest/usr/libexec/helix/helix-extension-sandbox"
 install -Dm644 "$root/packaging/apparmor/helix-extension-sandbox" "$dest/etc/apparmor.d/helix-extension-sandbox"

@@ -35,6 +35,24 @@ contents:
     dst: /usr/bin/helix-bluetooth-sendto
   - src: ./stage/usr/bin/helix-extensions
     dst: /usr/bin/helix-extensions
+  # helix-agent (Agent Access), its man page and completions.
+  - src: ./stage/usr/bin/helix-agent
+    dst: /usr/bin/helix-agent
+  - src: ./stage/usr/share/man/man1/helix-agent.1.gz
+    dst: /usr/share/man/man1/helix-agent.1.gz
+  - src: ./stage/usr/share/bash-completion/completions/helix-agent
+    dst: /usr/share/bash-completion/completions/helix-agent
+  - src: ./stage/usr/share/fish/vendor_completions.d/helix-agent.fish
+    dst: /usr/share/fish/vendor_completions.d/helix-agent.fish
+  - src: ./stage/usr/share/zsh/vendor-completions/_helix-agent
+    dst: /usr/share/zsh/vendor-completions/_helix-agent
+    packager: deb
+  - src: ./stage/usr/share/zsh/vendor-completions/_helix-agent
+    dst: /usr/share/zsh/site-functions/_helix-agent
+    packager: rpm
+  - src: ./stage/usr/share/zsh/vendor-completions/_helix-agent
+    dst: /usr/share/zsh/site-functions/_helix-agent
+    packager: archlinux
   - src: ./stage/usr/libexec/helix/helix-extension-sandbox
     dst: /usr/libexec/helix/helix-extension-sandbox
   # The login screen's monitor layout (run through pkexec) and its polkit

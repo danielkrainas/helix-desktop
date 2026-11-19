@@ -14,6 +14,813 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
+#: crates/helix-agent/src/cli.rs:70
+msgid "Show at most N"
+msgstr "最大 N 件を表示"
+
+#: crates/helix-agent/src/cli.rs:71
+msgid "Only this type, e.g. application/pdf"
+msgstr "この種類のみ (例: application/pdf)"
+
+#: crates/helix-agent/src/cli.rs:72
+msgid "Give up after this long"
+msgstr "この時間が過ぎたらあきらめる"
+
+#: crates/helix-agent/src/cli.rs:73
+msgid "A window id from “helix-agent windows”"
+msgstr "「helix-agent windows」で得たウィンドウ ID"
+
+#: crates/helix-agent/src/cli.rs:77
+msgid "Status:"
+msgstr "状態:"
+
+#: crates/helix-agent/src/cli.rs:78
+msgid "Show whether agent access is on and what this agent may do"
+msgstr "エージェントアクセスがオンか、このエージェントが何をできるかを表示"
+
+#: crates/helix-agent/src/cli.rs:81
+msgid ""
+"The level to ask for: read-only, desktop, apps or screen-and-input (default: "
+"the level set in Settings)"
+msgstr ""
+"要求するレベル: read-only、desktop、apps、screen-and-input (既定: 設定で選ん"
+"だレベル)"
+
+#: crates/helix-agent/src/cli.rs:82
+msgid "Ask the user for access now"
+msgstr "今すぐユーザーにアクセスを求める"
+
+#: crates/helix-agent/src/cli.rs:85
+msgid "Read (Read only):"
+msgstr "読み取り (読み取りのみ):"
+
+#: crates/helix-agent/src/cli.rs:86
+msgid "Focused window, workspace and quick settings"
+msgstr "フォーカスのあるウィンドウ、ワークスペース、クイック設定"
+
+#: crates/helix-agent/src/cli.rs:89
+msgid "Only the focused window"
+msgstr "フォーカスのあるウィンドウのみ"
+
+#: crates/helix-agent/src/cli.rs:89
+msgid "Only this app's windows"
+msgstr "このアプリのウィンドウのみ"
+
+#: crates/helix-agent/src/cli.rs:90
+msgid "Open windows"
+msgstr "開いているウィンドウ"
+
+#: crates/helix-agent/src/cli.rs:92
+msgid "Installed and running apps"
+msgstr "インストール済みと実行中のアプリ"
+
+#: crates/helix-agent/src/cli.rs:92
+msgid "Only running apps"
+msgstr "実行中のアプリのみ"
+
+#: crates/helix-agent/src/cli.rs:93 crates/helix-shell/src/panel_layout.rs:49
+#: crates/helix-shell/src/ui/atspi.rs:562
+#: crates/helix-shell/src/ui/overview.rs:1201
+#: crates/helix-shell/src/ui/workspace_popup.rs:171
+msgid "Workspaces"
+msgstr "ワークスペース"
+
+#: crates/helix-agent/src/cli.rs:94
+msgid "Monitors"
+msgstr "モニター"
+
+#: crates/helix-agent/src/cli.rs:95
+msgid "Recent notifications"
+msgstr "最近の通知"
+
+#: crates/helix-agent/src/cli.rs:98
+msgid "Recently used files"
+msgstr "最近使ったファイル"
+
+#: crates/helix-agent/src/cli.rs:101
+msgid "Words in the file's name or contents"
+msgstr "ファイル名または内容に含まれる語"
+
+#: crates/helix-agent/src/cli.rs:103
+msgid "Changed at or after WHEN"
+msgstr "WHEN 以降に変更"
+
+#: crates/helix-agent/src/cli.rs:104
+msgid "Changed before WHEN"
+msgstr "WHEN より前に変更"
+
+#: crates/helix-agent/src/cli.rs:106
+msgid "Only in this folder"
+msgstr "このフォルダー内のみ"
+
+#: crates/helix-agent/src/cli.rs:109
+msgid "Search for files"
+msgstr "ファイルを検索"
+
+#: crates/helix-agent/src/cli.rs:112
+msgid "Recent files and file search"
+msgstr "最近使ったファイルとファイル検索"
+
+#: crates/helix-agent/src/cli.rs:118
+msgid "A window of this app"
+msgstr "このアプリのウィンドウ"
+
+#: crates/helix-agent/src/cli.rs:118
+msgid "A window whose title contains TEXT"
+msgstr "タイトルに TEXT を含むウィンドウ"
+
+#: crates/helix-agent/src/cli.rs:118
+msgid "Only once it has the focus"
+msgstr "フォーカスを得てから"
+
+#: crates/helix-agent/src/cli.rs:119
+msgid "Wait until a matching window is open"
+msgstr "条件に合うウィンドウが開くまで待つ"
+
+#: crates/helix-agent/src/cli.rs:121
+msgid "Wait until a window is closed"
+msgstr "ウィンドウが閉じるまで待つ"
+
+#: crates/helix-agent/src/cli.rs:123
+msgid "Wait for a window to appear or close"
+msgstr "ウィンドウが現れるか閉じるまで待つ"
+
+#: crates/helix-agent/src/cli.rs:126
+msgid "Talk to the user (Read only):"
+msgstr "ユーザーと対話 (読み取りのみ):"
+
+#: crates/helix-agent/src/cli.rs:128 crates/helix-agent/src/cli.rs:137
+msgid "What to ask"
+msgstr "質問の内容"
+
+#: crates/helix-agent/src/cli.rs:130
+msgid "An answer to offer (repeat for more)"
+msgstr "提示する回答 (複数なら繰り返す)"
+
+#: crates/helix-agent/src/cli.rs:131
+msgid "The answer filled in at first"
+msgstr "最初に入力されている回答"
+
+#: crates/helix-agent/src/cli.rs:134
+msgid "Ask the user a question"
+msgstr "ユーザーに質問する"
+
+#: crates/helix-agent/src/cli.rs:138
+msgid "The no button's label"
+msgstr "「いいえ」ボタンのラベル"
+
+#: crates/helix-agent/src/cli.rs:138
+msgid "The yes button's label"
+msgstr "「はい」ボタンのラベル"
+
+#: crates/helix-agent/src/cli.rs:139
+msgid "Ask the user yes or no"
+msgstr "ユーザーに「はい」か「いいえ」を尋ねる"
+
+#: crates/helix-agent/src/cli.rs:143
+msgid "Add a reminder"
+msgstr "リマインダーを追加"
+
+#: crates/helix-agent/src/cli.rs:143
+msgid "What to say"
+msgstr "伝える内容"
+
+#: crates/helix-agent/src/cli.rs:143
+msgid "When to remind"
+msgstr "知らせる日時"
+
+#: crates/helix-agent/src/cli.rs:144
+msgid "This agent's reminders"
+msgstr "このエージェントのリマインダー"
+
+#: crates/helix-agent/src/cli.rs:145
+msgid "A reminder id from “helix-agent remind list”"
+msgstr "「helix-agent remind list」で得たリマインダー ID"
+
+#: crates/helix-agent/src/cli.rs:145
+msgid "Cancel a reminder"
+msgstr "リマインダーを取り消す"
+
+#: crates/helix-agent/src/cli.rs:147
+msgid "Reminders for the user"
+msgstr "ユーザー向けのリマインダー"
+
+#: crates/helix-agent/src/cli.rs:150
+msgid "Act (Control the desktop):"
+msgstr "操作 (デスクトップを操作):"
+
+#: crates/helix-agent/src/cli.rs:151
+msgid "A file, folder or URL"
+msgstr "ファイル、フォルダー、または URL"
+
+#: crates/helix-agent/src/cli.rs:151
+msgid "Open a file or URL in its app"
+msgstr "ファイルや URL を対応するアプリで開く"
+
+#: crates/helix-agent/src/cli.rs:151
+msgid "Open it with this app"
+msgstr "このアプリで開く"
+
+#: crates/helix-agent/src/cli.rs:153
+msgid "Files or URLs to open in it"
+msgstr "そのアプリで開くファイルや URL"
+
+#: crates/helix-agent/src/cli.rs:153
+msgid "The app's id, e.g. org.gnome.TextEditor"
+msgstr "アプリの ID (例: org.gnome.TextEditor)"
+
+#: crates/helix-agent/src/cli.rs:154
+msgid "Start an app"
+msgstr "アプリを起動"
+
+#: crates/helix-agent/src/cli.rs:158
+msgid ""
+"focus, close, minimize, maximize, unmaximize, fullscreen, unfullscreen, tile-"
+"left, tile-right, move X Y, resize WIDTH HEIGHT or to-workspace INDEX"
+msgstr ""
+"focus、close、minimize、maximize、unmaximize、fullscreen、unfullscreen、tile-"
+"left、tile-right、move X Y、resize WIDTH HEIGHT、to-workspace INDEX"
+
+#: crates/helix-agent/src/cli.rs:160
+msgid "The action's numbers"
+msgstr "操作に使う数値"
+
+#: crates/helix-agent/src/cli.rs:162
+msgid "Focus, move, tile or close a window"
+msgstr "ウィンドウのフォーカス、移動、配置、終了"
+
+#: crates/helix-agent/src/cli.rs:164
+msgid "Switch to a workspace"
+msgstr "ワークスペースに切り替える"
+
+#: crates/helix-agent/src/cli.rs:164
+msgid "Switch workspaces"
+msgstr "ワークスペースを切り替える"
+
+#: crates/helix-agent/src/cli.rs:164
+msgid "The workspace's number, from 0"
+msgstr "ワークスペースの番号 (0 から)"
+
+#: crates/helix-agent/src/cli.rs:166
+msgid "dark-style, do-not-disturb, night-light, wifi, airplane-mode or mute"
+msgstr "dark-style、do-not-disturb、night-light、wifi、airplane-mode、mute"
+
+#: crates/helix-agent/src/cli.rs:166
+msgid "on or off (default: flip it)"
+msgstr "on または off (既定: 切り替え)"
+
+#: crates/helix-agent/src/cli.rs:167
+msgid "Turn a quick setting on or off"
+msgstr "クイック設定をオン・オフする"
+
+#: crates/helix-agent/src/cli.rs:169
+msgid "A percentage"
+msgstr "パーセンテージ"
+
+#: crates/helix-agent/src/cli.rs:169
+msgid "Set volume or brightness"
+msgstr "音量または明るさを設定"
+
+#: crates/helix-agent/src/cli.rs:169
+msgid "volume or brightness"
+msgstr "volume または brightness"
+
+#: crates/helix-agent/src/cli.rs:171
+msgid "More text below it"
+msgstr "その下に表示するテキスト"
+
+#: crates/helix-agent/src/cli.rs:171
+msgid "The notification's title"
+msgstr "通知のタイトル"
+
+#: crates/helix-agent/src/cli.rs:172
+msgid "An icon name"
+msgstr "アイコン名"
+
+#: crates/helix-agent/src/cli.rs:172
+msgid "low or normal"
+msgstr "low または normal"
+
+#: crates/helix-agent/src/cli.rs:173
+msgid "Show the user a notification"
+msgstr "ユーザーに通知を表示"
+
+#: crates/helix-agent/src/cli.rs:178
+msgid "Read the clipboard"
+msgstr "クリップボードを読む"
+
+#: crates/helix-agent/src/cli.rs:179
+msgid "Set the clipboard"
+msgstr "クリップボードを設定"
+
+#: crates/helix-agent/src/cli.rs:179
+msgid "The text (default: read from standard input)"
+msgstr "テキスト (既定: 標準入力から読む)"
+
+#: crates/helix-agent/src/cli.rs:181
+msgid "Read or set the clipboard (needs Clipboard access)"
+msgstr "クリップボードを読む・設定する (クリップボードへのアクセスが必要)"
+
+#: crates/helix-agent/src/cli.rs:184
+msgid "Apps (Control apps):"
+msgstr "アプリ (アプリを操作):"
+
+#: crates/helix-agent/src/cli.rs:186
+msgid "An app window's controls"
+msgstr "アプリのウィンドウのコントロール"
+
+#: crates/helix-agent/src/cli.rs:186
+msgid "How many levels down to go"
+msgstr "何階層下まで読むか"
+
+#: crates/helix-agent/src/cli.rs:186
+msgid "Start at this node"
+msgstr "このノードから始める"
+
+#: crates/helix-agent/src/cli.rs:187 crates/helix-agent/src/cli.rs:188
+msgid "A node id from “helix-agent a11y tree”"
+msgstr "「helix-agent a11y tree」で得たノード ID"
+
+#: crates/helix-agent/src/cli.rs:187
+msgid "One of the node's actions, e.g. click"
+msgstr "ノードの操作の一つ (例: click)"
+
+#: crates/helix-agent/src/cli.rs:187
+msgid "Use a control"
+msgstr "コントロールを使う"
+
+#: crates/helix-agent/src/cli.rs:188
+msgid "Change a control's value"
+msgstr "コントロールの値を変更"
+
+#: crates/helix-agent/src/cli.rs:188
+msgid "The new text or number"
+msgstr "新しいテキストまたは数値"
+
+#: crates/helix-agent/src/cli.rs:190
+msgid "Read and use an app's controls"
+msgstr "アプリのコントロールを読んで操作する"
+
+#: crates/helix-agent/src/cli.rs:192
+msgid "Screen and input (Screen and input):"
+msgstr "画面と入力 (画面と入力):"
+
+#: crates/helix-agent/src/cli.rs:195
+msgid "Only this monitor"
+msgstr "このモニターのみ"
+
+#: crates/helix-agent/src/cli.rs:195
+msgid "Only this window"
+msgstr "このウィンドウのみ"
+
+#: crates/helix-agent/src/cli.rs:195
+msgid "Write the PNG to FILE"
+msgstr "PNG を FILE に書き出す"
+
+#: crates/helix-agent/src/cli.rs:196
+msgid "Take a screenshot"
+msgstr "スクリーンショットを撮る"
+
+#: crates/helix-agent/src/cli.rs:200
+msgid "Key combinations such as ctrl+c, alt+F4 or Return"
+msgstr "ctrl+c、alt+F4、Return などのキーの組み合わせ"
+
+#: crates/helix-agent/src/cli.rs:200
+msgid "Press keys"
+msgstr "キーを押す"
+
+#: crates/helix-agent/src/cli.rs:201
+msgid "The text"
+msgstr "テキスト"
+
+#: crates/helix-agent/src/cli.rs:201
+msgid "Type text"
+msgstr "テキストを入力"
+
+#: crates/helix-agent/src/cli.rs:202
+msgid "1 left, 2 middle, 3 right (default 1)"
+msgstr "1 左、2 中央、3 右 (既定 1)"
+
+#: crates/helix-agent/src/cli.rs:202 crates/helix-agent/src/cli.rs:203
+msgid "Across, in logical pixels"
+msgstr "横方向、論理ピクセル"
+
+#: crates/helix-agent/src/cli.rs:202
+msgid "Click at a point"
+msgstr "指定位置をクリック"
+
+#: crates/helix-agent/src/cli.rs:202 crates/helix-agent/src/cli.rs:203
+msgid "Down, in logical pixels"
+msgstr "縦方向、論理ピクセル"
+
+#: crates/helix-agent/src/cli.rs:203
+msgid "Move the pointer"
+msgstr "ポインターを動かす"
+
+#: crates/helix-agent/src/cli.rs:204
+msgid "Across, in pixels"
+msgstr "横方向、ピクセル"
+
+#: crates/helix-agent/src/cli.rs:204
+msgid "Down, in pixels"
+msgstr "縦方向、ピクセル"
+
+#: crates/helix-agent/src/cli.rs:204
+msgid "Scroll"
+msgstr "スクロール"
+
+#: crates/helix-agent/src/cli.rs:206
+msgid "Send keys, text, clicks and scrolling"
+msgstr "キー、テキスト、クリック、スクロールを送る"
+
+#: crates/helix-agent/src/cli.rs:209
+msgid "Other:"
+msgstr "その他:"
+
+#: crates/helix-agent/src/cli.rs:210
+msgid "Only entries at or after WHEN"
+msgstr "WHEN 以降の項目のみ"
+
+#: crates/helix-agent/src/cli.rs:210
+msgid "Only this agent"
+msgstr "このエージェントのみ"
+
+#: crates/helix-agent/src/cli.rs:210
+msgid "Show what agents did"
+msgstr "エージェントが行ったことを表示"
+
+#: crates/helix-agent/src/cli.rs:211
+msgid "A command, or “exit-codes”"
+msgstr "コマンド、または「exit-codes」"
+
+#: crates/helix-agent/src/cli.rs:211
+msgid "Help for a command, or \"help exit-codes\""
+msgstr "コマンドのヘルプ、または「help exit-codes」"
+
+#: crates/helix-agent/src/cli.rs:212
+msgid "Shell completions"
+msgstr "シェルの補完"
+
+#: crates/helix-agent/src/cli.rs:212
+msgid "bash, zsh or fish"
+msgstr "bash、zsh、fish"
+
+#: crates/helix-agent/src/cli.rs:218
+msgid "JSON output (default when not on a terminal)"
+msgstr "JSON 出力 (端末以外では既定)"
+
+#: crates/helix-agent/src/cli.rs:219
+msgid "Readable text (default on a terminal)"
+msgstr "読みやすいテキスト (端末では既定)"
+
+#: crates/helix-agent/src/cli.rs:220
+msgid "Never ask the user; fail instead"
+msgstr "ユーザーに尋ねず、代わりに失敗する"
+
+#: crates/helix-agent/src/cli.rs:221
+msgid "Mark this action sensitive"
+msgstr "この操作を重要な操作として示す"
+
+#: crates/helix-agent/src/cli.rs:222
+msgid "How long to wait for the shell [default: 30]"
+msgstr "シェルの応答を待つ時間 [既定: 30]"
+
+#: crates/helix-agent/src/cli.rs:242
+#: crates/helix-shell/src/ui/agent_prompt.rs:93
+msgid "Read only"
+msgstr "読み取りのみ"
+
+#: crates/helix-agent/src/cli.rs:243
+#: crates/helix-shell/src/ui/agent_prompt.rs:94
+msgid "Control the desktop"
+msgstr "デスクトップを操作"
+
+#: crates/helix-agent/src/cli.rs:244
+#: crates/helix-shell/src/ui/agent_prompt.rs:95
+msgid "Control apps"
+msgstr "アプリを操作"
+
+#: crates/helix-agent/src/cli.rs:245
+#: crates/helix-shell/src/ui/agent_prompt.rs:96
+msgid "Screen and input"
+msgstr "画面と入力"
+
+#: crates/helix-agent/src/cli.rs:312
+msgid "unknown option “{option}”"
+msgstr "不明なオプション「{option}」"
+
+#: crates/helix-agent/src/cli.rs:329
+msgid "unknown option “--{option}”"
+msgstr "不明なオプション「--{option}」"
+
+#: crates/helix-agent/src/cli.rs:333
+msgid "“--{option}” takes no value"
+msgstr "「--{option}」は値を取りません"
+
+#: crates/helix-agent/src/cli.rs:340
+msgid "“--{option}” needs a value"
+msgstr "「--{option}」には値が必要です"
+
+#: crates/helix-agent/src/cli.rs:344 crates/helix-agent/src/cli.rs:413
+msgid "“{value}” is not one of: {choices}"
+msgstr "「{value}」は次のいずれでもありません: {choices}"
+
+#: crates/helix-agent/src/cli.rs:370 crates/helix-agent/src/main.rs:120
+msgid "unknown command “{command}”"
+msgstr "不明なコマンド「{command}」"
+
+#: crates/helix-agent/src/cli.rs:372
+msgid "unknown command “{command}” for “{parent}”"
+msgstr "「{parent}」の不明なコマンド「{command}」"
+
+#: crates/helix-agent/src/cli.rs:383
+msgid "“{command}” needs a subcommand: {subs}"
+msgstr "「{command}」にはサブコマンドが必要です: {subs}"
+
+#: crates/helix-agent/src/cli.rs:397
+msgid "“{value}” is not a number of seconds"
+msgstr "「{value}」は秒数ではありません"
+
+#: crates/helix-agent/src/cli.rs:406
+msgid "missing argument: {names}"
+msgstr "引数が足りません: {names}"
+
+#: crates/helix-agent/src/cli.rs:409
+msgid "unexpected argument “{argument}”"
+msgstr "予期しない引数「{argument}」"
+
+#: crates/helix-agent/src/cli.rs:442
+msgid "Print help"
+msgstr "ヘルプを表示"
+
+#: crates/helix-agent/src/cli.rs:443
+msgid "Print version"
+msgstr "バージョンを表示"
+
+#: crates/helix-agent/src/cli.rs:449
+msgid "Let an agent read and act on your Helix session."
+msgstr "エージェントに Helix セッションの読み取りと操作を許します。"
+
+#: crates/helix-agent/src/cli.rs:449 crates/helix-agent/src/cli.rs:473
+msgid "Usage:"
+msgstr "使い方:"
+
+#: crates/helix-agent/src/cli.rs:459 crates/helix-agent/src/cli.rs:507
+msgid "Options:"
+msgstr "オプション:"
+
+#: crates/helix-agent/src/cli.rs:463 crates/helix-agent/src/main.rs:199
+msgid ""
+"Agent access is controlled in Settings › Privacy & Security › Agent Access."
+msgstr ""
+"エージェントアクセスは 設定 › プライバシーとセキュリティ › エージェントアクセ"
+"ス で設定します。"
+
+#: crates/helix-agent/src/cli.rs:488
+msgid "Needs: the “{level}” access level and Clipboard access"
+msgstr "必要: アクセスレベル「{level}」とクリップボードへのアクセス"
+
+#: crates/helix-agent/src/cli.rs:489
+msgid "Needs: the “{level}” access level"
+msgstr "必要: アクセスレベル「{level}」"
+
+#: crates/helix-agent/src/cli.rs:496
+msgid "Commands:"
+msgstr "コマンド:"
+
+#: crates/helix-agent/src/cli.rs:502
+msgid "Arguments:"
+msgstr "引数:"
+
+#: crates/helix-agent/src/cli.rs:515
+msgid "JSON output: {record} records (helix-agent(1), “RECORDS”)."
+msgstr "JSON 出力: {record} レコード (helix-agent(1)、「RECORDS」)。"
+
+#: crates/helix-agent/src/cli.rs:520
+msgid "This Helix session does not support this command yet."
+msgstr "この Helix セッションはまだこのコマンドに対応していません。"
+
+#: crates/helix-agent/src/cli.rs:528
+msgid "Exit codes:"
+msgstr "終了コード:"
+
+#: crates/helix-agent/src/errors.rs:53 crates/helix-agent/src/errors.rs:82
+#: crates/helix-agent/src/errors.rs:134
+msgid "Cannot reach the Helix shell (is a Helix session running?)"
+msgstr "Helix シェルに接続できません (Helix セッションは動作していますか?)"
+
+#: crates/helix-agent/src/errors.rs:57 crates/helix-agent/src/errors.rs:96
+#: crates/helix-agent/src/errors.rs:125 crates/helix-agent/src/errors.rs:127
+msgid "Not supported by this Helix session"
+msgstr "この Helix セッションでは対応していません"
+
+#: crates/helix-agent/src/errors.rs:61 crates/helix-agent/src/errors.rs:94
+#: crates/helix-agent/src/errors.rs:123
+msgid "Timed out"
+msgstr "タイムアウトしました"
+
+#: crates/helix-agent/src/errors.rs:80
+msgid "Something else went wrong"
+msgstr "その他の問題が発生しました"
+
+#: crates/helix-agent/src/errors.rs:81
+msgid "The command line is wrong"
+msgstr "コマンドラインが正しくありません"
+
+#: crates/helix-agent/src/errors.rs:83 crates/helix-agent/src/errors.rs:112
+msgid ""
+"Agent access is turned off (Settings › Privacy & Security › Agent Access)"
+msgstr ""
+"エージェントアクセスはオフです (設定 › プライバシーとセキュリティ › エージェ"
+"ントアクセス)"
+
+#: crates/helix-agent/src/errors.rs:84
+msgid "The access level set in Settings is too low for this"
+msgstr "設定で選んだアクセスレベルではこれを行えません"
+
+#: crates/helix-agent/src/errors.rs:85 crates/helix-agent/src/errors.rs:114
+msgid "The user has not allowed this agent, and could not be asked"
+msgstr "ユーザーはこのエージェントを許可しておらず、確認もできませんでした"
+
+#: crates/helix-agent/src/errors.rs:86 crates/helix-agent/src/errors.rs:115
+msgid "The user denied this agent access"
+msgstr "ユーザーがこのエージェントのアクセスを拒否しました"
+
+#: crates/helix-agent/src/errors.rs:87 crates/helix-agent/src/errors.rs:151
+msgid "The target is excluded from agent access"
+msgstr "対象はエージェントアクセスから除外されています"
+
+#: crates/helix-agent/src/errors.rs:88 crates/helix-agent/src/errors.rs:117
+msgid "The screen is locked; agents can't act until it is unlocked"
+msgstr ""
+"画面がロックされています。ロックが解除されるまでエージェントは操作できません"
+
+#: crates/helix-agent/src/errors.rs:89 crates/helix-agent/src/errors.rs:118
+msgid ""
+"Agent access from remote sessions is turned off (Settings › Privacy & "
+"Security › Agent Access)"
+msgstr ""
+"リモートセッションからのエージェントアクセスはオフです (設定 › プライバシーと"
+"セキュリティ › エージェントアクセス)"
+
+#: crates/helix-agent/src/errors.rs:90 crates/helix-agent/src/errors.rs:119
+msgid "Agent access is not available to sandboxed apps"
+msgstr "サンドボックス化されたアプリはエージェントアクセスを使えません"
+
+#: crates/helix-agent/src/errors.rs:91 crates/helix-agent/src/errors.rs:120
+msgid ""
+"This action needs the user's confirmation; run it without --no-ask to ask"
+msgstr ""
+"この操作にはユーザーの確認が必要です。確認するには --no-ask なしで実行してく"
+"ださい"
+
+#: crates/helix-agent/src/errors.rs:92 crates/helix-agent/src/errors.rs:121
+msgid ""
+"Clipboard access is turned off (Settings › Privacy & Security › Agent Access)"
+msgstr ""
+"クリップボードへのアクセスはオフです (設定 › プライバシーとセキュリティ › "
+"エージェントアクセス)"
+
+#: crates/helix-agent/src/errors.rs:93
+msgid "The user said no, or cancelled the question"
+msgstr "ユーザーが「いいえ」と答えたか、質問を取り消しました"
+
+#: crates/helix-agent/src/errors.rs:95
+msgid "No such window, app or item"
+msgstr "そのようなウィンドウ、アプリ、項目はありません"
+
+#: crates/helix-agent/src/errors.rs:113
+msgid ""
+"This needs the “{level}” access level (Settings › Privacy & Security › Agent "
+"Access)"
+msgstr ""
+"アクセスレベル「{level}」が必要です (設定 › プライバシーとセキュリティ › エー"
+"ジェントアクセス)"
+
+#: crates/helix-agent/src/errors.rs:122
+msgid "The user cancelled the question"
+msgstr "ユーザーが質問を取り消しました"
+
+#: crates/helix-agent/src/errors.rs:124
+msgid "No such window / app / item: {what}"
+msgstr "そのようなウィンドウ / アプリ / 項目はありません: {what}"
+
+#: crates/helix-agent/src/errors.rs:145
+msgid "Agents can't use Settings"
+msgstr "エージェントは設定を使えません"
+
+#: crates/helix-agent/src/errors.rs:146
+msgid "Agents can't use password fields"
+msgstr "エージェントはパスワード欄を使えません"
+
+#: crates/helix-agent/src/errors.rs:147
+msgid "Agents can't act while a system prompt is open"
+msgstr "システムの確認画面が開いている間、エージェントは操作できません"
+
+#: crates/helix-agent/src/errors.rs:148
+msgid "Agents can't act on the shell itself"
+msgstr "エージェントはシェル自体を操作できません"
+
+#: crates/helix-agent/src/errors.rs:150
+msgid "{app} is excluded from agent access"
+msgstr "{app} はエージェントアクセスから除外されています"
+
+#: crates/helix-agent/src/main.rs:69
+msgid "Run “helix-agent --help” for help."
+msgstr "ヘルプは「helix-agent --help」で表示できます。"
+
+#: crates/helix-agent/src/main.rs:168
+msgid "off"
+msgstr "オフ"
+
+#: crates/helix-agent/src/main.rs:168
+msgid "on"
+msgstr "オン"
+
+#: crates/helix-agent/src/main.rs:170
+msgid "Agent access: {state}"
+msgstr "エージェントアクセス: {state}"
+
+#: crates/helix-agent/src/main.rs:171
+msgid "Access level: {level}"
+msgstr "アクセスレベル: {level}"
+
+#: crates/helix-agent/src/main.rs:175
+msgid "This agent: {agent}"
+msgstr "このエージェント: {agent}"
+
+#: crates/helix-agent/src/main.rs:175
+msgid "This agent: {name} ({agent})"
+msgstr "このエージェント: {name} ({agent})"
+
+#: crates/helix-agent/src/main.rs:178
+msgid "Allowed for this session: {level}"
+msgstr "このセッションで許可: {level}"
+
+#: crates/helix-agent/src/main.rs:179
+msgid "Always allowed: {level}"
+msgstr "常に許可: {level}"
+
+#: crates/helix-agent/src/main.rs:180
+msgid "Denied by the user for this session"
+msgstr "このセッションではユーザーが拒否"
+
+#: crates/helix-agent/src/main.rs:181
+msgid "Not allowed yet: the user is asked on first use"
+msgstr "未許可: 最初の使用時にユーザーに確認します"
+
+#: crates/helix-agent/src/main.rs:184
+msgid ""
+"This agent could not be told apart from the program that started it, so it "
+"can only be allowed for this session."
+msgstr ""
+"このエージェントは起動したプログラムと区別できなかったため、このセッションで"
+"のみ許可できます。"
+
+#: crates/helix-agent/src/main.rs:187
+msgid "Running in a remote session (allowed)"
+msgstr "リモートセッションで実行中 (許可済み)"
+
+#: crates/helix-agent/src/main.rs:187
+msgid ""
+"Running in a remote session; agent access from remote sessions is turned off"
+msgstr ""
+"リモートセッションで実行中。リモートセッションからのエージェントアクセスはオ"
+"フです"
+
+#: crates/helix-agent/src/main.rs:190
+msgid "The screen is locked"
+msgstr "画面がロックされています"
+
+#: crates/helix-agent/src/main.rs:192
+msgid ""
+"Notifications access: {notifications}, Clipboard access: {clipboard}, "
+"Confirm sensitive actions: {confirm}"
+msgstr ""
+"通知へのアクセス: {notifications}、クリップボードへのアクセス: {clipboard}、"
+"重要な操作の確認: {confirm}"
+
+#: crates/helix-agent/src/main.rs:209
+msgid "Agent Access version {version}"
+msgstr "エージェントアクセス バージョン {version}"
+
+#: crates/helix-agent/src/main.rs:210
+msgid "Agent Access version unknown (cannot reach the Helix shell)"
+msgstr "エージェントアクセスのバージョンは不明 (Helix シェルに接続できません)"
+
+#: crates/helix-agent/src/main.rs:243
+msgid "Cannot read the activity log: {error}"
+msgstr "アクティビティログを読めません: {error}"
+
+#: crates/helix-agent/src/main.rs:262
+msgid "No agent activity recorded."
+msgstr "エージェントの活動は記録されていません。"
+
+#: crates/helix-agent/src/when.rs:11
+msgid "“{when}” is not a date, a time or a relative time such as +10m or -1d"
+msgstr ""
+"「{when}」は日付、時刻、または +10m や -1d のような相対時間ではありません"
+
 #. Translators: display modes shown when switching (Super+P).
 #: crates/helix-comp/src/display_switch.rs:31
 msgid "Mirror"
@@ -1416,13 +2223,6 @@ msgstr "新しいバージョンのシステム"
 msgid "Apps"
 msgstr "アプリ"
 
-#: crates/helix-shell/src/panel_layout.rs:49
-#: crates/helix-shell/src/ui/atspi.rs:562
-#: crates/helix-shell/src/ui/overview.rs:1201
-#: crates/helix-shell/src/ui/workspace_popup.rs:171
-msgid "Workspaces"
-msgstr "ワークスペース"
-
 #: crates/helix-shell/src/panel_layout.rs:50
 msgid "Clock"
 msgstr "時計"
@@ -1868,22 +2668,6 @@ msgstr "このセッションで許可"
 #: crates/helix-shell/src/ui/agent_prompt.rs:64
 msgid "Always Allow"
 msgstr "常に許可"
-
-#: crates/helix-shell/src/ui/agent_prompt.rs:93
-msgid "Read only"
-msgstr "読み取りのみ"
-
-#: crates/helix-shell/src/ui/agent_prompt.rs:94
-msgid "Control the desktop"
-msgstr "デスクトップを操作"
-
-#: crates/helix-shell/src/ui/agent_prompt.rs:95
-msgid "Control apps"
-msgstr "アプリを操作"
-
-#: crates/helix-shell/src/ui/agent_prompt.rs:96
-msgid "Screen and input"
-msgstr "画面と入力"
 
 #: crates/helix-shell/src/ui/agent_prompt.rs:103
 msgid ""

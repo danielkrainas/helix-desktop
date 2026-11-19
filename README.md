@@ -91,8 +91,9 @@ crates/
   helix-protocols/  # Helix's private Wayland protocols
   helix-extension/  # extension API crate and examples
   helix-greeter/    # greetd login screen
+  helix-agent/      # helix-agent, the Agent Access command line
   helix-test-support/ # test helpers: private D-Bus, contract checks
-data/               # Helix GSettings schemas
+data/               # Helix GSettings schemas, helix-agent's man page and completions
 session/            # session file, startup units and scripts
 greeter/            # greetd configuration for the login screen
 packaging/          # nfpm package definitions and staging
@@ -239,6 +240,23 @@ change their settings and their commands' keys. Examples in
 `crates/helix-extension/examples`: a counter, a caffeine toggle with a
 command, a processor graph, a dock shelf for dropped files, and a
 calendar popover.
+
+## Agent Access
+
+An agent (a coding assistant, a background automation) can read and act
+on the session through `helix-agent`, behind a permission the user
+controls in Settings › Privacy & Security › Agent Access (off by
+default). The shell decides everything: the first time an agent asks, it
+shows a consent prompt only the user at the machine can answer, and a red
+indicator in the top bar shows active agents with *Stop*. Contract:
+helixdesktop/spec `contracts/agent-access/`.
+
+```sh
+helix-agent status                 # is it on, and what may this agent do
+helix-agent request --level read-only
+helix-agent --help                 # every command; JSON when piped
+man helix-agent
+```
 
 ## Running the session skeleton
 

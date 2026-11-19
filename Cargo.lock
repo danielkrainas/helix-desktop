@@ -1348,6 +1348,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "helix-agent"
+version = "0.1.0"
+dependencies = [
+ "gio",
+ "helix-i18n",
+ "helix-test-support",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
 name = "helix-comp"
 version = "0.1.0"
 dependencies = [
