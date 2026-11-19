@@ -634,6 +634,11 @@ impl Ui {
         if has(&|c| matches!(c, Choice::Settings(_))) {
             return tr("Background").to_owned();
         }
+        if has(&|c| matches!(c, Choice::DesktopIcon(_))) {
+            if let Some(name) = self.desktop_icon_menu_name() {
+                return name;
+            }
+        }
         if has(&|c| matches!(c, Choice::Dock(_))) {
             use super::dock::DockTarget;
             let names = self.atspi.app_names.as_ref().map(|(n, _)| n);

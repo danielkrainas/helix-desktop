@@ -4446,10 +4446,12 @@ impl SeatHandler for Ui {
 }
 
 impl KeyboardHandler for Ui {
-    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, serial: u32, _: &[u32], _: &[Keysym]) {
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, surface: &wl_surface::WlSurface, serial: u32, _: &[u32], _: &[Keysym]) {
         self.clipboard.serial = serial;
+        self.desktop_icons_keyboard(surface, true);
     }
     fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, surface: &wl_surface::WlSurface, _: u32) {
+        self.desktop_icons_keyboard(surface, false);
         // The panel or dock lost the keyboard it had after switch-panels
         // (a click on a window took it): end the keyboard mode and give
         // up the grab, as Escape does.
@@ -4493,6 +4495,8 @@ impl KeyboardHandler for Ui {
             self.panel_editor_key(&event);
         } else if self.extensions_dialog.is_some() {
             self.extensions_dialog_key(&event);
+        } else if self.launcher.is_none() && self.desktop_icons_have_keyboard() {
+            self.desktop_icons_key(&event);
         } else {
             self.launcher_key(&event);
         }
@@ -4588,6 +4592,7 @@ impl TouchHandler for Ui {
         // A cancelled touch is not a click: drop it without the release.
         self.touch_point = None;
         self.bg_hold = None;
+        self.desktop_icons_cancel_hold();
         self.picker_cancel_drag();
     }
 }

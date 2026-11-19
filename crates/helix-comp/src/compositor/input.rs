@@ -495,6 +495,8 @@ impl Helix {
             } else {
                 self.layer_clicked_away();
                 self.unfocus_all();
+                // The desktop icons take the keyboard when clicked.
+                self.desktop_click_focus(pos);
             }
         }
         pointer.button(self, &ButtonEvent { button, state, serial, time });

@@ -31,24 +31,24 @@ msgstr "仅外接显示器"
 msgid "Built-in Only"
 msgstr "仅内置显示器"
 
-#: crates/helix-greeter/src/app.rs:30 crates/helix-shell/src/a11y_menu.rs:28
+#: crates/helix-greeter/src/app.rs:31 crates/helix-shell/src/a11y_menu.rs:28
 msgid "High Contrast"
 msgstr "高对比度"
 
-#: crates/helix-greeter/src/app.rs:31 crates/helix-shell/src/a11y_menu.rs:30
+#: crates/helix-greeter/src/app.rs:32 crates/helix-shell/src/a11y_menu.rs:30
 msgid "Large Text"
 msgstr "大号文本"
 
-#: crates/helix-greeter/src/app.rs:32 crates/helix-shell/src/a11y_menu.rs:31
+#: crates/helix-greeter/src/app.rs:33 crates/helix-shell/src/a11y_menu.rs:31
 msgid "Screen Reader"
 msgstr "屏幕阅读器"
 
-#: crates/helix-greeter/src/app.rs:33 crates/helix-greeter/src/atspi.rs:86
+#: crates/helix-greeter/src/app.rs:34 crates/helix-greeter/src/atspi.rs:86
 #: crates/helix-shell/src/a11y_menu.rs:32
 msgid "Screen Keyboard"
 msgstr "屏幕键盘"
 
-#: crates/helix-greeter/src/app.rs:557
+#: crates/helix-greeter/src/app.rs:559
 msgid "No sessions are installed."
 msgstr "未安装任何会话。"
 
@@ -66,18 +66,18 @@ msgstr "用户名"
 
 #: crates/helix-greeter/src/atspi.rs:79 crates/helix-greeter/src/paint.rs:479
 #: crates/helix-shell/src/ui/file_chooser.rs:1446
-#: crates/helix-shell/src/ui/window_menu.rs:405
+#: crates/helix-shell/src/ui/window_menu.rs:407
 msgid "Back"
 msgstr "返回"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5389 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5394 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:587
 msgid "Power Off…"
 msgstr "关机…"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5386 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5391 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:586
 msgid "Restart…"
 msgstr "重启…"
@@ -112,7 +112,7 @@ msgstr "要关闭此计算机吗？"
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 #: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1396 crates/helix-shell/src/lib.rs:1484
+#: crates/helix-shell/src/lib.rs:1418 crates/helix-shell/src/lib.rs:1506
 #: crates/helix-shell/src/mount_handler.rs:125
 #: crates/helix-shell/src/mount_handler.rs:139
 #: crates/helix-shell/src/mount_handler.rs:174
@@ -124,13 +124,13 @@ msgstr "要关闭此计算机吗？"
 #: crates/helix-shell/src/portal_dialog.rs:122
 #: crates/helix-shell/src/run_dialog.rs:184 crates/helix-shell/src/ui.rs:1302
 #: crates/helix-shell/src/ui.rs:1305 crates/helix-shell/src/ui.rs:3273
-#: crates/helix-shell/src/ui/atspi.rs:922
+#: crates/helix-shell/src/ui/atspi.rs:927
 #: crates/helix-shell/src/ui/file_chooser.rs:1361
 #: crates/helix-shell/src/ui/file_chooser.rs:1414
 #: crates/helix-shell/src/ui/file_chooser.rs:1440
 #: crates/helix-shell/src/ui/file_chooser.rs:1528
 #: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:588
-#: crates/helix-shell/src/ui/prompt.rs:603
+#: crates/helix-shell/src/ui/prompt.rs:604
 #: crates/helix-shell/src/vpn_secrets.rs:195
 msgid "Cancel"
 msgstr "取消"
@@ -170,7 +170,7 @@ msgid "Sorry, that didn't work. Please try again."
 msgstr "抱歉，没有成功。请重试。"
 
 #: crates/helix-greeter/src/osk.rs:123
-#: crates/helix-portals/src/global_shortcuts.rs:85
+#: crates/helix-portals/src/global_shortcuts.rs:86
 #: crates/helix-portals/src/input_capture.rs:48
 #: crates/helix-shell/src/ui/osk.rs:886
 msgid "Shift"
@@ -208,8 +208,8 @@ msgid "{}%"
 msgstr "{}%"
 
 #: crates/helix-portals/src/dialogs.rs:105
-#: crates/helix-portals/src/dialogs.rs:324
-#: crates/helix-portals/src/global_shortcuts.rs:185
+#: crates/helix-portals/src/dialogs.rs:345
+#: crates/helix-portals/src/global_shortcuts.rs:186
 #: crates/helix-portals/src/input_capture.rs:148
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
@@ -219,7 +219,7 @@ msgid "Allow"
 msgstr "允许"
 
 #: crates/helix-portals/src/dialogs.rs:106
-#: crates/helix-portals/src/global_shortcuts.rs:186
+#: crates/helix-portals/src/global_shortcuts.rs:187
 #: crates/helix-portals/src/input_capture.rs:149
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
@@ -238,7 +238,7 @@ msgstr "姓名：{real}（{user}）"
 
 #: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3280
 #: crates/helix-shell/src/ui.rs:3281 crates/helix-shell/src/ui.rs:3283
-#: crates/helix-shell/src/ui/atspi.rs:923
+#: crates/helix-shell/src/ui/atspi.rs:928
 msgid "Share"
 msgstr "分享"
 
@@ -258,15 +258,15 @@ msgstr "选择一个应用。"
 msgid "Open With"
 msgstr "打开方式"
 
-#: crates/helix-portals/src/dialogs.rs:324
+#: crates/helix-portals/src/dialogs.rs:345
 msgid "Background Activity"
 msgstr "后台活动"
 
-#: crates/helix-portals/src/dialogs.rs:324
+#: crates/helix-portals/src/dialogs.rs:345
 msgid "Forbid"
 msgstr "禁止"
 
-#: crates/helix-portals/src/dialogs.rs:324
+#: crates/helix-portals/src/dialogs.rs:345
 msgid "{name} is running in the background."
 msgstr "{name} 正在后台运行。"
 
@@ -287,7 +287,7 @@ msgid "{who} wants to add a launcher for the app “{name}” to your apps."
 msgstr "{who} 想要将应用“{name}”的启动器添加到您的应用中。"
 
 #: crates/helix-portals/src/dynamic_launcher.rs:140
-#: crates/helix-portals/src/global_shortcuts.rs:173
+#: crates/helix-portals/src/global_shortcuts.rs:174
 #: crates/helix-portals/src/input_capture.rs:144
 #: crates/helix-portals/src/wallpaper.rs:107
 msgid "An app"
@@ -337,6 +337,7 @@ msgstr "选择"
 #: crates/helix-shell/src/notifications.rs:244
 #: crates/helix-shell/src/notifications.rs:359
 #: crates/helix-shell/src/portal_dialog.rs:121
+#: crates/helix-shell/src/ui/desktop_icons.rs:29
 #: crates/helix-shell/src/ui/dock.rs:1474
 #: crates/helix-shell/src/ui/dock.rs:1489
 #: crates/helix-shell/src/ui/dock.rs:1517
@@ -348,34 +349,34 @@ msgstr "打开"
 msgid "Save"
 msgstr "保存"
 
-#: crates/helix-portals/src/global_shortcuts.rs:77
+#: crates/helix-portals/src/global_shortcuts.rs:78
 msgid "Not assigned"
 msgstr "未分配"
 
-#: crates/helix-portals/src/global_shortcuts.rs:83
+#: crates/helix-portals/src/global_shortcuts.rs:84
 #: crates/helix-portals/src/input_capture.rs:45
 msgid "Ctrl"
 msgstr "Ctrl"
 
-#: crates/helix-portals/src/global_shortcuts.rs:84
+#: crates/helix-portals/src/global_shortcuts.rs:85
 #: crates/helix-portals/src/input_capture.rs:47
 msgid "Alt"
 msgstr "Alt"
 
-#: crates/helix-portals/src/global_shortcuts.rs:86
+#: crates/helix-portals/src/global_shortcuts.rs:87
 #: crates/helix-portals/src/input_capture.rs:46
 msgid "Super"
 msgstr "Super"
 
-#: crates/helix-portals/src/global_shortcuts.rs:178
+#: crates/helix-portals/src/global_shortcuts.rs:179
 msgid "{} — not assigned"
 msgstr "{} — 未分配"
 
-#: crates/helix-portals/src/global_shortcuts.rs:182
+#: crates/helix-portals/src/global_shortcuts.rs:183
 msgid "Allow Global Shortcuts?"
 msgstr "要允许全局快捷键吗？"
 
-#: crates/helix-portals/src/global_shortcuts.rs:183
+#: crates/helix-portals/src/global_shortcuts.rs:184
 msgid "{who} wants to use these shortcuts in every app."
 msgstr "{who} 想要在所有应用中使用这些快捷键。"
 
@@ -488,7 +489,7 @@ msgid "This code is not valid."
 msgstr "此代码无效。"
 
 #: crates/helix-shell/src/bluetooth_agent.rs:124
-#: crates/helix-shell/src/lib.rs:1210 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/lib.rs:1232 crates/helix-shell/src/obex.rs:478
 #: crates/helix-shell/src/panel_layout.rs:219
 #: crates/helix-shell/src/ui/quick.rs:409
 msgid "Bluetooth"
@@ -750,8 +751,8 @@ msgstr "蓝牙已关闭"
 #. Translators: the type of a folder in the file chooser.
 #: crates/helix-shell/src/favorites.rs:147
 #: crates/helix-shell/src/file_chooser.rs:267
-#: crates/helix-shell/src/ui/atspi.rs:752
-#: crates/helix-shell/src/ui/desktop_icons.rs:191
+#: crates/helix-shell/src/ui/atspi.rs:757
+#: crates/helix-shell/src/ui/desktop_icons.rs:378
 #: crates/helix-shell/src/ui/file_chooser.rs:1490
 msgid "Folder"
 msgstr "文件夹"
@@ -894,7 +895,7 @@ msgid "Confirm"
 msgstr "确认"
 
 #: crates/helix-shell/src/keyring_prompt.rs:84
-#: crates/helix-shell/src/ui/prompt.rs:604
+#: crates/helix-shell/src/ui/prompt.rs:605
 msgid "Continue"
 msgstr "继续"
 
@@ -902,53 +903,53 @@ msgstr "继续"
 msgid "More"
 msgstr "更多"
 
-#: crates/helix-shell/src/lib.rs:1065
+#: crates/helix-shell/src/lib.rs:1087
 msgid "Nothing was turned off or restarted. {err}"
 msgstr "没有关闭或重启任何内容。{err}"
 
-#: crates/helix-shell/src/lib.rs:1065
+#: crates/helix-shell/src/lib.rs:1087
 msgid "Software"
 msgstr "软件"
 
-#: crates/helix-shell/src/lib.rs:1065
+#: crates/helix-shell/src/lib.rs:1087
 msgid "Updates could not be scheduled"
 msgstr "无法安排更新"
 
-#: crates/helix-shell/src/lib.rs:1210
+#: crates/helix-shell/src/lib.rs:1232
 msgid "Cannot pair with {name}"
 msgstr "无法与 {name} 配对"
 
-#: crates/helix-shell/src/lib.rs:1297
+#: crates/helix-shell/src/lib.rs:1319
 #: crates/helix-shell/src/panel_layout.rs:221
 #: crates/helix-shell/src/ui/quick.rs:415
 msgid "Auto Rotate"
 msgstr "自动旋转"
 
-#: crates/helix-shell/src/lib.rs:1297
+#: crates/helix-shell/src/lib.rs:1319
 msgid "Rotation Locked"
 msgstr "旋转已锁定"
 
-#: crates/helix-shell/src/lib.rs:1393
+#: crates/helix-shell/src/lib.rs:1415
 msgid "Rename Folder"
 msgstr "重命名文件夹"
 
-#: crates/helix-shell/src/lib.rs:1394
+#: crates/helix-shell/src/lib.rs:1416
 msgid "Folder name"
 msgstr "文件夹名称"
 
-#: crates/helix-shell/src/lib.rs:1395
+#: crates/helix-shell/src/lib.rs:1417
 msgid "Rename"
 msgstr "重命名"
 
-#: crates/helix-shell/src/lib.rs:1481
+#: crates/helix-shell/src/lib.rs:1503
 msgid "Empty Trash?"
 msgstr "要清空回收站吗？"
 
-#: crates/helix-shell/src/lib.rs:1482
+#: crates/helix-shell/src/lib.rs:1504
 msgid "All items in the Trash will be permanently deleted."
 msgstr "回收站中的所有项目都将被永久删除。"
 
-#: crates/helix-shell/src/lib.rs:1483 crates/helix-shell/src/ui/dock.rs:1491
+#: crates/helix-shell/src/lib.rs:1505 crates/helix-shell/src/ui/dock.rs:1491
 msgid "Empty Trash"
 msgstr "清空回收站"
 
@@ -1263,7 +1264,7 @@ msgid "Send"
 msgstr "发送"
 
 #: crates/helix-shell/src/notifications.rs:680
-#: crates/helix-shell/src/ui/desktop_icons.rs:191
+#: crates/helix-shell/src/ui/desktop_icons.rs:378
 msgid "Application"
 msgstr "应用"
 
@@ -1400,7 +1401,7 @@ msgstr "未收到来自 {1} 的“{0}”。"
 msgid "A new version of the system"
 msgstr "新版本的系统"
 
-#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5082
+#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5087
 msgid "Apps"
 msgstr "应用"
 
@@ -1466,7 +1467,7 @@ msgid "Dark Style"
 msgstr "深色模式"
 
 #: crates/helix-shell/src/panel_layout.rs:224
-#: crates/helix-shell/src/ui/atspi.rs:835
+#: crates/helix-shell/src/ui/atspi.rs:840
 #: crates/helix-shell/src/ui/notify.rs:944
 #: crates/helix-shell/src/ui/notify.rs:945
 #: crates/helix-shell/src/ui/quick.rs:417
@@ -1517,11 +1518,11 @@ msgstr "电池电量低"
 msgid "{percent} remaining"
 msgstr "剩余 {percent}"
 
-#: crates/helix-shell/src/recording.rs:301
+#: crates/helix-shell/src/recording.rs:352
 msgid "GStreamer is not available"
 msgstr "GStreamer 不可用"
 
-#: crates/helix-shell/src/recording.rs:440
+#: crates/helix-shell/src/recording.rs:491
 msgid "Screencast From %d %t.webm"
 msgstr "屏幕录像 %d %t.webm"
 
@@ -1733,7 +1734,7 @@ msgstr "恢复"
 msgid "Keep"
 msgstr "保留"
 
-#: crates/helix-shell/src/ui.rs:1389 crates/helix-shell/src/ui/atspi.rs:899
+#: crates/helix-shell/src/ui.rs:1389 crates/helix-shell/src/ui/atspi.rs:904
 msgid "Install pending software updates"
 msgstr "安装待处理的软件更新"
 
@@ -1741,7 +1742,7 @@ msgstr "安装待处理的软件更新"
 msgid "Muted"
 msgstr "已静音"
 
-#: crates/helix-shell/src/ui.rs:1419 crates/helix-shell/src/ui/atspi.rs:964
+#: crates/helix-shell/src/ui.rs:1419 crates/helix-shell/src/ui/atspi.rs:969
 #: crates/helix-shell/src/ui/gallery.rs:1243
 #: crates/helix-shell/src/ui/quick.rs:449
 msgid "Volume"
@@ -1776,7 +1777,7 @@ msgstr "密码错误。请重试。"
 msgid "Cannot check password: {err}"
 msgstr "无法检查密码：{err}"
 
-#: crates/helix-shell/src/ui.rs:3229 crates/helix-shell/src/ui/atspi.rs:909
+#: crates/helix-shell/src/ui.rs:3229 crates/helix-shell/src/ui/atspi.rs:914
 msgid "Share your screen?"
 msgstr "要共享您的屏幕吗？"
 
@@ -1784,7 +1785,7 @@ msgstr "要共享您的屏幕吗？"
 msgid "{app} wants to see your screen. Choose what to share."
 msgstr "{app} 想要查看您的屏幕。请选择要共享的内容。"
 
-#: crates/helix-shell/src/ui.rs:3240 crates/helix-shell/src/ui/atspi.rs:911
+#: crates/helix-shell/src/ui.rs:3240 crates/helix-shell/src/ui/atspi.rs:916
 msgid "It will be able to share the same screen again without asking."
 msgstr "它将能够再次共享同一屏幕而无需询问。"
 
@@ -1792,47 +1793,47 @@ msgstr "它将能够再次共享同一屏幕而无需询问。"
 msgid "New virtual monitor"
 msgstr "新建虚拟显示器"
 
-#: crates/helix-shell/src/ui.rs:5074 crates/helix-shell/src/ui/atspi.rs:765
+#: crates/helix-shell/src/ui.rs:5079 crates/helix-shell/src/ui/atspi.rs:770
 msgid "No matching apps"
 msgstr "没有匹配的应用"
 
-#: crates/helix-shell/src/ui.rs:5081
+#: crates/helix-shell/src/ui.rs:5086
 msgid "Open Windows"
 msgstr "打开的窗口"
 
-#: crates/helix-shell/src/ui.rs:5122
+#: crates/helix-shell/src/ui.rs:5127
 msgid "Search for “{query}” in {name}"
 msgstr "在 {name} 中搜索“{query}”"
 
-#: crates/helix-shell/src/ui.rs:5187
+#: crates/helix-shell/src/ui.rs:5192
 msgid "{n} more result"
 msgid_plural "{n} more results"
 msgstr[0] "还有 {n} 个结果"
 
-#: crates/helix-shell/src/ui.rs:5189
+#: crates/helix-shell/src/ui.rs:5194
 msgid "{n} result above"
 msgid_plural "{n} results above"
 msgstr[0] "上方有 {n} 个结果"
 
-#: crates/helix-shell/src/ui.rs:5374 crates/helix-shell/src/ui/atspi.rs:410
+#: crates/helix-shell/src/ui.rs:5379 crates/helix-shell/src/ui/atspi.rs:410
 #: crates/helix-shell/src/ui/quick.rs:560
 msgid "Lock Screen"
 msgstr "锁定屏幕"
 
-#: crates/helix-shell/src/ui.rs:5377 crates/helix-shell/src/ui/lock.rs:515
+#: crates/helix-shell/src/ui.rs:5382 crates/helix-shell/src/ui/lock.rs:515
 #: crates/helix-shell/src/ui/lock.rs:597
 msgid "Switch User…"
 msgstr "切换用户…"
 
-#: crates/helix-shell/src/ui.rs:5380
+#: crates/helix-shell/src/ui.rs:5385
 msgid "Suspend"
 msgstr "挂起"
 
-#: crates/helix-shell/src/ui.rs:5383
+#: crates/helix-shell/src/ui.rs:5388
 msgid "Log Out…"
 msgstr "注销…"
 
-#: crates/helix-shell/src/ui.rs:5469
+#: crates/helix-shell/src/ui.rs:5474
 msgid "The app"
 msgstr "该应用"
 
@@ -1858,7 +1859,7 @@ msgstr "窗口概览"
 msgid "Recent Apps"
 msgstr "最近使用的应用"
 
-#: crates/helix-shell/src/ui/atspi.rs:96 crates/helix-shell/src/ui/atspi.rs:667
+#: crates/helix-shell/src/ui/atspi.rs:96 crates/helix-shell/src/ui/atspi.rs:672
 msgid "Applications"
 msgstr "应用程序"
 
@@ -1892,7 +1893,7 @@ msgid "Notification"
 msgstr "通知"
 
 #: crates/helix-shell/src/ui/atspi.rs:448
-#: crates/helix-shell/src/ui/atspi.rs:845
+#: crates/helix-shell/src/ui/atspi.rs:850
 msgid "Notifications"
 msgstr "通知"
 
@@ -1910,7 +1911,7 @@ msgid "Click Type"
 msgstr "点击类型"
 
 #: crates/helix-shell/src/ui/atspi.rs:477
-#: crates/helix-shell/src/ui/desktop_icons.rs:195
+#: crates/helix-shell/src/ui/desktop_icons.rs:382
 msgid "Desktop"
 msgstr "桌面"
 
@@ -1933,7 +1934,7 @@ msgid "Monitor {}"
 msgstr "显示器 {}"
 
 #: crates/helix-shell/src/ui/atspi.rs:530
-#: crates/helix-shell/src/ui/atspi.rs:878
+#: crates/helix-shell/src/ui/atspi.rs:883
 msgid "Dock"
 msgstr "程序坞"
 
@@ -1967,7 +1968,7 @@ msgid "Stop recording"
 msgstr "停止录制"
 
 #: crates/helix-shell/src/ui/atspi.rs:626
-#: crates/helix-shell/src/ui/atspi.rs:666
+#: crates/helix-shell/src/ui/atspi.rs:671
 msgid "Input Sources"
 msgstr "输入源"
 
@@ -1975,175 +1976,175 @@ msgstr "输入源"
 msgid "Background"
 msgstr "背景"
 
-#: crates/helix-shell/src/ui/atspi.rs:647
-#: crates/helix-shell/src/ui/atspi.rs:872 crates/helix-shell/src/ui/dock.rs:652
+#: crates/helix-shell/src/ui/atspi.rs:652
+#: crates/helix-shell/src/ui/atspi.rs:877 crates/helix-shell/src/ui/dock.rs:652
 #: crates/helix-shell/src/ui/dock.rs:1804
 msgid "Trash"
 msgstr "回收站"
 
-#: crates/helix-shell/src/ui/atspi.rs:656
-#: crates/helix-shell/src/ui/atspi.rs:668
+#: crates/helix-shell/src/ui/atspi.rs:661
+#: crates/helix-shell/src/ui/atspi.rs:673
 #: crates/helix-shell/src/ui/overview.rs:1210
 msgid "Windows"
 msgstr "窗口"
 
-#: crates/helix-shell/src/ui/atspi.rs:658
+#: crates/helix-shell/src/ui/atspi.rs:663
 msgid "Window Menu"
 msgstr "窗口菜单"
 
-#: crates/helix-shell/src/ui/atspi.rs:691
+#: crates/helix-shell/src/ui/atspi.rs:696
 #: crates/helix-shell/src/ui/file_chooser.rs:1451
 #: crates/helix-shell/src/ui/file_chooser.rs:1465
 #: crates/helix-shell/src/ui/overview.rs:1194
 msgid "Search"
 msgstr "搜索"
 
-#: crates/helix-shell/src/ui/atspi.rs:722
-#: crates/helix-shell/src/ui/atspi.rs:810
+#: crates/helix-shell/src/ui/atspi.rs:727
+#: crates/helix-shell/src/ui/atspi.rs:815
 #: crates/helix-shell/src/ui/capture.rs:450
 #: crates/helix-shell/src/ui/capture.rs:452
 #: crates/helix-shell/src/ui/dock.rs:1394
-#: crates/helix-shell/src/ui/window_menu.rs:115
+#: crates/helix-shell/src/ui/window_menu.rs:117
 msgid "Close"
 msgstr "关闭"
 
-#: crates/helix-shell/src/ui/atspi.rs:747
+#: crates/helix-shell/src/ui/atspi.rs:752
 msgid "Search for “{query}” in {label}"
 msgstr "在 {label} 中搜索“{query}”"
 
-#: crates/helix-shell/src/ui/atspi.rs:751
+#: crates/helix-shell/src/ui/atspi.rs:756
 msgid "Open window"
 msgstr "打开的窗口"
 
-#: crates/helix-shell/src/ui/atspi.rs:753
+#: crates/helix-shell/src/ui/atspi.rs:758
 msgid "Favorite"
 msgstr "收藏"
 
-#: crates/helix-shell/src/ui/atspi.rs:763
+#: crates/helix-shell/src/ui/atspi.rs:768
 msgid "Search Results"
 msgstr "搜索结果"
 
-#: crates/helix-shell/src/ui/atspi.rs:775
+#: crates/helix-shell/src/ui/atspi.rs:780
 msgid "{app}: {summary}"
 msgstr "{app}：{summary}"
 
-#: crates/helix-shell/src/ui/atspi.rs:778
+#: crates/helix-shell/src/ui/atspi.rs:783
 msgid "{summary}. {body}"
 msgstr "{summary}。{body}"
 
-#: crates/helix-shell/src/ui/atspi.rs:812
-#: crates/helix-shell/src/ui/atspi.rs:834
+#: crates/helix-shell/src/ui/atspi.rs:817
+#: crates/helix-shell/src/ui/atspi.rs:839
 #: crates/helix-shell/src/ui/notify.rs:948
 #: crates/helix-shell/src/ui/notify.rs:950 crates/helix-shell/src/weather.rs:59
 #: crates/helix-shell/src/weather.rs:60
 msgid "Clear"
 msgstr "清除"
 
-#: crates/helix-shell/src/ui/atspi.rs:816
+#: crates/helix-shell/src/ui/atspi.rs:821
 msgid "{app}, {count} notifications"
 msgstr "{app}，{count} 条通知"
 
-#: crates/helix-shell/src/ui/atspi.rs:818
+#: crates/helix-shell/src/ui/atspi.rs:823
 msgid "Next Month"
 msgstr "下个月"
 
-#: crates/helix-shell/src/ui/atspi.rs:818
+#: crates/helix-shell/src/ui/atspi.rs:823
 msgid "Previous Month"
 msgstr "上个月"
 
-#: crates/helix-shell/src/ui/atspi.rs:843
+#: crates/helix-shell/src/ui/atspi.rs:848
 #: crates/helix-shell/src/ui/calendar.rs:342
 msgid "No Events"
 msgstr "没有日程"
 
-#: crates/helix-shell/src/ui/atspi.rs:844
+#: crates/helix-shell/src/ui/atspi.rs:849
 msgid "Events, {}"
 msgstr "日程，{}"
 
-#: crates/helix-shell/src/ui/atspi.rs:846
+#: crates/helix-shell/src/ui/atspi.rs:851
 #: crates/helix-shell/src/ui/notify.rs:972
 msgid "No Notifications"
 msgstr "没有通知"
 
-#: crates/helix-shell/src/ui/atspi.rs:873 crates/helix-shell/src/ui/dock.rs:653
+#: crates/helix-shell/src/ui/atspi.rs:878 crates/helix-shell/src/ui/dock.rs:653
 msgid "Show Apps"
 msgstr "显示应用"
 
-#: crates/helix-shell/src/ui/atspi.rs:957
+#: crates/helix-shell/src/ui/atspi.rs:962
 msgid "No network"
 msgstr "无网络"
 
-#: crates/helix-shell/src/ui/atspi.rs:958
+#: crates/helix-shell/src/ui/atspi.rs:963
 msgid "Wired network"
 msgstr "有线网络"
 
-#: crates/helix-shell/src/ui/atspi.rs:960
+#: crates/helix-shell/src/ui/atspi.rs:965
 msgid "Network"
 msgstr "网络"
 
-#: crates/helix-shell/src/ui/atspi.rs:964
+#: crates/helix-shell/src/ui/atspi.rs:969
 msgid "Volume muted"
 msgstr "音量已静音"
 
-#: crates/helix-shell/src/ui/atspi.rs:969
+#: crates/helix-shell/src/ui/atspi.rs:974
 msgid "Battery {percent}"
 msgstr "电池 {percent}"
 
-#: crates/helix-shell/src/ui/atspi.rs:969
+#: crates/helix-shell/src/ui/atspi.rs:974
 msgid "Battery {percent}, charging"
 msgstr "电池 {percent}，正在充电"
 
-#: crates/helix-shell/src/ui/atspi.rs:971
+#: crates/helix-shell/src/ui/atspi.rs:976
 msgid "Camera in use"
 msgstr "摄像头正在使用"
 
-#: crates/helix-shell/src/ui/atspi.rs:971
+#: crates/helix-shell/src/ui/atspi.rs:976
 msgid "Location in use"
 msgstr "位置正在使用"
 
-#: crates/helix-shell/src/ui/atspi.rs:971
+#: crates/helix-shell/src/ui/atspi.rs:976
 msgid "Microphone in use"
 msgstr "麦克风正在使用"
 
-#: crates/helix-shell/src/ui/atspi.rs:982
-#: crates/helix-shell/src/ui/atspi.rs:984
+#: crates/helix-shell/src/ui/atspi.rs:987
+#: crates/helix-shell/src/ui/atspi.rs:989
 msgid "Pause"
 msgstr "暂停"
 
-#: crates/helix-shell/src/ui/atspi.rs:983
+#: crates/helix-shell/src/ui/atspi.rs:988
 msgid "Play"
 msgstr "播放"
 
-#: crates/helix-shell/src/ui/atspi.rs:985
+#: crates/helix-shell/src/ui/atspi.rs:990
 msgid "Stop"
 msgstr "停止"
 
-#: crates/helix-shell/src/ui/atspi.rs:986
+#: crates/helix-shell/src/ui/atspi.rs:991
 msgid "Next Track"
 msgstr "下一曲"
 
-#: crates/helix-shell/src/ui/atspi.rs:987
+#: crates/helix-shell/src/ui/atspi.rs:992
 msgid "Previous Track"
 msgstr "上一曲"
 
-#: crates/helix-shell/src/ui/atspi.rs:988
+#: crates/helix-shell/src/ui/atspi.rs:993
 msgid "Rewind"
 msgstr "快退"
 
-#: crates/helix-shell/src/ui/atspi.rs:989
+#: crates/helix-shell/src/ui/atspi.rs:994
 msgid "Fast Forward"
 msgstr "快进"
 
-#: crates/helix-shell/src/ui/atspi.rs:990
+#: crates/helix-shell/src/ui/atspi.rs:995
 msgid "Repeat"
 msgstr "重复"
 
-#: crates/helix-shell/src/ui/atspi.rs:991
+#: crates/helix-shell/src/ui/atspi.rs:996
 msgid "Shuffle"
 msgstr "随机播放"
 
 #. Translators: a calendar day read out by screen readers (GLib DateTime format): "14 November 2026".
-#: crates/helix-shell/src/ui/atspi.rs:1000
+#: crates/helix-shell/src/ui/atspi.rs:1005
 msgctxt "calendar day for screen readers"
 msgid "%e %B %Y"
 msgstr "%Y年%-m月%-d日"
@@ -2358,6 +2359,14 @@ msgstr "右键"
 #: crates/helix-shell/src/ui/click_type.rs:13
 msgid "Single"
 msgstr "单击"
+
+#: crates/helix-shell/src/ui/desktop_icons.rs:31
+msgid "Allow Launching"
+msgstr "允许启动"
+
+#: crates/helix-shell/src/ui/desktop_icons.rs:32
+msgid "Don't Allow Launching"
+msgstr "不允许启动"
 
 #: crates/helix-shell/src/ui/dock.rs:1474
 msgid "Mount"
@@ -2790,19 +2799,19 @@ msgstr "右移"
 msgid "Remove"
 msgstr "移除"
 
-#: crates/helix-shell/src/ui/prompt.rs:557
+#: crates/helix-shell/src/ui/prompt.rs:558
 msgid "Hide"
 msgstr "隐藏"
 
-#: crates/helix-shell/src/ui/prompt.rs:557
+#: crates/helix-shell/src/ui/prompt.rs:558
 msgid "Show"
 msgstr "显示"
 
-#: crates/helix-shell/src/ui/prompt.rs:591
+#: crates/helix-shell/src/ui/prompt.rs:592
 msgid "Authenticating…"
 msgstr "正在认证…"
 
-#: crates/helix-shell/src/ui/prompt.rs:695
+#: crates/helix-shell/src/ui/prompt.rs:696
 msgid "Show Password"
 msgstr "显示密码"
 
@@ -2894,55 +2903,55 @@ msgstr "静音"
 msgid "Secured"
 msgstr "已加密"
 
-#: crates/helix-shell/src/ui/window_menu.rs:77
+#: crates/helix-shell/src/ui/window_menu.rs:79
 msgid "Minimize"
 msgstr "最小化"
 
-#: crates/helix-shell/src/ui/window_menu.rs:79
+#: crates/helix-shell/src/ui/window_menu.rs:81
 msgid "Restore"
 msgstr "还原"
 
-#: crates/helix-shell/src/ui/window_menu.rs:81
+#: crates/helix-shell/src/ui/window_menu.rs:83
 msgid "Maximize"
 msgstr "最大化"
 
-#: crates/helix-shell/src/ui/window_menu.rs:84
+#: crates/helix-shell/src/ui/window_menu.rs:86
 msgid "Move"
 msgstr "移动"
 
-#: crates/helix-shell/src/ui/window_menu.rs:85
+#: crates/helix-shell/src/ui/window_menu.rs:87
 msgid "Resize"
 msgstr "调整大小"
 
-#: crates/helix-shell/src/ui/window_menu.rs:89
+#: crates/helix-shell/src/ui/window_menu.rs:91
 msgid "Always on Top"
 msgstr "置顶"
 
-#: crates/helix-shell/src/ui/window_menu.rs:91
+#: crates/helix-shell/src/ui/window_menu.rs:93
 msgid "Always on Visible Workspace"
 msgstr "总在可见工作区"
 
-#: crates/helix-shell/src/ui/window_menu.rs:94
+#: crates/helix-shell/src/ui/window_menu.rs:96
 msgid "Move to Workspace Left"
 msgstr "移动到左侧工作区"
 
-#: crates/helix-shell/src/ui/window_menu.rs:97
+#: crates/helix-shell/src/ui/window_menu.rs:99
 msgid "Move to Workspace Right"
 msgstr "移动到右侧工作区"
 
-#: crates/helix-shell/src/ui/window_menu.rs:101
+#: crates/helix-shell/src/ui/window_menu.rs:103
 msgid "Move to Monitor Left"
 msgstr "移动到左侧显示器"
 
-#: crates/helix-shell/src/ui/window_menu.rs:102
+#: crates/helix-shell/src/ui/window_menu.rs:104
 msgid "Move to Monitor Right"
 msgstr "移动到右侧显示器"
 
-#: crates/helix-shell/src/ui/window_menu.rs:103
+#: crates/helix-shell/src/ui/window_menu.rs:105
 msgid "Move to Monitor Up"
 msgstr "移动到上方显示器"
 
-#: crates/helix-shell/src/ui/window_menu.rs:104
+#: crates/helix-shell/src/ui/window_menu.rs:106
 msgid "Move to Monitor Down"
 msgstr "移动到下方显示器"
 

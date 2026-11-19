@@ -50,6 +50,8 @@ pub(super) enum Choice {
     ExtMenu(usize),
     /// The background menu's entries: open Settings at a panel.
     Settings(super::background_menu::SettingsPanel),
+    /// A desktop icon menu's entry.
+    DesktopIcon(super::desktop_icons::IconAction),
     /// Show the item's submenu.
     Submenu,
     /// Back to the menu a submenu came from.
@@ -459,6 +461,10 @@ impl Ui {
         }
         if let Choice::Settings(panel) = item.choice {
             self.background_menu_choice(panel);
+            return;
+        }
+        if let Choice::DesktopIcon(action) = item.choice {
+            self.desktop_icon_menu_choice(action);
             return;
         }
         if let Choice::Tray(i) = item.choice {

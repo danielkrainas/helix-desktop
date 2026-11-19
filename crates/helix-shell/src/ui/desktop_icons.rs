@@ -1,11 +1,47 @@
 //! Desktop icons (helixdesktop/spec `contracts/gsettings/background.md`,
 //! "Desktop icons"): a see-through surface just above the primary
-//! monitor's background, with the desktop folder's files.
+//! monitor's background, with the desktop folder's files, and their menu.
 
 use std::path::PathBuf;
 
+use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
+
+use super::window_menu::{Choice, Item};
 use super::*;
-use crate::desktop_icons::{self as logic, DesktopItem};
+use crate::desktop_icons::{self as logic, DesktopItem, Launching};
+use helix_i18n::tr;
+
+const BTN_RIGHT: u32 = 0x111;
+
+/// What a desktop icon menu entry does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum IconAction {
+    Open,
+    AllowLaunching,
+    DisallowLaunching,
+}
+
+/// The menu of a file whose launching can be changed as `launching`
+/// says (`None`: it cannot), as Desktop Icons NG's: "Open", then "Allow
+/// Launching" or "Don't Allow Launching".
+pub(super) fn menu_items(launching: Option<Launching>) -> Vec<Option<Item>> {
+    let item = |label: &str, action| Some(Item { label: label.to_owned(), choice: Choice::DesktopIcon(action), checked: None, active: false, sub: Vec::new() });
+    let mut out = vec![item(tr("Open"), IconAction::Open)];
+    match launching {
+        Some(Launching::Allow) => out.extend([None, item(tr("Allow Launching"), IconAction::AllowLaunching)]),
+        Some(Launching::Disallow) => out.extend([None, item(tr("Don't Allow Launching"), IconAction::DisallowLaunching)]),
+        None => {}
+    }
+    out
+}
+
+/// A primary-button or touch press on an icon that may become a long
+/// press.
+struct Hold {
+    serial: u64,
+    path: PathBuf,
+    at: (f64, f64),
+}
 
 /// Under windows, above the background; named so the compositor does not
 /// fade it like other shell surfaces.
@@ -28,6 +64,13 @@ pub(super) struct DesktopIconsState {
     selected: Option<PathBuf>,
     /// The last press: on which item, when (ms).
     last_press: Option<(PathBuf, u32)>,
+    /// A press held on an item, timed for a long press.
+    hold: Option<Hold>,
+    hold_serial: u64,
+    /// The item whose menu is (or was last) open.
+    menu_for: Option<PathBuf>,
+    /// The surface has the keyboard.
+    keyboard: bool,
 }
 
 impl Ui {
@@ -50,7 +93,8 @@ impl Ui {
         layer.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT);
         // Kept clear of the panel (and a fixed dock).
         layer.set_exclusive_zone(0);
-        layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+        // A click on an icon gives it the keyboard (for the menu key).
+        layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
         layer.set_size(0, 0);
         layer.commit();
         self.desktop_icons.view = Some(IconsView { layer, output, width: 0, height: 0, configured: false });
@@ -79,6 +123,7 @@ impl Ui {
     pub(super) fn desktop_icons_closed(&mut self, layer: &LayerSurface) -> bool {
         if self.desktop_icons.view.as_ref().is_some_and(|v| &v.layer == layer) {
             self.desktop_icons.view = None;
+            self.desktop_icons.keyboard = false;
             return true;
         }
         false
@@ -157,26 +202,168 @@ impl Ui {
 
     /// Pointer input on the surface; true if it was for it. A press
     /// selects the item under it (or nothing); a second press on it within
-    /// the double-click time opens it.
+    /// the double-click time opens it. A right press on an item, or a
+    /// long press (primary button or touch), opens its menu.
     pub(super) fn desktop_icons_pointer(&mut self, event: &PointerEvent) -> bool {
         let Some(view) = self.desktop_icons.view.as_ref().filter(|v| v.layer.wl_surface() == &event.surface) else { return false };
-        let PointerEventKind::Press { button: BTN_LEFT, time, .. } = event.kind else { return true };
-        let items = self.desktop_icons.items.clone().unwrap_or_default();
-        let cells = logic::cells(items.len(), view.width as i32, view.height as i32);
         let (x, y) = event.position;
-        let hit = cells.iter().position(|&(cx, cy)| Rect { x: cx, y: cy, w: logic::CELL_W, h: logic::CELL_H }.contains(x, y)).map(|i| items[i].clone());
-        let double = match (&hit, &self.desktop_icons.last_press) {
-            (Some(item), Some((path, at))) => &item.path == path && time.wrapping_sub(*at) <= logic::DOUBLE_CLICK_MS,
-            _ => false,
+        let hit = || {
+            let items = self.desktop_icons.items.as_deref().unwrap_or_default();
+            let cells = logic::cells(items.len(), view.width as i32, view.height as i32);
+            cells.iter().position(|&(cx, cy)| Rect { x: cx, y: cy, w: logic::CELL_W, h: logic::CELL_H }.contains(x, y)).map(|i| items[i].clone())
         };
-        self.desktop_icons.last_press = hit.as_ref().map(|i| (i.path.clone(), time));
-        self.desktop_icons.selected = hit.as_ref().map(|i| i.path.clone());
-        self.draw_desktop_icons();
-        if let (true, Some(item)) = (double, hit) {
-            self.desktop_icons.last_press = None;
-            logic::open(&item);
+        match event.kind {
+            PointerEventKind::Press { button: BTN_LEFT, time, .. } => {
+                let hit = hit();
+                let double = match (&hit, &self.desktop_icons.last_press) {
+                    (Some(item), Some((path, at))) => &item.path == path && time.wrapping_sub(*at) <= logic::DOUBLE_CLICK_MS,
+                    _ => false,
+                };
+                self.desktop_icons.hold = None;
+                self.desktop_icons.last_press = hit.as_ref().map(|i| (i.path.clone(), time));
+                self.desktop_icons.selected = hit.as_ref().map(|i| i.path.clone());
+                self.draw_desktop_icons();
+                match (double, hit) {
+                    (true, Some(item)) => {
+                        self.desktop_icons.last_press = None;
+                        logic::open(&item);
+                    }
+                    (false, Some(item)) => self.hold_desktop_icon(item.path, (x, y)),
+                    _ => {}
+                }
+            }
+            PointerEventKind::Press { button: BTN_RIGHT, .. } => {
+                let hit = hit();
+                self.desktop_icons.hold = None;
+                self.desktop_icons.last_press = None;
+                self.desktop_icons.selected = hit.as_ref().map(|i| i.path.clone());
+                self.draw_desktop_icons();
+                if let Some(item) = hit {
+                    self.open_desktop_icon_menu(&item, (x, y));
+                }
+            }
+            PointerEventKind::Motion { .. } => {
+                if self.desktop_icons.hold.as_ref().is_some_and(|h| super::background_menu::moved_too_far(h.at, (x, y))) {
+                    self.desktop_icons.hold = None;
+                }
+            }
+            PointerEventKind::Release { .. } | PointerEventKind::Leave { .. } => self.desktop_icons.hold = None,
+            _ => {}
         }
         true
+    }
+
+    /// A touch was cancelled: it is no long press.
+    pub(super) fn desktop_icons_cancel_hold(&mut self) {
+        self.desktop_icons.hold = None;
+    }
+
+    /// Start timing a press on the item at `path` for a long press.
+    fn hold_desktop_icon(&mut self, path: PathBuf, at: (f64, f64)) {
+        self.desktop_icons.hold_serial += 1;
+        let serial = self.desktop_icons.hold_serial;
+        self.desktop_icons.hold = Some(Hold { serial, path, at });
+        let Some(handle) = self.loop_handle.as_ref() else { return };
+        let _ = handle.insert_source(Timer::from_duration(super::background_menu::LONG_PRESS), move |_, _, ui: &mut Ui| {
+            if let Some(hold) = ui.desktop_icons.hold.take_if(|h| h.serial == serial) {
+                if let Some(item) = ui.desktop_icons.items.as_ref().and_then(|items| items.iter().find(|i| i.path == hold.path)).cloned() {
+                    tracing::debug!(path = %item.path.display(), "desktop icon long press");
+                    // The release that follows is no second click.
+                    ui.desktop_icons.last_press = None;
+                    ui.open_desktop_icon_menu(&item, hold.at);
+                }
+            }
+            TimeoutAction::Drop
+        });
+    }
+
+    /// Open `item`'s menu at surface point `at`.
+    fn open_desktop_icon_menu(&mut self, item: &DesktopItem, at: (f64, f64)) {
+        if self.lock.session.is_some() {
+            return;
+        }
+        let Some(view) = self.desktop_icons.view.as_ref() else { return };
+        let origin = self.output_state.info(&view.output).and_then(|i| i.logical_position).unwrap_or((0, 0));
+        let launching = logic::folder().and_then(|dir| logic::launching(&item.path, &dir, logic::uid()));
+        let (x, y) = (origin.0 + at.0 as i32, origin.1 + at.1 as i32);
+        // Laid out left to right, drawn mirrored right to left.
+        let x = if helix_draw::rtl() { self.mirrored_screen_x(x, y) } else { x };
+        tracing::debug!(path = %item.path.display(), ?launching, x, y, "desktop icon menu");
+        self.desktop_icons.menu_for = Some(item.path.clone());
+        self.open_menu(0, x, y, menu_items(launching), Vec::new());
+    }
+
+    /// The name of the item whose menu is open (for the accessibility
+    /// bus).
+    pub(super) fn desktop_icon_menu_name(&self) -> Option<String> {
+        let path = self.desktop_icons.menu_for.as_ref()?;
+        self.desktop_icons.items.as_ref()?.iter().find(|i| &i.path == path).map(|i| i.name.clone())
+    }
+
+    /// An entry of an icon's menu was chosen.
+    pub(super) fn desktop_icon_menu_choice(&mut self, action: IconAction) {
+        let Some(path) = self.desktop_icons.menu_for.take() else { return };
+        let Some(item) = self.desktop_icons.items.as_ref().and_then(|items| items.iter().find(|i| i.path == path)).cloned() else { return };
+        let allow = match action {
+            IconAction::Open => return logic::open(&item),
+            IconAction::AllowLaunching => true,
+            IconAction::DisallowLaunching => false,
+        };
+        // Looked at again: the file may have changed since the menu opened.
+        let Some(dir) = logic::folder().filter(|dir| logic::launching(&path, dir, logic::uid()).is_some()) else {
+            tracing::warn!(path = %path.display(), "launching can no longer be changed");
+            return;
+        };
+        match logic::set_launching(&path, allow) {
+            Ok(()) => tracing::info!(path = %path.display(), allow, "desktop launcher trust changed"),
+            Err(err) => {
+                tracing::warn!(%err, path = %path.display(), "cannot change whether it launches");
+                return;
+            }
+        }
+        // The icon shows its launcher's name and icon (or its own) at once.
+        if self.desktop_icons.items.is_some() {
+            self.desktop_icons_set(Some(logic::list(&dir)));
+        }
+    }
+
+    /// The keyboard came to (or left) `surface`.
+    pub(super) fn desktop_icons_keyboard(&mut self, surface: &wl_surface::WlSurface, entered: bool) {
+        if self.desktop_icons.view.as_ref().is_some_and(|v| v.layer.wl_surface() == surface) {
+            self.desktop_icons.keyboard = entered;
+        }
+    }
+
+    /// Whether the surface has the keyboard.
+    pub(super) fn desktop_icons_have_keyboard(&self) -> bool {
+        self.desktop_icons.keyboard && self.desktop_icons.view.is_some()
+    }
+
+    /// A key while the surface has the keyboard: Menu or Shift+F10 opens
+    /// the selected item's menu (its first entry selected), Return opens
+    /// the item, Escape takes the selection away.
+    pub(super) fn desktop_icons_key(&mut self, event: &KeyEvent) {
+        let Some(view) = self.desktop_icons.view.as_ref() else { return };
+        let items = self.desktop_icons.items.as_deref().unwrap_or_default();
+        let cells = logic::cells(items.len(), view.width as i32, view.height as i32);
+        let selected = self.desktop_icons.selected.as_ref().and_then(|s| items.iter().position(|i| &i.path == s)).filter(|&i| i < cells.len());
+        let Some(index) = selected else { return };
+        let item = items[index].clone();
+        match event.keysym {
+            Keysym::Menu => self.desktop_icon_key_menu(&item, cells[index]),
+            Keysym::F10 if self.mods.shift => self.desktop_icon_key_menu(&item, cells[index]),
+            Keysym::Return | Keysym::KP_Enter => logic::open(&item),
+            Keysym::Escape => self.desktop_icons_unselect(),
+            _ => {}
+        }
+    }
+
+    /// The selected item's menu, at the item's middle, its first entry
+    /// selected.
+    fn desktop_icon_key_menu(&mut self, item: &DesktopItem, (x, y): (i32, i32)) {
+        self.menu_by_key = true;
+        self.open_desktop_icon_menu(item, (f64::from(x + logic::CELL_W / 2), f64::from(y + logic::CELL_H / 2)));
+        self.menu_by_key = false;
     }
 }
 
@@ -193,4 +380,18 @@ pub(super) fn icon_nodes(items: &[DesktopItem], cells: &[(i32, i32)], selected: 
         Node::new(Role::ListBoxOption, &item.name).id(item.path.to_string_lossy().into_owned()).describe(what).at(r).click().selected(selected == Some(item.path.as_path()))
     });
     vec![Node::new(Role::ListBox, tr("Desktop")).id("icons").children(icons)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn menu_entries() {
+        let entries = |launching| menu_items(launching).into_iter().map(|i| i.map(|i| (i.label, i.choice))).collect::<Vec<_>>();
+        let open = Some(("Open".to_owned(), Choice::DesktopIcon(IconAction::Open)));
+        assert_eq!(entries(None), vec![open.clone()]);
+        assert_eq!(entries(Some(Launching::Allow)), [open.clone(), None, Some(("Allow Launching".to_owned(), Choice::DesktopIcon(IconAction::AllowLaunching)))]);
+        assert_eq!(entries(Some(Launching::Disallow)), [open, None, Some(("Don't Allow Launching".to_owned(), Choice::DesktopIcon(IconAction::DisallowLaunching)))]);
+    }
 }

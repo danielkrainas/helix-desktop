@@ -707,12 +707,26 @@ impl Helix {
     /// that may have the keyboard on demand (a menu opened by a click)
     /// takes it.
     pub(super) fn layer_click_focus(&mut self, pos: smithay::utils::Point<f64, smithay::utils::Logical>) {
+        self.layer_click_focus_on(pos, &[Layer::Overlay, Layer::Top]);
+    }
+
+    /// A button was pressed on the bare desktop at `pos`: a bottom or
+    /// background layer surface there that may have the keyboard on
+    /// demand (the desktop icons) takes it.
+    pub(super) fn desktop_click_focus(&mut self, pos: smithay::utils::Point<f64, smithay::utils::Logical>) {
+        self.layer_click_focus_on(pos, &[Layer::Bottom, Layer::Background]);
+    }
+
+    /// The topmost of `layers`' surfaces under `pos` takes the keyboard if
+    /// its `keyboard_interactivity` lets a click give it.
+    fn layer_click_focus_on(&mut self, pos: smithay::utils::Point<f64, smithay::utils::Logical>, layers: &[Layer]) {
         let Some(output) = self.output_at(pos).cloned() else { return };
         let Some(geo) = self.space.output_geometry(&output) else { return };
         let target = {
             let local = pos - geo.loc.to_f64();
-            self.shown_layer_under(&output, Layer::Overlay, local)
-                .or_else(|| self.shown_layer_under(&output, Layer::Top, local))
+            layers
+                .iter()
+                .find_map(|&layer| self.shown_layer_under(&output, layer, local))
                 .map(|l| (l.wl_surface().clone(), l.cached_state().keyboard_interactivity))
         };
         let Some((surface, interactivity)) = target else { return };
