@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Helix's Agent Access settings (helixdesktop/spec
+     contracts/gsettings/org.helixdesktop.agent-access.md). The shell
+     enforces them; Settings › Privacy & Security › Agent Access writes them. -->
+<schemalist>
+  <schema id="org.helixdesktop.agent-access" path="/org/helixdesktop/agent-access/">
+    <key name="enabled" type="b">
+      <default>false</default>
+      <summary>Agent access</summary>
+      <description>Whether agents may use the desktop through Agent Access at all.</description>
+    </key>
+    <key name="access-level" type="s">
+      <choices>
+        <choice value="read-only"/>
+        <choice value="desktop"/>
+        <choice value="apps"/>
+        <choice value="screen-and-input"/>
+      </choices>
+      <default>'read-only'</default>
+      <summary>Access level</summary>
+      <description>The most an agent may be granted: read-only, desktop, apps or screen-and-input, each including the ones before it.</description>
+    </key>
+    <key name="remember-mode" type="s">
+      <choices>
+        <choice value="ask"/>
+        <choice value="remember"/>
+      </choices>
+      <default>'ask'</default>
+      <summary>Ask each time or remember</summary>
+      <description>ask: ask on an agent's first use in each session. remember: also offer Always allow, and let remembered agents in without asking.</description>
+    </key>
+    <key name="notifications" type="b">
+      <default>false</default>
+      <summary>Notifications access</summary>
+      <description>Whether agents may read notification titles and bodies.</description>
+    </key>
+    <key name="clipboard" type="b">
+      <default>false</default>
+      <summary>Clipboard access</summary>
+      <description>Whether agents may read and set the clipboard.</description>
+    </key>
+    <key name="confirm-sensitive" type="b">
+      <default>true</default>
+      <summary>Confirm sensitive actions</summary>
+      <description>Whether the user is asked before every sensitive action of an agent.</description>
+    </key>
+    <key name="allow-remote" type="b">
+      <default>false</default>
+      <summary>Allow from remote sessions</summary>
+      <description>Whether agents in remote login sessions (SSH) may use Agent Access.</description>
+    </key>
+    <key name="excluded-apps" type="as">
+      <default>[]</default>
+      <summary>Excluded apps</summary>
+      <description>App ids agents may never read or control.</description>
+    </key>
+    <key name="log-retention-days" type="u">
+      <range min="1" max="365"/>
+      <default>30</default>
+      <summary>Activity log retention</summary>
+      <description>Days the agent activity log keeps entries.</description>
+    </key>
+  </schema>
+</schemalist>

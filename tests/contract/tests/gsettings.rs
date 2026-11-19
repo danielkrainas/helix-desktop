@@ -67,7 +67,7 @@ fn installed_schemas_match_contracts() {
 /// the same keys, types and defaults.
 #[test]
 fn helix_schemas_match_contracts() {
-    for schema in ["org.helixdesktop.shell", "org.helixdesktop.extensions"] {
+    for schema in ["org.helixdesktop.shell", "org.helixdesktop.extensions", "org.helixdesktop.agent-access"] {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../data/{schema}.gschema.xml"));
         let xml = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
         let mut ours = Vec::new();

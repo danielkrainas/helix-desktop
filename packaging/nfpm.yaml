@@ -80,6 +80,8 @@ contents:
     dst: /usr/share/glib-2.0/schemas/org.helixdesktop.shell.gschema.xml
   - src: ./stage/usr/share/glib-2.0/schemas/org.helixdesktop.extensions.gschema.xml
     dst: /usr/share/glib-2.0/schemas/org.helixdesktop.extensions.gschema.xml
+  - src: ./stage/usr/share/glib-2.0/schemas/org.helixdesktop.agent-access.gschema.xml
+    dst: /usr/share/glib-2.0/schemas/org.helixdesktop.agent-access.gschema.xml
   - src: ./stage/usr/share/doc/helix-desktop/README.md
     dst: /usr/share/doc/helix-desktop/README.md
   - src: ./stage/usr/share/licenses/helix-desktop/LICENSE

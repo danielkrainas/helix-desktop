@@ -9,6 +9,7 @@ use helix_i18n::tr;
 use helix_i18n::trf;
 
 pub mod accel;
+pub mod agent;
 pub mod activation;
 pub mod ambient;
 pub mod app_grid;
@@ -736,6 +737,7 @@ pub struct ShellService {
     recorder: recording::Recorder,
     tray: tray::Tray,
     extensions: ext_host::ExtHost,
+    agent: agent::AgentAccess,
 }
 
 impl ShellService {
@@ -766,6 +768,7 @@ impl ShellService {
         let prompter = keyring_prompt::Prompter::new(ui.clone());
         let status_icons = tray::Tray::new(ui.clone());
         let extensions = ext_host::ExtHost::new(ui.clone());
+        let agent_access = agent::AgentAccess::new(lock_status.clone(), agent::Setup::default());
         // The shell's own lookups of the screen saver use this copy; the
         // name's owner serves the other (they share their state).
         let public_saver = screensaver::ScreenSaver { status: saver.status.clone(), ui: saver.ui.clone(), auth: saver.auth.clone() };
@@ -804,8 +807,11 @@ impl ShellService {
                 display_change::OBJECT_PATH,
                 display_change::DisplayChangeDialog { ui: ui.clone(), open: Default::default() },
             )?
+            .serve_at(agent::OBJECT_PATH, agent::Agent1 { access: agent_access.clone() })?
+            .serve_at(agent::OBJECT_PATH, agent::AgentAccessSettings { access: agent_access.clone() })?
             .build()
             .await?;
+        agent_access.attach(&conn);
         match conn
             .request_name_with_flags(BUS_NAME, RequestNameFlags::DoNotQueue.into())
             .await?
@@ -869,11 +875,16 @@ impl ShellService {
             }
         });
         let ibus = Arc::new(tokio::sync::Mutex::new(ibus::Ibus::new(ui.clone())));
-        Ok((Self { conn, public, state, watcher, auth, center, ticker, ui, night_light, ibus, recorder, tray: status_icons, extensions }, ui_rx))
+        Ok((Self { conn, public, state, watcher, auth, center, ticker, ui, night_light, ibus, recorder, tray: status_icons, extensions, agent: agent_access }, ui_rx))
     }
 
     pub fn connection(&self) -> &Connection {
         &self.conn
+    }
+
+    /// Agent Access (grants and the policy check).
+    pub fn agent_access(&self) -> &agent::AgentAccess {
+        &self.agent
     }
 
     /// The connection owning notifications, the screen saver and the
@@ -923,6 +934,7 @@ impl ShellService {
             recorder: self.recorder.clone(),
             tray: self.tray.clone(),
             extensions: self.extensions.clone(),
+            agent: self.agent.clone(),
             search: search::Searcher::default(),
             attention_notices: Default::default(),
         }
@@ -962,6 +974,7 @@ pub struct UiBridge {
     recorder: recording::Recorder,
     tray: tray::Tray,
     extensions: ext_host::ExtHost,
+    agent: agent::AgentAccess,
     search: search::Searcher,
     /// "<window> is ready" notifications, by window id.
     attention_notices: Arc<std::sync::Mutex<std::collections::HashMap<u32, u32>>>,
@@ -1072,6 +1085,8 @@ impl UiBridge {
                 let result = object.set_locked(locked, saver.signal_emitter()).await;
                 // Banners wait while locked and come back after.
                 self.center.refresh();
+                // Agents are refused while locked.
+                self.agent.changed();
                 result
             }
             UiRequest::NotificationActivated { id, action } => self.center.activate(&self.public, id, action).await,

@@ -28,6 +28,10 @@ pub struct Record {
     pub refuse_suspend: bool,
     /// Where `SetBrightness` writes, like sysfs: `<dir>/<name>/brightness`.
     pub brightness_dir: Option<std::path::PathBuf>,
+    /// The session's `Remote` property.
+    pub remote: bool,
+    /// `GetSessionByPID` answers `NoSessionForPID`.
+    pub no_session: bool,
 }
 
 pub type Shared = Arc<Mutex<Record>>;
@@ -38,6 +42,15 @@ fn record(shared: &Shared) -> std::sync::MutexGuard<'_, Record> {
 
 struct Manager {
     shared: Shared,
+}
+
+#[derive(Debug, zbus::DBusError)]
+#[zbus(prefix = "org.freedesktop.login1")]
+enum NoSession {
+    #[zbus(error)]
+    ZBus(zbus::Error),
+    #[allow(clippy::enum_variant_names)]
+    NoSessionForPID(String),
 }
 
 impl Manager {
@@ -57,8 +70,11 @@ impl Manager {
     }
 
     #[zbus(name = "GetSessionByPID")]
-    async fn get_session_by_pid(&self, _pid: u32) -> OwnedObjectPath {
-        OwnedObjectPath::try_from(SESSION_PATH).expect("valid path")
+    async fn get_session_by_pid(&self, _pid: u32) -> Result<OwnedObjectPath, NoSession> {
+        if record(&self.shared).no_session {
+            return Err(NoSession::NoSessionForPID("no session".into()));
+        }
+        Ok(OwnedObjectPath::try_from(SESSION_PATH).expect("valid path"))
     }
 
     async fn power_off(&self, interactive: bool) {
@@ -138,6 +154,11 @@ impl Session {
     async fn active(&self) -> bool {
         self.active
     }
+
+    #[zbus(property)]
+    async fn remote(&self) -> bool {
+        record(&self.shared).remote
+    }
 }
 
 /// The fake, serving on its own connection to a test bus.
@@ -174,6 +195,16 @@ impl FakeLogind {
     /// Make `SetBrightness` write into `dir` (a fake `/sys/class/backlight`).
     pub fn write_brightness_to(&self, dir: std::path::PathBuf) {
         record(&self.shared).brightness_dir = Some(dir);
+    }
+
+    /// The session's `Remote` property (an SSH login).
+    pub fn set_remote(&self, remote: bool) {
+        record(&self.shared).remote = remote;
+    }
+
+    /// Put no process in a session (`NoSessionForPID`).
+    pub fn set_no_session(&self, none: bool) {
+        record(&self.shared).no_session = none;
     }
 
     pub fn refuse_suspend(&self, refuse: bool) {
