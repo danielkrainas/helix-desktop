@@ -195,7 +195,7 @@ async fn mutter_screen_cast() {
 #[tokio::test(flavor = "multi_thread")]
 async fn org_gnome_shell() {
     let Some(bus) = TestBus::start() else { return };
-    let (service, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
+    let (service, _ui) = helix_shell::ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     assert_matches_contract(
         service.connection(),
         helix_shell::BUS_NAME,
@@ -261,7 +261,7 @@ async fn org_gnome_shell() {
     .await;
     assert_matches_contract(
         service.connection(),
-        helix_shell::BUS_NAME,
+        helix_shell::tray::BUS_NAME,
         helix_shell::tray::OBJECT_PATH,
         "org.kde.StatusNotifierWatcher",
         "org.kde.StatusNotifierWatcher.xml",
@@ -291,7 +291,7 @@ async fn org_gnome_shell() {
 #[tokio::test(flavor = "multi_thread")]
 async fn org_gnome_screensaver() {
     let Some(bus) = TestBus::start() else { return };
-    let (service, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
+    let (service, _ui) = helix_shell::ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     assert_matches_contract(
         service.connection(),
         helix_shell::screensaver::BUS_NAME,
@@ -306,7 +306,7 @@ async fn org_gnome_screensaver() {
 #[tokio::test(flavor = "multi_thread")]
 async fn notifications() {
     let Some(bus) = TestBus::start() else { return };
-    let (service, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
+    let (service, _ui) = helix_shell::ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     use helix_shell::notifications::{FDO_BUS_NAME, FDO_PATH, GTK_BUS_NAME, GTK_PATH};
     assert_matches_contract(
         service.connection(),
@@ -323,7 +323,7 @@ async fn notifications() {
 #[tokio::test(flavor = "multi_thread")]
 async fn end_session_dialog_and_session_objects() {
     let Some(bus) = TestBus::start() else { return };
-    let (shell, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
+    let (shell, _ui) = helix_shell::ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     assert_matches_contract(
         shell.connection(),
         helix_shell::BUS_NAME,
@@ -396,7 +396,7 @@ async fn polkit_authentication_agent() {
 #[tokio::test(flavor = "multi_thread")]
 async fn keyring_prompter() {
     let Some(bus) = TestBus::start() else { return };
-    let (service, _ui) = helix_shell::ShellService::start(bus.builder()).await.unwrap();
+    let (service, _ui) = helix_shell::ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     assert_matches_contract(
         service.connection(),
         helix_shell::keyring_prompt::BUS_NAME,
