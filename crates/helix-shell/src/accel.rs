@@ -47,6 +47,22 @@ impl Accelerator {
 }
 
 impl Accelerator {
+    /// Whether it takes a key away from typing: no modifier but Shift,
+    /// and not a key that is never typed (media and function keys, Print,
+    /// Pause and such). Such grabs would see what is typed into any app or
+    /// the lock screen.
+    pub fn is_typing(&self) -> bool {
+        const SHIFT: u8 = 1;
+        if self.modifiers & !SHIFT != 0 {
+            return false;
+        }
+        let function_key = self.key.strip_prefix('F').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+        let never_typed = self.key.starts_with("XF86")
+            || function_key
+            || matches!(self.key.as_str(), "Print" | "Pause" | "Scroll_Lock" | "Sys_Req" | "Break" | "Help" | "Cancel");
+        !never_typed
+    }
+
     /// Modifier bits and key name for the `helix_keybindings_v1` protocol
     /// (shift 1, ctrl 2, alt 4, logo 8). `None` for Hyper/Meta, which the
     /// protocol does not carry.
@@ -76,6 +92,19 @@ impl fmt::Display for Accelerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typing_keys() {
+        let typing = |s: &str| Accelerator::parse(s).unwrap().is_typing();
+        for key in ["a", "<Shift>a", "1", "space", "Return", "BackSpace", "KP_1", "minus", "<Shift>Tab", "Left", "Delete"] {
+            assert!(typing(key), "{key}");
+        }
+        for key in ["<Super>a", "<Control>1", "<Alt>space", "<Shift><Control>x", "XF86AudioMute", "F12", "<Shift>F1", "Print", "Pause"] {
+            assert!(!typing(key), "{key}");
+        }
+        assert!(typing("F"), "the letter");
+        assert!(typing("Fx"));
+    }
 
     #[test]
     fn parse_and_normalize() {

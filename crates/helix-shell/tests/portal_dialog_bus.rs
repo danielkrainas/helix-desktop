@@ -27,7 +27,11 @@ async fn choose_files_round_trip() {
     }
     let (ui, mut events) = tokio::sync::mpsc::unbounded_channel();
     let _shell = bus.builder().serve_at(PATH, PortalDialog::new(ui)).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
-    let client = bus.connect().await;
+    // Others may not ask.
+    let other = bus.connect().await;
+    let refused = other.call_method(Some("org.gnome.Shell"), PATH, Some(IFACE), "RunningApps", &()).await;
+    assert!(matches!(refused, Err(zbus::Error::MethodError(ref name, _, _)) if name.as_str() == "org.freedesktop.DBus.Error.AccessDenied"), "{refused:?}");
+    let client = bus.builder().name("org.freedesktop.impl.portal.desktop.helix").unwrap().build().await.unwrap();
     let xml: String = client.call_method(Some("org.gnome.Shell"), PATH, Some("org.freedesktop.DBus.Introspectable"), "Introspect", &()).await.unwrap().body().deserialize().unwrap();
     assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("org.helixdesktop.PortalDialog.xml"), &xml, &[]));
 

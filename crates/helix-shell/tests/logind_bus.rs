@@ -71,7 +71,7 @@ async fn power_menu_suspend_goes_through_the_session_manager() {
     tokio::spawn(session.run(std::future::pending()));
     let conn = bus.connect().await;
     SessionManagerProxy::new(&conn).await.unwrap().initialized().await.unwrap();
-    let (shell, _ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (shell, _ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
 
     shell.ui_bridge().handle(UiRequest::Power(PowerAction::Suspend)).await.unwrap();
     assert_eq!(fake.calls(), ["Suspend false"]);

@@ -37,14 +37,14 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let builder = match zbus::connection::Builder::session() {
-        Ok(b) => b,
-        Err(err) => {
+    let (builder, public) = match (zbus::connection::Builder::session(), zbus::connection::Builder::session()) {
+        (Ok(b), Ok(p)) => (b, p),
+        (Err(err), _) | (_, Err(err)) => {
             tracing::error!(%err, "no session bus");
             return ExitCode::FAILURE;
         }
     };
-    let (service, mut ui_rx) = match runtime.block_on(ShellService::start(builder)) {
+    let (service, mut ui_rx) = match runtime.block_on(ShellService::start(builder, public)) {
         Ok(started) => started,
         Err(err) => {
             tracing::error!(%err, "cannot serve org.gnome.Shell");

@@ -28,6 +28,17 @@ pub fn wanted() -> bool {
     }
 }
 
+/// Whether `id` is a plain desktop file id (`org.example.App`, `firefox`):
+/// ASCII letters, digits, `_`, `-` and `.`, not starting or ending with a
+/// dot and without empty elements. Only such ids are registered and
+/// relaunched, so a restored app is always one installed in the
+/// applications directories.
+pub fn valid_app_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 255
+        && id.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum State {
@@ -104,6 +115,13 @@ impl Restore {
     }
 
     fn start(path: PathBuf, mut file: File, session: String) -> Self {
+        file.apps.retain(|id, _| {
+            let valid = valid_app_id(id);
+            if !valid {
+                tracing::warn!(app_id = id, "dropping a restore record that is not a desktop file id");
+            }
+            valid
+        });
         let crashed = file.session_running;
         if crashed {
             tracing::warn!("the last session did not end cleanly; restoring its apps as after a crash");
@@ -155,6 +173,7 @@ impl Restore {
     /// `RegisterRestore`: (reason, instance id, cleanup ids). Without
     /// `restoring`, instances left from earlier sessions are given up.
     pub fn register(&mut self, app_id: &str, owner: &str, restoring: bool) -> (u32, String, Vec<String>) {
+        debug_assert!(valid_app_id(app_id), "checked by the caller");
         let entry = self.file.apps.entry(app_id.to_owned()).or_default();
         if !restoring {
             give_up(entry, |s| matches!(s, State::Saved | State::Crashed));
@@ -261,6 +280,26 @@ mod tests {
         let path = std::env::temp_dir().join(format!("helix-restore-{}-{name}.toml", std::process::id()));
         let _ = std::fs::remove_file(&path);
         path
+    }
+
+    #[test]
+    fn app_ids() {
+        for id in ["org.example.Editor", "firefox", "org.gnome.Nautilus", "kde-org.kde.dolphin", "1password", "a_b-c.d"] {
+            assert!(valid_app_id(id), "{id}");
+        }
+        for id in ["", ".", "..", "../x", "/home/me/.var/app/x/evil", "a/b", ".hidden", "a..b", "a.", "a b", "a\0b", "é.x", &"a".repeat(256)] {
+            assert!(!valid_app_id(id), "{id:?}");
+        }
+    }
+
+    #[test]
+    fn saved_records_must_be_app_ids() {
+        let path = temp("ids");
+        std::fs::write(&path, "session_running = false\n[apps.\"org.example.Editor\"]\ninstances = [{ id = \"a\", state = \"saved\" }]\n[apps.\"/tmp/evil\"]\ninstances = [{ id = \"b\", state = \"saved\" }]\n[apps.\"../../x\"]\ninstances = [{ id = \"c\", state = \"crashed\" }]\n").unwrap();
+        let r = Restore::open(path.clone());
+        assert_eq!(r.to_relaunch(), ["org.example.Editor"]);
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("evil"), "dropped from the file too");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

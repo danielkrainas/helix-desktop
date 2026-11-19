@@ -1,6 +1,6 @@
 //! `org.helixdesktop.Extensions1` on the session bus (helixdesktop/spec
 //! `contracts/extensions/README.md`, "Session bus"): what tools see and
-//! change.
+//! change. Sandboxed callers are refused (see [`crate::caller`]).
 
 use std::collections::HashMap;
 
@@ -58,8 +58,9 @@ fn setting_entry(decl: &SettingDecl, current: &SettingValue) -> SettingEntry {
 
 #[zbus::interface(name = "org.helixdesktop.Extensions1")]
 impl Manager {
-    fn list_extensions(&self) -> HashMap<String, HashMap<String, OwnedValue>> {
-        self.host
+    async fn list_extensions(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<HashMap<String, HashMap<String, OwnedValue>>> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
+        Ok(self.host
             .list()
             .into_iter()
             .map(|i| {
@@ -79,11 +80,12 @@ impl Manager {
                 ]);
                 (i.id, entry)
             })
-            .collect()
+            .collect())
     }
 
     /// With `approve`, the user is asked first (the approval prompt).
-    async fn enable(&self, id: String, approve: bool) -> zbus::fdo::Result<()> {
+    async fn enable(&self, id: String, approve: bool, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         if approve {
             if let Some((answer, asked)) = self.host.ask_approval(&id).map_err(failed)? {
                 let allowed = answer.await.unwrap_or(false);
@@ -99,32 +101,38 @@ impl Manager {
         self.host.enable(&id, approve).map_err(failed)
     }
 
-    fn disable(&self, id: String) -> zbus::fdo::Result<()> {
+    async fn disable(&self, id: String, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         self.host.disable(&id).map_err(failed)
     }
 
-    fn restart(&self, id: String) -> zbus::fdo::Result<()> {
+    async fn restart(&self, id: String, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         self.host.restart(&id).map_err(failed)
     }
 
     /// Its settings: key, type, value, details.
-    fn get_settings(&self, id: String) -> zbus::fdo::Result<Vec<SettingEntry>> {
+    async fn get_settings(&self, id: String, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<Vec<SettingEntry>> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         let settings = self.host.settings(&id).ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("no extension {id}")))?;
         Ok(settings.into_iter().map(|(decl, current)| setting_entry(&decl, &current)).collect())
     }
 
-    fn get_log(&self, id: String) -> zbus::fdo::Result<Vec<String>> {
+    async fn get_log(&self, id: String, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<Vec<String>> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         self.host.log_lines(&id).ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("no extension {id}")))
     }
 
-    fn set_setting(&self, id: String, key: String, value: OwnedValue) -> zbus::fdo::Result<()> {
+    async fn set_setting(&self, id: String, key: String, value: OwnedValue, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         let decl = self.host.list().into_iter().find(|i| i.id == id).and_then(|i| i.settings.into_iter().find(|(d, _)| d.key == key)).map(|(d, _)| d);
         let decl = decl.ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("no setting {key} in {id}")))?;
         let parsed = decl.from_dbus(&value).map_err(zbus::fdo::Error::InvalidArgs)?;
         self.host.set_setting(&id, &key, parsed).map_err(zbus::fdo::Error::InvalidArgs)
     }
 
-    fn run_development(&self, path: String, #[zbus(header)] header: Header<'_>) -> zbus::fdo::Result<String> {
+    async fn run_development(&self, path: String, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<String> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         let owner = header.sender().map(|s| s.to_string()).unwrap_or_default();
         let path = std::path::PathBuf::from(path);
         if !path.is_absolute() {
@@ -133,15 +141,18 @@ impl Manager {
         self.host.run_development(&path, owner).map_err(zbus::fdo::Error::InvalidArgs)
     }
 
-    fn stop_development(&self, id: String) -> zbus::fdo::Result<()> {
+    async fn stop_development(&self, id: String, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         self.host.stop_development(&id).map_err(zbus::fdo::Error::InvalidArgs)
     }
 
-    async fn run_command(&self, command: String) -> zbus::fdo::Result<()> {
+    async fn run_command(&self, command: String, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         self.host.run_command(&command).await.map_err(failed)
     }
 
-    fn bind_command(&self, command: String, accelerator: String) -> zbus::fdo::Result<()> {
+    async fn bind_command(&self, command: String, accelerator: String, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &zbus::Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         self.host.bind_command(&command, &accelerator).map_err(zbus::fdo::Error::InvalidArgs)
     }
 

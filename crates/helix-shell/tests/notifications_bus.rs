@@ -82,7 +82,7 @@ async fn next_signal<T>(s: &mut (impl futures_util::Stream<Item = T> + Unpin)) -
 #[tokio::test(flavor = "multi_thread")]
 async fn freedesktop_lifecycle() {
     let Some(bus) = TestBus::start() else { return };
-    let (service, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (service, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let conn = bus.connect().await;
     let n = NotificationsProxy::new(&conn).await.unwrap();
     let mut closed = n.receive_notification_closed().await.unwrap();
@@ -141,7 +141,7 @@ async fn freedesktop_lifecycle() {
 #[tokio::test(flavor = "multi_thread")]
 async fn freedesktop_actions() {
     let Some(bus) = TestBus::start() else { return };
-    let (service, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (service, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let bridge = service.ui_bridge();
     let conn = bus.connect().await;
     let n = NotificationsProxy::new(&conn).await.unwrap();
@@ -190,7 +190,7 @@ impl FakeApp {
 #[tokio::test(flavor = "multi_thread")]
 async fn gtk_notifications_activate_the_app() {
     let Some(bus) = TestBus::start() else { return };
-    let (service, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (service, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let bridge = service.ui_bridge();
 
     let app = FakeApp::default();
@@ -262,7 +262,7 @@ async fn gtk_notifications_activate_the_app() {
 #[tokio::test(flavor = "multi_thread")]
 async fn banners_wait_while_locked() {
     let Some(bus) = TestBus::start() else { return };
-    let (service, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (service, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let bridge = service.ui_bridge();
     let conn = bus.connect().await;
     let n = NotificationsProxy::new(&conn).await.unwrap();

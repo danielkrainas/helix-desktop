@@ -112,7 +112,7 @@ async fn updates_installed_on_restart_and_power_off() {
         .build()
         .await
         .unwrap();
-    let (shell, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (shell, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let bridge = shell.ui_bridge();
     let conn = bus.connect().await;
     let rule = zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface("org.gnome.SessionManager.EndSessionDialog").unwrap().build();

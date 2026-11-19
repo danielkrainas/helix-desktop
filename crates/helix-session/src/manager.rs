@@ -347,6 +347,18 @@ fn owned(p: &str) -> OwnedObjectPath {
     OwnedObjectPath::from(path(p).into_owned())
 }
 
+/// Whether bus name `name` (unique or well-known) belongs to `caller`.
+async fn owned_by(conn: &zbus::Connection, name: &str, caller: &str) -> bool {
+    if caller.is_empty() {
+        return false;
+    }
+    if name == caller {
+        return true;
+    }
+    let (Ok(dbus), Ok(name)) = (zbus::fdo::DBusProxy::new(conn).await, zbus::names::BusName::try_from(name)) else { return false };
+    dbus.get_name_owner(name).await.is_ok_and(|owner| owner.as_str() == caller)
+}
+
 fn sender(header: &Header<'_>) -> Option<String> {
     header.sender().map(|s| s.to_string())
 }
@@ -535,9 +547,24 @@ impl SessionManager {
         self.availability("CanSuspend", blocked).await
     }
 
-    async fn register_restore(&self, app_id: &str, dbus_name: &str) -> Result<(u32, String, Vec<String>)> {
+    async fn register_restore(
+        &self,
+        app_id: &str,
+        dbus_name: &str,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &zbus::Connection,
+    ) -> Result<(u32, String, Vec<String>)> {
+        if !crate::restore::valid_app_id(app_id) {
+            return Err(ManagerError::InvalidArgs(format!("{app_id:?} is not a desktop file id")));
+        }
+        // The instance belongs to the caller: `dbus_name` must be its own.
+        let caller = sender(&header).unwrap_or_default();
+        let owner = if dbus_name.is_empty() { caller.clone() } else { dbus_name.to_owned() };
+        if !owned_by(conn, &owner, &caller).await {
+            return Err(ManagerError::InvalidArgs(format!("{owner} is not the caller's bus name")));
+        }
         let restoring = crate::restore::wanted();
-        let registered = self.with_restore(|r| r.register(app_id, dbus_name, restoring));
+        let registered = self.with_restore(|r| r.register(app_id, &owner, restoring));
         let (reason, id, cleanup) = registered.ok_or_else(|| ManagerError::General("session restore is not supported".into()))?;
         tracing::info!(app_id, id, reason, "app registered for restore");
         Ok((reason, id, cleanup))

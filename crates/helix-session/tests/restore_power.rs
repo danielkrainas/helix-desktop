@@ -60,6 +60,10 @@ async fn restore_across_sessions() {
     let me = app.unique_name().unwrap().to_string();
     assert!(zbus::Proxy::new(&app, SM.0, SM.1, SM.2).await.unwrap().get_property::<bool>("RestoreSupported").await.unwrap());
     call::<_, ()>(&app, "Initialized", &()).await.unwrap();
+    // Only desktop file ids, for the caller's own bus name.
+    for (app_id, name) in [("/tmp/evil", me.as_str()), ("../../x", me.as_str()), ("org.example.Editor", "org.freedesktop.DBus")] {
+        assert!(call::<_, (u32, String, Vec<String>)>(&app, "RegisterRestore", &(app_id, name)).await.is_err(), "{app_id} as {name}");
+    }
     let (reason, id, cleanup): (u32, String, Vec<String>) =
         call(&app, "RegisterRestore", &("org.example.Editor", me.as_str())).await.unwrap();
     assert_eq!(reason, 1, "a normal launch");

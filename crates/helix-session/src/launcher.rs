@@ -284,8 +284,12 @@ pub async fn launch(
     Ok(children)
 }
 
-/// Where `app_id`'s desktop file is, in the XDG data directories.
+/// Where `app_id`'s desktop file is, in the XDG data directories (none
+/// for an id that is not a plain desktop file id).
 pub fn desktop_file(app_id: &str) -> Option<PathBuf> {
+    if !crate::restore::valid_app_id(app_id) {
+        return None;
+    }
     let home = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));

@@ -90,7 +90,8 @@ fn choose(session: &HeadlessSession, mode: &str, folder: &Path, name: &str) -> s
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         rt.block_on(async move {
-            let conn = zbus::connection::Builder::address(address.as_str()).unwrap().build().await.unwrap();
+            // Only the portal backend may ask.
+            let conn = zbus::connection::Builder::address(address.as_str()).unwrap().name("org.freedesktop.impl.portal.desktop.helix").unwrap().build().await.unwrap();
             let reply = conn.call_method(Some("org.gnome.Shell"), "/org/helixdesktop/PortalDialog", Some("org.helixdesktop.PortalDialog"), "ChooseFiles", &(options,)).await.expect("ChooseFiles answered");
             reply.body().deserialize::<(u32, HashMap<String, OwnedValue>)>().unwrap()
         })

@@ -32,6 +32,12 @@ trait Shell {
     fn set_overview_active(&self, active: bool) -> zbus::Result<()>;
 }
 
+/// A connection that may grab accelerators: it owns `name`, one of the
+/// allowed callers.
+async fn grabber(bus: &TestBus, name: &str) -> zbus::Connection {
+    bus.builder().name(name.to_owned()).unwrap().build().await.unwrap()
+}
+
 async fn proxy(conn: &zbus::Connection) -> ShellProxy<'static> {
     ShellProxy::builder(conn)
         .cache_properties(CacheProperties::No)
@@ -43,7 +49,7 @@ async fn proxy(conn: &zbus::Connection) -> ShellProxy<'static> {
 #[tokio::test(flavor = "multi_thread")]
 async fn properties_eval_overview_and_osd() {
     let Some(bus) = TestBus::start() else { return };
-    let (_service, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (_service, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let conn = bus.connect().await;
     let shell = proxy(&conn).await;
 
@@ -86,9 +92,19 @@ async fn properties_eval_overview_and_osd() {
 #[tokio::test(flavor = "multi_thread")]
 async fn accelerator_grabs() {
     let Some(bus) = TestBus::start() else { return };
-    let (service, _ui) = ShellService::start(bus.builder()).await.unwrap();
-    let observer = bus.connect().await;
+    let (service, _ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
+    // Other callers may not grab, or release others' grabs.
+    let stranger = bus.connect().await;
+    let stranger_shell = proxy(&stranger).await;
+    assert!(stranger_shell.grab_accelerator("<Super>q", 1, 0).await.is_err());
+    assert!(stranger_shell.grab_accelerators(&[("<Super>q", 1, 0)]).await.is_err());
+    assert!(service.grabbed().is_empty());
+
+    let observer = grabber(&bus, "org.gnome.SettingsDaemon.MediaKeys").await;
     let shell = proxy(&observer).await;
+    // Keys that type are never grabbed.
+    assert_eq!(shell.grab_accelerator("a", 1 | 4, 0).await.unwrap(), 0);
+    assert_eq!(shell.grab_accelerator("<Shift>a", 1, 0).await.unwrap(), 0);
 
     let a = shell.grab_accelerator("<Super>a", 1, 0).await.unwrap();
     assert_ne!(a, 0);
@@ -108,11 +124,17 @@ async fn accelerator_grabs() {
     assert!(!shell.ungrab_accelerators(&[a, extra]).await.unwrap());
     assert_eq!(service.grabbed().len(), 2);
 
-    // Grabs of a client that leaves the bus are released.
+    // Grabs of a client that leaves the bus are released; others can't
+    // release them.
     {
-        let other = bus.connect().await;
+        let other = grabber(&bus, "org.gnome.Settings").await;
         let other_shell = proxy(&other).await;
-        assert_ne!(other_shell.grab_accelerator("<Super>z", 1, 0).await.unwrap(), 0);
+        let z = other_shell.grab_accelerator("<Super>z", 1, 0).await.unwrap();
+        assert_ne!(z, 0);
+        assert_eq!(service.grabbed().len(), 3);
+        assert!(!shell.ungrab_accelerator(z).await.unwrap(), "not the caller's");
+        assert!(!shell.ungrab_accelerators(&[z]).await.unwrap());
+        assert!(stranger_shell.ungrab_accelerator(z).await.is_err());
         assert_eq!(service.grabbed().len(), 3);
     }
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -148,9 +170,9 @@ async fn next_accelerator_signal(signals: &mut zbus::MessageStream) -> Option<(S
 async fn release_signals_and_lock_screen_mode() {
     use helix_shell::UiRequest;
     let Some(bus) = TestBus::start() else { return };
-    let (service, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (service, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let bridge = service.ui_bridge();
-    let client = bus.connect().await;
+    let client = grabber(&bus, "org.gnome.SettingsDaemon.MediaKeys").await;
     let shell = proxy(&client).await;
     let mut signals = accelerator_signals(&client).await;
 

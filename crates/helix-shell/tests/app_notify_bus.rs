@@ -50,7 +50,7 @@ async fn per_app_settings() {
     }
     // SAFETY: this test binary runs this one test.
     unsafe { std::env::set_var("GSETTINGS_BACKEND", "memory") };
-    let (service, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (service, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let conn = bus.connect().await;
 
     // First notification: shown, and the app is registered.

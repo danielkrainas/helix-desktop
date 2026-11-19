@@ -41,11 +41,16 @@ impl ShellState {
     }
 
     /// Register a grab. Returns the action id, or 0 if the accelerator is
-    /// invalid or already grabbed (per the contract).
+    /// invalid, a typing key (see [`Accelerator::is_typing`]) or already
+    /// grabbed (per the contract).
     pub fn grab(&mut self, accelerator: &str, mode_flags: u32, grab_flags: u32, owner: Option<&str>) -> u32 {
         let Some(accelerator) = Accelerator::parse(accelerator) else {
             return 0;
         };
+        // Keys that type text are never grabbed.
+        if accelerator.is_typing() {
+            return 0;
+        }
         if self.grabs.values().any(|g| g.accelerator == accelerator) {
             return 0;
         }
@@ -70,6 +75,16 @@ impl ShellState {
 
     pub fn ungrab(&mut self, action: u32) -> bool {
         self.grabs.remove(&action).is_some()
+    }
+
+    /// Release `action` only if `owner` grabbed it.
+    pub fn ungrab_owned(&mut self, action: u32, owner: Option<&str>) -> bool {
+        if self.grabs.get(&action).is_some_and(|g| g.owner.as_deref() == owner) {
+            self.grabs.remove(&action);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn grabs(&self) -> impl Iterator<Item = (&u32, &Grab)> {
@@ -122,6 +137,19 @@ mod tests {
         assert_ne!(s.grab("<Super>a", 1, 0, None), 0, "free again");
         assert_eq!(s.remove_owner(":1.2"), vec![b]);
         assert_eq!(s.grabs().count(), 1);
+    }
+
+    #[test]
+    fn grabs_are_their_owners() {
+        let mut s = ShellState::new();
+        assert_eq!(s.grab("a", 1 | 4, 0, Some(":1.1")), 0, "typing key");
+        assert_eq!(s.grab("<Shift>q", 1, 0, Some(":1.1")), 0, "typing key");
+        let a = s.grab("<Super>a", 1, 0, Some(":1.1"));
+        assert_ne!(a, 0);
+        assert!(!s.ungrab_owned(a, Some(":1.2")), "someone else's");
+        assert!(!s.ungrab_owned(a, None));
+        assert!(s.ungrab_owned(a, Some(":1.1")));
+        assert!(!s.ungrab_owned(a, Some(":1.1")), "gone");
     }
 
     #[test]

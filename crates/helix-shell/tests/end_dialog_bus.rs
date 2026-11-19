@@ -24,7 +24,7 @@ async fn power_menu_logout_through_the_dialog() {
     let Some(bus) = TestBus::start() else { return };
     let session = SessionService::start(bus.builder()).await.unwrap();
     let session = tokio::spawn(session.run(std::future::pending()));
-    let (shell, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (shell, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let bridge = shell.ui_bridge();
 
     let conn = bus.connect().await;

@@ -40,6 +40,7 @@ pub mod bluetooth_agent;
 pub mod obex;
 pub mod osk_words;
 pub mod panel_layout;
+pub mod caller;
 pub mod calendar;
 pub mod click_type;
 pub mod clock;
@@ -114,6 +115,17 @@ pub const ACTION_MODE_LOCK_SCREEN: u32 = 4;
 /// `grabFlags`: notify on release as well as press.
 pub const GRAB_TRIGGER_RELEASE: u32 = 128;
 pub const OBJECT_PATH: &str = "/org/gnome/Shell";
+/// Who may grab accelerators, besides Helix's portal backend (for the
+/// global shortcuts portal): GNOME's media keys daemon and Settings, as in
+/// GNOME.
+pub const GRAB_CALLERS: &[&str] = &["org.gnome.SettingsDaemon.MediaKeys", "org.gnome.Settings"];
+
+/// Refuse callers that may not grab accelerators.
+async fn check_grabber(conn: &Connection, header: &Header<'_>) -> zbus::fdo::Result<()> {
+    let portal = caller::portal_name();
+    let names: Vec<&str> = GRAB_CALLERS.iter().copied().chain([portal.as_str()]).collect();
+    caller::require_owner(conn, header, &names).await
+}
 /// The GNOME version whose surface Helix implements (see
 /// helixdesktop/spec `gnome-compatibility.md`).
 pub const SHELL_VERSION: &str = "51.0";
@@ -575,20 +587,24 @@ impl Shell {
         mode_flags: u32,
         grab_flags: u32,
         #[zbus(header)] header: Header<'_>,
-    ) -> u32 {
+        #[zbus(connection)] conn: &Connection,
+    ) -> zbus::fdo::Result<u32> {
+        check_grabber(conn, &header).await?;
         let action = self
             .state()
             .grab(accelerator, mode_flags, grab_flags, sender(&header).as_deref());
         tracing::info!(accelerator, action, "GrabAccelerator");
         self.bind_in_compositor(action);
-        action
+        Ok(action)
     }
 
     async fn grab_accelerators(
         &self,
         accelerators: Vec<(String, u32, u32)>,
         #[zbus(header)] header: Header<'_>,
-    ) -> Vec<u32> {
+        #[zbus(connection)] conn: &Connection,
+    ) -> zbus::fdo::Result<Vec<u32>> {
+        check_grabber(conn, &header).await?;
         let owner = sender(&header);
         let actions: Vec<u32> = {
             let mut state = self.state();
@@ -600,31 +616,45 @@ impl Shell {
         for action in &actions {
             self.bind_in_compositor(*action);
         }
-        actions
+        Ok(actions)
     }
 
-    /// False if `action` was not grabbed.
-    async fn ungrab_accelerator(&self, action: u32) -> bool {
-        let found = self.state().ungrab(action);
+    /// False if `action` was not grabbed by the caller.
+    async fn ungrab_accelerator(
+        &self,
+        action: u32,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> zbus::fdo::Result<bool> {
+        check_grabber(conn, &header).await?;
+        let found = self.state().ungrab_owned(action, sender(&header).as_deref());
         if found {
             let _ = self.ui.send(UiEvent::Unbind { action });
         }
-        found
+        Ok(found)
     }
 
-    /// Releases every listed grab; false if any of them was not grabbed.
-    async fn ungrab_accelerators(&self, actions: Vec<u32>) -> bool {
+    /// Releases every listed grab of the caller; false if any of them was
+    /// not grabbed (by the caller).
+    async fn ungrab_accelerators(
+        &self,
+        actions: Vec<u32>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> zbus::fdo::Result<bool> {
+        check_grabber(conn, &header).await?;
+        let owner = sender(&header);
         let mut state = self.state();
         let mut all_found = true;
         for action in actions {
             // No short-circuit: release the rest even after a miss.
-            let found = state.ungrab(action);
+            let found = state.ungrab_owned(action, owner.as_deref());
             if found {
                 let _ = self.ui.send(UiEvent::Unbind { action });
             }
             all_found &= found;
         }
-        all_found
+        Ok(all_found)
     }
 
     async fn screen_transition(&self) {
@@ -671,6 +701,8 @@ impl Shell {
 /// The running `org.gnome.Shell` service.
 pub struct ShellService {
     conn: Connection,
+    /// Owns the names sandboxed apps may talk to (see [`ShellService::start`]).
+    public: Connection,
     state: Arc<Mutex<ShellState>>,
     watcher: JoinHandle<()>,
     auth: Arc<dyn auth::Authenticator>,
@@ -686,8 +718,15 @@ pub struct ShellService {
 
 impl ShellService {
     /// Serve `org.gnome.Shell`; UI requests arrive on the returned receiver.
+    ///
+    /// `public` (to the same bus) is a second connection for the names
+    /// sandboxed apps are commonly allowed to talk to: notifications, the
+    /// screen saver and the status icon watcher. A sandbox's D-Bus proxy
+    /// lets it call anything on a connection that owns a name it may talk
+    /// to, so the shell's private interfaces stay off that connection.
     pub async fn start(
         builder: connection::Builder<'_>,
+        public: connection::Builder<'_>,
     ) -> zbus::Result<(Self, mpsc::UnboundedReceiver<UiEvent>)> {
         let state = Arc::new(Mutex::new(ShellState::new()));
         let (ui, ui_rx) = mpsc::unbounded_channel();
@@ -705,12 +744,20 @@ impl ShellService {
         let prompter = keyring_prompt::Prompter::new(ui.clone());
         let status_icons = tray::Tray::new(ui.clone());
         let extensions = ext_host::ExtHost::new(ui.clone());
+        // The shell's own lookups of the screen saver use this copy; the
+        // name's owner serves the other (they share their state).
+        let public_saver = screensaver::ScreenSaver { status: saver.status.clone(), ui: saver.ui.clone(), auth: saver.auth.clone() };
+        let public = public
+            .serve_at(screensaver::OBJECT_PATH, public_saver)?
+            .serve_at(notifications::FDO_PATH, notifications::FdoNotifications { center: center.clone() })?
+            .serve_at(notifications::GTK_PATH, notifications::GtkNotifications { center: center.clone() })?
+            .serve_at(tray::OBJECT_PATH, tray::Watcher { tray: status_icons.clone() })?
+            .build()
+            .await?;
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone(), lock: lock_status.clone() })?
             .serve_at(OBJECT_PATH, extensions::Extensions)?
             .serve_at(screensaver::OBJECT_PATH, saver)?
-            .serve_at(notifications::FDO_PATH, notifications::FdoNotifications { center: center.clone() })?
-            .serve_at(notifications::GTK_PATH, notifications::GtkNotifications { center: center.clone() })?
             .serve_at(
                 end_dialog::OBJECT_PATH,
                 end_dialog::EndSessionDialog { ui: ui.clone(), open_kind: Default::default(), update_triggered: Default::default() },
@@ -725,7 +772,6 @@ impl ShellService {
             )?
             .serve_at(recording::OBJECT_PATH, recording::Screencast { recorder: recorder.clone() })?
             .serve_at(keyring_prompt::OBJECT_PATH, prompter.clone())?
-            .serve_at(tray::OBJECT_PATH, tray::Watcher { tray: status_icons.clone() })?
             .serve_at(ext_host::manager::OBJECT_PATH, ext_host::manager::Manager { host: extensions.clone() })?
             .serve_at(night_light::OBJECT_PATH, night_light::ColorService { handle: night_light.clone() })?
             .serve_at(
@@ -746,7 +792,7 @@ impl ShellService {
             _ => return Err(zbus::Error::NameTaken),
         }
         tracing::info!(name = BUS_NAME, "shell ready");
-        match conn
+        match public
             .request_name_with_flags(screensaver::BUS_NAME, RequestNameFlags::DoNotQueue.into())
             .await
         {
@@ -757,7 +803,13 @@ impl ShellService {
             }
             other => tracing::warn!(?other, "cannot own org.gnome.ScreenSaver; screen locking unavailable"),
         }
-        for name in [notifications::FDO_BUS_NAME, notifications::GTK_BUS_NAME, night_light::BUS_NAME, recording::BUS_NAME, tray::BUS_NAME] {
+        for (conn, name) in [
+            (&public, notifications::FDO_BUS_NAME),
+            (&public, notifications::GTK_BUS_NAME),
+            (&public, tray::BUS_NAME),
+            (&conn, night_light::BUS_NAME),
+            (&conn, recording::BUS_NAME),
+        ] {
             match conn.request_name_with_flags(name, RequestNameFlags::DoNotQueue.into()).await {
                 Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => {}
                 other => tracing::warn!(name, ?other, "cannot own service name"),
@@ -771,7 +823,7 @@ impl ShellService {
             Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => prompter.follow_clients(conn.clone()),
             other => tracing::warn!(?other, "cannot own the keyring prompter name; keyring prompts use gcr's own dialog"),
         }
-        let ticker = notifications::spawn_ticker(center.clone(), conn.clone());
+        let ticker = notifications::spawn_ticker(center.clone(), public.clone());
 
         let mut changes = DBusProxy::new(&conn).await?.receive_name_owner_changed().await?;
         let watched = state.clone();
@@ -795,11 +847,17 @@ impl ShellService {
             }
         });
         let ibus = Arc::new(tokio::sync::Mutex::new(ibus::Ibus::new(ui.clone())));
-        Ok((Self { conn, state, watcher, auth, center, ticker, ui, night_light, ibus, recorder, tray: status_icons, extensions }, ui_rx))
+        Ok((Self { conn, public, state, watcher, auth, center, ticker, ui, night_light, ibus, recorder, tray: status_icons, extensions }, ui_rx))
     }
 
     pub fn connection(&self) -> &Connection {
         &self.conn
+    }
+
+    /// The connection owning notifications, the screen saver and the
+    /// status icon watcher.
+    pub fn public_connection(&self) -> &Connection {
+        &self.public
     }
 
     /// The password checker the lock screen uses.
@@ -836,6 +894,7 @@ impl ShellService {
     pub fn ui_bridge(&self) -> UiBridge {
         UiBridge {
             conn: self.conn.clone(),
+            public: self.public.clone(),
             center: self.center.clone(),
             ui: self.ui.clone(),
             ibus: self.ibus.clone(),
@@ -874,6 +933,7 @@ impl ShellService {
 #[derive(Clone)]
 pub struct UiBridge {
     conn: Connection,
+    public: Connection,
     center: notifications::Center,
     ui: mpsc::UnboundedSender<UiEvent>,
     ibus: Arc<tokio::sync::Mutex<ibus::Ibus>>,
@@ -979,8 +1039,9 @@ impl UiBridge {
                 Ok(())
             }
             UiRequest::Locked | UiRequest::Unlocked | UiRequest::LockGone => {
+                // ActiveChanged comes from the name's owner.
                 let saver = self
-                    .conn
+                    .public
                     .object_server()
                     .interface::<_, screensaver::ScreenSaver>(screensaver::OBJECT_PATH)
                     .await?;
@@ -991,7 +1052,7 @@ impl UiBridge {
                 self.center.refresh();
                 result
             }
-            UiRequest::NotificationActivated { id, action } => self.center.activate(&self.conn, id, action).await,
+            UiRequest::NotificationActivated { id, action } => self.center.activate(&self.public, id, action).await,
             UiRequest::EndDialogAnswer(choice, install) => {
                 let dialog = self
                     .conn
@@ -1117,7 +1178,8 @@ impl UiBridge {
                 Ok(())
             }
             UiRequest::Tray(request) => {
-                let (tray, conn) = (self.tray.clone(), self.conn.clone());
+                // Items hear from the watcher's owner.
+                let (tray, conn) = (self.tray.clone(), self.public.clone());
                 tokio::spawn(async move { tray.request(&conn, request).await });
                 Ok(())
             }
@@ -1267,7 +1329,7 @@ impl UiBridge {
             }
             UiRequest::NotificationDismissed { id } => {
                 self.center
-                    .close(&self.conn, id, notify_store::CloseReason::Dismissed)
+                    .close(&self.public, id, notify_store::CloseReason::Dismissed)
                     .await
             }
             UiRequest::BannerHeld { id, held } => {
@@ -1278,7 +1340,7 @@ impl UiBridge {
                 self.center.mark_seen();
                 Ok(())
             }
-            UiRequest::NotificationsCleared => self.center.clear(&self.conn).await,
+            UiRequest::NotificationsCleared => self.center.clear(&self.public).await,
             UiRequest::SetDoNotDisturb(on) => {
                 notifications::set_do_not_disturb(on);
                 Ok(())

@@ -622,6 +622,11 @@ impl ExtHost {
                 return;
             }
             let Some(m) = ext.manifest().cloned() else { return };
+            // (1.2) Development ones too, when an administrator says so.
+            if inner.keys.require_sandbox && !m.sandbox {
+                return;
+            }
+            let Some(ext) = inner.exts.get_mut(id) else { return };
             let dir = ext.found.dir.clone();
             let program = if Path::new(&m.exec[0]).is_absolute() { PathBuf::from(&m.exec[0]) } else { dir.join(&m.exec[0]) };
             // (1.2) In a sandbox: bubblewrap runs the program.
@@ -1244,6 +1249,9 @@ impl ExtHost {
         let found = store::load(path, Kind::Development);
         let m = found.manifest.clone()?;
         let id = m.id.clone();
+        if !m.sandbox && store::Keys::read().require_sandbox {
+            return Err("only sandboxed extensions may run".into());
+        }
         if let Some(old) = self.lock().exts.get(&id).filter(|e| e.found.kind != Kind::Development && e.run.is_some()) {
             let _ = old;
             return Err(format!("{id} is installed and running; disable it first"));

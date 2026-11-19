@@ -10,7 +10,7 @@ use zbus::{MatchRule, MessageStream};
 #[tokio::test(flavor = "multi_thread")]
 async fn asks_the_ui_and_reports_the_answer() {
     let Some(bus) = TestBus::start() else { return };
-    let (shell, mut ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (shell, mut ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let bridge = shell.ui_bridge();
     let conn = bus.connect().await;
     let rule = MatchRule::builder()

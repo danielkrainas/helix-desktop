@@ -1,11 +1,13 @@
 //! `org.helixdesktop.PortalDialog` (helixdesktop/spec
 //! `contracts/dbus/org.helixdesktop.PortalDialog.xml`): dialogs and running apps
-//! for Helix's portal backends.
+//! for Helix's portal backends, which alone may call (see [`crate::caller`]).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
+use zbus::fdo;
+use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{OwnedValue, Value};
 use zbus::{interface, Connection};
@@ -85,7 +87,8 @@ impl PortalDialog {
 #[interface(name = "org.helixdesktop.PortalDialog")]
 impl PortalDialog {
     #[allow(clippy::too_many_arguments)]
-    async fn ask(&self, title: String, message: String, description: String, grant_label: String, deny_label: String, check_label: String, check: bool) -> (bool, bool) {
+    async fn ask(&self, title: String, message: String, description: String, grant_label: String, deny_label: String, check_label: String, check: bool, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<(bool, bool)> {
+        crate::caller::require_portal(conn, &header).await?;
         let _turn = prompt::turn().await;
         let prompt = Prompt {
             title,
@@ -98,15 +101,16 @@ impl PortalDialog {
         };
         let answer = prompt::ask(&self.ui, prompt).await;
         prompt::done(&self.ui);
-        match answer {
+        Ok(match answer {
             Answer::Continue { choice, .. } => (true, choice),
             Answer::Cancel => (false, check),
-        }
+        })
     }
 
-    async fn choose_app(&self, title: String, message: String, items: Vec<(String, String)>, selected: String) -> String {
+    async fn choose_app(&self, title: String, message: String, items: Vec<(String, String)>, selected: String, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<String> {
+        crate::caller::require_portal(conn, &header).await?;
         if items.is_empty() {
-            return String::new();
+            return Ok(String::new());
         }
         let _turn = prompt::turn().await;
         let prompt = Prompt {
@@ -123,26 +127,28 @@ impl PortalDialog {
         prompt::done(&self.ui);
         // The items as last updated.
         let items = self.choosing.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default();
-        match answer {
+        Ok(match answer {
             Answer::Continue { selected, .. } => items.get(selected).map(|(id, _)| id.clone()).unwrap_or_default(),
             Answer::Cancel => String::new(),
-        }
+        })
     }
 
     /// New items for the open "Open With" dialog (none: it is canceled);
     /// false when none is open.
-    async fn update_apps(&self, items: Vec<(String, String)>) -> bool {
+    async fn update_apps(&self, items: Vec<(String, String)>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<bool> {
+        crate::caller::require_portal(conn, &header).await?;
         let mut choosing = self.choosing.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(current) = choosing.as_mut() else { return false };
+        let Some(current) = choosing.as_mut() else { return Ok(false) };
         let rows = items.iter().map(|(_, name)| name.clone()).collect();
         *current = items;
         let _ = self.ui.send(UiEvent::PromptRows(rows));
-        true
+        Ok(true)
     }
 
     /// A dialog described by `options` (see the interface notes); response
     /// 0 accepted, 1 canceled.
-    async fn dialog(&self, options: HashMap<String, OwnedValue>) -> (u32, HashMap<String, OwnedValue>) {
+    async fn dialog(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<(u32, HashMap<String, OwnedValue>)> {
+        crate::caller::require_portal(conn, &header).await?;
         let mut prompt = dialog_prompt(&options);
         let prompt_multiple = prompt.multiple;
         if let Some(path) = get::<String>(&options, "picture").filter(|p| !p.is_empty()) {
@@ -166,16 +172,17 @@ impl PortalDialog {
                     let picked: Vec<i32> = picked.into_iter().map(|i| i as i32).collect();
                     results.insert("picked".to_owned(), owned(Value::from(picked)));
                 }
-                (0, results)
+                Ok((0, results))
             }
-            Answer::Cancel => (1, HashMap::new()),
+            Answer::Cancel => Ok((1, HashMap::new())),
         }
     }
 
     /// The file chooser (see the interface notes): one dialog that
     /// browses folders itself until the user chooses or cancels; response
     /// 0 chosen, 1 canceled.
-    async fn choose_files(&self, options: HashMap<String, OwnedValue>) -> (u32, HashMap<String, OwnedValue>) {
+    async fn choose_files(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<(u32, HashMap<String, OwnedValue>)> {
+        crate::caller::require_portal(conn, &header).await?;
         let mut options = crate::file_chooser::options_from(&options);
         // Polkit and keyring prompts wait until the choice is made.
         let _turn = prompt::turn().await;
@@ -193,14 +200,15 @@ impl PortalDialog {
                     ("filter".to_owned(), owned(Value::from(chosen.filter.map_or(-1, |i| i as i32)))),
                     ("check".to_owned(), owned(Value::from(chosen.check))),
                 ]);
-                (0, results)
+                Ok((0, results))
             }
-            None => (1, HashMap::new()),
+            None => Ok((1, HashMap::new())),
         }
     }
 
-    async fn running_apps(&self) -> HashMap<String, u32> {
-        self.apps.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    async fn running_apps(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<HashMap<String, u32>> {
+        crate::caller::require_portal(conn, &header).await?;
+        Ok(self.apps.lock().unwrap_or_else(|e| e.into_inner()).clone())
     }
 
     #[zbus(signal)]

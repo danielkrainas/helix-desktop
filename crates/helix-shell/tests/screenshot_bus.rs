@@ -87,7 +87,7 @@ fn error_name(err: zbus::Error) -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn screenshots_through_the_ui() {
     let Some(bus) = TestBus::start() else { return };
-    let (_shell, ui) = ShellService::start(bus.builder()).await.unwrap();
+    let (_shell, ui) = ShellService::start(bus.builder(), bus.builder()).await.unwrap();
     let script = Arc::new(Mutex::new(Script::default()));
     fake_ui(ui, script.clone());
     let dir = std::env::temp_dir().join(format!("helix-screenshot-bus-{}", std::process::id()));

@@ -478,8 +478,9 @@ impl Shell {
         self.center.notice_replacing(replaces, tr("Bluetooth"), summary, body, "bluetooth-active-symbolic")
     }
 
-    /// Ask which paired device to send to: (address, name).
-    async fn pick_device(&self) -> Option<(String, String)> {
+    /// Ask which paired device to send to: (address, name); `files`, when
+    /// given, are listed so the user sees what is sent.
+    async fn pick_device(&self, files: &[PathBuf]) -> Option<(String, String)> {
         let devices = match &self.system {
             Some(system) => paired_devices(system).await,
             None => Vec::new(),
@@ -493,6 +494,7 @@ impl Shell {
         let prompt = Prompt {
             title: tr("Send Files").into(),
             message: tr("Send files to which device?").into(),
+            description: file_list(files),
             list: devices.iter().map(|d| d.1.clone()).collect(),
             continue_label: tr("Choose").into(),
             cancel_label: tr("Cancel").into(),
@@ -534,20 +536,41 @@ impl Shell {
         prop::<Vec<String>>(&results, "uris").unwrap_or_default().iter().filter_map(|u| file_of(u)).collect()
     }
 
+    /// Whether the user agrees to send `files` to `name`.
+    async fn confirm(&self, name: &str, files: &[PathBuf]) -> bool {
+        let _turn = prompt::turn().await;
+        let _open = PromptOpen(self.ui.clone());
+        let prompt = Prompt {
+            title: tr("Send Files").into(),
+            message: helix_i18n::trnf!("Send {n} file to {name}?", "Send {n} files to {name}?", files.len(), name = name),
+            description: file_list(files),
+            continue_label: tr("Send").into(),
+            cancel_label: tr("Cancel").into(),
+            ..Prompt::default()
+        };
+        matches!(prompt::ask(&self.ui, prompt).await, Answer::Continue { .. })
+    }
+
+    /// Files named by the caller are sent only once the user has seen
+    /// them: in the device question, or in a confirmation.
     async fn send_files(self, device: String, files: Vec<String>) {
+        let given: Vec<PathBuf> = files.iter().filter_map(|f| file_of(f)).filter(|p| p.is_file()).collect();
+        if !files.is_empty() && given.is_empty() {
+            return;
+        }
         let (address, name) = if device.is_empty() {
-            match self.pick_device().await {
+            match self.pick_device(&given).await {
                 Some(picked) => picked,
                 None => return,
             }
         } else {
             let name = device_name(self.system.as_ref(), &device).await;
+            if !given.is_empty() && !self.confirm(&name, &given).await {
+                return;
+            }
             (device, name)
         };
-        let mut paths: Vec<PathBuf> = files.iter().filter_map(|f| file_of(f)).filter(|p| p.is_file()).collect();
-        if files.is_empty() {
-            paths = self.pick_files().await;
-        }
+        let paths = if files.is_empty() { self.pick_files().await } else { given };
         if paths.is_empty() {
             return;
         }
@@ -576,6 +599,16 @@ impl Shell {
     }
 }
 
+/// The names of `files`, one per line (the first few).
+fn file_list(files: &[PathBuf]) -> String {
+    const SHOWN: usize = 8;
+    let mut lines: Vec<String> = files.iter().take(SHOWN).map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string())).collect();
+    if files.len() > SHOWN {
+        lines.push(helix_i18n::trnf!("and {n} more", "and {n} more", files.len() - SHOWN));
+    }
+    lines.join("\n")
+}
+
 /// Send files, asking for what is missing (see [`SendTo::send_files`]).
 pub fn start_sending(device: String, files: Vec<String>) {
     match SHELL.get() {
@@ -592,8 +625,10 @@ pub struct SendTo;
 #[interface(name = "org.helixdesktop.BluetoothSendTo")]
 impl SendTo {
     /// Send `files` (paths or `file://` URIs) to `device` (an address);
-    /// either may be empty, and is then asked for.
-    async fn send_files(&self, device: String, files: Vec<String>) -> zbus::fdo::Result<()> {
+    /// either may be empty, and is then asked for. The user confirms what
+    /// the caller names; sandboxed callers are refused.
+    async fn send_files(&self, device: String, files: Vec<String>, #[zbus(header)] header: zbus::message::Header<'_>, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        crate::caller::require_unsandboxed(conn, &header).await?;
         if SHELL.get().is_none() {
             return Err(zbus::fdo::Error::Failed("Bluetooth file sending is not running".into()));
         }
