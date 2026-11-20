@@ -188,7 +188,9 @@ impl PortalDialog {
         let _turn = prompt::turn().await;
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(|| "/".into());
         let recent = matches!(options.mode, crate::file_chooser::Mode::Open | crate::file_chooser::Mode::Save);
-        options.places = tokio::task::spawn_blocking(move || helix_settings::files::user_places(&home, recent)).await.unwrap_or_default();
+        // Files can be opened from the Trash; nothing is saved there.
+        let trash = options.mode == crate::file_chooser::Mode::Open;
+        options.places = tokio::task::spawn_blocking(move || helix_settings::files::user_places(&home, recent, trash)).await.unwrap_or_default();
         match crate::file_chooser::ask(&self.ui, options).await {
             Some(chosen) => {
                 use std::os::unix::ffi::OsStrExt;

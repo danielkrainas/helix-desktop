@@ -175,7 +175,7 @@ pub fn fold(text: &str) -> String {
 }
 
 /// A listed file or folder.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Entry {
     pub name: String,
     pub path: PathBuf,
@@ -186,6 +186,8 @@ pub struct Entry {
     pub modified: i64,
     /// The content type from the name (`inode/directory` for folders).
     pub content_type: String,
+    /// A trashed item: the folder it was in before.
+    pub origin: Option<PathBuf>,
 }
 
 impl Entry {
@@ -197,7 +199,7 @@ impl Entry {
         let dir = meta.is_dir();
         let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs() as i64);
         let content_type = if dir { "inode/directory".to_owned() } else { fast_content_type(&name) };
-        Some(Self { name, path, dir, size: if dir { 0 } else { meta.len() }, modified, content_type })
+        Some(Self { name, path, dir, size: if dir { 0 } else { meta.len() }, modified, content_type, origin: None })
     }
 
     pub fn hidden(&self) -> bool {
@@ -270,28 +272,89 @@ pub fn sort_rows(entries: &[Entry], rows: &mut [usize], sort: Sort) {
 /// [`sort_rows`], sorting by type by `types` (each entry's type as shown,
 /// in `entries`' order; when empty, the content types).
 pub fn sort_rows_typed(entries: &[Entry], rows: &mut [usize], sort: Sort, types: &[String]) {
-    let keys: Vec<NameKey> = entries.iter().map(|e| NameKey::new(&e.name)).collect();
-    let type_keys: Vec<NameKey> = match sort.column {
-        SortColumn::Type => entries.iter().enumerate().map(|(i, e)| NameKey::new(types.get(i).unwrap_or(&e.content_type))).collect(),
-        _ => Vec::new(),
-    };
-    rows.sort_by(|&a, &b| {
+    let mut keys = SortKeys::default();
+    keys.extend(entries, sort, types);
+    rows.sort_by(|&a, &b| keys.order(entries, sort, a, b));
+}
+
+/// Entries' sort keys, worked out once per entry (so a list that grows
+/// in batches is not keyed again): the names', and the types' when
+/// sorting by type.
+#[derive(Debug, Clone, Default)]
+pub struct SortKeys {
+    names: Vec<NameKey>,
+    /// Empty unless sorting by type (or by location: the folders').
+    other: Vec<NameKey>,
+    /// What `other` holds.
+    column: Option<SortColumn>,
+}
+
+impl SortKeys {
+    /// Key the entries not keyed yet (`types` as in [`sort_rows_typed`]).
+    /// A sort by another column than the keys were made for keys again.
+    pub fn extend(&mut self, entries: &[Entry], sort: Sort, types: &[String]) {
+        let wanted = matches!(sort.column, SortColumn::Type | SortColumn::Location).then_some(sort.column);
+        if wanted != self.column {
+            self.other.clear();
+            self.column = wanted;
+        }
+        self.names.extend(entries[self.names.len().min(entries.len())..].iter().map(|e| NameKey::new(&e.name)));
+        let from = self.other.len();
+        match wanted {
+            Some(SortColumn::Type) => self.other.extend(entries.iter().enumerate().skip(from).map(|(i, e)| NameKey::new(types.get(i).unwrap_or(&e.content_type)))),
+            Some(_) => self.other.extend(entries.iter().skip(from).map(|e| NameKey::new(&e.origin.as_deref().or_else(|| e.path.parent()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()))),
+            None => {}
+        }
+    }
+
+    /// Forget every key (the entries were replaced).
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    /// How entries `a` and `b` are ordered by `sort` (keyed with
+    /// [`Self::extend`] for this sort); ties by name.
+    pub fn order(&self, entries: &[Entry], sort: Sort, a: usize, b: usize) -> Ordering {
         let (ea, eb) = (&entries[a], &entries[b]);
         if sort.folders_first && ea.dir != eb.dir {
             return eb.dir.cmp(&ea.dir);
         }
-        let by_name = || keys[a].cmp(&keys[b]).then_with(|| ea.name.cmp(&eb.name));
+        let by_name = || self.names[a].cmp(&self.names[b]).then_with(|| ea.name.cmp(&eb.name));
         let order = match sort.column {
             SortColumn::Name => by_name(),
             SortColumn::Size => ea.size.cmp(&eb.size).then_with(by_name),
             SortColumn::Modified => ea.modified.cmp(&eb.modified).then_with(by_name),
-            SortColumn::Location => NameKey::new(&ea.path.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
-                .cmp(&NameKey::new(&eb.path.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()))
-                .then_with(by_name),
-            SortColumn::Type => type_keys[a].cmp(&type_keys[b]).then_with(by_name),
+            SortColumn::Location | SortColumn::Type => self.other[a].cmp(&self.other[b]).then_with(by_name),
         };
         if sort.ascending { order } else { order.reverse() }
-    });
+    }
+}
+
+/// Merge `new` rows (sorted by `order`) into `rows` (sorted alike),
+/// keeping the order: one pass, for lists that grow in batches.
+pub fn merge_rows(rows: &mut Vec<usize>, new: Vec<usize>, order: impl Fn(usize, usize) -> Ordering) {
+    if new.is_empty() {
+        return;
+    }
+    let old = std::mem::take(rows);
+    rows.reserve(old.len() + new.len());
+    let (mut a, mut b) = (old.into_iter().peekable(), new.into_iter().peekable());
+    loop {
+        match (a.peek(), b.peek()) {
+            (Some(&x), Some(&y)) => {
+                if order(y, x) == Ordering::Less {
+                    rows.push(y);
+                    b.next();
+                } else {
+                    rows.push(x);
+                    a.next();
+                }
+            }
+            (Some(_), None) => rows.extend(a.by_ref()),
+            (None, Some(_)) => rows.extend(b.by_ref()),
+            (None, None) => break,
+        }
+    }
 }
 
 // ----- Places -----------------------------------------------------------
@@ -308,16 +371,20 @@ pub enum PlaceKind {
     Network,
     /// The whole computer (`/`).
     Computer,
+    /// The Trash (its `path`: the home Trash's `files` folder).
+    Trash,
+    /// Other Locations: the computer, its drives and volumes.
+    Other,
 }
 
 /// A place in the chooser's sidebar.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
     pub kind: PlaceKind,
-    /// The folder's or bookmark's name (empty for Recent, Home and
-    /// Computer, which the UI names).
+    /// The folder's or bookmark's name (empty for Recent, Home,
+    /// Computer, Trash and Other Locations, which the UI names).
     pub label: String,
-    /// `None` for Recent.
+    /// `None` for Recent and Other Locations.
     pub path: Option<PathBuf>,
 }
 
@@ -335,28 +402,39 @@ pub fn bookmarks(text: &str) -> Vec<(String, PathBuf)> {
 }
 
 /// The places: Recent (when `recent`), Home, the user's standard
-/// folders, bookmarks, drives, network places and the whole computer;
-/// folders that do not exist are left out, and none twice.
-pub fn places(home: &Path, standard: &[PathBuf], bookmarks: &[(String, PathBuf)], drives: &[(String, PathBuf)], network: &[(String, PathBuf)], recent: bool) -> Vec<Place> {
+/// folders, the Trash (when `trash`, at its folder), bookmarks, drives,
+/// network places, the whole computer and Other Locations; folders that
+/// do not exist are left out, and none twice.
+#[allow(clippy::too_many_arguments)]
+pub fn places(home: &Path, standard: &[PathBuf], bookmarks: &[(String, PathBuf)], drives: &[(String, PathBuf)], network: &[(String, PathBuf)], recent: bool, trash: Option<&Path>) -> Vec<Place> {
     let mut out = Vec::new();
     if recent {
         out.push(Place { kind: PlaceKind::Recent, label: String::new(), path: None });
     }
     out.push(Place { kind: PlaceKind::Home, label: String::new(), path: Some(home.to_path_buf()) });
     let named = |p: &PathBuf| (p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned()), p.clone());
-    let candidates = standard
+    let seen = |out: &[Place], path: &Path| out.iter().any(|p| p.path.as_deref() == Some(path));
+    for (label, path) in standard.iter().map(named) {
+        if !seen(&out, &path) && path.is_dir() {
+            out.push(Place { kind: PlaceKind::Standard, label, path: Some(path) });
+        }
+    }
+    // The Trash, whether or not its folder is there yet (an empty one).
+    if let Some(trash) = trash {
+        out.push(Place { kind: PlaceKind::Trash, label: String::new(), path: Some(trash.to_path_buf()) });
+    }
+    let candidates = bookmarks
         .iter()
-        .map(|p| (PlaceKind::Standard, named(p)))
-        .chain(bookmarks.iter().map(|b| (PlaceKind::Bookmark, b.clone())))
+        .map(|b| (PlaceKind::Bookmark, b.clone()))
         .chain(drives.iter().map(|d| (PlaceKind::Drive, d.clone())))
         .chain(network.iter().map(|d| (PlaceKind::Network, d.clone())))
         .chain([(PlaceKind::Computer, (String::new(), PathBuf::from("/")))]);
     for (kind, (label, path)) in candidates {
-        let seen = out.iter().any(|p| p.path.as_ref() == Some(&path));
-        if !seen && path.is_dir() {
+        if !seen(&out, &path) && path.is_dir() {
             out.push(Place { kind, label, path: Some(path) });
         }
     }
+    out.push(Place { kind: PlaceKind::Other, label: String::new(), path: None });
     out
 }
 
@@ -417,11 +495,88 @@ fn network_places() -> Vec<(String, PathBuf)> {
     out
 }
 
-/// The user's places (see [`places`]).
-pub fn user_places(home: &Path, recent: bool) -> Vec<Place> {
+/// The user's places (see [`places`]): with Recent when `recent`, with
+/// the Trash when `trash`.
+pub fn user_places(home: &Path, recent: bool, trash: bool) -> Vec<Place> {
     let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
     let marks = std::fs::read_to_string(config.join("gtk-3.0/bookmarks")).map(|t| bookmarks(&t)).unwrap_or_default();
-    places(home, &standard_folders(home), &marks, &drives(), &network_places(), recent)
+    let trash = trash.then(|| home_trash(home).join("files"));
+    places(home, &standard_folders(home), &marks, &drives(), &network_places(), recent, trash.as_deref())
+}
+
+// ----- The Trash ----------------------------------------------------------
+
+/// The home Trash (`$XDG_DATA_HOME/Trash`).
+pub fn home_trash(home: &Path) -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share")).join("Trash")
+}
+
+/// The Trash folders of a drive mounted at `top` for user `uid`, as the
+/// freedesktop Trash specification has them: `$top/.Trash/$uid` (when
+/// `.Trash` is a sticky folder, not a link) and `$top/.Trash-$uid`.
+pub fn drive_trashes(top: &Path, uid: u32) -> Vec<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut out = Vec::new();
+    let shared = top.join(".Trash");
+    let sticky = std::fs::symlink_metadata(&shared).is_ok_and(|m| m.is_dir() && m.permissions().mode() & 0o1000 != 0);
+    if sticky && shared.join(uid.to_string()).is_dir() {
+        out.push(shared.join(uid.to_string()));
+    }
+    let own = top.join(format!(".Trash-{uid}"));
+    if std::fs::symlink_metadata(&own).is_ok_and(|m| m.is_dir()) {
+        out.push(own);
+    }
+    out
+}
+
+/// What a Trash folder (`trash`, holding `info` and `files`) holds: each
+/// item with a `.trashinfo`, under its name before it was trashed, with
+/// the folder it was in as its `origin` (a relative `Path=` is below
+/// `top`, the drive's folder). The items themselves are listed (their
+/// metadata only), so choosing one gives a file that can be read.
+pub fn trashed(trash: &Path, top: Option<&Path>) -> Vec<Entry> {
+    let Ok(infos) = std::fs::read_dir(trash.join("info")) else { return Vec::new() };
+    infos
+        .flatten()
+        .filter_map(|info| {
+            let info_path = info.path();
+            if info_path.extension().is_none_or(|e| e != "trashinfo") {
+                return None;
+            }
+            let stored = info_path.file_stem()?;
+            let mut entry = Entry::at(trash.join("files").join(stored))?;
+            let text = std::fs::read_to_string(&info_path).unwrap_or_default();
+            let original = text.lines().find_map(|l| l.trim().strip_prefix("Path=")).map(|p| gio::glib::uri_unescape_string(p.trim(), None::<&str>).map_or_else(|| p.trim().to_owned(), |s| s.to_string()));
+            if let Some(original) = original.map(PathBuf::from) {
+                let original = match top {
+                    Some(top) if original.is_relative() => top.join(original),
+                    _ => original,
+                };
+                if let Some(name) = original.file_name() {
+                    entry.name = name.to_string_lossy().into_owned();
+                    if !entry.dir {
+                        entry.content_type = fast_content_type(&entry.name);
+                    }
+                }
+                entry.origin = original.parent().map(Path::to_path_buf);
+            }
+            Some(entry)
+        })
+        .collect()
+}
+
+/// Everything in the user's Trash: the home Trash, then the Trash
+/// folders of the drives mounted at `tops`.
+pub fn trash_entries(home: &Path, tops: &[PathBuf]) -> Vec<Entry> {
+    use std::os::unix::fs::MetadataExt;
+    let uid = std::fs::metadata("/proc/self").map_or(u32::MAX, |m| m.uid());
+    let mut out = trashed(&home_trash(home), None);
+    for top in tops {
+        for t in drive_trashes(top, uid) {
+            out.extend(trashed(&t, Some(top)));
+        }
+    }
+    out
 }
 
 // ----- Recent files -----------------------------------------------------
@@ -664,7 +819,7 @@ mod tests {
     }
 
     fn entry(name: &str, dir: bool, size: u64, modified: i64) -> Entry {
-        Entry { name: name.into(), path: PathBuf::from("/x").join(name), dir, size, modified, content_type: String::new() }
+        Entry { name: name.into(), path: PathBuf::from("/x").join(name), dir, size, modified, content_type: String::new(), origin: None }
     }
 
     #[test]
@@ -723,10 +878,14 @@ mod tests {
         }
         let marks = bookmarks(&format!("file://{} Work\nsftp://host/x Remote\nfile://{}\n", mark.display(), docs.display()));
         assert_eq!(marks, [("Work".to_owned(), mark.clone()), ("Documents".to_owned(), docs.clone())]);
-        let list = places(&tmp, &[docs.clone(), tmp.join("Missing")], &marks, &[("USB".into(), drive.clone())], &[], true);
+        let trash = tmp.join("data/Trash/files");
+        let list = places(&tmp, &[docs.clone(), tmp.join("Missing")], &marks, &[("USB".into(), drive.clone())], &[], true, Some(&trash));
         let kinds: Vec<(PlaceKind, &str)> = list.iter().map(|p| (p.kind, p.label.as_str())).collect();
-        assert_eq!(kinds, [(PlaceKind::Recent, ""), (PlaceKind::Home, ""), (PlaceKind::Standard, "Documents"), (PlaceKind::Bookmark, "Work"), (PlaceKind::Drive, "USB"), (PlaceKind::Computer, "")]);
-        assert!(!places(&tmp, &[], &[], &[], &[], false).iter().any(|p| p.kind == PlaceKind::Recent));
+        assert_eq!(kinds, [(PlaceKind::Recent, ""), (PlaceKind::Home, ""), (PlaceKind::Standard, "Documents"), (PlaceKind::Trash, ""), (PlaceKind::Bookmark, "Work"), (PlaceKind::Drive, "USB"), (PlaceKind::Computer, ""), (PlaceKind::Other, "")]);
+        assert_eq!(list[3].path.as_deref(), Some(trash.as_path()), "the Trash although its folder is not there yet");
+        let saving = places(&tmp, &[], &[], &[], &[], false, None);
+        assert!(!saving.iter().any(|p| matches!(p.kind, PlaceKind::Recent | PlaceKind::Trash)), "no Recent or Trash: {saving:?}");
+        assert_eq!(saving.last().map(|p| (p.kind, p.path.clone())), Some((PlaceKind::Other, None)), "Other Locations last");
         assert_eq!(gvfs_label("smb-share:server=nas,share=docs"), "docs on nas");
         assert_eq!(gvfs_label("sftp:host=box,user=me"), "me on box");
         assert_eq!(gvfs_label("dav:host=cloud,ssl=true"), "cloud");
@@ -760,6 +919,60 @@ mod tests {
         assert_eq!(e[0].0, "file:///a/b%20c.txt");
         assert!(e[0].1 > e[1].1, "modified counts");
         assert_eq!(e[1].0, "file:///x?a&b");
+    }
+
+    #[test]
+    fn merging() {
+        // Rows merged batch by batch end as one sort of them all.
+        let entries: Vec<Entry> = ["b10", "Docs", "b2", "apps", "a", "zeta", "Alpha", "b1"].iter().enumerate().map(|(i, n)| entry(n, i % 3 == 1, i as u64, 0)).collect();
+        let sort = Sort::default();
+        let mut keys = SortKeys::default();
+        let mut rows = Vec::new();
+        for range in [0..3, 3..4, 4..8] {
+            keys.extend(&entries[..range.end], sort, &[]);
+            let mut new: Vec<usize> = range.collect();
+            new.sort_by(|&a, &b| keys.order(&entries, sort, a, b));
+            merge_rows(&mut rows, new, |a, b| keys.order(&entries, sort, a, b));
+        }
+        let mut whole: Vec<usize> = (0..entries.len()).collect();
+        sort_rows(&entries, &mut whole, sort);
+        assert_eq!(rows, whole);
+    }
+
+    #[test]
+    fn trash() {
+        let root = tmp("trash");
+        let trash = root.join("Trash");
+        std::fs::create_dir_all(trash.join("info")).unwrap();
+        std::fs::create_dir_all(trash.join("files/Old project")).unwrap();
+        std::fs::write(trash.join("files/report.2.pdf"), "x").unwrap();
+        std::fs::write(trash.join("info/report.2.pdf.trashinfo"), "[Trash Info]\nPath=/home/ada/Documents/Q3%20report.pdf\nDeletionDate=2026-11-01T10:00:00\n").unwrap();
+        std::fs::write(trash.join("info/Old project.trashinfo"), "[Trash Info]\nPath=/home/ada/Old%20project\nDeletionDate=2026-11-02T10:00:00\n").unwrap();
+        // An info without its item, and an item without info: not listed.
+        std::fs::write(trash.join("info/gone.txt.trashinfo"), "[Trash Info]\nPath=/home/ada/gone.txt\n").unwrap();
+        std::fs::write(trash.join("files/stray.txt"), "x").unwrap();
+        let mut found = trashed(&trash, None);
+        found.sort_by(|a, b| a.name.cmp(&b.name));
+        let seen: Vec<(&str, bool, Option<&Path>, &Path)> = found.iter().map(|e| (e.name.as_str(), e.dir, e.origin.as_deref(), e.path.as_path())).collect();
+        assert_eq!(seen, [("Old project", true, Some(Path::new("/home/ada")), trash.join("files/Old project").as_path()), ("Q3 report.pdf", false, Some(Path::new("/home/ada/Documents")), trash.join("files/report.2.pdf").as_path())]);
+        assert!(gio::content_type_is_mime_type(&found[1].content_type, "application/pdf"), "the type from the name it had");
+        // A drive's Trash: paths relative to the drive.
+        let top = root.join("usb");
+        let own = top.join(".Trash-1000");
+        std::fs::create_dir_all(own.join("info")).unwrap();
+        std::fs::create_dir_all(own.join("files")).unwrap();
+        std::fs::write(own.join("files/a.txt"), "x").unwrap();
+        std::fs::write(own.join("info/a.txt.trashinfo"), "[Trash Info]\nPath=Photos/a.txt\n").unwrap();
+        assert_eq!(drive_trashes(&top, 1000), std::slice::from_ref(&own));
+        assert!(drive_trashes(&top, 1001).is_empty());
+        // A shared `.Trash` counts only when sticky.
+        std::fs::create_dir_all(top.join(".Trash/1000")).unwrap();
+        assert_eq!(drive_trashes(&top, 1000), std::slice::from_ref(&own), "not sticky");
+        std::fs::set_permissions(top.join(".Trash"), std::os::unix::fs::PermissionsExt::from_mode(0o1777)).unwrap();
+        assert_eq!(drive_trashes(&top, 1000), [top.join(".Trash/1000"), own.clone()]);
+        let on_drive = trashed(&own, Some(&top));
+        assert_eq!((on_drive[0].name.as_str(), on_drive[0].origin.clone()), ("a.txt", Some(top.join("Photos"))));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

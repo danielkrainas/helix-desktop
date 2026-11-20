@@ -169,6 +169,11 @@ pub fn trash_request(empty: bool) {
 pub enum Request {
     Open,
     Eject,
+    /// Mount a volume that is not mounted, opening no window and asking
+    /// nothing (the file chooser's Other Locations): a volume that needs a
+    /// password or a question answered is not mounted. The answer goes to
+    /// the UI (`FilesMounted`).
+    MountQuietly,
 }
 
 static CONTEXT: OnceLock<gio::glib::MainContext> = OnceLock::new();
@@ -188,6 +193,32 @@ pub fn request(root: String, what: Request) {
             }
         }
         Request::Open => open_uri(&root),
+        Request::MountQuietly => {
+            let Some(context) = CONTEXT.get() else { return };
+            context.invoke(move || {
+                let volume = STATE.with(|s| s.borrow().monitor.as_ref().and_then(|m| m.volumes().into_iter().find(|v| volume_key(v) == root)));
+                let tell = move |result: Result<(), String>| {
+                    if let Some(asker) = ASKER.get() {
+                        let _ = asker.ui.send(UiEvent::FilesMounted { root: root.clone(), result });
+                    }
+                };
+                let Some(volume) = volume else { return tell(Err(tr("The drive is gone.").into())) };
+                // Mounted quietly: no window opens for it.
+                STATE.with(|s| s.borrow_mut().mounting.push((volume.clone(), true)));
+                // An operation nobody answers: GIO replies "unhandled" to
+                // any password or question, and the mount fails.
+                let op = gio::MountOperation::new();
+                let (v, keep) = (volume.clone(), op.clone());
+                volume.mount(gio::MountMountFlags::NONE, Some(&op), None::<&gio::Cancellable>, move |result| {
+                    drop(keep);
+                    if result.is_err() {
+                        STATE.with(|s| s.borrow_mut().mounting.retain(|(m, _)| *m != v));
+                    }
+                    tracing::info!(name = %v.name(), ok = result.is_ok(), "file chooser mount");
+                    tell(result.map_err(|e| e.message().to_owned()));
+                });
+            });
+        }
         Request::Eject => {
             if let Some(context) = CONTEXT.get() {
                 context.invoke(move || STATE.with(|s| eject(&s.borrow(), &root)));

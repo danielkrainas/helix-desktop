@@ -1179,9 +1179,9 @@ msgstr "Nessuna applicazione."
 
 #: crates/helix-agent/src/read.rs:284 crates/helix-agent/src/read.rs:299
 #: crates/helix-portals/src/dynamic_launcher.rs:154
-#: crates/helix-shell/src/ui/file_chooser.rs:1068
-#: crates/helix-shell/src/ui/file_chooser.rs:1142
-#: crates/helix-shell/src/ui/file_chooser.rs:1472
+#: crates/helix-shell/src/ui/file_chooser.rs:1248
+#: crates/helix-shell/src/ui/file_chooser.rs:1323
+#: crates/helix-shell/src/ui/file_chooser.rs:1725
 msgid "Name"
 msgstr "Nome"
 
@@ -1233,19 +1233,19 @@ msgid "No files."
 msgstr "Nessun file."
 
 #: crates/helix-agent/src/read.rs:338
-#: crates/helix-shell/src/ui/file_chooser.rs:1145
-#: crates/helix-shell/src/ui/file_chooser.rs:1445
-#: crates/helix-shell/src/ui/file_chooser.rs:1450
+#: crates/helix-shell/src/ui/file_chooser.rs:1326
+#: crates/helix-shell/src/ui/file_chooser.rs:1697
+#: crates/helix-shell/src/ui/file_chooser.rs:1702
 msgid "Location"
 msgstr "Posizione"
 
 #: crates/helix-agent/src/read.rs:338
-#: crates/helix-shell/src/ui/file_chooser.rs:1144
+#: crates/helix-shell/src/ui/file_chooser.rs:1325
 msgid "Modified"
 msgstr "Modificato"
 
 #: crates/helix-agent/src/read.rs:338
-#: crates/helix-shell/src/ui/file_chooser.rs:1146
+#: crates/helix-shell/src/ui/file_chooser.rs:1327
 msgid "Type"
 msgstr "Tipo"
 
@@ -1363,19 +1363,19 @@ msgid "Username"
 msgstr "Nome utente"
 
 #: crates/helix-greeter/src/atspi.rs:79 crates/helix-greeter/src/paint.rs:479
-#: crates/helix-shell/src/ui/file_chooser.rs:1446
+#: crates/helix-shell/src/ui/file_chooser.rs:1698
 #: crates/helix-shell/src/ui/window_menu.rs:428
 msgid "Back"
 msgstr "Indietro"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5636 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5638 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:587
 msgid "Power Off…"
 msgstr "Spegni…"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5633 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5635 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:586
 msgid "Restart…"
 msgstr "Riavvia…"
@@ -1410,7 +1410,7 @@ msgstr "Spegnere questo computer?"
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 #: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1467 crates/helix-shell/src/lib.rs:1555
+#: crates/helix-shell/src/lib.rs:1502 crates/helix-shell/src/lib.rs:1590
 #: crates/helix-shell/src/mount_handler.rs:125
 #: crates/helix-shell/src/mount_handler.rs:139
 #: crates/helix-shell/src/mount_handler.rs:174
@@ -1424,10 +1424,10 @@ msgstr "Spegnere questo computer?"
 #: crates/helix-shell/src/ui.rs:1372 crates/helix-shell/src/ui.rs:3388
 #: crates/helix-shell/src/ui/agent_question.rs:192
 #: crates/helix-shell/src/ui/atspi.rs:942
-#: crates/helix-shell/src/ui/file_chooser.rs:1361
-#: crates/helix-shell/src/ui/file_chooser.rs:1414
-#: crates/helix-shell/src/ui/file_chooser.rs:1440
-#: crates/helix-shell/src/ui/file_chooser.rs:1528
+#: crates/helix-shell/src/ui/file_chooser.rs:1613
+#: crates/helix-shell/src/ui/file_chooser.rs:1666
+#: crates/helix-shell/src/ui/file_chooser.rs:1692
+#: crates/helix-shell/src/ui/file_chooser.rs:1786
 #: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:588
 #: crates/helix-shell/src/ui/prompt.rs:604
 #: crates/helix-shell/src/vpn_secrets.rs:195
@@ -1448,14 +1448,14 @@ msgstr "Accessibilità"
 #. Translators: the login screen's clock in 12-hour time (strftime).
 #. Translators: a time of day for today, 24-hour and 12-hour (see GLib's g_date_time_format for the codes).
 #: crates/helix-greeter/src/clock.rs:98
-#: crates/helix-shell/src/file_chooser.rs:333
+#: crates/helix-shell/src/file_chooser.rs:397
 msgid "%l:%M %p"
 msgstr "%l:%M %p"
 
 #. Translators: the login screen's clock in 24-hour time (strftime).
 #. Translators: a time of day for today, 24-hour and 12-hour (see GLib's g_date_time_format for the codes).
 #: crates/helix-greeter/src/clock.rs:101
-#: crates/helix-shell/src/file_chooser.rs:333
+#: crates/helix-shell/src/file_chooser.rs:397
 msgid "%H:%M"
 msgstr "%H:%M"
 
@@ -1807,7 +1807,7 @@ msgid "This code is not valid."
 msgstr "Questo codice non è valido."
 
 #: crates/helix-shell/src/bluetooth_agent.rs:124
-#: crates/helix-shell/src/lib.rs:1281 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/lib.rs:1316 crates/helix-shell/src/obex.rs:478
 #: crates/helix-shell/src/panel_layout.rs:221
 #: crates/helix-shell/src/ui/quick.rs:405
 msgid "Bluetooth"
@@ -2033,7 +2033,7 @@ msgstr "Il tasto Maiusc era premuto all'accesso."
 
 #. Translators: the separator between the names of a list ("a, b, c").
 #: crates/helix-shell/src/ext_host/runner.rs:570
-#: crates/helix-shell/src/media.rs:229
+#: crates/helix-shell/src/media.rs:260
 msgid ", "
 msgstr ", "
 
@@ -2075,10 +2075,10 @@ msgstr "Bluetooth disattivato"
 
 #. Translators: the type of a folder in the file chooser.
 #: crates/helix-shell/src/favorites.rs:147
-#: crates/helix-shell/src/file_chooser.rs:267
+#: crates/helix-shell/src/file_chooser.rs:331
 #: crates/helix-shell/src/ui/atspi.rs:772
 #: crates/helix-shell/src/ui/desktop_icons.rs:378
-#: crates/helix-shell/src/ui/file_chooser.rs:1490
+#: crates/helix-shell/src/ui/file_chooser.rs:1743
 msgid "Folder"
 msgstr "Cartella"
 
@@ -2086,99 +2086,99 @@ msgstr "Cartella"
 msgid "Unnamed Folder"
 msgstr "Cartella senza nome"
 
-#: crates/helix-shell/src/file_chooser.rs:243
+#: crates/helix-shell/src/file_chooser.rs:307
 msgid "Program"
 msgstr "Programma"
 
-#: crates/helix-shell/src/file_chooser.rs:244
+#: crates/helix-shell/src/file_chooser.rs:308
 msgid "Audio"
 msgstr "Audio"
 
-#: crates/helix-shell/src/file_chooser.rs:245
+#: crates/helix-shell/src/file_chooser.rs:309
 msgid "Font"
 msgstr "Carattere"
 
-#: crates/helix-shell/src/file_chooser.rs:246
+#: crates/helix-shell/src/file_chooser.rs:310
 msgid "Image"
 msgstr "Immagine"
 
-#: crates/helix-shell/src/file_chooser.rs:247
+#: crates/helix-shell/src/file_chooser.rs:311
 msgid "Archive"
 msgstr "Archivio"
 
-#: crates/helix-shell/src/file_chooser.rs:248
+#: crates/helix-shell/src/file_chooser.rs:312
 msgid "Markup"
 msgstr "Markup"
 
-#: crates/helix-shell/src/file_chooser.rs:249
+#: crates/helix-shell/src/file_chooser.rs:313
 msgid "Text"
 msgstr "Testo"
 
-#: crates/helix-shell/src/file_chooser.rs:250
+#: crates/helix-shell/src/file_chooser.rs:314
 msgid "Video"
 msgstr "Video"
 
-#: crates/helix-shell/src/file_chooser.rs:251
+#: crates/helix-shell/src/file_chooser.rs:315
 msgid "Contacts"
 msgstr "Contatti"
 
-#: crates/helix-shell/src/file_chooser.rs:252
+#: crates/helix-shell/src/file_chooser.rs:316
 msgid "Calendar"
 msgstr "Calendario"
 
-#: crates/helix-shell/src/file_chooser.rs:253
+#: crates/helix-shell/src/file_chooser.rs:317
 msgid "Document"
 msgstr "Documento"
 
-#: crates/helix-shell/src/file_chooser.rs:254
+#: crates/helix-shell/src/file_chooser.rs:318
 msgid "Presentation"
 msgstr "Presentazione"
 
-#: crates/helix-shell/src/file_chooser.rs:255
+#: crates/helix-shell/src/file_chooser.rs:319
 msgid "Spreadsheet"
 msgstr "Foglio di calcolo"
 
 #. Translators: a file type the chooser cannot name.
-#: crates/helix-shell/src/file_chooser.rs:257
+#: crates/helix-shell/src/file_chooser.rs:321
 #: crates/helix-shell/src/weather.rs:72
 msgid "Unknown"
 msgstr "Sconosciuto"
 
 #. Translators: yesterday at a time of day ("14:05", "2:05 PM").
-#: crates/helix-shell/src/file_chooser.rs:341
+#: crates/helix-shell/src/file_chooser.rs:405
 msgid "Yesterday, {time}"
 msgstr "Ieri, {time}"
 
-#: crates/helix-shell/src/file_chooser.rs:343
+#: crates/helix-shell/src/file_chooser.rs:407
 #: crates/helix-shell/src/notifications.rs:109
 msgid "Yesterday"
 msgstr "Ieri"
 
 #. Translators: a date this year (day and abbreviated month).
-#: crates/helix-shell/src/file_chooser.rs:349
+#: crates/helix-shell/src/file_chooser.rs:413
 msgid "%-e %b"
 msgstr "%-e %b"
 
 #. Translators: a date this year with the time, 24-hour and 12-hour.
-#: crates/helix-shell/src/file_chooser.rs:351
+#: crates/helix-shell/src/file_chooser.rs:415
 msgid "%-e %b, %H:%M"
 msgstr "%-e %b, %H:%M"
 
-#: crates/helix-shell/src/file_chooser.rs:352
+#: crates/helix-shell/src/file_chooser.rs:416
 msgid "%-e %b, %l:%M %p"
 msgstr "%-e %b, %l:%M %p"
 
 #. Translators: a date in another year.
-#: crates/helix-shell/src/file_chooser.rs:354
+#: crates/helix-shell/src/file_chooser.rs:418
 msgid "%-e %b %Y"
 msgstr "%-e %b %Y"
 
 #. Translators: a date in another year with the time, 24-hour and 12-hour.
-#: crates/helix-shell/src/file_chooser.rs:357
+#: crates/helix-shell/src/file_chooser.rs:421
 msgid "%-e %b %Y, %H:%M"
 msgstr "%-e %b %Y, %H:%M"
 
-#: crates/helix-shell/src/file_chooser.rs:358
+#: crates/helix-shell/src/file_chooser.rs:422
 msgid "%-e %b %Y, %l:%M %p"
 msgstr "%-e %b %Y, %l:%M %p"
 
@@ -2201,7 +2201,7 @@ msgid "The passwords do not match."
 msgstr "Le password non corrispondono."
 
 #: crates/helix-shell/src/keyring_prompt.rs:77
-#: crates/helix-shell/src/media.rs:325 crates/helix-shell/src/ui/lock.rs:550
+#: crates/helix-shell/src/media.rs:356 crates/helix-shell/src/ui/lock.rs:550
 #: crates/helix-shell/src/ui/lock.rs:560
 msgid "Unlock"
 msgstr "Sblocca"
@@ -2230,53 +2230,53 @@ msgstr "Continua"
 msgid "More"
 msgstr "Altro"
 
-#: crates/helix-shell/src/lib.rs:1132
+#: crates/helix-shell/src/lib.rs:1167
 msgid "Nothing was turned off or restarted. {err}"
 msgstr "Niente è stato spento o riavviato. {err}"
 
-#: crates/helix-shell/src/lib.rs:1132
+#: crates/helix-shell/src/lib.rs:1167
 msgid "Software"
 msgstr "Software"
 
-#: crates/helix-shell/src/lib.rs:1132
+#: crates/helix-shell/src/lib.rs:1167
 msgid "Updates could not be scheduled"
 msgstr "Impossibile pianificare gli aggiornamenti"
 
-#: crates/helix-shell/src/lib.rs:1281
+#: crates/helix-shell/src/lib.rs:1316
 msgid "Cannot pair with {name}"
 msgstr "Impossibile associare {name}"
 
-#: crates/helix-shell/src/lib.rs:1368
+#: crates/helix-shell/src/lib.rs:1403
 #: crates/helix-shell/src/panel_layout.rs:223
 #: crates/helix-shell/src/ui/quick.rs:411
 msgid "Auto Rotate"
 msgstr "Rotazione automatica"
 
-#: crates/helix-shell/src/lib.rs:1368
+#: crates/helix-shell/src/lib.rs:1403
 msgid "Rotation Locked"
 msgstr "Rotazione bloccata"
 
-#: crates/helix-shell/src/lib.rs:1464
+#: crates/helix-shell/src/lib.rs:1499
 msgid "Rename Folder"
 msgstr "Rinomina cartella"
 
-#: crates/helix-shell/src/lib.rs:1465
+#: crates/helix-shell/src/lib.rs:1500
 msgid "Folder name"
 msgstr "Nome della cartella"
 
-#: crates/helix-shell/src/lib.rs:1466
+#: crates/helix-shell/src/lib.rs:1501
 msgid "Rename"
 msgstr "Rinomina"
 
-#: crates/helix-shell/src/lib.rs:1552
+#: crates/helix-shell/src/lib.rs:1587
 msgid "Empty Trash?"
 msgstr "Svuotare il cestino?"
 
-#: crates/helix-shell/src/lib.rs:1553
+#: crates/helix-shell/src/lib.rs:1588
 msgid "All items in the Trash will be permanently deleted."
 msgstr "Tutti gli elementi nel cestino verranno eliminati definitivamente."
 
-#: crates/helix-shell/src/lib.rs:1554 crates/helix-shell/src/ui/dock.rs:1491
+#: crates/helix-shell/src/lib.rs:1589 crates/helix-shell/src/ui/dock.rs:1491
 msgid "Empty Trash"
 msgstr "Svuota cestino"
 
@@ -2284,47 +2284,51 @@ msgstr "Svuota cestino"
 msgid "Lock the screen before suspending"
 msgstr "Bloccare lo schermo prima della sospensione"
 
-#: crates/helix-shell/src/media.rs:231
+#: crates/helix-shell/src/media.rs:205
+msgid "The drive is gone."
+msgstr "L’unità non c’è più."
+
+#: crates/helix-shell/src/media.rs:262
 msgid "{shown} and {n} other program"
 msgid_plural "{shown} and {n} other programs"
 msgstr[0] "{shown} e {n} altro programma"
 msgstr[1] "{shown} e altri {n} programmi"
 
-#: crates/helix-shell/src/media.rs:289
+#: crates/helix-shell/src/media.rs:320
 msgid "process {pid}"
 msgstr "processo {pid}"
 
-#: crates/helix-shell/src/media.rs:323
+#: crates/helix-shell/src/media.rs:354
 msgid "Unlock {title}"
 msgstr "Sblocca {title}"
 
-#: crates/helix-shell/src/media.rs:367
+#: crates/helix-shell/src/media.rs:398
 #: crates/helix-shell/src/mount_handler.rs:379
 msgid "In use by: {}"
 msgstr "In uso da: {}"
 
-#: crates/helix-shell/src/media.rs:378
+#: crates/helix-shell/src/media.rs:409
 msgid "Do not unplug until finished."
 msgstr "Non scollegare fino al termine."
 
-#: crates/helix-shell/src/media.rs:378
+#: crates/helix-shell/src/media.rs:409
 #: crates/helix-shell/src/notifications.rs:333
 msgid "Removable Media"
 msgstr "Supporti rimovibili"
 
-#: crates/helix-shell/src/media.rs:378
+#: crates/helix-shell/src/media.rs:409
 msgid "Writing to {title}"
 msgstr "Scrittura su {title}"
 
-#: crates/helix-shell/src/media.rs:492
+#: crates/helix-shell/src/media.rs:523
 msgid "Removable medium connected"
 msgstr "Supporto rimovibile collegato"
 
-#: crates/helix-shell/src/media.rs:520
+#: crates/helix-shell/src/media.rs:551
 msgid "{name} can be removed"
 msgstr "{name} può essere rimosso"
 
-#: crates/helix-shell/src/media.rs:524 crates/helix-shell/src/media.rs:567
+#: crates/helix-shell/src/media.rs:555 crates/helix-shell/src/media.rs:598
 msgid "Cannot eject {name}"
 msgstr "Impossibile espellere {name}"
 
@@ -2765,7 +2769,7 @@ msgstr "«{0}» da {1} non è stato ricevuto."
 msgid "A new version of the system"
 msgstr "Una nuova versione del sistema"
 
-#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5329
+#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5331
 msgid "Apps"
 msgstr "Applicazioni"
 
@@ -3165,49 +3169,49 @@ msgstr "Potrà condividere di nuovo lo stesso schermo senza chiedere."
 msgid "New virtual monitor"
 msgstr "Nuovo monitor virtuale"
 
-#: crates/helix-shell/src/ui.rs:5321 crates/helix-shell/src/ui/atspi.rs:785
+#: crates/helix-shell/src/ui.rs:5323 crates/helix-shell/src/ui/atspi.rs:785
 msgid "No matching apps"
 msgstr "Nessuna applicazione corrispondente"
 
-#: crates/helix-shell/src/ui.rs:5328
+#: crates/helix-shell/src/ui.rs:5330
 msgid "Open Windows"
 msgstr "Finestre aperte"
 
-#: crates/helix-shell/src/ui.rs:5369
+#: crates/helix-shell/src/ui.rs:5371
 msgid "Search for “{query}” in {name}"
 msgstr "Cerca «{query}» in {name}"
 
-#: crates/helix-shell/src/ui.rs:5434
+#: crates/helix-shell/src/ui.rs:5436
 msgid "{n} more result"
 msgid_plural "{n} more results"
 msgstr[0] "{n} altro risultato"
 msgstr[1] "{n} altri risultati"
 
-#: crates/helix-shell/src/ui.rs:5436
+#: crates/helix-shell/src/ui.rs:5438
 msgid "{n} result above"
 msgid_plural "{n} results above"
 msgstr[0] "{n} risultato sopra"
 msgstr[1] "{n} risultati sopra"
 
-#: crates/helix-shell/src/ui.rs:5621 crates/helix-shell/src/ui/atspi.rs:417
+#: crates/helix-shell/src/ui.rs:5623 crates/helix-shell/src/ui/atspi.rs:417
 #: crates/helix-shell/src/ui/quick.rs:556
 msgid "Lock Screen"
 msgstr "Blocca schermo"
 
-#: crates/helix-shell/src/ui.rs:5624 crates/helix-shell/src/ui/lock.rs:515
+#: crates/helix-shell/src/ui.rs:5626 crates/helix-shell/src/ui/lock.rs:515
 #: crates/helix-shell/src/ui/lock.rs:597
 msgid "Switch User…"
 msgstr "Cambia utente…"
 
-#: crates/helix-shell/src/ui.rs:5627
+#: crates/helix-shell/src/ui.rs:5629
 msgid "Suspend"
 msgstr "Sospendi"
 
-#: crates/helix-shell/src/ui.rs:5630
+#: crates/helix-shell/src/ui.rs:5632
 msgid "Log Out…"
 msgstr "Termina sessione…"
 
-#: crates/helix-shell/src/ui.rs:5718
+#: crates/helix-shell/src/ui.rs:5720
 msgid "The app"
 msgstr "L'applicazione"
 
@@ -3526,6 +3530,10 @@ msgstr "Sfondo"
 #: crates/helix-shell/src/ui/atspi.rs:667
 #: crates/helix-shell/src/ui/atspi.rs:892 crates/helix-shell/src/ui/dock.rs:652
 #: crates/helix-shell/src/ui/dock.rs:1804
+#: crates/helix-shell/src/ui/file_chooser.rs:729
+#: crates/helix-shell/src/ui/file_chooser.rs:747
+#: crates/helix-shell/src/ui/file_chooser.rs:975
+#: crates/helix-shell/src/ui/file_chooser.rs:1230
 msgid "Trash"
 msgstr "Cestino"
 
@@ -3534,8 +3542,8 @@ msgid "Window Menu"
 msgstr "Menu della finestra"
 
 #: crates/helix-shell/src/ui/atspi.rs:711
-#: crates/helix-shell/src/ui/file_chooser.rs:1451
-#: crates/helix-shell/src/ui/file_chooser.rs:1465
+#: crates/helix-shell/src/ui/file_chooser.rs:1703
+#: crates/helix-shell/src/ui/file_chooser.rs:1717
 #: crates/helix-shell/src/ui/overview.rs:1194
 msgid "Search"
 msgstr "Cerca"
@@ -4041,94 +4049,112 @@ msgstr "Fatto"
 msgid "Hide Settings"
 msgstr "Nascondi impostazioni"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:559
-#: crates/helix-shell/src/ui/file_chooser.rs:598
-#: crates/helix-shell/src/ui/file_chooser.rs:821
+#: crates/helix-shell/src/ui/file_chooser.rs:685
+#: crates/helix-shell/src/ui/file_chooser.rs:724
+#: crates/helix-shell/src/ui/file_chooser.rs:973
 msgid "Home"
 msgstr "Home"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:560
-#: crates/helix-shell/src/ui/file_chooser.rs:822
+#: crates/helix-shell/src/ui/file_chooser.rs:686
+#: crates/helix-shell/src/ui/file_chooser.rs:974
+#: crates/helix-shell/src/ui/file_chooser.rs:1826
 msgid "Computer"
 msgstr "Computer"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:599
+#: crates/helix-shell/src/ui/file_chooser.rs:725
 msgid "Files in {folder}"
 msgstr "File in {folder}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:601
+#: crates/helix-shell/src/ui/file_chooser.rs:727
 msgid "Recent Files"
 msgstr "File recenti"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:602
+#: crates/helix-shell/src/ui/file_chooser.rs:728
 msgid "Search results for “{query}”"
 msgstr "Risultati della ricerca per «{query}»"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:610
-#: crates/helix-shell/src/ui/file_chooser.rs:1249
+#: crates/helix-shell/src/ui/file_chooser.rs:730
+#: crates/helix-shell/src/ui/file_chooser.rs:748
+#: crates/helix-shell/src/ui/file_chooser.rs:976
+#: crates/helix-shell/src/ui/file_chooser.rs:1231
+msgid "Other Locations"
+msgstr "Altre posizioni"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:738
+#: crates/helix-shell/src/ui/file_chooser.rs:1497
+#: crates/helix-shell/src/ui/file_chooser.rs:1597
 msgid "Loading…"
 msgstr "Caricamento…"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:617
-#: crates/helix-shell/src/ui/file_chooser.rs:820
-#: crates/helix-shell/src/ui/file_chooser.rs:1050
+#: crates/helix-shell/src/ui/file_chooser.rs:745
+#: crates/helix-shell/src/ui/file_chooser.rs:972
+#: crates/helix-shell/src/ui/file_chooser.rs:1228
 msgid "Recent"
 msgstr "Recenti"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:620
+#: crates/helix-shell/src/ui/file_chooser.rs:750
 msgid "{what}, {n} item"
 msgid_plural "{what}, {n} items"
 msgstr[0] "{what}, {n} elemento"
 msgstr[1] "{what}, {n} elementi"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:988
+#: crates/helix-shell/src/ui/file_chooser.rs:1166
 msgid "Type a file name or location"
 msgstr "Digita un nome di file o una posizione"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:989
+#: crates/helix-shell/src/ui/file_chooser.rs:1167
 msgid "Search files"
 msgstr "Cerca file"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:990
-#: crates/helix-shell/src/ui/file_chooser.rs:1452
+#: crates/helix-shell/src/ui/file_chooser.rs:1168
+#: crates/helix-shell/src/ui/file_chooser.rs:1704
 msgid "New folder name"
 msgstr "Nome della nuova cartella"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1051
+#: crates/helix-shell/src/ui/file_chooser.rs:1229
 msgid "Search for “{query}”"
 msgstr "Cerca «{query}»"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1143
+#: crates/helix-shell/src/ui/file_chooser.rs:1324
 msgid "Size"
 msgstr "Dimensione"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1253
+#: crates/helix-shell/src/ui/file_chooser.rs:1466
+#: crates/helix-shell/src/ui/file_chooser.rs:1756
+msgid "Not mounted"
+msgstr "Non montato"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1501
 msgid "This folder cannot be shown: {error}"
 msgstr "Impossibile mostrare questa cartella: {error}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1256
+#: crates/helix-shell/src/ui/file_chooser.rs:1504
 msgid "Folder is empty"
 msgstr "La cartella è vuota"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1257
+#: crates/helix-shell/src/ui/file_chooser.rs:1505
 msgid "No recent files"
 msgstr "Nessun file recente"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1258
+#: crates/helix-shell/src/ui/file_chooser.rs:1506
 msgid "No results found"
 msgstr "Nessun risultato trovato"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1316
+#: crates/helix-shell/src/ui/file_chooser.rs:1507
+msgid "Trash is empty"
+msgstr "Il cestino è vuoto"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1565
 msgid "No preview"
 msgstr "Nessuna anteprima"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1339
-#: crates/helix-shell/src/ui/file_chooser.rs:1348
-#: crates/helix-shell/src/ui/file_chooser.rs:1517
+#: crates/helix-shell/src/ui/file_chooser.rs:1588
+#: crates/helix-shell/src/ui/file_chooser.rs:1600
+#: crates/helix-shell/src/ui/file_chooser.rs:1775
 msgid "All Files"
 msgstr "Tutti i file"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1397
+#: crates/helix-shell/src/ui/file_chooser.rs:1649
 msgid ""
 "A file named “{name}” already exists in “{folder}”. Replacing it overwrites "
 "its contents."
@@ -4136,77 +4162,89 @@ msgstr ""
 "Un file chiamato «{name}» esiste già in «{folder}». Sostituendolo, il suo "
 "contenuto verrà sovrascritto."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1402
-#: crates/helix-shell/src/ui/file_chooser.rs:1437
+#: crates/helix-shell/src/ui/file_chooser.rs:1654
+#: crates/helix-shell/src/ui/file_chooser.rs:1689
 msgid "Replace File?"
 msgstr "Sostituire il file?"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1415
-#: crates/helix-shell/src/ui/file_chooser.rs:1441
+#: crates/helix-shell/src/ui/file_chooser.rs:1667
+#: crates/helix-shell/src/ui/file_chooser.rs:1693
 msgid "Replace"
 msgstr "Sostituisci"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1439
+#: crates/helix-shell/src/ui/file_chooser.rs:1691
 msgid ""
 "A file named “{name}” already exists. Replacing it overwrites its contents."
 msgstr ""
 "Esiste già un file chiamato «{name}». Sostituendolo, il suo contenuto verrà "
 "sovrascritto."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1447
+#: crates/helix-shell/src/ui/file_chooser.rs:1699
 msgid "Forward"
 msgstr "Avanti"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1468
+#: crates/helix-shell/src/ui/file_chooser.rs:1720
 msgid "New Folder"
 msgstr "Nuova cartella"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1476
+#: crates/helix-shell/src/ui/file_chooser.rs:1722
+msgid "Grid View"
+msgstr "Vista a griglia"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1729
 msgid "Places"
 msgstr "Posizioni"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1478
+#: crates/helix-shell/src/ui/file_chooser.rs:1731
 msgid "Eject {drive}"
 msgstr "Espelli {drive}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1499
+#: crates/helix-shell/src/ui/file_chooser.rs:1752
 msgid "Modified {when}"
 msgstr "Modificato {when}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1518
-#: crates/helix-shell/src/ui/file_chooser.rs:1521
+#: crates/helix-shell/src/ui/file_chooser.rs:1776
+#: crates/helix-shell/src/ui/file_chooser.rs:1779
 msgid "File Type"
 msgstr "Tipo di file"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1737
+#: crates/helix-shell/src/ui/file_chooser.rs:2060
+msgid "The drive could not be mounted: {error}"
+msgstr "Impossibile montare l’unità: {error}"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:2113
 msgid "The folder could not be made: {error}"
 msgstr "Impossibile creare la cartella: {error}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1837
+#: crates/helix-shell/src/ui/file_chooser.rs:2174
+msgid "Mounting {drive}…"
+msgstr "Montaggio di {drive}…"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:2228
 msgid "Type a name for the file."
 msgstr "Digitare un nome per il file."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1856
+#: crates/helix-shell/src/ui/file_chooser.rs:2247
 msgid "That folder does not exist."
 msgstr "La cartella non esiste."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1919
+#: crates/helix-shell/src/ui/file_chooser.rs:2321
 msgid "Type a name for the folder."
 msgstr "Digita un nome per la cartella."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1921
+#: crates/helix-shell/src/ui/file_chooser.rs:2323
 msgid "Folder names cannot contain “/”."
 msgstr "I nomi delle cartelle non possono contenere «/»."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1923
+#: crates/helix-shell/src/ui/file_chooser.rs:2325
 msgid "That name cannot be used."
 msgstr "Quel nome non può essere usato."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1925
+#: crates/helix-shell/src/ui/file_chooser.rs:2327
 msgid "A file or folder with that name already exists."
 msgstr "Esiste già un file o una cartella con quel nome."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1956
+#: crates/helix-shell/src/ui/file_chooser.rs:2358
 msgid "“{name}” was not found."
 msgstr "«{name}» non trovato."
 
@@ -4686,7 +4724,9 @@ msgstr "Finestra senza titolo"
 
 #: data/org.helixdesktop.login-screen-config.policy
 msgid "Authentication is required to change the login screen settings"
-msgstr "È richiesta l'autenticazione per modificare le impostazioni della schermata di accesso"
+msgstr ""
+"È richiesta l'autenticazione per modificare le impostazioni della schermata "
+"di accesso"
 
 #: data/org.helixdesktop.login-screen-config.policy
 msgid "Change the login screen settings"
@@ -4695,7 +4735,9 @@ msgstr "Modifica le impostazioni della schermata di accesso"
 #: data/org.helixdesktop.login-screen-monitors.policy
 msgid ""
 "Authentication is required to use this monitor layout for the login screen"
-msgstr "È richiesta l'autenticazione per usare questa disposizione dei monitor per la schermata di accesso"
+msgstr ""
+"È richiesta l'autenticazione per usare questa disposizione dei monitor per "
+"la schermata di accesso"
 
 #: data/org.helixdesktop.login-screen-monitors.policy
 msgid "Set the login screen's monitor layout"

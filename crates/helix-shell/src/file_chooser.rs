@@ -163,10 +163,31 @@ pub enum Listing {
     Recent,
     /// Files below `dir` matching `query` (and the filter, by name).
     Search { dir: PathBuf, query: String, filter: Option<Filter> },
+    /// The Trash: the home Trash and those of the drives mounted at
+    /// `tops`.
+    Trash { tops: Vec<PathBuf> },
 }
 
 /// How long a listing may take before the dialog says it is loading.
 pub const LOADING_AFTER: std::time::Duration = std::time::Duration::from_millis(200);
+/// A folder being read is handed to the dialog this often.
+pub const BATCH_EVERY: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// The listing the dialog waits for (its serial): a worker reading
+/// another one stops.
+pub static LISTING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Whether listing `serial` is still wanted.
+pub fn still_wanted(serial: u64) -> bool {
+    LISTING.load(std::sync::atomic::Ordering::Relaxed) == serial
+}
+
+/// A test delay from `var` (`<text>:<n>`) for paths holding `<text>`.
+fn test_delay(var: &str, dir: &Path) -> Option<u64> {
+    let v = std::env::var(var).ok()?;
+    let (needle, n) = v.rsplit_once(':')?;
+    dir.to_string_lossy().contains(needle).then(|| n.parse().unwrap_or(0))
+}
 
 /// List what `listing` names (blocking: run it on a worker thread).
 /// With `HELIX_TEST_LIST_DELAY=<text>:<ms>`, folders whose path holds
@@ -174,16 +195,52 @@ pub const LOADING_AFTER: std::time::Duration = std::time::Duration::from_millis(
 pub fn list_blocking(listing: &Listing, home: &Path) -> Result<Vec<Entry>, String> {
     match listing {
         Listing::Folder(dir) => {
-            if let Some((needle, ms)) = std::env::var("HELIX_TEST_LIST_DELAY").ok().and_then(|v| v.rsplit_once(':').map(|(a, b)| (a.to_owned(), b.parse::<u64>().unwrap_or(0)))) {
-                if dir.to_string_lossy().contains(&needle) {
-                    std::thread::sleep(std::time::Duration::from_millis(ms));
-                }
-            }
-            files::list(dir).map_err(|e| e.to_string())
+            let mut out = Vec::new();
+            list_batched(dir, std::time::Duration::MAX, &|| true, &mut |b| out.extend(b))?;
+            Ok(out)
         }
         Listing::Recent => Ok(files::recent_files(home)),
+        Listing::Trash { tops } => Ok(files::trash_entries(home, tops)),
         Listing::Search { .. } => Err("searches are not blocking".into()),
     }
+}
+
+/// Read folder `dir` (its entries' metadata, as [`files::list`]) handing
+/// what was read to `batch` each `every`, and the rest at the end (an
+/// empty folder gives one empty batch); stops, without the rest, once
+/// `wanted` says no. With `HELIX_TEST_LIST_DELAY=<text>:<ms>` folders
+/// whose path holds `<text>` start that much later, and with
+/// `HELIX_TEST_ENTRY_DELAY=<text>:<µs>` each entry takes that long (for
+/// tests of slow folders).
+pub fn list_batched(dir: &Path, every: std::time::Duration, wanted: &dyn Fn() -> bool, batch: &mut dyn FnMut(Vec<Entry>)) -> Result<(), String> {
+    if let Some(ms) = test_delay("HELIX_TEST_LIST_DELAY", dir) {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+    let pace = test_delay("HELIX_TEST_ENTRY_DELAY", dir).map(std::time::Duration::from_micros);
+    let read = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
+    let mut pending = Vec::new();
+    let mut since = std::time::Instant::now();
+    let mut sent = false;
+    for e in read.flatten() {
+        if let Some(pace) = pace {
+            std::thread::sleep(pace);
+        }
+        if let Some(entry) = Entry::at(e.path()) {
+            pending.push(entry);
+        }
+        if since.elapsed() >= every && !pending.is_empty() {
+            if !wanted() {
+                return Ok(());
+            }
+            batch(std::mem::take(&mut pending));
+            sent = true;
+            since = std::time::Instant::now();
+        }
+    }
+    if (!pending.is_empty() || !sent) && wanted() {
+        batch(pending);
+    }
+    Ok(())
 }
 
 // ----- Rows -------------------------------------------------------------
@@ -197,18 +254,25 @@ pub fn rows(entries: &[Entry], mode: Mode, filter: Option<&Filter>, hidden: bool
 
 /// [`rows`], sorting by type as the Type column shows it in `format`.
 pub fn rows_typed(entries: &[Entry], mode: Mode, filter: Option<&Filter>, hidden: bool, sort: files::Sort, format: TypeFormat) -> Vec<usize> {
-    let mut out: Vec<usize> = entries
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| hidden || !e.hidden())
-        .filter(|(_, e)| e.dir || (mode.lists_files() && filter.is_none_or(|f| files::passes(f, &e.name))))
-        .map(|(i, _)| i)
+    let mut keys = files::SortKeys::default();
+    rows_keyed(entries, 0..entries.len(), mode, filter, hidden, sort, format, &mut keys)
+}
+
+/// The rows of `entries[range]` (as [`rows_typed`]), sorted with `keys`
+/// (keyed here for the entries up to the range's end, once each).
+#[allow(clippy::too_many_arguments)]
+pub fn rows_keyed(entries: &[Entry], range: std::ops::Range<usize>, mode: Mode, filter: Option<&Filter>, hidden: bool, sort: files::Sort, format: TypeFormat, keys: &mut files::SortKeys) -> Vec<usize> {
+    let mut out: Vec<usize> = range
+        .clone()
+        .filter(|&i| hidden || !entries[i].hidden())
+        .filter(|&i| entries[i].dir || (mode.lists_files() && filter.is_none_or(|f| files::passes(f, &entries[i].name))))
         .collect();
     let types: Vec<String> = match sort.column {
-        files::SortColumn::Type => entries.iter().map(|e| type_text(e, format)).collect(),
+        files::SortColumn::Type => entries[..range.end].iter().map(|e| type_text(e, format)).collect(),
         _ => Vec::new(),
     };
-    files::sort_rows_typed(entries, &mut out, sort, &types);
+    keys.extend(&entries[..range.end], sort, &types);
+    out.sort_by(|&a, &b| keys.order(entries, sort, a, b));
     out
 }
 
@@ -481,7 +545,44 @@ mod tests {
     use helix_settings::files::{Sort, SortColumn};
 
     fn entry(name: &str, dir: bool) -> Entry {
-        Entry { name: name.into(), path: PathBuf::from("/d").join(name), dir, size: name.len() as u64, modified: 0, content_type: files::fast_content_type(name) }
+        Entry { name: name.into(), path: PathBuf::from("/d").join(name), dir, size: name.len() as u64, modified: 0, content_type: files::fast_content_type(name), origin: None }
+    }
+
+    #[test]
+    fn batches() {
+        let dir = std::env::temp_dir().join(format!("helix-chooser-batches-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("empty")).unwrap();
+        for i in 0..50 {
+            std::fs::write(dir.join(format!("f{i:02}.txt")), "").unwrap();
+        }
+        let sizes = |every: std::time::Duration, wanted: &dyn Fn() -> bool, path: &Path| {
+            let mut got = Vec::new();
+            list_batched(path, every, wanted, &mut |b| got.push(b.len())).unwrap();
+            got
+        };
+        // Everything at the end when the folder is read quickly.
+        assert_eq!(sizes(std::time::Duration::from_secs(60), &|| true, &dir), [51]);
+        // An entry a batch when every moment counts.
+        assert_eq!(sizes(std::time::Duration::ZERO, &|| true, &dir), vec![1; 51]);
+        // Another folder was asked for: reading stops.
+        let left = std::cell::Cell::new(10);
+        let got = sizes(
+            std::time::Duration::ZERO,
+            &|| {
+                left.set(left.get() - 1);
+                left.get() > 0
+            },
+            &dir,
+        );
+        assert_eq!(got.iter().sum::<usize>(), 9, "{got:?}");
+        assert_eq!(sizes(std::time::Duration::ZERO, &|| true, &dir.join("empty")), [0], "one empty batch");
+        assert!(list_batched(&dir.join("missing"), std::time::Duration::ZERO, &|| true, &mut |_| {}).is_err());
+        assert_eq!(list_blocking(&Listing::Folder(dir.clone()), &dir).unwrap().len(), 51);
+        // Cancelled by serial.
+        LISTING.store(7, std::sync::atomic::Ordering::Relaxed);
+        assert!(still_wanted(7) && !still_wanted(6));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -567,7 +668,7 @@ mod tests {
 
     #[test]
     fn types() {
-        let file = |name: &str| Entry { name: name.into(), path: PathBuf::from("/x").join(name), dir: false, size: 1, modified: 0, content_type: files::fast_content_type(name) };
+        let file = |name: &str| Entry { name: name.into(), path: PathBuf::from("/x").join(name), dir: false, size: 1, modified: 0, content_type: files::fast_content_type(name), origin: None };
         let folder = Entry { dir: true, content_type: "inode/directory".into(), ..file("Docs") };
         assert_eq!(type_text(&folder, TypeFormat::Category), "Folder");
         assert_eq!(type_text(&folder, TypeFormat::Mime), "inode/directory");

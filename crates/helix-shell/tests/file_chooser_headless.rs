@@ -42,12 +42,60 @@ fn fill_home(home: &Path, huge: bool) {
     std::fs::write(docs.join("secret.pdf"), "%PDF-1.7\n").unwrap();
     std::fs::set_permissions(docs.join("secret.pdf"), std::os::unix::fs::PermissionsExt::from_mode(0o000)).unwrap();
     std::fs::write(home.join("Downloads/setup-1.deb"), "x").unwrap();
+    // Pictures for the grid, a document whose thumbnail is in the cache
+    // already, a text file and a folder.
+    let pics = home.join("Pictures");
+    std::fs::create_dir_all(pics.join("Album")).unwrap();
+    for (i, rgb) in [[220, 60, 60], [60, 160, 80], [50, 90, 210], [230, 180, 40], [150, 70, 190], [40, 170, 170]].iter().enumerate() {
+        png_file(&pics.join(format!("photo-{}.png", i + 1)), 300, 200, *rgb, &[]);
+    }
+    std::fs::write(pics.join("notes.txt"), "a list").unwrap();
+    let scan = pics.join("scan.pdf");
+    std::fs::write(&scan, "%PDF-1.7\n").unwrap();
+    let uri = helix_settings::thumbnails::uri(&scan);
+    let mtime = std::fs::metadata(&scan).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs().to_string();
+    let normal = home.join(".cache/thumbnails/normal");
+    std::fs::create_dir_all(&normal).unwrap();
+    png_file(&normal.join(helix_settings::thumbnails::cache_name(&uri)), 90, 128, [250, 250, 250], &[("Thumb::URI", &uri), ("Thumb::MTime", &mtime)]);
+    // The Trash: a file trashed from Documents.
+    let trash = home.join(".local/share/Trash");
+    std::fs::create_dir_all(trash.join("files")).unwrap();
+    std::fs::create_dir_all(trash.join("info")).unwrap();
+    std::fs::write(trash.join("files/old notes.txt"), "old").unwrap();
+    std::fs::write(trash.join("info/old notes.txt.trashinfo"), format!("[Trash Info]\nPath={}/Documents/old%20notes.txt\nDeletionDate=2026-11-01T10:00:00\n", home.display())).unwrap();
     if huge {
         let big = home.join("Downloads/Huge export");
         std::fs::create_dir_all(&big).unwrap();
         for i in 1..=6000 {
             std::fs::write(big.join(format!("record-{i:05}.csv")), "row\n").unwrap();
         }
+    }
+}
+
+/// A `w`×`h` PNG of one color, with text chunks.
+fn png_file(path: &Path, w: u32, h: u32, rgb: [u8; 3], text: &[(&str, &str)]) {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, w, h);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        for (k, v) in text {
+            encoder.add_text_chunk((*k).to_owned(), (*v).to_owned()).unwrap();
+        }
+        let mut writer = encoder.write_header().unwrap();
+        // A lighter band across the middle, so the picture reads as one.
+        let data: Vec<u8> = (0..h).flat_map(|y| (0..w).flat_map(move |_| if (h / 3..2 * h / 3).contains(&y) { rgb.map(|c| c / 2 + 120) } else { rgb })).collect();
+        writer.write_image_data(&data).unwrap();
+    }
+    std::fs::write(path, out).unwrap();
+}
+
+/// Keep the screen as `name` in `$HELIX_CHOOSER_SNAPSHOTS`, when set.
+fn keep(session: &HeadlessSession, name: &str) {
+    if let Some(dir) = std::env::var_os("HELIX_CHOOSER_SNAPSHOTS") {
+        let _ = std::fs::create_dir_all(&dir);
+        std::thread::sleep(Duration::from_millis(300));
+        session.keep_snapshot(&Path::new(&dir).join(name));
     }
 }
 
@@ -456,4 +504,84 @@ fn live_places_and_resizing() {
     s.input("tap 1");
     let (response, _) = wait_answer(answer);
     assert_eq!(response, 1, "Escape cancels");
+}
+
+/// The grid with thumbnails (pictures made and written into the shared
+/// cache, a document's taken from it), `view-type` written; the Trash
+/// (opening a file from it) and Other Locations (helixdesktop/desktop#118).
+#[test]
+fn grid_trash_and_other_locations() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(mut s) = start((1280, 800), SETTINGS, Vec::new(), false) else { return };
+    let pics = s.home().join("Pictures");
+    let answer = choose(&s, "open", &pics, "");
+    assert!(wait_lines(&s, &["file chooser listed", "entries=9 "], 1), "Pictures listed:\n{}", s.log());
+    keep(&s, "files-list.png");
+    click_part(&mut s, "Files(ViewToggle)");
+    assert!(wait_lines(&s, &["file chooser view", "grid=true"], 1), "{}", s.log());
+    // Six pictures and the document; the folder and the text file have none.
+    assert!(wait_lines(&s, &["file chooser thumbnail", "made=true"], 7), "thumbnails:\n{}", s.log());
+    let normal = s.home().join(".cache/thumbnails/normal");
+    let stored = std::fs::read_dir(&normal).unwrap().count();
+    assert_eq!(stored, 7, "six pictures' thumbnails written beside the document's");
+    let keyfile = std::fs::read_to_string(s.home().join(".config/glib-2.0/settings/keyfile")).unwrap();
+    assert!(keyfile.contains("view-type='grid'"), "{keyfile}");
+    keep(&s, "files-grid.png");
+    // Arrow keys move through the cells; Down goes a line down.
+    s.input("tap 106\ntap 108");
+    assert!(wait_lines(&s, &["current row current="], 2), "{}", s.log());
+
+    // The Trash (after the standard folders): its file, from Documents.
+    click_part(&mut s, "Files(Place(8))");
+    assert!(wait_lines(&s, &["file chooser folder", "shown=Trash"], 1), "{}", s.log());
+    assert!(wait_lines(&s, &["file chooser listed", "entries=1 ", "old notes.txt"], 1), "the trashed file:\n{}", s.log());
+    keep(&s, "files-trash-grid.png");
+    s.input("tap 29 2");
+    assert!(wait_lines(&s, &["file chooser view", "grid=false"], 1), "Ctrl+1:\n{}", s.log());
+    keep(&s, "files-trash-list.png");
+
+    // Other Locations (last): the computer at least.
+    click_part(&mut s, "Files(Place(10))");
+    assert!(wait_lines(&s, &["file chooser other locations"], 1), "{}", s.log());
+    keep(&s, "files-other-locations.png");
+    // Back to the Trash: a double-click opens the trashed file.
+    click_part(&mut s, "Files(Place(8))");
+    assert!(wait_lines(&s, &["file chooser listed", "old notes.txt"], 2), "{}", s.log());
+    let row = part(&s, "Files(Row(0))");
+    click(&mut s, row);
+    click(&mut s, row);
+    let (response, results) = wait_answer(answer);
+    assert_eq!((response, paths(&results)), (0, vec![s.home().join(".local/share/Trash/files/old notes.txt")]));
+}
+
+/// A folder read slowly comes in batches, shown as they come, the first
+/// row staying the current one; the touchpad flings the list on after
+/// the fingers lift (helixdesktop/desktop#118).
+#[test]
+fn batches_and_fling() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(mut s) = start((1280, 720), SETTINGS, vec![("HELIX_TEST_ENTRY_DELAY", "Huge export:250")], true) else { return };
+    let answer = choose(&s, "open", &s.home().join("Downloads/Huge export"), "");
+    assert!(wait_lines(&s, &["file chooser batch"], 3), "batches:\n{}", s.log());
+    let first = s.log().lines().find(|l| l.contains("file chooser batch")).unwrap().to_owned();
+    assert!(!first.contains("rows=6000"), "the first batch is not the whole folder: {first}");
+    keep(&s, "files-batches.png");
+    assert!(wait_lines(&s, &["file chooser listed", "rows=6000", "current=Some(\"record-00001.csv\")"], 1), "all of it, the first row current:\n{}", s.log());
+    let batches = count(&s, "file chooser batch");
+    eprintln!("{batches} batches");
+    // Eight finger movements of 30 px, 10 ms apart, then the lift.
+    let body = part(&s, "Files(List)");
+    s.input(&format!("move {} {}", body.0, body.1));
+    for _ in 0..8 {
+        s.input("finger 0 30");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    s.input("finger stop");
+    assert!(wait_lines(&s, &["file chooser fling", "velocity="], 1), "a fling:\n{}", s.log());
+    assert!(wait_lines(&s, &["file chooser fling ended"], 1), "{}", s.log());
+    let ended = s.log().lines().find(|l| l.contains("file chooser fling ended")).unwrap().to_owned();
+    let scroll: f64 = ended.split("scroll=").nth(1).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap();
+    assert!(scroll > 240.0 + 100.0, "the list went on past the fingers' 240 px: {ended}");
+    s.input("tap 1");
+    assert_eq!(wait_answer(answer).0, 1);
 }

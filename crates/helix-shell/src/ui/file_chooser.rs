@@ -8,8 +8,10 @@
 //! comes from the screen's size alone, so the dialog neither moves nor
 //! changes size between folders; only the rows that show are drawn.
 //! Modelled on GTK 4's file chooser: a path bar, places, a column list
-//! (name, size, modified) sorted by clicking the headers, type-ahead,
-//! double-click, a file type menu, and in Save mode the name at the top.
+//! (name, size, modified) sorted by clicking the headers or a grid of
+//! thumbnails, type-ahead, double-click, a file type menu, and in Save
+//! mode the name at the top. A folder arrives in batches as it is read;
+//! the touchpad scrolls the list on after the fingers lift.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -22,6 +24,7 @@ use tokio::sync::oneshot;
 
 use super::{accent, baseline, label, physical, theme, Canvas, DialogKind, DialogState, Overlay, OverlayHit, Rect, Ui, DIM_FG, ERROR_TEXT, FG, SCRIM};
 use crate::file_chooser::{self as model, Chosen, Listing, Mode, Options, Request, TextEdit};
+use crate::kinetic::Kinetic;
 use crate::text::Text;
 use helix_draw::theme::size;
 use helix_draw::Image;
@@ -76,6 +79,8 @@ pub(super) enum FilesHit {
     SidebarEdge,
     /// The eject button of a place (a removable drive).
     Eject(usize),
+    /// The button switching between the list and the grid.
+    ViewToggle,
 }
 
 /// Which edges a [`FilesHit::Resize`] moves.
@@ -97,6 +102,20 @@ pub(super) enum Shown {
     Folder(PathBuf),
     Recent,
     Search { dir: PathBuf, query: String },
+    Trash,
+    /// Other Locations: the computer and its drives and volumes.
+    Other,
+}
+
+/// A row of Other Locations: the computer, a mounted drive or share
+/// (its folder), or a volume that can be mounted (`root`: its
+/// `volume:` key).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct OtherItem {
+    pub name: String,
+    pub path: Option<PathBuf>,
+    pub root: String,
+    pub icon: &'static str,
 }
 
 /// Where the keys go.
@@ -138,6 +157,8 @@ pub(super) struct ChooserSettings {
     /// px; `None`: from the screen).
     pub window_size: Option<(i32, i32)>,
     pub sidebar_width: Option<i32>,
+    /// `view-type` `grid`: a grid of thumbnails, else the list.
+    pub grid: bool,
 }
 
 impl Default for ChooserSettings {
@@ -154,6 +175,7 @@ impl Default for ChooserSettings {
             with_time: false,
             window_size: None,
             sidebar_width: None,
+            grid: false,
         }
     }
 }
@@ -200,6 +222,9 @@ impl ChooserSettings {
             if has("sidebar-width") {
                 out.sidebar_width = Some(s.int("sidebar-width")).filter(|w| *w > 0);
             }
+            if has("view-type") {
+                out.grid = s.string("view-type") == "grid";
+            }
         }
         if helix_settings::has_schema(MOUSE_SCHEMA) {
             let s = helix_settings::Settings::new(MOUSE_SCHEMA);
@@ -219,6 +244,13 @@ impl ChooserSettings {
         let _ = s.set_string("sort-column", self.sort.column.key());
         let _ = s.set_string("sort-order", if self.sort.ascending { "ascending" } else { "descending" });
         let _ = s.set_boolean("show-hidden", self.hidden);
+    }
+
+    /// Store the list or grid as GTK does.
+    fn store_view(&self) {
+        if helix_settings::has_schema(GTK_SCHEMA) && helix_settings::Settings::new(GTK_SCHEMA).has_key("view-type") {
+            let _ = helix_settings::Settings::new(GTK_SCHEMA).set_string("view-type", if self.grid { "grid" } else { "list" });
+        }
     }
 
     /// Store the dialog's size and the places' width as GTK does.
@@ -307,6 +339,23 @@ pub(super) struct ChooserView {
     pub mounts: Vec<(PathBuf, String)>,
     /// When the places were last asked for.
     places_asked: Option<std::time::Instant>,
+    /// The entries' sort keys (kept while a folder arrives in batches).
+    keys: files::SortKeys,
+    /// The current row was chosen by the dialog (the first one), not the
+    /// user: it stays the first one as more of the folder arrives.
+    auto_current: bool,
+    /// From the last paint: items a line holds (1 in the list) and the
+    /// list's row height (for the wheel).
+    cols: usize,
+    notch_h: i32,
+    /// Touchpad scrolling of the list, and when the fling last moved it.
+    pub kinetic: Kinetic,
+    fling_at: Option<std::time::Instant>,
+    /// The grid's thumbnails, and those last asked for.
+    pub thumbs: crate::thumbs::MemoryCache,
+    thumbs_asked: Vec<String>,
+    /// Other Locations' rows (the entries shown, in order).
+    pub other: Vec<OtherItem>,
 }
 
 impl ChooserView {
@@ -368,6 +417,15 @@ impl ChooserView {
             resizing: None,
             mounts: Vec::new(),
             places_asked: Some(std::time::Instant::now()),
+            keys: files::SortKeys::default(),
+            auto_current: false,
+            cols: 1,
+            notch_h: 32,
+            kinetic: Kinetic::default(),
+            fling_at: None,
+            thumbs: crate::thumbs::MemoryCache::new(crate::thumbs::MEMORY_BUDGET),
+            thumbs_asked: Vec::new(),
+            other: Vec::new(),
         }
     }
 
@@ -406,27 +464,36 @@ impl ChooserView {
         self.current.and_then(|r| self.rows.get(r)).and_then(|i| self.entries.get(*i))
     }
 
+    /// How the rows are listed: the mode (Recent, search results and
+    /// the Trash list files whatever is chosen) and the sort.
+    fn listed_as(&self) -> (Mode, Sort) {
+        match self.shown {
+            Shown::Folder(_) => (self.opts.mode, self.settings.sort),
+            // Newest first.
+            Shown::Recent => (Mode::Open, Sort { column: SortColumn::Modified, ascending: false, folders_first: false }),
+            Shown::Search { .. } | Shown::Trash => (Mode::Open, self.settings.sort),
+            // Other Locations as they come (the computer first).
+            Shown::Other => (self.opts.mode, self.settings.sort),
+        }
+    }
+
     /// Work the rows out again (after a listing, a filter, the sort or
     /// hidden files changed), keeping the current entry.
     pub(super) fn refresh_rows(&mut self) {
         let keep = self.reselect.take().or_else(|| self.current_entry().map(|e| e.name.clone()));
-        let mode = match self.shown {
-            // Recent files and search results are files whatever is chosen.
-            Shown::Folder(_) => self.opts.mode,
-            _ => Mode::Open,
-        };
-        let sort = match self.shown {
-            Shown::Folder(_) => self.settings.sort,
-            // Newest first; search results as found.
-            Shown::Recent => Sort { column: SortColumn::Modified, ascending: false, folders_first: false },
-            Shown::Search { .. } => self.settings.sort,
-        };
+        let (mode, sort) = self.listed_as();
         let filter = self.filter_now().cloned();
-        self.rows = model::rows_typed(&self.entries, mode, filter.as_ref(), self.settings.hidden, sort, self.settings.type_format);
+        self.rows = if self.shown == Shown::Other {
+            (0..self.entries.len()).collect()
+        } else {
+            model::rows_keyed(&self.entries, 0..self.entries.len(), mode, filter.as_ref(), self.settings.hidden, sort, self.settings.type_format, &mut self.keys)
+        };
         self.picked.retain(|e| self.rows.contains(e));
         self.current = keep.and_then(|n| self.rows.iter().position(|&i| self.entries[i].name == n));
+        self.auto_current = false;
         if self.current.is_none() && matches!(self.opts.mode, Mode::Open) && !self.rows.is_empty() {
             self.current = Some(0);
+            self.auto_current = true;
         }
         self.anchor = self.current;
         let max = self.max_scroll();
@@ -434,8 +501,63 @@ impl ChooserView {
         self.keep_in_view();
     }
 
+    /// More of the folder came: its rows go where they belong (merged
+    /// into those shown, not sorting everything again), the current and
+    /// picked entries stay, and so does what is at the top of the list
+    /// once the user scrolled. A folder to reselect is selected when it
+    /// comes.
+    pub(super) fn add_batch(&mut self, batch: Vec<Entry>) {
+        if batch.is_empty() {
+            return;
+        }
+        let from = self.entries.len();
+        self.entries.extend(batch);
+        let (mode, sort) = self.listed_as();
+        let filter = self.filter_now().cloned();
+        let new = model::rows_keyed(&self.entries, from..self.entries.len(), mode, filter.as_ref(), self.settings.hidden, sort, self.settings.type_format, &mut self.keys);
+        // What the list shows at its top, and where.
+        let line = f64::from(self.row_h.max(1));
+        let top_row = (self.scroll / line) as usize * self.cols.max(1);
+        let top = (self.scroll > 0.0).then(|| self.rows.get(top_row).copied()).flatten().map(|e| (e, self.scroll - (top_row / self.cols.max(1)) as f64 * line));
+        let current = self.current.and_then(|r| self.rows.get(r).copied());
+        let (entries, keys) = (&self.entries, &self.keys);
+        files::merge_rows(&mut self.rows, new, |a, b| keys.order(entries, sort, a, b));
+        let row_of = |e: usize| self.rows.iter().position(|&x| x == e);
+        // (Only while the user has not chosen a row meanwhile.)
+        if !self.auto_current && current.is_some() {
+            self.reselect = None;
+        }
+        if let Some(name) = self.reselect.clone() {
+            if let Some(r) = self.rows.iter().position(|&i| self.entries[i].name == name) {
+                self.reselect = None;
+                self.current = Some(r);
+                self.auto_current = false;
+                self.anchor = self.current;
+                self.keep_in_view();
+                return;
+            }
+        }
+        if self.auto_current || (self.current.is_none() && matches!(self.opts.mode, Mode::Open)) {
+            self.current = (!self.rows.is_empty()).then_some(0);
+            self.auto_current = self.current.is_some();
+        } else {
+            self.current = current.and_then(row_of);
+        }
+        self.anchor = self.current;
+        if let Some((e, offset)) = top {
+            if let Some(r) = row_of(e) {
+                self.scroll = ((r / self.cols.max(1)) as f64 * line + offset).clamp(0.0, self.max_scroll());
+            }
+        }
+    }
+
+    /// Lines of the list (rows, or rows of the grid).
+    fn lines(&self) -> usize {
+        self.rows.len().div_ceil(self.cols.max(1))
+    }
+
     fn content_h(&self) -> f64 {
-        self.rows.len() as f64 * f64::from(self.row_h)
+        self.lines() as f64 * f64::from(self.row_h)
     }
 
     fn max_scroll(&self) -> f64 {
@@ -445,6 +567,7 @@ impl ChooserView {
     /// Scroll so the current row shows whole.
     fn keep_in_view(&mut self) {
         let Some(r) = self.current else { return };
+        let r = r / self.cols.max(1);
         let (top, bottom) = (r as f64 * f64::from(self.row_h), (r + 1) as f64 * f64::from(self.row_h));
         if top < self.scroll {
             self.scroll = top;
@@ -458,9 +581,9 @@ impl ChooserView {
         self.scroll = (self.scroll + px).clamp(0.0, self.max_scroll());
     }
 
-    /// Rows a page holds.
+    /// Rows a page holds (in the grid, the cells of the lines that show).
     fn page(&self) -> usize {
-        usize::try_from(self.body_h / self.row_h.max(1)).unwrap_or(1).max(1)
+        usize::try_from(self.body_h / self.row_h.max(1)).unwrap_or(1).max(1) * self.cols.max(1)
     }
 
     /// Make row `r` current; with `extend` (Shift) pick the rows from the
@@ -471,6 +594,7 @@ impl ChooserView {
             return;
         }
         self.current = Some(r);
+        self.auto_current = false;
         if self.opts.multiple {
             let entry = self.rows[r];
             let file = !self.entries[entry].dir;
@@ -535,6 +659,8 @@ impl ChooserView {
     pub(super) fn current_place(&self) -> Option<usize> {
         match &self.shown {
             Shown::Recent => self.opts.places.iter().position(|p| p.kind == PlaceKind::Recent),
+            Shown::Trash => self.opts.places.iter().position(|p| p.kind == PlaceKind::Trash),
+            Shown::Other => self.opts.places.iter().position(|p| p.kind == PlaceKind::Other),
             Shown::Search { .. } => None,
             Shown::Folder(f) => self
                 .opts
@@ -578,7 +704,7 @@ impl ChooserView {
         let folder = match &self.shown {
             Shown::Folder(f) => f.clone(),
             Shown::Search { dir, .. } => dir.clone(),
-            Shown::Recent => paths.first().and_then(|p| p.parent()).map_or_else(|| self.home.clone(), Path::to_path_buf),
+            Shown::Recent | Shown::Trash | Shown::Other => paths.first().and_then(|p| p.parent()).map_or_else(|| self.home.clone(), Path::to_path_buf),
         };
         Chosen { paths, folder, filter: self.filter, check: self.check }
     }
@@ -600,6 +726,8 @@ impl ChooserView {
             }
             Shown::Recent => tr("Recent Files").to_owned(),
             Shown::Search { query, .. } => trf!("Search results for “{query}”", query = query),
+            Shown::Trash => tr("Trash").to_owned(),
+            Shown::Other => tr("Other Locations").to_owned(),
         }
     }
 
@@ -609,13 +737,15 @@ impl ChooserView {
         if self.loading.is_some_and(|(_, since)| now.duration_since(since) >= model::LOADING_AFTER) {
             return tr("Loading…").to_owned();
         }
-        if self.loading.is_some() {
+        if self.loading.is_some() && self.rows.is_empty() {
             return String::new();
         }
         let what = match &self.shown {
             Shown::Folder(f) => f.file_name().map_or_else(|| f.display().to_string(), |n| n.to_string_lossy().into_owned()),
             Shown::Recent => tr("Recent").to_owned(),
             Shown::Search { query, .. } => query.clone(),
+            Shown::Trash => tr("Trash").to_owned(),
+            Shown::Other => tr("Other Locations").to_owned(),
         };
         trnf!("{what}, {n} item", "{what}, {n} items", self.rows.len(), what = what)
     }
@@ -638,6 +768,8 @@ pub(super) struct Layout {
     pub forward: Rect,
     /// The path bar (or its field).
     pub bar: Rect,
+    /// The list / grid switch.
+    pub view: Rect,
     pub search: Option<Rect>,
     pub new_folder: Option<Rect>,
     /// Save: the name field (its label left of it).
@@ -694,6 +826,7 @@ pub(super) fn layout(w: i32, h: i32, k: f32, wants: Wants) -> Layout {
     };
     let new_folder = button(wants.new_folder);
     let search = button(wants.search);
+    let view = button(true).unwrap_or_default();
     let bar_x = forward.x + th + 8;
     let bar = Rect { x: bar_x, y: ty, w: (right - 4 - bar_x).max(0), h: th };
     let mut below = ty + th;
@@ -724,7 +857,26 @@ pub(super) fn layout(w: i32, h: i32, k: f32, wants: Wants) -> Layout {
     let header_h = g(28).min(ch);
     let header = Rect { x: lx, y: content_top, w: list_w, h: header_h };
     let body = Rect { x: lx, y: content_top + header_h, w: list_w, h: ch - header_h };
-    Layout { dialog: Rect { x: dx, y: dy, w: dw, h: dh }, title_base, back, forward, bar, search, new_folder, name, sidebar, header, body, row_h: g(32), preview, footer, cancel, accept }
+    Layout { dialog: Rect { x: dx, y: dy, w: dw, h: dh }, title_base, back, forward, bar, view, search, new_folder, name, sidebar, header, body, row_h: g(32), preview, footer, cancel, accept }
+}
+
+/// The grid's cells in the list's `body` at text scale `k`: how many a
+/// line holds, their size, and the thumbnail's (square) side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Grid {
+    pub cols: usize,
+    pub cell_w: i32,
+    pub cell_h: i32,
+    pub thumb: i32,
+}
+
+pub(super) fn grid(body: Rect, k: f32) -> Grid {
+    let g = |v: i32| (v as f32 * k).round() as i32;
+    // Room for the scrollbar is always kept.
+    let room = (body.w - 8 - 12).max(1);
+    let cols = usize::try_from(room / g(120).max(1)).unwrap_or(1).max(1);
+    let thumb = g(80);
+    Grid { cols, cell_w: room / cols as i32, cell_h: 8 + thumb + 6 + 2 * g(18) + 8, thumb }
 }
 
 /// `s` shortened in its middle to fit `room` (keeping the end, so the
@@ -794,10 +946,10 @@ fn columns(body: Rect, k: f32, second_w: i32, has_second: bool, modified_w: i32,
 /// The places' groups (a separator between groups).
 fn place_group(kind: PlaceKind) -> u8 {
     match kind {
-        PlaceKind::Recent | PlaceKind::Home | PlaceKind::Standard => 0,
+        PlaceKind::Recent | PlaceKind::Home | PlaceKind::Standard | PlaceKind::Trash => 0,
         PlaceKind::Bookmark => 1,
         PlaceKind::Drive | PlaceKind::Network => 2,
-        PlaceKind::Computer => 3,
+        PlaceKind::Computer | PlaceKind::Other => 3,
     }
 }
 
@@ -820,6 +972,8 @@ pub(super) fn place_label(p: &Place) -> String {
         PlaceKind::Recent => tr("Recent").to_owned(),
         PlaceKind::Home => tr("Home").to_owned(),
         PlaceKind::Computer => tr("Computer").to_owned(),
+        PlaceKind::Trash => tr("Trash").to_owned(),
+        PlaceKind::Other => tr("Other Locations").to_owned(),
         _ => p.label.clone(),
     }
 }
@@ -835,6 +989,8 @@ fn place_icon(p: &Place, home: &Path) -> &'static str {
         PlaceKind::Drive => "drive-removable-media-symbolic",
         PlaceKind::Network => "folder-remote-symbolic",
         PlaceKind::Bookmark => "folder-symbolic",
+        PlaceKind::Trash => "user-trash-symbolic",
+        PlaceKind::Other => "list-add-symbolic",
         PlaceKind::Standard if special(D::Desktop) => "user-desktop-symbolic",
         PlaceKind::Standard if special(D::Documents) => "folder-documents-symbolic",
         PlaceKind::Standard if special(D::Downloads) => "folder-download-symbolic",
@@ -845,12 +1001,30 @@ fn place_icon(p: &Place, home: &Path) -> &'static str {
     }
 }
 
+/// [`Paint::icon`]'s color for the theme's full-color icon (the names
+/// to try, separated by commas).
+pub(super) const FULL_COLOR: u32 = u32::MAX;
+
+/// The theme icons for an entry's type (comma-separated, best first), as
+/// GIO names them.
+pub(super) fn type_icons(entry: &Entry) -> String {
+    use gio::prelude::*;
+    if entry.dir {
+        return "folder".into();
+    }
+    let icon = gio::content_type_get_icon(&entry.content_type);
+    let mut names: Vec<String> = icon.downcast_ref::<gio::ThemedIcon>().map(|t| t.names().iter().map(|n| n.to_string()).filter(|n| !n.ends_with("-symbolic")).collect()).unwrap_or_default();
+    names.push("text-x-generic".into());
+    names.join(",")
+}
+
 /// Fonts and icons for painting.
 pub(super) struct Paint<'a> {
     pub text: Option<&'a Text>,
     pub bold: Option<&'a Text>,
-    /// A symbolic icon by name, in a color (`None` while it loads).
-    pub icon: &'a mut dyn FnMut(&str, u32) -> Option<Image>,
+    /// An icon by name, in a color, `px` big (`None` while it loads): a
+    /// symbolic one, or with [`FULL_COLOR`] the theme's own.
+    pub icon: &'a mut dyn FnMut(&str, u32, u32) -> Option<Image>,
     pub now: std::time::Instant,
     /// Unix seconds now (for the dates).
     pub now_unix: i64,
@@ -912,7 +1086,7 @@ fn icon_button(canvas: &mut Canvas, p: &mut Paint<'_>, r: Rect, icon: &str, look
         theme::flat(canvas, rect, theme::RADIUS_BUTTON, look);
     }
     let color = if off { theme::disabled_text() } else { FG };
-    if let Some(img) = (p.icon)(icon, color) {
+    if let Some(img) = (p.icon)(icon, color, 16) {
         canvas.image(f64::from(r.x + (r.w - 16) / 2), f64::from(r.y + (r.h - 16) / 2), 16.0, 16.0, &img);
     }
     if focused {
@@ -982,6 +1156,10 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
         icon_button(canvas, p, r, "folder-new-symbolic", theme::Look { on, ..look(FilesHit::NewFolder) }, false, false);
         hits.push((r, hit(FilesHit::NewFolder)));
     }
+    // The switch shows what it switches to.
+    let switch_icon = if view.settings.grid { "view-list-symbolic" } else { "view-grid-symbolic" };
+    icon_button(canvas, p, l.view, switch_icon, look(FilesHit::ViewToggle), false, false);
+    hits.push((l.view, hit(FilesHit::ViewToggle)));
     let bar = l.bar;
     if let Some((what, edit)) = &view.field {
         let placeholder = match what {
@@ -1034,7 +1212,7 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
                     let mut tx = r.x + 10;
                     if i == 0 {
                         let icon = if crumbs[0].1 == view.home { "user-home-symbolic" } else { "drive-harddisk-symbolic" };
-                        if let Some(img) = (p.icon)(icon, FG) {
+                        if let Some(img) = (p.icon)(icon, FG, 16) {
                             canvas.image(f64::from(tx), f64::from(r.y + (r.h - 16) / 2), 16.0, 16.0, &img);
                         }
                         tx += 22;
@@ -1045,17 +1223,19 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
                     x += cw + 4;
                 }
             }
-            Shown::Recent | Shown::Search { .. } => {
+            Shown::Recent | Shown::Search { .. } | Shown::Trash | Shown::Other => {
                 let (icon, lab) = match &view.shown {
                     Shown::Recent => ("document-open-recent-symbolic", tr("Recent").to_owned()),
                     Shown::Search { query, .. } => ("edit-find-symbolic", trf!("Search for “{query}”", query = query)),
+                    Shown::Trash => ("user-trash-symbolic", tr("Trash").to_owned()),
+                    Shown::Other => ("list-add-symbolic", tr("Other Locations").to_owned()),
                     Shown::Folder(_) => unreachable!(),
                 };
                 let px = size::LABEL;
                 let lw = bold.map_or(80, |t| t.width(&lab, px).ceil() as i32).min(bar.w - 40);
                 let r = Rect { x: bar.x, y: bar.y, w: lw + 42, h: bar.h };
                 theme::control_round(canvas, (f64::from(r.x), f64::from(r.y), f64::from(r.w), f64::from(r.h)), theme::RADIUS_BUTTON, theme::Look::default());
-                if let Some(img) = (p.icon)(icon, FG) {
+                if let Some(img) = (p.icon)(icon, FG, 16) {
                     canvas.image(f64::from(r.x + 10), f64::from(r.y + (r.h - 16) / 2), 16.0, 16.0, &img);
                 }
                 label(bold, canvas, &lab, (r.x + 32) as f32, baseline(text, r.y, r.h, px), px, FG, lw as f32);
@@ -1089,7 +1269,7 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
         let lk = theme::Look { on, ..look(FilesHit::Place(i)) };
         theme::row(canvas, r.x, r.y + 1, r.w, r.h - 2, lk);
         let color = theme::control_text(lk);
-        if let Some(img) = (p.icon)(place_icon(place, &view.home), color) {
+        if let Some(img) = (p.icon)(place_icon(place, &view.home), color, 16) {
             canvas.image(f64::from(r.x + 10), f64::from(r.y + (r.h - 16) / 2), 16.0, 16.0, &img);
         }
         // Removable drives and network places: an eject button at the
@@ -1106,7 +1286,7 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
             if elk.hovered || elk.pressed {
                 theme::flat(canvas, (f64::from(e.x), f64::from(e.y), f64::from(e.w), f64::from(e.h)), theme::RADIUS_BUTTON, elk);
             }
-            if let Some(img) = (p.icon)("media-eject-symbolic", color) {
+            if let Some(img) = (p.icon)("media-eject-symbolic", color, 16) {
                 canvas.image(f64::from(e.x + (e.w - 16) / 2), f64::from(e.y + (e.h - 16) / 2), 16.0, 16.0, &img);
             }
             if visible(e).h > 0 {
@@ -1132,11 +1312,12 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
     let head = l.header;
     theme::well(canvas, head.x, head.y, head.w, head.h + body.h);
     let location = !matches!(view.shown, Shown::Folder(_));
+    let other = view.shown == Shown::Other;
     let second_w = if location { g(170) } else { g(84) };
     // Dates with the time are wider, and so are descriptions and MIME
     // types than categories (longer ones are cut).
     let modified_w = if view.settings.with_time { g(168) } else { g(118) };
-    let type_w = view.settings.type_column.then(|| if view.settings.type_format == model::TypeFormat::Category { g(104) } else { g(170) });
+    let type_w = (view.settings.type_column && !other).then(|| if view.settings.type_format == model::TypeFormat::Category { g(104) } else { g(170) });
     let cols = columns(body, k, second_w, location || view.settings.size_column, modified_w, type_w);
     let col_label = |c: SortColumn| match c {
         SortColumn::Name => tr("Name"),
@@ -1152,10 +1333,11 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
     if let Some((x, cw)) = cols.kind {
         header_cols.push((SortColumn::Type, x, cw, false));
     }
-    if let Some((x, cw)) = cols.modified {
+    // (Other Locations' drives have no date.)
+    if let Some((x, cw)) = cols.modified.filter(|_| !other) {
         header_cols.push((SortColumn::Modified, x, cw, false));
     }
-    let sort_on = matches!(view.shown, Shown::Folder(_) | Shown::Search { .. });
+    let sort_on = matches!(view.shown, Shown::Folder(_) | Shown::Search { .. } | Shown::Trash);
     for (c, x, cw, right) in &header_cols {
         let r = Rect { x: x - 4, y: head.y, w: cw + 8, h: head.h };
         let lk = look(FilesHit::Column(*c));
@@ -1175,11 +1357,15 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
         }
     }
     theme::separator(canvas, head.x + 6, head.y + head.h - 1, head.w - 12);
-    let rh = l.row_h;
-    let content = view.rows.len() as i32 * rh;
+    // The list's rows, or the grid's lines of cells.
+    let cells = grid(body, k);
+    let (per_line, rh) = if view.settings.grid { (cells.cols, cells.cell_h) } else { (1, l.row_h) };
+    let lines = view.rows.len().div_ceil(per_line);
+    let content = lines as i32 * rh;
     let scroll = view.scroll.round() as i32;
-    let first = usize::try_from(scroll / rh.max(1)).unwrap_or(0).min(view.rows.len());
-    let last = (usize::try_from((scroll + body.h) / rh.max(1)).unwrap_or(0) + 1).min(view.rows.len());
+    let first_line = usize::try_from(scroll / rh.max(1)).unwrap_or(0).min(lines);
+    let last_line = (usize::try_from((scroll + body.h) / rh.max(1)).unwrap_or(0) + 1).min(lines);
+    let (first, last) = (first_line * per_line, (last_line * per_line).min(view.rows.len()));
     // The scrollbar (before the rows: it takes presses first).
     let bar_track = (content > body.h).then(|| {
         let track = Rect { x: body.x + body.w - 10, y: body.y + 4, w: 6, h: body.h - 8 };
@@ -1194,7 +1380,65 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
     let clip = canvas.push_clip(body.x, body.y, body.w, body.h);
     let list_focused = view.focus == Focus::List && !modal;
     let selected = |r: usize| if view.opts.multiple { view.picked.contains(&view.rows[r]) } else { view.current == Some(r) };
-    for r in first..last {
+    let item_icon = |e: &Entry, i: usize| if other { view.other.get(i).map_or("folder-symbolic", |o| o.icon).to_owned() } else { files::icon_name(e) };
+    if view.settings.grid {
+        for r in first..last {
+            let i = view.rows[r];
+            let e = &view.entries[i];
+            let (line, col) = (r / per_line, r % per_line);
+            let cell = Rect { x: body.x + 4 + col as i32 * cells.cell_w, y: body.y + line as i32 * rh - scroll, w: cells.cell_w, h: rh };
+            let inner = Rect { x: cell.x + 3, y: cell.y + 3, w: cell.w - 6, h: cell.h - 6 };
+            let lk = theme::Look { on: selected(r), ..look(FilesHit::Row(r)) };
+            theme::row(canvas, inner.x, inner.y, inner.w, inner.h, lk);
+            if list_focused && view.current == Some(r) {
+                canvas.round_outline(f64::from(inner.x + 1), f64::from(inner.y + 1), f64::from(inner.w - 2), f64::from(inner.h - 2), theme::RADIUS_ROW - 1.0, 1.5, if lk.on { theme::control_text(lk) } else { FG });
+            }
+            let color = theme::control_text(lk);
+            // The thumbnail, else the type's icon.
+            let tb = Rect { x: cell.x + (cell.w - cells.thumb) / 2, y: cell.y + 8, w: cells.thumb, h: cells.thumb };
+            let thumb = (!other).then(|| view.thumbs.peek(&e.path.to_string_lossy())).flatten();
+            match thumb {
+                Some(img) if img.width > 0 && img.height > 0 => {
+                    // Its pixels are the screen's: never drawn bigger.
+                    let s = (f64::from(tb.w) / img.width as f64).min(f64::from(tb.h) / img.height as f64).min(1.0 / canvas.scale.max(0.5));
+                    let (iw, ih) = (img.width as f64 * s, img.height as f64 * s);
+                    let (ix, iy) = (f64::from(tb.x) + (f64::from(tb.w) - iw) / 2.0, f64::from(tb.y) + f64::from(tb.h) - ih);
+                    canvas.image_rounded(ix, iy, iw, ih, 4.0, img, 1.0);
+                }
+                _ => {
+                    let side = g(64);
+                    let px = (f64::from(side) * canvas.scale).round() as u32;
+                    let full = if other { None } else { (p.icon)(&type_icons(e), FULL_COLOR, px) };
+                    let img = full.or_else(|| (p.icon)(&item_icon(e, i), color, px));
+                    if let Some(img) = img {
+                        canvas.image(f64::from(tb.x + (tb.w - side) / 2), f64::from(tb.y + (tb.h - side) / 2), f64::from(side), f64::from(side), &img);
+                    }
+                }
+            }
+            // The name, on two lines at most, centred.
+            if let Some(t) = text {
+                let room = (cell.w - 14) as f32;
+                let mut name_lines = t.wrap(&e.name, size::LABEL, room, 2);
+                if name_lines.len() == 2 && name_lines.concat().chars().count() < e.name.chars().count() {
+                    // Cut: the second line ends as the name does.
+                    let shown_first: usize = name_lines[0].chars().count();
+                    let rest: String = e.name.chars().skip(shown_first).collect();
+                    name_lines[1] = middle_ellipsis(t, rest.trim_start(), size::LABEL, room);
+                }
+                let mut ly = tb.y + tb.h + 6 + g(14);
+                for line in &name_lines {
+                    let lw = t.width(line, size::LABEL).min(room);
+                    label(text, canvas, line, cell.x as f32 + (cell.w as f32 - lw) / 2.0, ly as f32, size::LABEL, color, room + 2.0);
+                    ly += g(18);
+                }
+            }
+            let shown = Rect { x: inner.x, y: inner.y.max(body.y), w: inner.w, h: (inner.y + inner.h).min(body.y + body.h) - inner.y.max(body.y) };
+            if shown.h > 0 {
+                hits.push((shown, hit(FilesHit::Row(r))));
+            }
+        }
+    }
+    for r in (first..last).filter(|_| !view.settings.grid) {
         let e = &view.entries[view.rows[r]];
         let ry = body.y + r as i32 * rh - scroll;
         let row = Rect { x: body.x + 4, y: ry, w: body.w - 8 - if bar_track.is_some() { 10 } else { 0 }, h: rh };
@@ -1205,8 +1449,8 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
         }
         let color = theme::control_text(lk);
         let dim = if lk.on { color } else { DIM_FG };
-        let icon = files::icon_name(e);
-        if let Some(img) = (p.icon)(&icon, color) {
+        let icon = item_icon(e, view.rows[r]);
+        if let Some(img) = (p.icon)(&icon, color, 16) {
             canvas.image(f64::from(cols.name.0 + 2), f64::from(row.y + (rh - 16) / 2), 16.0, 16.0, &img);
         }
         let base = baseline(text, row.y, rh, size::LABEL);
@@ -1218,7 +1462,11 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
         }
         if let Some((x, cw)) = cols.second {
             if location {
-                let parent = e.path.parent().map(|p| files::shown_path(p, &view.home)).unwrap_or_default();
+                let parent = if other {
+                    if e.path.as_os_str().is_empty() { tr("Not mounted").to_owned() } else { files::shown_path(&e.path, &view.home) }
+                } else {
+                    e.origin.as_deref().or_else(|| e.path.parent()).map(|p| files::shown_path(p, &view.home)).unwrap_or_default()
+                };
                 if let Some(t) = text {
                     let shown = middle_ellipsis(t, &parent, size::LABEL, cw as f32);
                     label(text, canvas, &shown, x as f32, base, size::LABEL, dim, cw as f32 + 4.0);
@@ -1233,7 +1481,7 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
             let s = model::type_text(e, view.settings.type_format);
             label(text, canvas, &s, x as f32, base, size::LABEL, dim, cw as f32);
         }
-        if let Some((x, cw)) = cols.modified {
+        if let Some((x, cw)) = cols.modified.filter(|_| !other) {
             let s = model::modified_text(e.modified, p.now_unix, view.settings.twelve_hour, view.settings.with_time);
             label(text, canvas, &s, x as f32, base, size::LABEL, dim, cw as f32);
         }
@@ -1253,9 +1501,10 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
             trf!("This folder cannot be shown: {error}", error = err)
         } else {
             match view.shown {
-                Shown::Folder(_) => tr("Folder is empty").to_owned(),
+                Shown::Folder(_) | Shown::Other => tr("Folder is empty").to_owned(),
                 Shown::Recent => tr("No recent files").to_owned(),
                 Shown::Search { .. } => tr("No results found").to_owned(),
+                Shown::Trash => tr("Trash is empty").to_owned(),
             }
         };
         if !s.is_empty() {
@@ -1340,9 +1589,12 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
         let fw = (text.map_or(120, |t| t.width(name, size::BODY).ceil() as i32) + 48).clamp(g(120), g(240));
         Rect { x: l.cancel.x - 16 - fw, y: f.y, w: fw, h: f.h }
     });
+    let room = (filter_r.map_or(l.cancel.x, |r| r.x) - 16 - fx) as f32;
     if !view.warning.is_empty() {
-        let room = (filter_r.map_or(l.cancel.x, |r| r.x) - 16 - fx) as f32;
         label(text, canvas, &view.warning, fx as f32, baseline(text, f.y, f.h, size::LABEL), size::LABEL, ERROR_TEXT, room);
+    } else if loading_shown && !view.rows.is_empty() {
+        // More of the folder is coming.
+        label(text, canvas, tr("Loading…"), fx as f32, baseline(text, f.y, f.h, size::LABEL), size::LABEL, DIM_FG, room);
     }
     if let Some(r) = filter_r {
         let name = view.filter_now().map_or(tr("All Files"), |f| f.0.as_str());
@@ -1467,6 +1719,7 @@ pub(super) fn files_node(view: &ChooserView, painted: &Painted, now: std::time::
     if at(hit(FilesHit::NewFolder)).is_some() {
         bar = bar.child(place(Node::new(Role::Button, tr("New Folder")).id("new-folder"), hit(FilesHit::NewFolder)));
     }
+    bar = bar.child(place(Node::new(Role::Button, tr("Grid View")).id("grid-view").toggled(view.settings.grid), hit(FilesHit::ViewToggle)));
     out = out.child(bar);
     if let Some((r, _)) = painted.hits.iter().find(|(_, x)| *x == hit(FilesHit::Name)) {
         out = out.child(Node::text_field(Role::TextInput, tr("Name"), &view.name.text, (*r).into()).id("name").focused(view.focus == Focus::Name && !modal));
@@ -1498,9 +1751,14 @@ pub(super) fn files_node(view: &ChooserView, painted: &Painted, now: std::time::
         if !modified.is_empty() {
             desc.push(trf!("Modified {when}", when = modified));
         }
-        if !matches!(view.shown, Shown::Folder(_)) {
-            if let Some(parent) = e.path.parent() {
-                desc.push(files::shown_path(parent, &view.home));
+        match view.shown {
+            Shown::Folder(_) => {}
+            Shown::Other if e.path.as_os_str().is_empty() => desc.push(tr("Not mounted").to_owned()),
+            Shown::Other => desc.push(files::shown_path(&e.path, &view.home)),
+            _ => {
+                if let Some(parent) = e.origin.as_deref().or_else(|| e.path.parent()) {
+                    desc.push(files::shown_path(parent, &view.home));
+                }
             }
         }
         place(Node::new(Role::ListBoxOption, &e.name).id(format!("file:{}", e.name)).describe(desc.join(", ")).selected(on).focused(list_focused && view.current == Some(r)).set_size(n).in_set(r + 1), hit(FilesHit::Row(r)))
@@ -1548,11 +1806,38 @@ pub(super) fn sample_view(options: Options, shown: Shown, entries: Vec<Entry>, h
 }
 
 impl ChooserView {
-    /// Keep the scroll in range for this paint's sizes.
-    fn note_sizes(&mut self, row_h: i32, body_h: i32) {
-        self.row_h = row_h.max(1);
+    /// Keep the scroll in range for this paint's sizes: a line's height
+    /// (a row, or a line of the grid's cells), the visible height, the
+    /// cells a line holds and the list's row height (a wheel notch is
+    /// three of those).
+    fn note_sizes(&mut self, line_h: i32, body_h: i32, cols: usize, notch_h: i32) {
+        self.row_h = line_h.max(1);
         self.body_h = body_h.max(1);
+        self.cols = cols.max(1);
+        self.notch_h = notch_h.max(1);
         self.scroll = self.scroll.clamp(0.0, self.max_scroll());
+    }
+
+    /// Other Locations from the volume monitor's `mounts`: the computer,
+    /// then each drive, volume and share (mounted ones by their folder),
+    /// as entries with the items beside them.
+    fn set_other(&mut self, mounts: &[crate::media::MountInfo]) {
+        use gio::prelude::*;
+        let mut items = vec![OtherItem { name: tr("Computer").to_owned(), path: Some("/".into()), root: "file:///".into(), icon: "drive-harddisk-symbolic" }];
+        for m in mounts {
+            let path = if m.mounted { gio::File::for_uri(&m.root).path() } else { None };
+            if m.mounted && path.is_none() {
+                continue;
+            }
+            let icon = if m.network { "folder-remote-symbolic" } else if m.ejectable { "drive-removable-media-symbolic" } else { "drive-harddisk-symbolic" };
+            items.push(OtherItem { name: m.name.clone(), path, root: m.root.clone(), icon });
+        }
+        let current = self.current_entry().map(|e| e.name.clone());
+        self.entries = items.iter().map(|o| Entry { name: o.name.clone(), path: o.path.clone().unwrap_or_default(), dir: true, content_type: "inode/directory".into(), ..Entry::default() }).collect();
+        self.other = items;
+        self.keys.clear();
+        self.reselect = self.reselect.take().or(current);
+        self.refresh_rows();
     }
 }
 
@@ -1578,6 +1863,7 @@ impl Ui {
         let start = view.shown.clone();
         let mut view = view;
         view.mounts = mount_paths(&self.dock.all_mounts);
+        view.other = Vec::new();
         tracing::info!(mode = ?view.opts.mode, title = %view.opts.title, "file chooser opened");
         self.show_dialog(DialogState::new(DialogKind::Files(Box::new(view)), 0));
         self.files_go(start, false);
@@ -1587,9 +1873,14 @@ impl Ui {
     /// read again now.
     pub(super) fn files_mounts_changed(&mut self) {
         let mounts = mount_paths(&self.dock.all_mounts);
+        let all = self.dock.all_mounts.clone();
         let Some(view) = self.files_view() else { return };
         view.mounts = mounts;
         view.places_asked = None;
+        if view.shown == Shown::Other {
+            view.set_other(&all);
+            tracing::info!(items = view.other.len(), "file chooser other locations");
+        }
         self.files_tick();
         self.draw_dialog();
     }
@@ -1603,7 +1894,8 @@ impl Ui {
         }
         view.places_asked = Some(std::time::Instant::now());
         let recent = view.opts.places.iter().any(|p| p.kind == PlaceKind::Recent);
-        let _ = self.requests.send(crate::UiRequest::FilesPlaces { recent });
+        let trash = view.opts.places.iter().any(|p| p.kind == PlaceKind::Trash);
+        let _ = self.requests.send(crate::UiRequest::FilesPlaces { recent, trash });
     }
 
     /// The places read again: shown when they changed. A drive that went
@@ -1647,8 +1939,11 @@ impl Ui {
         }
         view.shown = to.clone();
         view.entries.clear();
+        view.keys.clear();
+        view.kinetic.cancel();
         view.rows.clear();
         view.current = None;
+        view.auto_current = false;
         view.picked.clear();
         view.scroll = 0.0;
         view.error = None;
@@ -1664,12 +1959,26 @@ impl Ui {
         }
         view.serial += 1;
         let serial = view.serial;
-        view.loading = Some((serial, std::time::Instant::now()));
+        // A folder still being read for the list stops.
+        model::LISTING.store(serial, std::sync::atomic::Ordering::Relaxed);
         view.loading_said = false;
+        if to == Shown::Other {
+            // From the volume monitor the shell has already.
+            view.loading = None;
+            let all = self.dock.all_mounts.clone();
+            let Some(view) = self.files_view() else { return };
+            view.set_other(&all);
+            tracing::info!(items = view.other.len(), "file chooser other locations");
+            tracing::info!(shown = ?to, "file chooser folder");
+            return self.draw_dialog();
+        }
+        view.loading = Some((serial, std::time::Instant::now()));
         let listing = match &to {
             Shown::Folder(f) => Listing::Folder(f.clone()),
             Shown::Recent => Listing::Recent,
             Shown::Search { dir, query } => Listing::Search { dir: dir.clone(), query: query.clone(), filter: view.filter_now().cloned() },
+            Shown::Trash => Listing::Trash { tops: view.opts.places.iter().filter(|p| p.kind == PlaceKind::Drive).filter_map(|p| p.path.clone()).collect() },
+            Shown::Other => unreachable!(),
         };
         match &to {
             Shown::Folder(f) => tracing::info!(folder = %f.display(), "file chooser folder"),
@@ -1689,23 +1998,90 @@ impl Ui {
         self.draw_dialog();
     }
 
-    /// A listing came back.
-    pub(super) fn files_listed(&mut self, serial: u64, entries: Result<Vec<Entry>, String>) {
+    /// A listing came back: a batch of a folder being read (`done` with
+    /// the last), or the whole of it.
+    pub(super) fn files_listed(&mut self, serial: u64, entries: Result<Vec<Entry>, String>, done: bool) {
         let Some(view) = self.files_view() else { return };
         if view.loading.is_none_or(|(s, _)| s != serial) {
             return;
         }
-        view.loading = None;
+        if done {
+            view.loading = None;
+        }
         match entries {
-            Ok(entries) => view.entries = entries,
+            Ok(batch) => {
+                let n = batch.len();
+                view.add_batch(batch);
+                if !done {
+                    tracing::info!(batch = n, entries = view.entries.len(), rows = view.rows.len(), current = ?view.current_entry().map(|e| &e.name), "file chooser batch");
+                }
+            }
             Err(err) => {
                 tracing::info!(%err, "file chooser cannot list");
                 view.error = Some(err);
             }
         }
-        view.refresh_rows();
-        tracing::info!(entries = view.entries.len(), rows = view.rows.len(), current = ?view.current_entry().map(|e| &e.name), "file chooser listed");
+        if done {
+            // Hidden entries, the filter or a folder to reselect that
+            // never came.
+            if view.reselect.take().is_some() && view.current.is_none() && view.opts.mode == Mode::Open && !view.rows.is_empty() {
+                view.current = Some(0);
+                view.auto_current = true;
+            }
+            tracing::info!(entries = view.entries.len(), rows = view.rows.len(), current = ?view.current_entry().map(|e| &e.name), "file chooser listed");
+        }
         self.draw_dialog();
+    }
+
+    /// A thumbnail for the grid came (or the file has none).
+    pub(super) fn files_thumb(&mut self, path: String, px: u32, image: Option<helix_draw::Image>) {
+        let Some(view) = self.files_view() else { return };
+        if px != view.thumbs.px {
+            return;
+        }
+        tracing::debug!(%path, made = image.is_some(), "file chooser thumbnail");
+        view.thumbs.put(path, image);
+        if view.settings.grid {
+            self.draw_dialog();
+        }
+    }
+
+    /// A volume Other Locations asked to mount was mounted (it then
+    /// shows its folder), or why not.
+    pub(super) fn files_mounted(&mut self, root: String, result: Result<(), String>) {
+        let Some(view) = self.files_view() else { return };
+        match result {
+            Ok(()) => {
+                view.warning.clear();
+                tracing::info!(%root, "file chooser mounted");
+            }
+            Err(err) => {
+                tracing::info!(%root, %err, "file chooser cannot mount");
+                view.warning = trf!("The drive could not be mounted: {error}", error = err);
+            }
+        }
+        self.draw_dialog();
+    }
+
+    /// Switch between the list and the grid (stored in `view-type`).
+    fn files_set_grid(&mut self, grid: bool) {
+        let Some(view) = self.files_view() else { return };
+        if view.settings.grid == grid {
+            return;
+        }
+        // The current row (or what was at the top) stays in view.
+        view.settings.grid = grid;
+        view.settings.store_view();
+        view.kinetic.cancel();
+        view.thumbs_asked.clear();
+        tracing::info!(grid, "file chooser view");
+        self.draw_dialog();
+        if let Some(view) = self.files_view() {
+            if view.current.is_some() {
+                view.keep_in_view();
+                self.draw_dialog();
+            }
+        }
     }
 
     /// A preview was decoded (or cannot be shown).
@@ -1787,6 +2163,21 @@ impl Ui {
         let Some(view) = self.files_view() else { return };
         let Some(&e) = view.rows.get(r) else { return };
         let entry = view.entries[e].clone();
+        if view.shown == Shown::Other {
+            // A volume not mounted yet is mounted (asking nothing); it
+            // then shows with its folder.
+            let Some(item) = view.other.get(e).cloned() else { return };
+            match item.path {
+                Some(path) => self.files_go(Shown::Folder(path), true),
+                None => {
+                    tracing::info!(root = %item.root, "file chooser mounts");
+                    view.warning = trf!("Mounting {drive}…", drive = item.name);
+                    crate::media::request(item.root, crate::media::Request::MountQuietly);
+                    self.draw_dialog();
+                }
+            }
+            return;
+        }
         if entry.dir {
             self.files_go(Shown::Folder(entry.path), true);
             return;
@@ -1871,6 +2262,17 @@ impl Ui {
     fn files_accept(&mut self) {
         let Some(view) = self.files_view() else { return };
         view.dropdown = false;
+        // Other Locations: the accept button opens the drive selected (or
+        // chooses it, when choosing a folder and it is mounted).
+        if view.shown == Shown::Other {
+            let mounted = view.current_entry().is_some_and(|e| !e.path.as_os_str().is_empty());
+            if !(view.opts.mode == Mode::Folder && mounted) {
+                if let Some(r) = view.current {
+                    self.files_activate(r);
+                }
+                return;
+            }
+        }
         match view.opts.mode {
             Mode::Save => self.files_save(),
             Mode::SaveFiles => {
@@ -1908,7 +2310,7 @@ impl Ui {
                 let dir = match &view.shown {
                     Shown::Folder(f) => f.clone(),
                     Shown::Search { dir, .. } => dir.clone(),
-                    Shown::Recent => view.home.clone(),
+                    Shown::Recent | Shown::Trash | Shown::Other => view.home.clone(),
                 };
                 view.focus = Focus::List;
                 self.files_go(Shown::Search { dir, query: typed }, true);
@@ -2095,6 +2497,9 @@ impl Ui {
                 return self.files_open_field(FieldUse::Location, &start);
             }
             Keysym::h | Keysym::H if mods.ctrl => return self.files_toggle_hidden(),
+            // As in GNOME Files: Ctrl+1 the list, Ctrl+2 the grid.
+            Keysym::_1 | Keysym::KP_1 if mods.ctrl => return self.files_set_grid(false),
+            Keysym::_2 | Keysym::KP_2 if mods.ctrl => return self.files_set_grid(true),
             Keysym::f | Keysym::F if mods.ctrl && view.opts.mode == Mode::Open => return self.files_open_field(FieldUse::Search, ""),
             Keysym::Tab | Keysym::ISO_Left_Tab => {
                 let mut order = Vec::new();
@@ -2155,6 +2560,10 @@ impl Ui {
             Focus::List => {
                 let page = view.page() as isize;
                 let shift = mods.shift;
+                let cols = if view.settings.grid { view.cols.max(1) as isize } else { 1 };
+                // Left and right in the grid follow the reading direction.
+                let rtl = if helix_draw::rtl() { -1 } else { 1 };
+                view.kinetic.cancel();
                 match event.keysym {
                     _ if enter => {
                         if view.opts.mode.saves() {
@@ -2165,8 +2574,10 @@ impl Ui {
                             None => return self.files_accept(),
                         }
                     }
-                    Keysym::Down | Keysym::KP_Down => view.move_by(1, shift),
-                    Keysym::Up | Keysym::KP_Up => view.move_by(-1, shift),
+                    Keysym::Down | Keysym::KP_Down => view.move_by(cols, shift),
+                    Keysym::Up | Keysym::KP_Up => view.move_by(-cols, shift),
+                    Keysym::Right | Keysym::KP_Right if view.settings.grid => view.move_by(rtl, shift),
+                    Keysym::Left | Keysym::KP_Left if view.settings.grid => view.move_by(-rtl, shift),
                     Keysym::Page_Down | Keysym::KP_Page_Down => view.move_by(page, shift),
                     Keysym::Page_Up | Keysym::KP_Page_Up => view.move_by(-page, shift),
                     Keysym::Home | Keysym::KP_Home if !view.rows.is_empty() => view.select(0, shift, false),
@@ -2250,22 +2661,46 @@ impl Ui {
         let found = d.hits.iter().find(|(r, _)| r.contains(x, y)).copied();
         let part = found.map(|(_, h)| h);
         let DialogKind::Files(view) = &mut d.state.kind else { return };
-        // The wheel scrolls the list or the places.
-        if let PointerEventKind::Axis { vertical, .. } = &event.kind {
-            let rows = f64::from(view.row_h);
+        // The wheel scrolls the list or the places; the touchpad's
+        // fingers scroll the list on after they lift.
+        if let PointerEventKind::Axis { vertical, source, time, .. } = &event.kind {
+            let rows = f64::from(view.notch_h);
             let px = if vertical.discrete != 0 { f64::from(vertical.discrete) * NOTCH_ROWS * rows } else { vertical.absolute };
+            let finger = *source == Some(smithay_client_toolkit::reexports::client::protocol::wl_pointer::AxisSource::Finger);
+            let mut fling = false;
             match part {
                 Some(OverlayHit::Files(FilesHit::Place(_) | FilesHit::Sidebar)) => {
+                    view.kinetic.cancel();
                     let total = view.opts.places.len() as f64 * rows + 30.0;
                     let room = d.hits.iter().find(|(_, h)| *h == OverlayHit::Files(FilesHit::Sidebar)).map_or(0.0, |(r, _)| f64::from(r.h));
                     view.places_scroll = (view.places_scroll + px).clamp(0.0, (total - room).max(0.0));
                 }
+                _ if finger && vertical.stop && px == 0.0 => {
+                    fling = view.kinetic.release(*time);
+                    if fling {
+                        tracing::info!(velocity = view.kinetic.velocity().round(), scroll = view.scroll.round(), "file chooser fling");
+                    }
+                }
                 _ => {
+                    if finger {
+                        view.kinetic.track(*time, px);
+                    } else {
+                        view.kinetic.cancel();
+                    }
                     view.scroll_by(px);
                     tracing::debug!(scroll = view.scroll, "file chooser scrolled");
+                    if finger && vertical.stop {
+                        fling = view.kinetic.release(*time);
+                    }
                 }
             }
+            if fling {
+                view.fling_at = Some(std::time::Instant::now());
+            }
             d.state.pressed = None;
+            if fling {
+                self.files_fling_soon();
+            }
             self.draw_dialog();
             // What is under the pointer now.
             if let Some(d) = self.dialog.as_mut() {
@@ -2339,6 +2774,9 @@ impl Ui {
                 }
                 _ => {}
             }
+        }
+        if matches!(event.kind, PointerEventKind::Press { .. }) {
+            view.kinetic.cancel();
         }
         if let PointerEventKind::Press { button: super::BTN_LEFT, time, .. } = event.kind {
             // An open menu closes on a press elsewhere.
@@ -2435,6 +2873,36 @@ impl Ui {
         }
     }
 
+    /// Move a fling on in a frame's time, and again after it while it
+    /// goes; it stops at either end of the list.
+    fn files_fling_soon(&mut self) {
+        let Some(handle) = self.loop_handle.clone() else { return };
+        use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
+        let every = std::time::Duration::from_millis(crate::kinetic::FRAME_MS);
+        let _ = handle.insert_source(Timer::from_duration(every), move |_, _, ui| {
+            let Some(view) = ui.files_view() else { return TimeoutAction::Drop };
+            if !view.kinetic.active() {
+                return TimeoutAction::Drop;
+            }
+            let now = std::time::Instant::now();
+            let dt = view.fling_at.map_or(every.as_secs_f64(), |t| now.duration_since(t).as_secs_f64());
+            view.fling_at = Some(now);
+            let moved = view.kinetic.step(dt).unwrap_or(0.0);
+            let before = view.scroll;
+            view.scroll_by(moved);
+            let stuck = (view.scroll - before).abs() < 0.01 && moved.abs() >= 0.01;
+            if stuck {
+                view.kinetic.cancel();
+            }
+            let going = view.kinetic.active();
+            if !going {
+                tracing::info!(scroll = view.scroll.round(), "file chooser fling ended");
+            }
+            ui.draw_dialog();
+            if going { TimeoutAction::ToDuration(every) } else { TimeoutAction::Drop }
+        });
+    }
+
     /// A click (press and release) on part `h`.
     pub(super) fn files_click(&mut self, h: OverlayHit) {
         crate::click_feedback();
@@ -2453,9 +2921,12 @@ impl Ui {
             FilesHit::Place(i) => {
                 let Some(place) = view.opts.places.get(i).cloned() else { return };
                 view.field = None;
-                match place.path {
-                    None => self.files_go(Shown::Recent, true),
-                    Some(path) => self.files_go(Shown::Folder(path), true),
+                match (place.kind, place.path) {
+                    (PlaceKind::Recent, _) => self.files_go(Shown::Recent, true),
+                    (PlaceKind::Trash, _) => self.files_go(Shown::Trash, true),
+                    (PlaceKind::Other, _) => self.files_go(Shown::Other, true),
+                    (_, Some(path)) => self.files_go(Shown::Folder(path), true),
+                    (_, None) => {}
                 }
             }
             FilesHit::Crumb(i) => {
@@ -2524,6 +2995,10 @@ impl Ui {
                 }
                 self.draw_dialog();
             }
+            FilesHit::ViewToggle => {
+                let grid = !view.settings.grid;
+                self.files_set_grid(grid);
+            }
             FilesHit::Row(_) | FilesHit::Scrollbar | FilesHit::List | FilesHit::Sidebar | FilesHit::Name | FilesHit::Field | FilesHit::Resize(_) | FilesHit::SidebarEdge => self.draw_dialog(),
         }
     }
@@ -2543,19 +3018,36 @@ impl Ui {
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
         let scale = self.scales.of(overlay.layer.wl_surface());
-        let l = layout(w as i32, h as i32, theme::text_scale(), wants(view));
-        view.note_sizes(l.row_h, l.body.h);
+        let k = theme::text_scale();
+        let l = layout(w as i32, h as i32, k, wants(view));
+        let cells = grid(l.body, k);
+        if view.settings.grid {
+            view.note_sizes(cells.cell_h, l.body.h, cells.cols, l.row_h);
+        } else {
+            view.note_sizes(l.row_h, l.body.h, 1, l.row_h);
+        }
         (view.shown_size, view.shown_sidebar) = ((l.dialog.w, l.dialog.h), l.sidebar.w);
+        // Thumbnails are made for the screen's pixels.
+        let thumb_px = (f64::from(cells.thumb) * scale).round() as u32;
+        if view.thumbs.px != thumb_px {
+            view.thumbs.clear(thumb_px);
+            view.thumbs_asked.clear();
+        }
         let Ok((buffer, data)) = self.buffers.create_buffer(overlay.layer.wl_surface(), Ui::draw_dialog, physical(w, scale) as i32, physical(h, scale) as i32, (physical(w, scale) * 4) as i32, wl_shm::Format::Argb8888) else {
             return;
         };
         let mut canvas = Canvas::scaled(data, w, h, scale).mirrored(super::mirror::on(overlay.layer.wl_surface()));
         let cache = &mut self.icon_cache;
-        let mut icon = |name: &str, color: u32| {
-            let px = (16.0 * scale).round() as u32;
+        let mut icon = |name: &str, color: u32, size: u32| {
+            let px = if size == 16 { (16.0 * scale).round() as u32 } else { size };
+            let name = name.to_owned();
+            if color == FULL_COLOR {
+                let key = format!("type:{name}@{px}");
+                let names = crate::icons::IconSource::Names(name.split(',').map(str::to_owned).collect());
+                return cache.get(key, move || crate::icons::load(&names, px));
+            }
             let key = format!("sym:{name}@{px}#{color:06x}");
             let rgb = [(color >> 16) as u8, (color >> 8) as u8, color as u8];
-            let name = name.to_owned();
             cache.get(key, move || crate::icons::symbolic(&name, px, rgb))
         };
         let now = std::time::Instant::now();
@@ -2577,6 +3069,20 @@ impl Ui {
         }
         let node = files_node(view, &painted, now);
         let drawn = painted.drawn.len();
+        // The grid's thumbnails: those drawn are kept longest, and those
+        // on screen not made yet are asked for (only when that changes).
+        if view.settings.grid && view.shown != Shown::Other {
+            let shown: Vec<usize> = view.rows[painted.drawn.clone()].to_vec();
+            for &i in &shown {
+                let _ = view.thumbs.get(&view.entries[i].path.to_string_lossy());
+            }
+            let ask = crate::thumbs::to_ask(&view.entries, &shown, &view.thumbs);
+            if ask != view.thumbs_asked {
+                tracing::debug!(n = ask.len(), px = view.thumbs.px, "file chooser asks for thumbnails");
+                view.thumbs_asked = ask.clone();
+                let _ = self.requests.send(crate::UiRequest::Thumbnails { px: view.thumbs.px, paths: ask });
+            }
+        }
         overlay.hits = painted.hits;
         self.atspi_record(overlay.layer.wl_surface(), vec![node]);
         let surface = overlay.layer.wl_surface();
@@ -2655,7 +3161,7 @@ mod tests {
     use super::*;
 
     fn entry(name: &str, dir: bool) -> Entry {
-        Entry { name: name.into(), path: PathBuf::from("/home/ada/Documents").join(name), dir, size: 1234, modified: 1_700_000_000, content_type: files::fast_content_type(name) }
+        Entry { name: name.into(), path: PathBuf::from("/home/ada/Documents").join(name), dir, size: 1234, modified: 1_700_000_000, content_type: files::fast_content_type(name), origin: None }
     }
 
     fn options(mode: Mode) -> Options {
@@ -2739,7 +3245,7 @@ mod tests {
         let home = Path::new("/home/ada");
         let entries = vec![entry("Invoices", true), entry("Archive", true), entry("b.pdf", false), entry("a.pdf", false), entry(".hidden-config", false)];
         let mut v = sample_view(options(Mode::Open), Shown::Folder("/home/ada/Documents".into()), entries, home);
-        v.note_sizes(32, 320);
+        v.note_sizes(32, 320, 1, 32);
         assert_eq!(v.current_entry().map(|e| e.name.as_str()), Some("Archive"), "the first row");
         let now = std::time::Instant::now();
         v.type_ahead("i", now);
@@ -2778,6 +3284,82 @@ mod tests {
         assert_eq!(c.current_place(), Some(1));
         c.shown = Shown::Folder("/home/ada/Documents/Client".into());
         assert_eq!(c.current_place(), Some(1), "the deepest place holding the folder");
+    }
+
+    /// The grid moves by lines of cells; a folder arriving in batches
+    /// keeps its order, the first row while the user has chosen none,
+    /// what is at the top once scrolled, and selects a folder to
+    /// reselect when it comes (helixdesktop/desktop#118).
+    #[test]
+    fn grid_and_batches() {
+        let home = Path::new("/home/ada");
+        let names = |v: &ChooserView| v.rows.iter().map(|&i| v.entries[i].name.clone()).collect::<Vec<_>>();
+        let mut g = sample_view(options(Mode::Open), Shown::Folder("/home/ada/Documents".into()), (0..10).map(|i| entry(&format!("f{i}.txt"), false)).collect(), home);
+        g.settings.grid = true;
+        g.note_sizes(140, 300, 4, 32);
+        assert_eq!((g.lines(), g.page()), (3, 8), "three lines of four; two lines a page");
+        g.select(1, false, false);
+        g.move_by(4, false);
+        assert_eq!(g.current, Some(5), "down a line");
+        g.move_by(4, false);
+        assert_eq!(g.current, Some(9), "the last cell");
+        assert_eq!(g.scroll, 120.0, "its line in view: 3 × 140 − 300");
+        let cells = grid(Rect { x: 0, y: 0, w: 700, h: 400 }, 1.0);
+        assert_eq!((cells.cols, cells.cell_w, cells.thumb), (5, 136, 80));
+        assert_eq!(grid(Rect { x: 0, y: 0, w: 100, h: 400 }, 2.0).cols, 1, "one at least");
+
+        // Batches.
+        let mut v = sample_view(options(Mode::Open), Shown::Folder("/home/ada/Documents".into()), Vec::new(), home);
+        v.note_sizes(32, 96, 1, 32);
+        v.add_batch(vec![entry("m.txt", false), entry("Zed", true), entry("c.txt", false)]);
+        assert_eq!(names(&v), ["Zed", "c.txt", "m.txt"]);
+        assert_eq!(v.current_entry().map(|e| e.name.as_str()), Some("Zed"), "the first row");
+        v.add_batch(vec![entry("Alpha", true), entry("a.txt", false)]);
+        assert_eq!(names(&v), ["Alpha", "Zed", "a.txt", "c.txt", "m.txt"]);
+        assert_eq!(v.current_entry().map(|e| e.name.as_str()), Some("Alpha"), "still the first row: the user chose none");
+        v.select(3, false, false);
+        v.add_batch(vec![entry("b.txt", false)]);
+        assert_eq!(v.current_entry().map(|e| e.name.as_str()), Some("c.txt"), "the user's choice stays");
+        // Scrolled: the top row stays put as rows come in above it.
+        v.add_batch((0..6).map(|i| entry(&format!("x{i}.txt"), false)).collect());
+        v.scroll = 64.0;
+        let top = v.entries[v.rows[2]].name.clone();
+        v.add_batch(vec![entry("0.txt", false), entry("00.txt", false)]);
+        assert_eq!(v.entries[v.rows[(v.scroll / 32.0) as usize]].name, top, "{:?} at {}", names(&v), v.scroll);
+        assert_eq!(v.rows.len(), v.entries.len());
+        // Hidden entries and the filter apply to batches too.
+        v.add_batch(vec![entry(".secret", false)]);
+        assert!(!names(&v).contains(&".secret".to_owned()));
+        // Going up: the folder left is selected when its batch comes.
+        let mut up = sample_view(options(Mode::Open), Shown::Folder("/home/ada".into()), Vec::new(), home);
+        up.reselect = Some("Documents".into());
+        up.add_batch(vec![entry("Desktop", true), entry("a.txt", false)]);
+        assert_eq!(up.current_entry().map(|e| e.name.as_str()), Some("Desktop"));
+        up.add_batch(vec![entry("Documents", true)]);
+        assert_eq!((up.current_entry().map(|e| e.name.as_str()), up.reselect.as_deref()), (Some("Documents"), None));
+    }
+
+    /// The Trash and Other Locations as places and lists.
+    #[test]
+    fn trash_and_other_locations() {
+        use crate::media::MountInfo;
+        let home = Path::new("/home/ada");
+        let mut o = options(Mode::Open);
+        o.places.push(Place { kind: PlaceKind::Trash, label: String::new(), path: Some("/home/ada/.local/share/Trash/files".into()) });
+        o.places.push(Place { kind: PlaceKind::Computer, label: String::new(), path: Some("/".into()) });
+        o.places.push(Place { kind: PlaceKind::Other, label: String::new(), path: None });
+        let trashed = Entry { origin: Some("/home/ada/Documents".into()), path: "/home/ada/.local/share/Trash/files/q3.2.pdf".into(), ..entry("Q3.pdf", false) };
+        let mut v = sample_view(o, Shown::Trash, vec![trashed], home);
+        assert_eq!((v.current_place(), place_label(&v.opts.places[2])), (Some(2), "Trash".to_owned()));
+        assert_eq!(v.chosen_files(), [PathBuf::from("/home/ada/.local/share/Trash/files/q3.2.pdf")], "the trashed file itself");
+        assert_eq!(v.list_name(), "Trash");
+        let mount = |name: &str, root: &str, mounted| MountInfo { name: name.into(), root: root.into(), icons: Vec::new(), ejectable: true, network: false, mounted };
+        v.shown = Shown::Other;
+        v.set_other(&[mount("SANDISK", "file:///media/ada/SANDISK", true), mount("Backup", "volume:1234", false), mount("Phone", "mtp://phone/", true)]);
+        let rows: Vec<(String, Option<PathBuf>)> = v.rows.iter().map(|&i| (v.other[i].name.clone(), v.other[i].path.clone())).collect();
+        assert_eq!(rows, [("Computer".to_owned(), Some(PathBuf::from("/"))), ("SANDISK".to_owned(), Some(PathBuf::from("/media/ada/SANDISK"))), ("Backup".to_owned(), None)], "mounts without a folder are left out");
+        assert_eq!(v.current_place(), Some(4));
+        assert_eq!(place_label(&v.opts.places[4]), "Other Locations");
     }
 
     #[test]

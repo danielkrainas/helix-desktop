@@ -796,10 +796,10 @@ async fn child() {
         use helix_settings::files::Entry;
         let home = std::path::Path::new("/home/ada");
         let docs = home.join("Documents");
-        let mut entries: Vec<Entry> = ["Archive", "Invoices", "Taxes"].iter().map(|n| Entry { name: (*n).into(), path: docs.join(n), dir: true, size: 0, modified: 1_700_000_000, content_type: "inode/directory".into() }).collect();
+        let mut entries: Vec<Entry> = ["Archive", "Invoices", "Taxes"].iter().map(|n| Entry { name: (*n).into(), path: docs.join(n), dir: true, size: 0, modified: 1_700_000_000, content_type: "inode/directory".into(), origin: None }).collect();
         entries.extend((1..=187).map(|i| {
             let name = format!("Invoice-{i:03}.pdf");
-            Entry { path: docs.join(&name), name, dir: false, size: 1000, modified: 1_700_000_000, content_type: "application/pdf".into() }
+            Entry { path: docs.join(&name), name, dir: false, size: 1000, modified: 1_700_000_000, content_type: "application/pdf".into(), origin: None }
         }));
         let options = crate::file_chooser::Options { title: "Open Document".into(), accept: "Open".into(), mode: crate::file_chooser::Mode::Open, multiple: false, folder: Some(docs.clone()), name: String::new(), filters: Vec::new(), filter: None, check: None, places: Vec::new() };
         let mut view = sample_view(options, Shown::Folder(docs.clone()), entries, home);
@@ -807,7 +807,7 @@ async fn child() {
             let (w, h) = (1280, 800);
             let mut data = canvas_data(w, h);
             let mut canvas = crate::text::Canvas::scaled(&mut data, w as usize, h as usize, 1.0);
-            let mut icon = |_: &str, _: u32| None;
+            let mut icon = |_: &str, _: u32, _: u32| None;
             let now = std::time::Instant::now();
             let mut p = Paint { text: None, bold: None, icon: &mut icon, now, now_unix: 1_700_000_000 };
             let painted = paint_files(&mut canvas, &mut p, (w as usize, h as usize), view, (None, None));

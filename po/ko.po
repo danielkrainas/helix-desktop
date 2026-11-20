@@ -1151,9 +1151,9 @@ msgstr "앱이 없습니다."
 
 #: crates/helix-agent/src/read.rs:284 crates/helix-agent/src/read.rs:299
 #: crates/helix-portals/src/dynamic_launcher.rs:154
-#: crates/helix-shell/src/ui/file_chooser.rs:1068
-#: crates/helix-shell/src/ui/file_chooser.rs:1142
-#: crates/helix-shell/src/ui/file_chooser.rs:1472
+#: crates/helix-shell/src/ui/file_chooser.rs:1248
+#: crates/helix-shell/src/ui/file_chooser.rs:1323
+#: crates/helix-shell/src/ui/file_chooser.rs:1725
 msgid "Name"
 msgstr "이름"
 
@@ -1205,19 +1205,19 @@ msgid "No files."
 msgstr "파일이 없습니다."
 
 #: crates/helix-agent/src/read.rs:338
-#: crates/helix-shell/src/ui/file_chooser.rs:1145
-#: crates/helix-shell/src/ui/file_chooser.rs:1445
-#: crates/helix-shell/src/ui/file_chooser.rs:1450
+#: crates/helix-shell/src/ui/file_chooser.rs:1326
+#: crates/helix-shell/src/ui/file_chooser.rs:1697
+#: crates/helix-shell/src/ui/file_chooser.rs:1702
 msgid "Location"
 msgstr "위치"
 
 #: crates/helix-agent/src/read.rs:338
-#: crates/helix-shell/src/ui/file_chooser.rs:1144
+#: crates/helix-shell/src/ui/file_chooser.rs:1325
 msgid "Modified"
 msgstr "수정한 날짜"
 
 #: crates/helix-agent/src/read.rs:338
-#: crates/helix-shell/src/ui/file_chooser.rs:1146
+#: crates/helix-shell/src/ui/file_chooser.rs:1327
 msgid "Type"
 msgstr "종류"
 
@@ -1335,19 +1335,19 @@ msgid "Username"
 msgstr "사용자 이름"
 
 #: crates/helix-greeter/src/atspi.rs:79 crates/helix-greeter/src/paint.rs:479
-#: crates/helix-shell/src/ui/file_chooser.rs:1446
+#: crates/helix-shell/src/ui/file_chooser.rs:1698
 #: crates/helix-shell/src/ui/window_menu.rs:428
 msgid "Back"
 msgstr "뒤로"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5636 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5638 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:587
 msgid "Power Off…"
 msgstr "전원 끄기…"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5633 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5635 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:586
 msgid "Restart…"
 msgstr "다시 시작…"
@@ -1382,7 +1382,7 @@ msgstr "이 컴퓨터의 전원을 끌까요?"
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 #: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1467 crates/helix-shell/src/lib.rs:1555
+#: crates/helix-shell/src/lib.rs:1502 crates/helix-shell/src/lib.rs:1590
 #: crates/helix-shell/src/mount_handler.rs:125
 #: crates/helix-shell/src/mount_handler.rs:139
 #: crates/helix-shell/src/mount_handler.rs:174
@@ -1396,10 +1396,10 @@ msgstr "이 컴퓨터의 전원을 끌까요?"
 #: crates/helix-shell/src/ui.rs:1372 crates/helix-shell/src/ui.rs:3388
 #: crates/helix-shell/src/ui/agent_question.rs:192
 #: crates/helix-shell/src/ui/atspi.rs:942
-#: crates/helix-shell/src/ui/file_chooser.rs:1361
-#: crates/helix-shell/src/ui/file_chooser.rs:1414
-#: crates/helix-shell/src/ui/file_chooser.rs:1440
-#: crates/helix-shell/src/ui/file_chooser.rs:1528
+#: crates/helix-shell/src/ui/file_chooser.rs:1613
+#: crates/helix-shell/src/ui/file_chooser.rs:1666
+#: crates/helix-shell/src/ui/file_chooser.rs:1692
+#: crates/helix-shell/src/ui/file_chooser.rs:1786
 #: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:588
 #: crates/helix-shell/src/ui/prompt.rs:604
 #: crates/helix-shell/src/vpn_secrets.rs:195
@@ -1420,14 +1420,14 @@ msgstr "접근성"
 #. Translators: the login screen's clock in 12-hour time (strftime).
 #. Translators: a time of day for today, 24-hour and 12-hour (see GLib's g_date_time_format for the codes).
 #: crates/helix-greeter/src/clock.rs:98
-#: crates/helix-shell/src/file_chooser.rs:333
+#: crates/helix-shell/src/file_chooser.rs:397
 msgid "%l:%M %p"
 msgstr "%p %l:%M"
 
 #. Translators: the login screen's clock in 24-hour time (strftime).
 #. Translators: a time of day for today, 24-hour and 12-hour (see GLib's g_date_time_format for the codes).
 #: crates/helix-greeter/src/clock.rs:101
-#: crates/helix-shell/src/file_chooser.rs:333
+#: crates/helix-shell/src/file_chooser.rs:397
 msgid "%H:%M"
 msgstr "%H:%M"
 
@@ -1773,7 +1773,7 @@ msgid "This code is not valid."
 msgstr "올바른 코드가 아닙니다."
 
 #: crates/helix-shell/src/bluetooth_agent.rs:124
-#: crates/helix-shell/src/lib.rs:1281 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/lib.rs:1316 crates/helix-shell/src/obex.rs:478
 #: crates/helix-shell/src/panel_layout.rs:221
 #: crates/helix-shell/src/ui/quick.rs:405
 msgid "Bluetooth"
@@ -1997,7 +1997,7 @@ msgstr "로그인할 때 Shift 키를 누르고 있었습니다."
 
 #. Translators: the separator between the names of a list ("a, b, c").
 #: crates/helix-shell/src/ext_host/runner.rs:570
-#: crates/helix-shell/src/media.rs:229
+#: crates/helix-shell/src/media.rs:260
 msgid ", "
 msgstr ", "
 
@@ -2039,10 +2039,10 @@ msgstr "Bluetooth 꺼짐"
 
 #. Translators: the type of a folder in the file chooser.
 #: crates/helix-shell/src/favorites.rs:147
-#: crates/helix-shell/src/file_chooser.rs:267
+#: crates/helix-shell/src/file_chooser.rs:331
 #: crates/helix-shell/src/ui/atspi.rs:772
 #: crates/helix-shell/src/ui/desktop_icons.rs:378
-#: crates/helix-shell/src/ui/file_chooser.rs:1490
+#: crates/helix-shell/src/ui/file_chooser.rs:1743
 msgid "Folder"
 msgstr "폴더"
 
@@ -2050,99 +2050,99 @@ msgstr "폴더"
 msgid "Unnamed Folder"
 msgstr "이름 없는 폴더"
 
-#: crates/helix-shell/src/file_chooser.rs:243
+#: crates/helix-shell/src/file_chooser.rs:307
 msgid "Program"
 msgstr "프로그램"
 
-#: crates/helix-shell/src/file_chooser.rs:244
+#: crates/helix-shell/src/file_chooser.rs:308
 msgid "Audio"
 msgstr "오디오"
 
-#: crates/helix-shell/src/file_chooser.rs:245
+#: crates/helix-shell/src/file_chooser.rs:309
 msgid "Font"
 msgstr "글꼴"
 
-#: crates/helix-shell/src/file_chooser.rs:246
+#: crates/helix-shell/src/file_chooser.rs:310
 msgid "Image"
 msgstr "이미지"
 
-#: crates/helix-shell/src/file_chooser.rs:247
+#: crates/helix-shell/src/file_chooser.rs:311
 msgid "Archive"
 msgstr "압축 파일"
 
-#: crates/helix-shell/src/file_chooser.rs:248
+#: crates/helix-shell/src/file_chooser.rs:312
 msgid "Markup"
 msgstr "마크업"
 
-#: crates/helix-shell/src/file_chooser.rs:249
+#: crates/helix-shell/src/file_chooser.rs:313
 msgid "Text"
 msgstr "텍스트"
 
-#: crates/helix-shell/src/file_chooser.rs:250
+#: crates/helix-shell/src/file_chooser.rs:314
 msgid "Video"
 msgstr "동영상"
 
-#: crates/helix-shell/src/file_chooser.rs:251
+#: crates/helix-shell/src/file_chooser.rs:315
 msgid "Contacts"
 msgstr "연락처"
 
-#: crates/helix-shell/src/file_chooser.rs:252
+#: crates/helix-shell/src/file_chooser.rs:316
 msgid "Calendar"
 msgstr "달력"
 
-#: crates/helix-shell/src/file_chooser.rs:253
+#: crates/helix-shell/src/file_chooser.rs:317
 msgid "Document"
 msgstr "문서"
 
-#: crates/helix-shell/src/file_chooser.rs:254
+#: crates/helix-shell/src/file_chooser.rs:318
 msgid "Presentation"
 msgstr "프레젠테이션"
 
-#: crates/helix-shell/src/file_chooser.rs:255
+#: crates/helix-shell/src/file_chooser.rs:319
 msgid "Spreadsheet"
 msgstr "스프레드시트"
 
 #. Translators: a file type the chooser cannot name.
-#: crates/helix-shell/src/file_chooser.rs:257
+#: crates/helix-shell/src/file_chooser.rs:321
 #: crates/helix-shell/src/weather.rs:72
 msgid "Unknown"
 msgstr "알 수 없음"
 
 #. Translators: yesterday at a time of day ("14:05", "2:05 PM").
-#: crates/helix-shell/src/file_chooser.rs:341
+#: crates/helix-shell/src/file_chooser.rs:405
 msgid "Yesterday, {time}"
 msgstr "어제 {time}"
 
-#: crates/helix-shell/src/file_chooser.rs:343
+#: crates/helix-shell/src/file_chooser.rs:407
 #: crates/helix-shell/src/notifications.rs:109
 msgid "Yesterday"
 msgstr "어제"
 
 #. Translators: a date this year (day and abbreviated month).
-#: crates/helix-shell/src/file_chooser.rs:349
+#: crates/helix-shell/src/file_chooser.rs:413
 msgid "%-e %b"
 msgstr "%-m월 %-e일"
 
 #. Translators: a date this year with the time, 24-hour and 12-hour.
-#: crates/helix-shell/src/file_chooser.rs:351
+#: crates/helix-shell/src/file_chooser.rs:415
 msgid "%-e %b, %H:%M"
 msgstr "%-m월 %-e일 %H:%M"
 
-#: crates/helix-shell/src/file_chooser.rs:352
+#: crates/helix-shell/src/file_chooser.rs:416
 msgid "%-e %b, %l:%M %p"
 msgstr "%-m월 %-e일 %p %l:%M"
 
 #. Translators: a date in another year.
-#: crates/helix-shell/src/file_chooser.rs:354
+#: crates/helix-shell/src/file_chooser.rs:418
 msgid "%-e %b %Y"
 msgstr "%Y년 %-m월 %-e일"
 
 #. Translators: a date in another year with the time, 24-hour and 12-hour.
-#: crates/helix-shell/src/file_chooser.rs:357
+#: crates/helix-shell/src/file_chooser.rs:421
 msgid "%-e %b %Y, %H:%M"
 msgstr "%Y년 %-m월 %-e일 %H:%M"
 
-#: crates/helix-shell/src/file_chooser.rs:358
+#: crates/helix-shell/src/file_chooser.rs:422
 msgid "%-e %b %Y, %l:%M %p"
 msgstr "%Y년 %-m월 %-e일 %p %l:%M"
 
@@ -2163,7 +2163,7 @@ msgid "The passwords do not match."
 msgstr "암호가 일치하지 않습니다."
 
 #: crates/helix-shell/src/keyring_prompt.rs:77
-#: crates/helix-shell/src/media.rs:325 crates/helix-shell/src/ui/lock.rs:550
+#: crates/helix-shell/src/media.rs:356 crates/helix-shell/src/ui/lock.rs:550
 #: crates/helix-shell/src/ui/lock.rs:560
 msgid "Unlock"
 msgstr "잠금 해제"
@@ -2192,53 +2192,53 @@ msgstr "계속"
 msgid "More"
 msgstr "더 보기"
 
-#: crates/helix-shell/src/lib.rs:1132
+#: crates/helix-shell/src/lib.rs:1167
 msgid "Nothing was turned off or restarted. {err}"
 msgstr "아무것도 끄거나 다시 시작하지 않았습니다. {err}"
 
-#: crates/helix-shell/src/lib.rs:1132
+#: crates/helix-shell/src/lib.rs:1167
 msgid "Software"
 msgstr "소프트웨어"
 
-#: crates/helix-shell/src/lib.rs:1132
+#: crates/helix-shell/src/lib.rs:1167
 msgid "Updates could not be scheduled"
 msgstr "업데이트를 예약할 수 없습니다"
 
-#: crates/helix-shell/src/lib.rs:1281
+#: crates/helix-shell/src/lib.rs:1316
 msgid "Cannot pair with {name}"
 msgstr "{name}와(과) 페어링할 수 없습니다"
 
-#: crates/helix-shell/src/lib.rs:1368
+#: crates/helix-shell/src/lib.rs:1403
 #: crates/helix-shell/src/panel_layout.rs:223
 #: crates/helix-shell/src/ui/quick.rs:411
 msgid "Auto Rotate"
 msgstr "자동 회전"
 
-#: crates/helix-shell/src/lib.rs:1368
+#: crates/helix-shell/src/lib.rs:1403
 msgid "Rotation Locked"
 msgstr "회전 잠김"
 
-#: crates/helix-shell/src/lib.rs:1464
+#: crates/helix-shell/src/lib.rs:1499
 msgid "Rename Folder"
 msgstr "폴더 이름 바꾸기"
 
-#: crates/helix-shell/src/lib.rs:1465
+#: crates/helix-shell/src/lib.rs:1500
 msgid "Folder name"
 msgstr "폴더 이름"
 
-#: crates/helix-shell/src/lib.rs:1466
+#: crates/helix-shell/src/lib.rs:1501
 msgid "Rename"
 msgstr "이름 바꾸기"
 
-#: crates/helix-shell/src/lib.rs:1552
+#: crates/helix-shell/src/lib.rs:1587
 msgid "Empty Trash?"
 msgstr "휴지통을 비울까요?"
 
-#: crates/helix-shell/src/lib.rs:1553
+#: crates/helix-shell/src/lib.rs:1588
 msgid "All items in the Trash will be permanently deleted."
 msgstr "휴지통의 모든 항목이 영구히 삭제됩니다."
 
-#: crates/helix-shell/src/lib.rs:1554 crates/helix-shell/src/ui/dock.rs:1491
+#: crates/helix-shell/src/lib.rs:1589 crates/helix-shell/src/ui/dock.rs:1491
 msgid "Empty Trash"
 msgstr "휴지통 비우기"
 
@@ -2246,46 +2246,50 @@ msgstr "휴지통 비우기"
 msgid "Lock the screen before suspending"
 msgstr "대기 모드 전에 화면 잠금"
 
-#: crates/helix-shell/src/media.rs:231
+#: crates/helix-shell/src/media.rs:205
+msgid "The drive is gone."
+msgstr "드라이브가 없어졌습니다."
+
+#: crates/helix-shell/src/media.rs:262
 msgid "{shown} and {n} other program"
 msgid_plural "{shown} and {n} other programs"
 msgstr[0] "{shown} 외 프로그램 {n}개"
 
-#: crates/helix-shell/src/media.rs:289
+#: crates/helix-shell/src/media.rs:320
 msgid "process {pid}"
 msgstr "프로세스 {pid}"
 
-#: crates/helix-shell/src/media.rs:323
+#: crates/helix-shell/src/media.rs:354
 msgid "Unlock {title}"
 msgstr "{title} 잠금 해제"
 
-#: crates/helix-shell/src/media.rs:367
+#: crates/helix-shell/src/media.rs:398
 #: crates/helix-shell/src/mount_handler.rs:379
 msgid "In use by: {}"
 msgstr "사용 중인 프로그램: {}"
 
-#: crates/helix-shell/src/media.rs:378
+#: crates/helix-shell/src/media.rs:409
 msgid "Do not unplug until finished."
 msgstr "끝날 때까지 분리하지 마십시오."
 
-#: crates/helix-shell/src/media.rs:378
+#: crates/helix-shell/src/media.rs:409
 #: crates/helix-shell/src/notifications.rs:333
 msgid "Removable Media"
 msgstr "이동식 미디어"
 
-#: crates/helix-shell/src/media.rs:378
+#: crates/helix-shell/src/media.rs:409
 msgid "Writing to {title}"
 msgstr "{title}에 쓰는 중"
 
-#: crates/helix-shell/src/media.rs:492
+#: crates/helix-shell/src/media.rs:523
 msgid "Removable medium connected"
 msgstr "이동식 미디어가 연결되었습니다"
 
-#: crates/helix-shell/src/media.rs:520
+#: crates/helix-shell/src/media.rs:551
 msgid "{name} can be removed"
 msgstr "{name}을(를) 분리할 수 있습니다"
 
-#: crates/helix-shell/src/media.rs:524 crates/helix-shell/src/media.rs:567
+#: crates/helix-shell/src/media.rs:555 crates/helix-shell/src/media.rs:598
 msgid "Cannot eject {name}"
 msgstr "{name}을(를) 꺼낼 수 없습니다"
 
@@ -2717,7 +2721,7 @@ msgstr "{1}에서 보낸 “{0}”을(를) 받지 못했습니다."
 msgid "A new version of the system"
 msgstr "새 버전의 시스템"
 
-#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5329
+#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5331
 msgid "Apps"
 msgstr "앱"
 
@@ -3099,47 +3103,47 @@ msgstr "다음에는 묻지 않고 같은 화면을 다시 공유할 수 있습�
 msgid "New virtual monitor"
 msgstr "새 가상 모니터"
 
-#: crates/helix-shell/src/ui.rs:5321 crates/helix-shell/src/ui/atspi.rs:785
+#: crates/helix-shell/src/ui.rs:5323 crates/helix-shell/src/ui/atspi.rs:785
 msgid "No matching apps"
 msgstr "일치하는 앱 없음"
 
-#: crates/helix-shell/src/ui.rs:5328
+#: crates/helix-shell/src/ui.rs:5330
 msgid "Open Windows"
 msgstr "열린 창"
 
-#: crates/helix-shell/src/ui.rs:5369
+#: crates/helix-shell/src/ui.rs:5371
 msgid "Search for “{query}” in {name}"
 msgstr "{name}에서 “{query}” 검색"
 
-#: crates/helix-shell/src/ui.rs:5434
+#: crates/helix-shell/src/ui.rs:5436
 msgid "{n} more result"
 msgid_plural "{n} more results"
 msgstr[0] "결과 {n}개 더"
 
-#: crates/helix-shell/src/ui.rs:5436
+#: crates/helix-shell/src/ui.rs:5438
 msgid "{n} result above"
 msgid_plural "{n} results above"
 msgstr[0] "위에 결과 {n}개"
 
-#: crates/helix-shell/src/ui.rs:5621 crates/helix-shell/src/ui/atspi.rs:417
+#: crates/helix-shell/src/ui.rs:5623 crates/helix-shell/src/ui/atspi.rs:417
 #: crates/helix-shell/src/ui/quick.rs:556
 msgid "Lock Screen"
 msgstr "화면 잠금"
 
-#: crates/helix-shell/src/ui.rs:5624 crates/helix-shell/src/ui/lock.rs:515
+#: crates/helix-shell/src/ui.rs:5626 crates/helix-shell/src/ui/lock.rs:515
 #: crates/helix-shell/src/ui/lock.rs:597
 msgid "Switch User…"
 msgstr "사용자 전환…"
 
-#: crates/helix-shell/src/ui.rs:5627
+#: crates/helix-shell/src/ui.rs:5629
 msgid "Suspend"
 msgstr "대기 모드"
 
-#: crates/helix-shell/src/ui.rs:5630
+#: crates/helix-shell/src/ui.rs:5632
 msgid "Log Out…"
 msgstr "로그아웃…"
 
-#: crates/helix-shell/src/ui.rs:5718
+#: crates/helix-shell/src/ui.rs:5720
 msgid "The app"
 msgstr "앱"
 
@@ -3456,6 +3460,10 @@ msgstr "배경"
 #: crates/helix-shell/src/ui/atspi.rs:667
 #: crates/helix-shell/src/ui/atspi.rs:892 crates/helix-shell/src/ui/dock.rs:652
 #: crates/helix-shell/src/ui/dock.rs:1804
+#: crates/helix-shell/src/ui/file_chooser.rs:729
+#: crates/helix-shell/src/ui/file_chooser.rs:747
+#: crates/helix-shell/src/ui/file_chooser.rs:975
+#: crates/helix-shell/src/ui/file_chooser.rs:1230
 msgid "Trash"
 msgstr "휴지통"
 
@@ -3464,8 +3472,8 @@ msgid "Window Menu"
 msgstr "창 메뉴"
 
 #: crates/helix-shell/src/ui/atspi.rs:711
-#: crates/helix-shell/src/ui/file_chooser.rs:1451
-#: crates/helix-shell/src/ui/file_chooser.rs:1465
+#: crates/helix-shell/src/ui/file_chooser.rs:1703
+#: crates/helix-shell/src/ui/file_chooser.rs:1717
 #: crates/helix-shell/src/ui/overview.rs:1194
 msgid "Search"
 msgstr "검색"
@@ -3962,167 +3970,197 @@ msgstr "완료"
 msgid "Hide Settings"
 msgstr "설정 숨기기"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:559
-#: crates/helix-shell/src/ui/file_chooser.rs:598
-#: crates/helix-shell/src/ui/file_chooser.rs:821
+#: crates/helix-shell/src/ui/file_chooser.rs:685
+#: crates/helix-shell/src/ui/file_chooser.rs:724
+#: crates/helix-shell/src/ui/file_chooser.rs:973
 msgid "Home"
 msgstr "홈"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:560
-#: crates/helix-shell/src/ui/file_chooser.rs:822
+#: crates/helix-shell/src/ui/file_chooser.rs:686
+#: crates/helix-shell/src/ui/file_chooser.rs:974
+#: crates/helix-shell/src/ui/file_chooser.rs:1826
 msgid "Computer"
 msgstr "컴퓨터"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:599
+#: crates/helix-shell/src/ui/file_chooser.rs:725
 msgid "Files in {folder}"
 msgstr "{folder}의 파일"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:601
+#: crates/helix-shell/src/ui/file_chooser.rs:727
 msgid "Recent Files"
 msgstr "최근 파일"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:602
+#: crates/helix-shell/src/ui/file_chooser.rs:728
 msgid "Search results for “{query}”"
 msgstr "“{query}” 검색 결과"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:610
-#: crates/helix-shell/src/ui/file_chooser.rs:1249
+#: crates/helix-shell/src/ui/file_chooser.rs:730
+#: crates/helix-shell/src/ui/file_chooser.rs:748
+#: crates/helix-shell/src/ui/file_chooser.rs:976
+#: crates/helix-shell/src/ui/file_chooser.rs:1231
+msgid "Other Locations"
+msgstr "다른 위치"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:738
+#: crates/helix-shell/src/ui/file_chooser.rs:1497
+#: crates/helix-shell/src/ui/file_chooser.rs:1597
 msgid "Loading…"
 msgstr "불러오는 중…"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:617
-#: crates/helix-shell/src/ui/file_chooser.rs:820
-#: crates/helix-shell/src/ui/file_chooser.rs:1050
+#: crates/helix-shell/src/ui/file_chooser.rs:745
+#: crates/helix-shell/src/ui/file_chooser.rs:972
+#: crates/helix-shell/src/ui/file_chooser.rs:1228
 msgid "Recent"
 msgstr "최근"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:620
+#: crates/helix-shell/src/ui/file_chooser.rs:750
 msgid "{what}, {n} item"
 msgid_plural "{what}, {n} items"
 msgstr[0] "{what}, 항목 {n}개"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:988
+#: crates/helix-shell/src/ui/file_chooser.rs:1166
 msgid "Type a file name or location"
 msgstr "파일 이름이나 위치를 입력하세요"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:989
+#: crates/helix-shell/src/ui/file_chooser.rs:1167
 msgid "Search files"
 msgstr "파일 검색"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:990
-#: crates/helix-shell/src/ui/file_chooser.rs:1452
+#: crates/helix-shell/src/ui/file_chooser.rs:1168
+#: crates/helix-shell/src/ui/file_chooser.rs:1704
 msgid "New folder name"
 msgstr "새 폴더 이름"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1051
+#: crates/helix-shell/src/ui/file_chooser.rs:1229
 msgid "Search for “{query}”"
 msgstr "“{query}” 검색"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1143
+#: crates/helix-shell/src/ui/file_chooser.rs:1324
 msgid "Size"
 msgstr "크기"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1253
+#: crates/helix-shell/src/ui/file_chooser.rs:1466
+#: crates/helix-shell/src/ui/file_chooser.rs:1756
+msgid "Not mounted"
+msgstr "마운트되지 않음"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1501
 msgid "This folder cannot be shown: {error}"
 msgstr "이 폴더를 표시할 수 없습니다: {error}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1256
+#: crates/helix-shell/src/ui/file_chooser.rs:1504
 msgid "Folder is empty"
 msgstr "폴더가 비어 있습니다"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1257
+#: crates/helix-shell/src/ui/file_chooser.rs:1505
 msgid "No recent files"
 msgstr "최근 파일 없음"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1258
+#: crates/helix-shell/src/ui/file_chooser.rs:1506
 msgid "No results found"
 msgstr "결과 없음"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1316
+#: crates/helix-shell/src/ui/file_chooser.rs:1507
+msgid "Trash is empty"
+msgstr "휴지통이 비어 있습니다"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1565
 msgid "No preview"
 msgstr "미리 보기 없음"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1339
-#: crates/helix-shell/src/ui/file_chooser.rs:1348
-#: crates/helix-shell/src/ui/file_chooser.rs:1517
+#: crates/helix-shell/src/ui/file_chooser.rs:1588
+#: crates/helix-shell/src/ui/file_chooser.rs:1600
+#: crates/helix-shell/src/ui/file_chooser.rs:1775
 msgid "All Files"
 msgstr "모든 파일"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1397
+#: crates/helix-shell/src/ui/file_chooser.rs:1649
 msgid ""
 "A file named “{name}” already exists in “{folder}”. Replacing it overwrites "
 "its contents."
 msgstr "“{folder}”에 “{name}” 파일이 이미 있습니다. 바꾸면 내용을 덮어씁니다."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1402
-#: crates/helix-shell/src/ui/file_chooser.rs:1437
+#: crates/helix-shell/src/ui/file_chooser.rs:1654
+#: crates/helix-shell/src/ui/file_chooser.rs:1689
 msgid "Replace File?"
 msgstr "파일을 바꿀까요?"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1415
-#: crates/helix-shell/src/ui/file_chooser.rs:1441
+#: crates/helix-shell/src/ui/file_chooser.rs:1667
+#: crates/helix-shell/src/ui/file_chooser.rs:1693
 msgid "Replace"
 msgstr "바꾸기"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1439
+#: crates/helix-shell/src/ui/file_chooser.rs:1691
 msgid ""
 "A file named “{name}” already exists. Replacing it overwrites its contents."
 msgstr "“{name}” 파일이 이미 있습니다. 바꾸면 내용을 덮어씁니다."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1447
+#: crates/helix-shell/src/ui/file_chooser.rs:1699
 msgid "Forward"
 msgstr "앞으로"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1468
+#: crates/helix-shell/src/ui/file_chooser.rs:1720
 msgid "New Folder"
 msgstr "새 폴더"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1476
+#: crates/helix-shell/src/ui/file_chooser.rs:1722
+msgid "Grid View"
+msgstr "격자 보기"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1729
 msgid "Places"
 msgstr "위치"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1478
+#: crates/helix-shell/src/ui/file_chooser.rs:1731
 msgid "Eject {drive}"
 msgstr "{drive} 꺼내기"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1499
+#: crates/helix-shell/src/ui/file_chooser.rs:1752
 msgid "Modified {when}"
 msgstr "수정: {when}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1518
-#: crates/helix-shell/src/ui/file_chooser.rs:1521
+#: crates/helix-shell/src/ui/file_chooser.rs:1776
+#: crates/helix-shell/src/ui/file_chooser.rs:1779
 msgid "File Type"
 msgstr "파일 형식"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1737
+#: crates/helix-shell/src/ui/file_chooser.rs:2060
+msgid "The drive could not be mounted: {error}"
+msgstr "드라이브를 마운트할 수 없습니다: {error}"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:2113
 msgid "The folder could not be made: {error}"
 msgstr "폴더를 만들 수 없습니다: {error}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1837
+#: crates/helix-shell/src/ui/file_chooser.rs:2174
+msgid "Mounting {drive}…"
+msgstr "{drive} 마운트 중…"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:2228
 msgid "Type a name for the file."
 msgstr "파일 이름을 입력하십시오."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1856
+#: crates/helix-shell/src/ui/file_chooser.rs:2247
 msgid "That folder does not exist."
 msgstr "해당 폴더가 없습니다."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1919
+#: crates/helix-shell/src/ui/file_chooser.rs:2321
 msgid "Type a name for the folder."
 msgstr "폴더 이름을 입력하세요."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1921
+#: crates/helix-shell/src/ui/file_chooser.rs:2323
 msgid "Folder names cannot contain “/”."
 msgstr "폴더 이름에 “/”를 쓸 수 없습니다."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1923
+#: crates/helix-shell/src/ui/file_chooser.rs:2325
 msgid "That name cannot be used."
 msgstr "그 이름은 사용할 수 없습니다."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1925
+#: crates/helix-shell/src/ui/file_chooser.rs:2327
 msgid "A file or folder with that name already exists."
 msgstr "같은 이름의 파일이나 폴더가 이미 있습니다."
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1956
+#: crates/helix-shell/src/ui/file_chooser.rs:2358
 msgid "“{name}” was not found."
 msgstr "“{name}”을(를) 찾을 수 없습니다."
 

@@ -1270,7 +1270,7 @@ fn file_chooser() {
     let mut entries = Vec::new();
     let mut add = |name: String, dir: bool, size: u64, age: i64| {
         let content_type = if dir { "inode/directory".to_owned() } else { helix_settings::files::fast_content_type(&name) };
-        entries.push(Entry { path: folder.join(&name), name, dir, size, modified: now - age, content_type });
+        entries.push(Entry { path: folder.join(&name), name, dir, size, modified: now - age, content_type, origin: None });
     };
     for (i, f) in ["Archive", "Contracts", "Invoices", "Meeting notes", "Photos", "Receipts", "Scans", "Tax 2025", "Tax 2026", "Templates"].iter().enumerate() {
         add((*f).into(), true, 0, 86_400 * (i as i64 * 9 + 1));
@@ -1314,8 +1314,12 @@ fn file_chooser() {
             let mut view = sample_view(options.clone(), Shown::Folder(folder.clone()), entries.clone(), &home);
             tune(&mut view);
             let scale = canvas.scale;
-            let mut icon = |n: &str, color: u32| {
-                let px = (16.0 * scale).round() as u32;
+            let mut icon = |n: &str, color: u32, size: u32| {
+                let px = if size == 16 { (16.0 * scale).round() as u32 } else { size };
+                if color == file_chooser::FULL_COLOR {
+                    let names = crate::icons::IconSource::Names(n.split(',').map(str::to_owned).collect());
+                    return cache.entry(format!("type:{n}@{px}")).or_insert_with(|| crate::icons::load(&names, px)).clone();
+                }
                 cache.entry(format!("{n}@{px}#{color:x}")).or_insert_with(|| crate::icons::symbolic(n, px, [(color >> 16) as u8, (color >> 8) as u8, color as u8])).clone()
             };
             let mut p = Paint { text: text.as_ref(), bold: bold.as_ref(), icon: &mut icon, now: std::time::Instant::now(), now_unix: now };
@@ -1359,7 +1363,7 @@ fn file_chooser() {
             helix_draw::theme::set_text_scale(1.5);
             render(&dir, &format!("files-{mode}-{tag}-text1.5"), DARK, (w, h, s), |canvas| {
                 let view = sample_view(options.clone(), Shown::Folder(folder.clone()), entries.clone(), &home);
-                let mut icon = |n: &str, color: u32| crate::icons::symbolic(n, (16.0 * s).round() as u32, [(color >> 16) as u8, (color >> 8) as u8, color as u8]);
+                let mut icon = |n: &str, color: u32, _: u32| crate::icons::symbolic(n, (16.0 * s).round() as u32, [(color >> 16) as u8, (color >> 8) as u8, color as u8]);
                 let mut p = Paint { text: text.as_ref(), bold: bold.as_ref(), icon: &mut icon, now: std::time::Instant::now(), now_unix: now };
                 paint_files(canvas, &mut p, (w, h), &view, (None, None));
             });

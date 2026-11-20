@@ -3837,7 +3837,9 @@ impl Ui {
                     self.show_files(request);
                 }
             }
-            UiEvent::FilesListed { serial, entries } => self.files_listed(serial, entries),
+            UiEvent::FilesListed { serial, entries, done } => self.files_listed(serial, entries, done),
+            UiEvent::FileThumb { path, px, image } => self.files_thumb(path, px, image),
+            UiEvent::FilesMounted { root, result } => self.files_mounted(root, result),
             UiEvent::FilesPlaces(places) => self.files_places(places),
             UiEvent::FolderMade { serial, result } => self.files_folder_made(serial, result),
             UiEvent::Background { desktop, lock } => {

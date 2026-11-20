@@ -33,6 +33,7 @@ pub mod ibus;
 pub mod idle;
 pub mod input_sources;
 pub mod keyring_prompt;
+pub mod kinetic;
 pub mod launcher;
 pub mod location;
 pub mod logind;
@@ -85,6 +86,7 @@ pub mod shortcuts_inhibit;
 pub mod state;
 pub mod status;
 pub mod text;
+pub mod thumbs;
 pub mod ui;
 pub mod tray;
 pub mod usb_protection;
@@ -284,8 +286,14 @@ pub enum UiEvent {
     /// Show the file chooser (`org.helixdesktop.PortalDialog.ChooseFiles`).
     ChooseFiles(file_chooser::RequestSlot),
     /// What the file chooser asked to list (`serial` of the request), or
-    /// why it cannot be.
-    FilesListed { serial: u64, entries: Result<Vec<helix_settings::files::Entry>, String> },
+    /// why it cannot be: a folder comes in batches as it is read, `done`
+    /// with the last.
+    FilesListed { serial: u64, entries: Result<Vec<helix_settings::files::Entry>, String>, done: bool },
+    /// A file's thumbnail for the file chooser's grid, made `px` big
+    /// (`None`: it has none).
+    FileThumb { path: String, px: u32, image: Option<helix_draw::Image> },
+    /// A volume the file chooser asked to mount was mounted, or why not.
+    FilesMounted { root: String, result: Result<(), String> },
     /// The file chooser's places, read again.
     FilesPlaces(Vec<helix_settings::files::Place>),
     /// A folder the file chooser asked for was made (or why not).
@@ -385,8 +393,12 @@ pub enum UiRequest {
     /// off the UI thread; the answer comes back as `FilesListed`.
     ListFiles { serial: u64, listing: file_chooser::Listing },
     /// Read the file chooser's places again (`FilesPlaces`), with Recent
-    /// when `recent`.
-    FilesPlaces { recent: bool },
+    /// when `recent` and the Trash when `trash`.
+    FilesPlaces { recent: bool, trash: bool },
+    /// The thumbnails the file chooser's grid wants now (most wanted
+    /// first), `px` big: they replace those asked before and not started
+    /// (`FileThumb`).
+    Thumbnails { px: u32, paths: Vec<String> },
     /// Make a new folder for the file chooser (`FolderMade`).
     MakeFolder { serial: u64, path: std::path::PathBuf },
     /// The UI opened/closed the launcher itself.
@@ -1061,6 +1073,29 @@ impl UiBridge {
                 });
                 Ok(())
             }
+            UiRequest::ListFiles { serial, listing: file_chooser::Listing::Folder(dir) } => {
+                // Batch by batch as the folder is read; a worker whose
+                // listing is no longer wanted stops.
+                let ui = self.ui.clone();
+                tokio::task::spawn_blocking(move || {
+                    let wanted = || file_chooser::still_wanted(serial);
+                    let result = file_chooser::list_batched(&dir, file_chooser::BATCH_EVERY, &wanted, &mut |batch| {
+                        let _ = ui.send(UiEvent::FilesListed { serial, entries: Ok(batch), done: false });
+                    });
+                    let entries = result.map(|()| Vec::new());
+                    let _ = ui.send(UiEvent::FilesListed { serial, entries, done: true });
+                });
+                Ok(())
+            }
+            UiRequest::Thumbnails { px, paths } => {
+                static QUEUE: std::sync::OnceLock<thumbs::Queue> = std::sync::OnceLock::new();
+                let ui = self.ui.clone();
+                QUEUE.get_or_init(move || thumbs::Queue::start(move |path, px, image| {
+                    let _ = ui.send(UiEvent::FileThumb { path, px, image });
+                }))
+                .want(px, paths);
+                Ok(())
+            }
             UiRequest::ListFiles { serial, listing } => {
                 let ui = self.ui.clone();
                 let conn = self.conn.clone();
@@ -1076,15 +1111,15 @@ impl UiBridge {
                             tokio::task::spawn_blocking(move || file_chooser::list_blocking(&listing, &home)).await.map_err(|e| e.to_string()).and_then(|r| r)
                         }
                     };
-                    let _ = ui.send(UiEvent::FilesListed { serial, entries });
+                    let _ = ui.send(UiEvent::FilesListed { serial, entries, done: true });
                 });
                 Ok(())
             }
-            UiRequest::FilesPlaces { recent } => {
+            UiRequest::FilesPlaces { recent, trash } => {
                 let ui = self.ui.clone();
                 tokio::task::spawn_blocking(move || {
                     let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(|| "/".into());
-                    let _ = ui.send(UiEvent::FilesPlaces(helix_settings::files::user_places(&home, recent)));
+                    let _ = ui.send(UiEvent::FilesPlaces(helix_settings::files::user_places(&home, recent, trash)));
                 });
                 Ok(())
             }

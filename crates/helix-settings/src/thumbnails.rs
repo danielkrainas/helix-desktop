@@ -197,32 +197,122 @@ fn modified(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
+/// The freedesktop thumbnail cache's sizes: (folder, largest side).
+pub const FLAVORS: [(&str, u32); 4] = [("normal", 128), ("large", 256), ("x-large", 512), ("xx-large", 1024)];
+
+/// The cache folders to look in for a thumbnail shown `px` pixels big,
+/// best first: the smallest at least that big, then bigger ones, then
+/// smaller ones (biggest first).
+pub fn flavors_for(px: u32) -> Vec<&'static str> {
+    let mut bigger: Vec<&str> = FLAVORS.iter().filter(|f| f.1 >= px).map(|f| f.0).collect();
+    bigger.extend(FLAVORS.iter().rev().filter(|f| f.1 < px).map(|f| f.0));
+    bigger
+}
+
+/// The flavor to make for a thumbnail shown `px` big: the smallest at
+/// least that big (`large` past it).
+pub fn flavor_to_make(px: u32) -> (&'static str, u32) {
+    if px <= 128 {
+        FLAVORS[0]
+    } else {
+        FLAVORS[1]
+    }
+}
+
+/// The text chunks (`tEXt`) of a PNG file before its image data:
+/// (keyword, text). Thumbnails keep `Thumb::URI` and `Thumb::MTime` there.
+pub fn png_text(bytes: &[u8]) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    if bytes.len() < 8 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
+        return out;
+    }
+    let mut at = 8;
+    while at + 8 <= bytes.len() {
+        let len = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
+        let kind = &bytes[at + 4..at + 8];
+        let Some(data) = bytes.get(at + 8..at + 8 + len) else { break };
+        if kind == b"IDAT" || kind == b"IEND" {
+            break;
+        }
+        if kind == b"tEXt" {
+            if let Some(nul) = data.iter().position(|b| *b == 0) {
+                // Latin-1.
+                let latin = |b: &[u8]| b.iter().map(|c| char::from(*c)).collect::<String>();
+                out.push((latin(&data[..nul]), latin(&data[nul + 1..])));
+            }
+        }
+        at += 12 + len;
+    }
+    out
+}
+
+/// Whether thumbnail `thumb` is a fresh one of the file with URI `uri`
+/// modified at `file_time`: its `Thumb::MTime` is the file's (and its
+/// `Thumb::URI` the file's, when it has one); without `Thumb::MTime`, it
+/// is not older than the file.
+pub fn fresh(thumb: &Path, uri: &str, file_time: std::time::SystemTime) -> bool {
+    let Ok(bytes) = std::fs::read(thumb) else { return false };
+    let text = png_text(&bytes);
+    let get = |k: &str| text.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
+    if get("Thumb::URI").is_some_and(|u| u != uri) {
+        return false;
+    }
+    let secs = file_time.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    match get("Thumb::MTime") {
+        Some(m) => m.trim().parse::<u64>().is_ok_and(|m| m == secs),
+        None => modified(thumb).is_some_and(|t| t >= file_time),
+    }
+}
+
+/// Whether `path` is in the thumbnail cache itself (never thumbnailed).
+pub fn in_cache(path: &Path) -> bool {
+    path.starts_with(gio::glib::user_cache_dir().join("thumbnails")) || path.starts_with(gio::glib::user_cache_dir().join("helix/thumbnails"))
+}
+
+/// A fresh cached thumbnail of `path` for showing it `px` pixels big:
+/// from the freedesktop cache (`$XDG_CACHE_HOME/thumbnails/<flavor>/<md5
+/// of the URI>.png`, the flavors in [`flavors_for`] order), else Helix's
+/// own (`$XDG_CACHE_HOME/helix/thumbnails/`).
+pub fn cached(path: &Path, px: u32) -> Option<PathBuf> {
+    find(path, &flavors_for(px), true)
+}
+
+/// [`cached`], only thumbnails at least `px` big (the flavors that size
+/// and up; Helix's own are [`SIZE`]).
+pub fn cached_big_enough(path: &Path, px: u32) -> Option<PathBuf> {
+    let flavors: Vec<&str> = FLAVORS.iter().filter(|f| f.1 >= px).map(|f| f.0).collect();
+    find(path, &flavors, px <= SIZE)
+}
+
+fn find(path: &Path, flavors: &[&str], own: bool) -> Option<PathBuf> {
+    let file_time = modified(path)?;
+    let uri = uri_of(path);
+    let name = cache_name(&uri);
+    let cache = gio::glib::user_cache_dir();
+    flavors
+        .iter()
+        .map(|f| cache.join("thumbnails").join(f).join(&name))
+        .chain(own.then(|| cache.join("helix").join("thumbnails").join(&name)))
+        .find(|p| fresh(p, &uri, file_time))
+}
+
 /// Whether a fresh thumbnail of `path` is cached already.
 pub fn thumbnail_known(path: &Path) -> bool {
-    let Some(file_time) = modified(path) else { return false };
-    let name = cache_name(&uri_of(path));
-    let cache = gio::glib::user_cache_dir();
-    ["thumbnails/x-large", "thumbnails/large", "thumbnails/normal", "helix/thumbnails"].iter().any(|d| modified(&cache.join(d).join(&name)).is_some_and(|t| t >= file_time))
+    cached(path, SIZE).is_some()
+}
+
+/// The file's URI as thumbnails name it.
+pub fn uri(path: &Path) -> String {
+    uri_of(path)
 }
 
 /// A thumbnail at least as new as the file, in the shared cache or
 /// Helix's own; made with a thumbnailer, in `sandbox`, when there is none.
 pub fn thumbnail(path: &Path, sandbox: &Sandbox) -> Option<PathBuf> {
-    let file_time = modified(path)?;
-    let uri = uri_of(path);
-    let name = cache_name(&uri);
-    let cache = gio::glib::user_cache_dir();
-    let fresh = |p: &Path| modified(p).is_some_and(|t| t >= file_time);
-    for size in ["x-large", "large", "normal"] {
-        let p = cache.join("thumbnails").join(size).join(&name);
-        if fresh(&p) {
-            return Some(p);
-        }
+    if let Some(found) = cached(path, SIZE) {
+        return Some(found);
     }
-    let own = cache.join("helix").join("thumbnails").join(&name);
-    if fresh(&own) {
-        return Some(own);
-    }
+    let own = gio::glib::user_cache_dir().join("helix").join("thumbnails").join(cache_name(&uri_of(path)));
     let thumbnailer = thumbnailer_for(&mime_of(path))?;
     let dir = own.parent()?;
     std::fs::create_dir_all(dir).ok()?;
@@ -300,6 +390,41 @@ mod tests {
         assert!(can_preview(&notes));
         assert_eq!(text_lines(&notes, 2), ["first line", "    second"]);
         assert!(!can_preview(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cache_flavors_and_freshness() {
+        assert_eq!(flavors_for(96), ["normal", "large", "x-large", "xx-large"]);
+        assert_eq!(flavors_for(128), ["normal", "large", "x-large", "xx-large"]);
+        assert_eq!(flavors_for(192), ["large", "x-large", "xx-large", "normal"]);
+        assert_eq!(flavors_for(600), ["xx-large", "x-large", "large", "normal"]);
+        assert_eq!(flavor_to_make(96), ("normal", 128));
+        assert_eq!(flavor_to_make(192), ("large", 256));
+        // A PNG with two text chunks before its image data.
+        let chunk = |kind: &[u8], data: &[u8]| {
+            let mut c = (data.len() as u32).to_be_bytes().to_vec();
+            c.extend(kind);
+            c.extend(data);
+            c.extend([0, 0, 0, 0]);
+            c
+        };
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend(chunk(b"IHDR", &[0; 13]));
+        png.extend(chunk(b"tEXt", b"Thumb::URI\0file:///tmp/a%20b.png"));
+        png.extend(chunk(b"tEXt", b"Thumb::MTime\x001700000000"));
+        png.extend(chunk(b"IDAT", &[1, 2, 3]));
+        png.extend(chunk(b"tEXt", b"After\0ignored"));
+        assert_eq!(png_text(&png), [("Thumb::URI".to_owned(), "file:///tmp/a%20b.png".to_owned()), ("Thumb::MTime".to_owned(), "1700000000".to_owned())]);
+        assert!(png_text(b"not a png").is_empty());
+        let dir = std::env::temp_dir().join(format!("helix-thumbs-fresh-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let thumb = dir.join("t.png");
+        std::fs::write(&thumb, &png).unwrap();
+        let at = |s: u64| std::time::UNIX_EPOCH + Duration::from_secs(s);
+        assert!(fresh(&thumb, "file:///tmp/a%20b.png", at(1_700_000_000)));
+        assert!(!fresh(&thumb, "file:///tmp/a%20b.png", at(1_700_000_001)), "the file changed since");
+        assert!(!fresh(&thumb, "file:///tmp/other.png", at(1_700_000_000)), "another file's");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

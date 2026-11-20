@@ -22,6 +22,8 @@
 //!   middle) down or up.
 //! - `click X Y [CODE]`: move there, press and release (left by default).
 //! - `scroll DX DY`: smooth scrolling by (DX, DY) pixels.
+//! - `finger DX DY`: touchpad (finger) scrolling by (DX, DY) pixels, the
+//!   fingers still down; `finger stop`: they lift (the axis stop).
 //! - `touch down|move X Y` and `touch up`: one finger (slot 0) of the
 //!   virtual touchscreen on the monitor under (X, Y).
 
@@ -101,6 +103,10 @@ pub fn parse(line: &str) -> Result<Command, String> {
             RemoteInput::Axis { dx: number(words.next())?, dy: number(words.next())?, finish: false, source: 1 },
             RemoteInput::Axis { dx: 0.0, dy: 0.0, finish: true, source: 1 },
         ]),
+        "finger" => match words.next() {
+            Some("stop") => Command::Input(vec![RemoteInput::Axis { dx: 0.0, dy: 0.0, finish: true, source: 0 }]),
+            dx => Command::Input(vec![RemoteInput::Axis { dx: number(dx)?, dy: number(words.next())?, finish: false, source: 0 }]),
+        },
         "touch" => match words.next() {
             Some(what @ ("down" | "move")) => Command::Touch(Some((number(words.next())?, number(words.next())?)), what == "down"),
             Some("up") => Command::Touch(None, false),
@@ -271,6 +277,9 @@ mod tests {
         assert_eq!(parse("touch move 11 20"), Ok(Command::Touch(Some((11.0, 20.0)), false)));
         assert_eq!(parse("touch up"), Ok(Command::Touch(None, false)));
         assert!(parse("touch left 1 2").is_err());
+        assert_eq!(parse("finger 0 -12.5"), Ok(Command::Input(vec![RemoteInput::Axis { dx: 0.0, dy: -12.5, finish: false, source: 0 }])));
+        assert_eq!(parse("finger stop"), Ok(Command::Input(vec![RemoteInput::Axis { dx: 0.0, dy: 0.0, finish: true, source: 0 }])));
+        assert!(parse("finger 1").is_err());
         assert!(parse("key 30").is_err());
         assert!(parse("key 30 1 2").is_err());
         assert!(parse("warp 1 2").is_err());
