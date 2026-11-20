@@ -2,7 +2,7 @@
 # zsh completion for helix-agent (made by `helix-agent completions zsh`)
 _helix_agent() {
     local at= w i prev=${words[CURRENT-1]}
-    local known=" status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions "
+    local known=" status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/types clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions "
     for ((i = 2; i < CURRENT; i++)); do
         w=${words[i]}
         [[ $w == -* ]] && continue
@@ -24,6 +24,7 @@ _helix_agent() {
         --no) _message 'no'; return ;;
         --icon) _message 'icon'; return ;;
         --urgency) compadd -- low normal; return ;;
+        --output) _files; return ;;
         --depth) _message 'depth'; return ;;
         --node) _message 'node'; return ;;
         --max-nodes) _message 'max-nodes'; return ;;
@@ -32,7 +33,6 @@ _helix_agent() {
         --state) _message 'state'; return ;;
         --window) _message 'window'; return ;;
         --monitor) _message 'monitor'; return ;;
-        --output) _files; return ;;
         --button) _message 'button'; return ;;
         --agent) _message 'agent'; return ;;
     esac
@@ -43,7 +43,7 @@ _helix_agent() {
         wait) commands=('window:Wait until a matching window is open' 'closed:Wait until a window is closed') ;;
         remind) commands=('add:Add a reminder' 'list:This agent'\''s reminders' 'cancel:Cancel a reminder') ;;
         workspace) commands=('switch:Switch to a workspace') ;;
-        clipboard) commands=('get:Read the clipboard' 'set:Set the clipboard') ;;
+        clipboard) commands=('get:Read the clipboard' 'types:The types the clipboard offers' 'set:Set the clipboard') ;;
         a11y) commands=('tree:An app window'\''s controls' 'find:Find controls by role, name or state' 'wait:Wait until a matching control is there' 'do:Use a control' 'press:Press a control (its first action)' 'focus:Give a control the keyboard focus' 'select:Select an item in its list or tabs' 'set:Change a control'\''s text or value') ;;
         input) commands=('key:Press keys' 'type:Type text' 'click:Click at a point' 'move:Move the pointer' 'scroll:Scroll') ;;
     esac
@@ -77,7 +77,8 @@ _helix_agent() {
         toggle) compadd -- dark-style do-not-disturb night-light wifi airplane-mode mute --json --text --no-ask --sensitive --timeout --help ;;
         set) compadd -- volume brightness --json --text --no-ask --sensitive --timeout --help ;;
         notify) compadd -- --icon --urgency --json --text --no-ask --sensitive --timeout --help ;;
-        clipboard/get) compadd -- --type --json --text --no-ask --sensitive --timeout --help ;;
+        clipboard/get) compadd -- --type --output --json --text --no-ask --sensitive --timeout --help ;;
+        clipboard/types) compadd -- --json --text --no-ask --sensitive --timeout --help ;;
         clipboard/set) compadd -- --type --json --text --no-ask --sensitive --timeout --help ;;
         a11y/tree) compadd -- --depth --node --max-nodes --bounds --json --text --no-ask --sensitive --timeout --help ;;
         a11y/find) compadd -- --role --name --state --limit --json --text --no-ask --sensitive --timeout --help ;;

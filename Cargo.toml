@@ -100,4 +100,6 @@ accesskit_atspi_common = { path = "vendor/accesskit_atspi_common" }
 # or one edge and both perpendicular ones; src/desktop/wayland/layer.rs).
 smithay = { path = "vendor/smithay" }
 # Also patched: page flips may be asynchronous (tearing, wp_tearing_control_v1),
-# falling back to a vsynced flip (src/backend/drm/surface/*.rs, set_async_flip).
+# falling back to a vsynced flip (src/backend/drm/surface/*.rs, set_async_flip);
+# a selection says which client offers it (src/wayland/selection/source.rs,
+# SelectionSource::client), for Agent Access's clipboard rules.

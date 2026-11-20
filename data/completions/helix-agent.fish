@@ -1,6 +1,6 @@
 # fish completion for helix-agent (made by `helix-agent completions fish`)
 function __helix_agent_at
-    set -l known status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions
+    set -l known status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/types clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions
     set -l at
     for w in (commandline -opc)[2..-1]
         string match -q -- '-*' $w; and continue
@@ -76,9 +76,11 @@ complete -c helix-agent -n '__helix_agent_at set' -a 'volume brightness'
 complete -c helix-agent -n '__helix_agent_at notify' -l icon -x -d 'An icon name'
 complete -c helix-agent -n '__helix_agent_at notify' -l urgency -x -a 'low normal' -d 'low or normal'
 complete -c helix-agent -n '__helix_agent_at clipboard' -a get -d 'Read the clipboard'
+complete -c helix-agent -n '__helix_agent_at clipboard' -a types -d 'The types the clipboard offers'
 complete -c helix-agent -n '__helix_agent_at clipboard' -a set -d 'Set the clipboard'
-complete -c helix-agent -n '__helix_agent_at clipboard/get' -l type -x -d 'Only this type, e.g. application/pdf'
-complete -c helix-agent -n '__helix_agent_at clipboard/set' -l type -x -d 'Only this type, e.g. application/pdf'
+complete -c helix-agent -n '__helix_agent_at clipboard/get' -l type -x -d 'The type to read, e.g. text/plain, text/html or image/* (default: text, else an image)'
+complete -c helix-agent -n '__helix_agent_at clipboard/get' -l output -r -F -d 'Write the content to FILE'
+complete -c helix-agent -n '__helix_agent_at clipboard/set' -l type -x -a 'text/plain text/plain;charset=utf-8 text/html text/uri-list image/png' -d 'text/plain (default), text/html, text/uri-list or image/png'
 complete -c helix-agent -n '__helix_agent_at a11y' -a tree -d 'An app window\'s controls'
 complete -c helix-agent -n '__helix_agent_at a11y' -a find -d 'Find controls by role, name or state'
 complete -c helix-agent -n '__helix_agent_at a11y' -a wait -d 'Wait until a matching control is there'

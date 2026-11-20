@@ -6,6 +6,7 @@
 mod a11y;
 mod act;
 mod cli;
+mod clipboard;
 mod complete;
 mod errors;
 mod json;
@@ -120,6 +121,11 @@ fn run(p: &cli::Parsed) -> Result<Option<Done>, Failure> {
         }
         "open" | "launch" | "window" | "workspace switch" | "toggle" | "set" | "notify" => act::run(p, &path).map(Some),
         "ask" | "confirm" | "remind add" | "remind list" | "remind cancel" => talk::run(p, &path).map(Some),
+        "clipboard get" | "clipboard types" | "clipboard set" => {
+            // SAFETY: isatty on standard output.
+            let json = p.json.unwrap_or(unsafe { libc::isatty(1) } != 1);
+            clipboard::run(p, &path, json)
+        }
         "a11y tree" | "a11y find" | "a11y wait" | "a11y do" | "a11y press" | "a11y focus" | "a11y select" | "a11y set" => a11y::run(p, &path).map(Some),
         // The shell's methods for the rest come with helixdesktop/desktop
         // #146–#151 (`Cmd::ready`); until then this session cannot do them.

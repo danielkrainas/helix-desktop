@@ -163,7 +163,11 @@ impl SelectionHandler for Helix {
             }
         }
         if ty == smithay::wayland::selection::SelectionTarget::Clipboard {
-            self.clipboard_changed(mime_types.unwrap_or_default(), None);
+            let who = match source.as_ref() {
+                Some(source) => self.clipboard_source_of(source.client().as_ref()),
+                None => super::clipboard::Source::default(),
+            };
+            self.clipboard_changed(mime_types.unwrap_or_default(), who);
         }
     }
 
@@ -182,6 +186,10 @@ impl SelectionHandler for Helix {
         }
         if let super::ServerSelection::Text(text) = user_data {
             super::capture::serve_text(text.clone(), &mime_type, fd);
+            return;
+        }
+        if let super::ServerSelection::Data { mime_type: offered, data } = user_data {
+            super::capture::serve_data(data.clone(), offered, &mime_type, fd);
             return;
         }
         if let super::ServerSelection::Remote { session } = user_data {

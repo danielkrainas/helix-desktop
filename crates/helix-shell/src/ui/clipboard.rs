@@ -324,6 +324,99 @@ impl Ui {
     }
 }
 
+/// What a `helix_clipboard_info_v1` collects until its `done`, and where
+/// the answer goes.
+pub(super) struct InfoData {
+    types: std::sync::Mutex<Vec<String>>,
+    reply: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Result<crate::agent::clipboard::Offer, String>>>>,
+}
+
+impl Ui {
+    /// An agent's clipboard request (helixdesktop/desktop#151), through
+    /// the compositor: what the clipboard offers and who set it, a pipe
+    /// its content comes through, or a copy the compositor owns for the
+    /// agent. The policy is the agent code's.
+    pub(super) fn agent_clipboard(&mut self, request: crate::agent::clipboard::Request) {
+        use crate::agent::clipboard::Request;
+        use std::os::fd::AsFd;
+        let manager = self.screenshots.as_ref().filter(|m| m.version() >= 7).cloned();
+        let too_old = || "this compositor cannot share the clipboard with agents".to_owned();
+        match request {
+            Request::Peek(reply) => match manager {
+                Some(m) => {
+                    let data = InfoData { types: Default::default(), reply: std::sync::Mutex::new(Some(reply)) };
+                    let _ = m.get_clipboard(&self.qh, data);
+                }
+                None => {
+                    let _ = reply.send(Err(too_old()));
+                }
+            },
+            Request::Read { generation, mime, reply } => {
+                let Some(m) = manager else {
+                    let _ = reply.send(Err(too_old()));
+                    return;
+                };
+                match std::io::pipe() {
+                    Ok((read, write)) => {
+                        m.receive_clipboard(generation, mime, write.as_fd());
+                        drop(write);
+                        let _ = reply.send(Ok(read.into()));
+                    }
+                    Err(err) => {
+                        let _ = reply.send(Err(err.to_string()));
+                    }
+                }
+            }
+            Request::Set { mime, data, reply } => {
+                let Some(m) = manager else {
+                    let _ = reply.send(Err(too_old()));
+                    return;
+                };
+                let Some(mut file) = crate::screenshot::memfd() else {
+                    let _ = reply.send(Err("cannot hold the data".into()));
+                    return;
+                };
+                use std::io::{Seek, Write};
+                if file.write_all(&data).is_err() || file.seek(std::io::SeekFrom::Start(0)).is_err() {
+                    let _ = reply.send(Err("cannot hold the data".into()));
+                    return;
+                }
+                m.copy_data(mime, file.as_fd());
+                let _ = reply.send(Ok(()));
+            }
+        }
+    }
+}
+
+impl Dispatch<helix_protocols::client::helix_clipboard_info_v1::HelixClipboardInfoV1, InfoData> for Ui {
+    fn event(
+        _: &mut Self,
+        info: &helix_protocols::client::helix_clipboard_info_v1::HelixClipboardInfoV1,
+        event: helix_protocols::client::helix_clipboard_info_v1::Event,
+        data: &InfoData,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        use helix_protocols::client::helix_clipboard_info_v1::Event;
+        match event {
+            Event::Offer { mime_type } => data.types.lock().unwrap_or_else(|e| e.into_inner()).push(mime_type),
+            Event::Done { generation, source, app_id, pid } => {
+                let source: u32 = match source {
+                    WEnum::Value(v) => v.into(),
+                    WEnum::Unknown(n) => n,
+                };
+                let types = std::mem::take(&mut *data.types.lock().unwrap_or_else(|e| e.into_inner()));
+                let offer = crate::agent::clipboard::Offer { types, generation, source: crate::agent::clipboard::SourceKind::from_wire(source), app_id, pid };
+                if let Some(reply) = data.reply.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    let _ = reply.send(Ok(offer));
+                }
+                info.destroy();
+            }
+            _ => {}
+        }
+    }
+}
+
 /// The shell only reads the primary selection; it offers none.
 impl smithay_client_toolkit::primary_selection::device::PrimarySelectionDeviceHandler for Ui {
     fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &smithay_client_toolkit::reexports::protocols::wp::primary_selection::zv1::client::zwp_primary_selection_device_v1::ZwpPrimarySelectionDeviceV1) {}

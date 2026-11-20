@@ -150,8 +150,13 @@ impl Helix {
         }
     }
 
+    /// What the clipboard offers now.
+    pub(super) fn remote_share_offered(&self) -> Vec<String> {
+        self.remote_share.offered.clone()
+    }
+
     /// Have the clipboard's owner write it, as `mime_type`, into `fd`.
-    fn read_clipboard(&mut self, mime_type: String, fd: OwnedFd) -> Result<(), RemoteError> {
+    pub(super) fn read_clipboard(&mut self, mime_type: String, fd: OwnedFd) -> Result<(), RemoteError> {
         let current = current_data_device_selection_userdata(&self.seat).map(|r| r.clone());
         match current.as_ref() {
             Some(ServerSelection::Image(png)) => {
@@ -160,6 +165,10 @@ impl Helix {
             }
             Some(ServerSelection::Text(text)) => {
                 super::capture::serve_text(text.clone(), &mime_type, fd);
+                Ok(())
+            }
+            Some(ServerSelection::Data { mime_type: offered, data }) => {
+                super::capture::serve_data(data.clone(), offered, &mime_type, fd);
                 Ok(())
             }
             Some(ServerSelection::Remote { session }) => {
@@ -183,7 +192,7 @@ impl Helix {
                 tracing::warn!(?err, "cannot offer the remote clipboard to X11");
             }
         }
-        self.clipboard_changed(mime_types, Some(session));
+        self.clipboard_changed(mime_types, super::clipboard::Source::of(super::clipboard::Kind::Remote(session)));
     }
 
     /// An app pastes session `session`'s content as `mime_type` into `fd`.
@@ -199,8 +208,13 @@ impl Helix {
     }
 
     /// The clipboard now offers `mime_types` (empty: cleared), set by
-    /// `owner` (a remote desktop session) or else an app.
-    pub fn clipboard_changed(&mut self, mime_types: Vec<String>, owner: Option<u32>) {
+    /// `source` (a remote desktop session, an app, the shell…).
+    pub fn clipboard_changed(&mut self, mime_types: Vec<String>, source: super::clipboard::Source) {
+        let owner = match source.kind {
+            super::clipboard::Kind::Remote(session) => Some(session),
+            _ => None,
+        };
+        self.note_clipboard_source(source);
         self.remote_share.offered = mime_types.clone();
         self.remote_share.owner = owner;
         for session in self.remote_share.sharing.clone() {
@@ -222,7 +236,7 @@ impl Helix {
             if let Some(xwm) = self.xwm.as_mut() {
                 let _ = xwm.new_selection(SelectionTarget::Clipboard, None);
             }
-            self.clipboard_changed(Vec::new(), None);
+            self.clipboard_changed(Vec::new(), super::clipboard::Source::default());
         }
     }
 

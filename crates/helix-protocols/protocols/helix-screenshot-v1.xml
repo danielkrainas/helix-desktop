@@ -11,7 +11,7 @@
     The global is only advertised to privileged clients (the shell the
     compositor launched itself).
   </description>
-  <interface name="helix_screenshot_manager_v1" version="6">
+  <interface name="helix_screenshot_manager_v1" version="7">
     <description summary="takes captures">
       Each request captures the scene as it is when the compositor handles
       the request, so surfaces the shell destroyed before sending it are
@@ -105,6 +105,37 @@
       </description>
       <arg name="fd" type="fd"/>
     </request>
+    <request name="copy_data" since="7">
+      <description summary="put an agent's data on the clipboard">
+        For Agent Access: the compositor reads data from the file
+        descriptor (from its current offset to the end), takes the
+        clipboard selection and offers it as mime_type until something
+        else takes the selection. text/plain;charset=utf-8 and text/plain
+        (UTF-8 text) are offered as copy_text offers text. Its source reads
+        as agent in helix_clipboard_info_v1.
+      </description>
+      <arg name="mime_type" type="string"/>
+      <arg name="fd" type="fd"/>
+    </request>
+    <request name="get_clipboard" since="7">
+      <description summary="what the clipboard offers, and who set it">
+        The new object receives an offer event for each type the
+        clipboard selection offers (none when there is none), then done.
+      </description>
+      <arg name="id" type="new_id" interface="helix_clipboard_info_v1"/>
+    </request>
+    <request name="receive_clipboard" since="7">
+      <description summary="read the clipboard">
+        Has the clipboard selection's owner write it, as mime_type, into
+        the file descriptor, and closes the compositor's copy. Only while
+        the selection is still the one generation (from
+        helix_clipboard_info_v1.done) names and it offers mime_type:
+        otherwise the descriptor is closed with nothing written.
+      </description>
+      <arg name="generation" type="uint"/>
+      <arg name="mime_type" type="string"/>
+      <arg name="fd" type="fd"/>
+    </request>
     <request name="destroy" type="destructor">
       <description summary="destroy the manager">
         Captures in progress are not affected.
@@ -135,6 +166,38 @@
     </event>
     <request name="destroy" type="destructor">
       <description summary="destroy the frame"/>
+    </request>
+  </interface>
+  <interface name="helix_clipboard_info_v1" version="1">
+    <description summary="the clipboard selection, once">
+      Receives offer events and then exactly one done event; the shell
+      destroys it after done.
+    </description>
+    <enum name="source">
+      <entry name="none" value="0" summary="no selection"/>
+      <entry name="app" value="1" summary="a Wayland client (app_id and pid say which)"/>
+      <entry name="x11" value="2" summary="an X11 app (app_id and pid: the focused X11 window's, when it took the selection)"/>
+      <entry name="shell" value="3" summary="the shell (its text fields, copy_image, copy_text)"/>
+      <entry name="agent" value="4" summary="copy_data"/>
+      <entry name="remote" value="5" summary="a remote desktop session's client"/>
+    </enum>
+    <event name="offer">
+      <description summary="a type the selection offers"/>
+      <arg name="mime_type" type="string"/>
+    </event>
+    <event name="done">
+      <description summary="all types sent">
+        generation changes whenever the selection does; app_id is the app
+        id of a window of the client that set it ("" when unknown), pid
+        its process (0 when unknown).
+      </description>
+      <arg name="generation" type="uint"/>
+      <arg name="source" type="uint" enum="source"/>
+      <arg name="app_id" type="string"/>
+      <arg name="pid" type="uint"/>
+    </event>
+    <request name="destroy" type="destructor">
+      <description summary="destroy the object"/>
     </request>
   </interface>
 </protocol>

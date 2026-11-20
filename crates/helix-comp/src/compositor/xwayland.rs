@@ -386,6 +386,10 @@ impl XwmHandler for Helix {
                     super::capture::serve_text(text.clone(), &mime_type, fd);
                     return;
                 }
+                Some(super::ServerSelection::Data { mime_type: offered, data }) => {
+                    super::capture::serve_data(data.clone(), offered, &mime_type, fd);
+                    return;
+                }
                 Some(super::ServerSelection::Remote { session }) => {
                     let session = *session;
                     self.start_transfer(session, mime_type, fd);
@@ -410,7 +414,8 @@ impl XwmHandler for Helix {
         match selection {
             SelectionTarget::Clipboard => {
                 set_data_device_selection(&self.display_handle, &self.seat, mime_types.clone(), super::ServerSelection::X11);
-                self.clipboard_changed(mime_types, None);
+                let source = self.x11_clipboard_source();
+                self.clipboard_changed(mime_types, source);
             }
             SelectionTarget::Primary => {
                 set_primary_selection(&self.display_handle, &self.seat, mime_types, super::ServerSelection::X11)
@@ -425,7 +430,7 @@ impl XwmHandler for Helix {
                 let x11 = matches!(current_data_device_selection_userdata(&self.seat).as_deref(), Some(super::ServerSelection::X11));
                 if x11 {
                     clear_data_device_selection(&self.display_handle, &self.seat);
-                    self.clipboard_changed(Vec::new(), None);
+                    self.clipboard_changed(Vec::new(), super::clipboard::Source::default());
                 }
             }
             SelectionTarget::Primary => {

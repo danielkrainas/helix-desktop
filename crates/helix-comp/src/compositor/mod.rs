@@ -8,6 +8,7 @@ mod zoom;
 mod alive;
 mod attention;
 mod capture;
+mod clipboard;
 mod color;
 mod cursor;
 mod focus;
@@ -179,6 +180,8 @@ pub struct Helix {
     pub syncobj_state: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
     /// Remote desktop clipboard sharing and keymaps.
     pub remote_share: remote_share::RemoteShare,
+    /// The clipboard's generation and source (Agent Access).
+    pub clipboard: clipboard::ClipboardState,
     pub dmabuf_state: DmabufState,
     /// GPU buffers waiting for the nested renderer to test them.
     pub pending_dmabufs: Vec<(smithay::backend::allocator::dmabuf::Dmabuf, smithay::wayland::dmabuf::ImportNotifier)>,
@@ -286,7 +289,7 @@ impl Helix {
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
         dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(13, ());
         helix_comp::tablet_v2::TabletV2::global::<Self>(&dh);
-        dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(6, ());
+        dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(7, ());
         let socket_name = Self::listen(display, event_loop)?;
         let mut helix = Self {
             start_time: Instant::now(),
@@ -347,6 +350,7 @@ impl Helix {
             host_cursor: None,
             cursors: cursor::Cursors::new("Adwaita", 24),
             remote_share: Default::default(),
+            clipboard: Default::default(),
             syncobj_state: None,
             color_manager: helix_comp::color_management::ColorManager::new::<Self>(&dh),
             x11ping: None,
@@ -697,6 +701,9 @@ pub enum ServerSelection {
     Text(Arc<Vec<u8>>),
     /// A remote desktop session's clipboard content.
     Remote { session: u32 },
+    /// Data of one type an agent copied (`copy_data`), other than plain
+    /// text (that is [`ServerSelection::Text`]).
+    Data { mime_type: String, data: Arc<Vec<u8>> },
 }
 
 /// Whether `client` is the shell the compositor launched.

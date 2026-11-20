@@ -176,10 +176,32 @@ over-amplification on). Setting the volume unmutes.
 .B notify \fITITLE\fR [\fIBODY\fR] [\fB\-\-icon \fIICON\fR] [\fB\-\-urgency low\fR|\fBnormal\fR]
 Show the user a notification, under \fIAgent:\fR and this agent's name;
 plain text, at most 5 a minute. Prints its id.
+.SS "Clipboard (Clipboard access)"
+These need \fIClipboard access\fR on in Settings (exit 19 otherwise):
+\fBget\fR and \fBtypes\fR the Read only level, \fBset\fR Control the
+desktop. The shell reads and sets the clipboard for the agent; the
+primary selection (middle-click paste) is never used. Reading is refused
+(exit 14) when the shell, Settings, a password prompt or an excluded app
+copied it, when a password manager marked it secret, while a system
+prompt is shown, and while the screen is locked (exit 15). The activity
+log records only the kind of content and its length.
 .TP
-.B clipboard get \fR[\fB\-\-type \fIMIME\fR]; \fBclipboard set \fR[\fITEXT\fR] [\fB\-\-type \fIMIME\fR]
-Read or set the clipboard (needs \fIClipboard access\fR; \fBset\fR reads
-standard input without \fITEXT\fR).
+.B clipboard get \fR[\fB\-\-type \fIMIME\fR] [\fB\-\-output \fIFILE\fR]
+Print the clipboard: as text unless \fB\-\-type\fR asks for another
+type (\fBtext/html\fR, \fBimage/png\fR, \fBimage/*\fR for any picture);
+without text, a picture, else the first type offered. Text output is the
+content as it is, without a line break added; binary content is written
+only to a file (\fB\-\-output\fR) or a pipe. JSON output is the Clipboard
+record. At most 16 MiB.
+.TP
+.B clipboard types
+The types the clipboard offers, one per line.
+.TP
+.B clipboard set \fR[\fITEXT\fR] [\fB\-\-type \fIMIME\fR]
+Put \fITEXT\fR, or standard input without it, on the clipboard as
+\fB\-\-type\fR: \fBtext/plain\fR (the default), \fBtext/html\fR,
+\fBtext/uri-list\fR or \fBimage/png\fR; at most 16 MiB. The shell holds
+it until something else is copied.
 .SS "Apps (Control apps)"
 The shell reads and uses the window's controls through its accessibility
 tree; \fBhelix-agent\fR never talks to the accessibility bus.
@@ -243,8 +265,8 @@ time: \fB+10m\fR, \fB+2h\fR, \fB\-1d\fR, \fByesterday\fR, \fBtoday\fR.
 confirmed by the user first when \fIConfirm sensitive actions\fR is on; with
 \fB\-\-no\-ask\fR they fail (exit 18), and a declined one exits 13.
 .PP
-Commands whose shell support is still to come (\fBclipboard\fR,
-\fBscreenshot\fR, \fBinput\fR) answer exit 23 (\fBnot-supported\fR) in
+Commands whose shell support is still to come (\fBscreenshot\fR,
+\fBinput\fR) answer exit 23 (\fBnot-supported\fR) in
 this version.
 .SH OUTPUT
 With \fB\-\-json\fR, success prints one JSON object: the status dictionary
@@ -305,6 +327,10 @@ value-hidden: true instead), value-truncated, actions, child-count, truncated (s
 x, y, width, height (with \fB\-\-bounds\fR), children (\fBa11y tree\fR).
 \fBa11y tree\fR prints {"window", "app-id", "truncated", "root"};
 \fBa11y find\fR {"nodes": [...]}; \fBa11y wait\fR the node.
+.TP
+.B Clipboard
+mime-type, and text (text types) or data (base64), or path with
+\fB\-\-output\fR; types (every type offered).
 .TP
 .B Image
 png (base64) or path, width, height, scale.

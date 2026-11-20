@@ -3666,6 +3666,11 @@ impl Ui {
                     let _ = reply.send(self.agent_snapshot());
                 }
             }
+            UiEvent::AgentClipboard(slot) => {
+                if let Some(request) = slot.take() {
+                    self.agent_clipboard(request);
+                }
+            }
             UiEvent::AgentWindow(slot) => {
                 if let Some(request) = slot.take() {
                     let _ = request.reply.send(self.agent_window(&request.ops));
@@ -4146,7 +4151,7 @@ pub fn run(
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
     let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=13, ()).ok();
-    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=6, ()).ok();
+    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=7, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
         .ok();

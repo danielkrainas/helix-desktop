@@ -26,6 +26,16 @@ impl SelectionSource {
     pub fn mime_types(&self) -> Vec<String> {
         self.provider.mime_types()
     }
+
+    /// Helix: the client offering the selection (`None` once it is gone).
+    pub fn client(&self) -> Option<wayland_server::Client> {
+        match &self.provider {
+            SelectionSourceProvider::DataDevice(source) => source.client(),
+            SelectionSourceProvider::Primary(source) => source.client(),
+            SelectionSourceProvider::WlrDataControl(source) => source.client(),
+            SelectionSourceProvider::ExtDataControl(source) => source.client(),
+        }
+    }
 }
 
 /// Provider of the selection data.

@@ -399,7 +399,7 @@ async fn desktop_actions_over_the_bus() {
 
     // The desktop methods are there now, as the contract has them.
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
-    let later: Vec<String> = ["GetClipboard", "SetClipboard", "Screenshot", "Input"]
+    let later: Vec<String> = ["Screenshot", "Input"]
         .iter()
         .map(|m| format!("method {m}"))
         .collect();

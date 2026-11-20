@@ -33,6 +33,8 @@ pub const WINDOW_ACTIONS: &[&str] = &[
     "focus", "close", "minimize", "maximize", "unmaximize", "restore", "fullscreen", "unfullscreen", "tile-left", "tile-right", "move", "resize", "to-workspace",
 ];
 pub const SHELLS: &[&str] = &["bash", "zsh", "fish"];
+/// The types `clipboard set` may set (the shell's list).
+pub const SET_TYPES: &[&str] = &["text/plain", "text/plain;charset=utf-8", "text/html", "text/uri-list", "image/png"];
 
 /// A command (or a group of subcommands).
 pub struct Cmd {
@@ -194,10 +196,27 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
             ..cmd("notify", n_("Show the user a notification"), Some("desktop"))
         },
         Cmd {
+            ready: true,
             switch: Some("clipboard"),
             subs: &[
-                Cmd { switch: Some("clipboard"), opts: &[MIME], ..cmd("get", n_("Read the clipboard"), Some("read-only")) },
-                Cmd { switch: Some("clipboard"), args: &[opt_arg("TEXT", n_("The text (default: read from standard input)"))], opts: &[MIME], ..cmd("set", n_("Set the clipboard"), Some("desktop")) },
+                Cmd {
+                    ready: true,
+                    switch: Some("clipboard"),
+                    records: Some("Clipboard"),
+                    opts: &[
+                        valued("type", "MIME", n_("The type to read, e.g. text/plain, text/html or image/* (default: text, else an image)")),
+                        valued("output", "FILE", n_("Write the content to FILE")),
+                    ],
+                    ..cmd("get", n_("Read the clipboard"), Some("read-only"))
+                },
+                Cmd { ready: true, switch: Some("clipboard"), ..cmd("types", n_("The types the clipboard offers"), Some("read-only")) },
+                Cmd {
+                    ready: true,
+                    switch: Some("clipboard"),
+                    args: &[opt_arg("TEXT", n_("The text (default: read from standard input)"))],
+                    opts: &[Opt { choices: SET_TYPES, ..valued("type", "MIME", n_("text/plain (default), text/html, text/uri-list or image/png")) }],
+                    ..cmd("set", n_("Set the clipboard"), Some("desktop"))
+                },
             ],
             ..cmd("clipboard", n_("Read or set the clipboard (needs Clipboard access)"), Some("read-only"))
         },
@@ -644,5 +663,8 @@ mod tests {
         }
         assert!(command_help(&["files", "search"]).unwrap().contains("Needs: the “Read only” access level"));
         assert!(command_help(&["clipboard", "set"]).unwrap().contains("Clipboard access"));
+        assert!(command_help(&["clipboard", "types"]).unwrap().contains("Needs: the “Read only” access level and Clipboard access"));
+        assert!(p("clipboard set --type image/gif").is_err(), "only the types the shell sets");
+        assert_eq!(p("clipboard get --type image/* --output a.png").unwrap().opt("output"), Some("a.png"));
     }
 }

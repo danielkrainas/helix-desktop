@@ -5,7 +5,8 @@
 //! - `helix_window_list_v1` (`protocols/helix-window-list-v1.xml`): open
 //!   windows and focus for the shell's window switcher; activation.
 //! - `helix_screenshot_v1` (`protocols/helix-screenshot-v1.xml`): screen
-//!   captures written as PNG images, for the shell's screenshot service.
+//!   captures written as PNG images, for the shell's screenshot service,
+//!   and the clipboard (copies, and reading it for Agent Access).
 //! - `gtk_shell1` (`protocols/gtk-shell.xml`): GNOME's own protocol, as
 //!   mutter offers it; GTK 3 says through it which dialogs are modal.
 //!

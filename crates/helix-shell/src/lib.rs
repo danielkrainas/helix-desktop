@@ -327,6 +327,9 @@ pub enum UiEvent {
     /// Window and workspace requests of agents, for the compositor's
     /// window list (helixdesktop/desktop#147).
     AgentWindow(agent::actions::WindowSlot),
+    /// Agents' clipboard reads and copies, through the compositor
+    /// (helixdesktop/desktop#151).
+    AgentClipboard(agent::clipboard::ClipboardSlot),
     /// An agent's question for the user (helixdesktop/desktop#148).
     AgentQuestion(agent::talk::QuestionSlot),
     /// Close an agent's question (by its id) unanswered: its time ran

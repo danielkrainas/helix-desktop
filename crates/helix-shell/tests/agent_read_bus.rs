@@ -175,7 +175,7 @@ async fn read_only_over_the_bus() {
     // The read methods are there now, as the contract has them.
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
     let later: Vec<String> = [
-        "GetClipboard", "SetClipboard", "Screenshot", "Input",
+        "Screenshot", "Input",
     ]
     .iter()
     .map(|m| format!("method {m}"))

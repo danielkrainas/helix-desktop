@@ -150,6 +150,19 @@ pub fn serve_text(text: std::sync::Arc<Vec<u8>>, mime_type: &str, fd: OwnedFd) {
     });
 }
 
+/// Write `data` into `fd` when asked for `offered`, its one type.
+pub fn serve_data(data: std::sync::Arc<Vec<u8>>, offered: &str, mime_type: &str, fd: OwnedFd) {
+    if mime_type != offered {
+        return;
+    }
+    std::thread::spawn(move || {
+        use std::io::Write;
+        if let Err(err) = std::fs::File::from(fd).write_all(&data) {
+            tracing::debug!(%err, "clipboard data not delivered");
+        }
+    });
+}
+
 /// Encode as PNG.
 pub fn encode_png(image: &Image, out: impl std::io::Write) -> Result<(), png::EncodingError> {
     let mut encoder = png::Encoder::new(out, image.width, image.height);
@@ -252,7 +265,7 @@ impl Helix {
                 tracing::warn!(?err, "cannot offer the image to X11");
             }
         }
-        self.clipboard_changed(mime, None);
+        self.clipboard_changed(mime, super::clipboard::Source::of(super::clipboard::Kind::Shell));
         tracing::info!("image copied to the clipboard");
     }
 
@@ -275,7 +288,7 @@ impl Helix {
                 tracing::warn!(?err, "cannot offer the text to X11");
             }
         }
-        self.clipboard_changed(mime, None);
+        self.clipboard_changed(mime, super::clipboard::Source::of(super::clipboard::Kind::Shell));
         tracing::info!("text copied to the clipboard");
     }
 
@@ -649,6 +662,19 @@ impl Dispatch<HelixScreenshotManagerV1, ()> for Helix {
             }
             Request::CopyText { fd } => {
                 state.copy_text(fd);
+                return;
+            }
+            Request::CopyData { mime_type, fd } => {
+                state.copy_data(mime_type, fd);
+                return;
+            }
+            Request::GetClipboard { id } => {
+                let info = data_init.init(id, ());
+                state.describe_clipboard(&info);
+                return;
+            }
+            Request::ReceiveClipboard { generation, mime_type, fd } => {
+                state.receive_clipboard(generation, mime_type, fd);
                 return;
             }
             Request::Destroy => return,

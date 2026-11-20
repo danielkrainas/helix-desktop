@@ -29,11 +29,15 @@
 //! dialog only the user at the machine can answer, and keep reminders
 //! that come due as notifications ([`talk`]). The *Control apps* methods
 //! (helixdesktop/desktop#149) read and use apps' controls over AT-SPI,
-//! with the shell as the only client agents reach ([`a11y`]).
+//! with the shell as the only client agents reach ([`a11y`]). The
+//! clipboard methods (helixdesktop/desktop#151) read and set the clipboard
+//! through the compositor, refusing content whose source is protected
+//! ([`clipboard`]).
 
 pub mod a11y;
 pub mod actions;
 pub mod activity;
+pub mod clipboard;
 pub mod desktop;
 pub mod document;
 pub mod files;
@@ -898,6 +902,74 @@ impl AgentAccess {
         done.map_err(AgentError::NotSupported)
     }
 
+    /// Have the UI do clipboard request `make(reply)` through the
+    /// compositor.
+    async fn clipboard_request<T>(&self, make: impl FnOnce(tokio::sync::oneshot::Sender<Result<T, String>>) -> clipboard::Request) -> Result<T, AgentError> {
+        let unavailable = || AgentError::Failed("the clipboard is not available".into());
+        let ui = self.inner.desktop.get().ok_or_else(unavailable)?.ui.clone();
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        ui.send(crate::UiEvent::AgentClipboard(clipboard::ClipboardSlot::new(make(reply)))).map_err(|_| unavailable())?;
+        let done = tokio::time::timeout(Duration::from_secs(5), answer).await.map_err(|_| unavailable())?.map_err(|_| unavailable())?;
+        done.map_err(AgentError::NotSupported)
+    }
+
+    /// The clipboard methods' checks of the moment: not locked, and no
+    /// system prompt shown (README.md, "Hard exclusions"). The windows,
+    /// for checking the clipboard's source.
+    async fn clipboard_clear(&self, caller: &Caller) -> Result<desktop::Snapshot, AgentError> {
+        if self.locked() {
+            return Err(AgentError::Locked("the screen is locked".into()));
+        }
+        let snapshot = self.snapshot().await?;
+        if snapshot.system_prompt {
+            caller.check_target(Target::SystemPrompt)?;
+        }
+        Ok(snapshot)
+    }
+
+    /// What the clipboard offers, for `caller` to read: refused when the
+    /// shell, Settings, a system prompt's program or an excluded app set
+    /// it (by its app id, its process's other windows, program or unit),
+    /// and when a password manager marked it secret. The app that set it
+    /// is the call's target.
+    async fn clipboard_offer(&self, caller: &Caller) -> Result<clipboard::Offer, AgentError> {
+        let snapshot = self.clipboard_clear(caller).await?;
+        let offer = self.clipboard_request(clipboard::Request::Peek).await?;
+        if !offer.app_id.is_empty() {
+            caller.target(offer.app_id.clone());
+        }
+        if let Some(target) = clipboard::source_target(&offer) {
+            caller.check_target(target)?;
+        }
+        if matches!(offer.source, clipboard::SourceKind::App | clipboard::SourceKind::X11) && offer.pid != 0 {
+            let (config, proc_root, pid) = (caller.config.clone(), self.inner.proc_root.clone(), offer.pid);
+            blocking(move || a11y::check_process(pid, &snapshot, &config, &desktop::installed(), &proc_root)).await?;
+        }
+        if offer.types.iter().any(|t| t == clipboard::PASSWORD_HINT) {
+            // Unreadable counts as secret.
+            let hint = self.clipboard_read(&offer, clipboard::PASSWORD_HINT, 64, clipboard::hint_timeout()).await;
+            if hint.map_or(true, |h| clipboard::hint_is_secret(&h)) {
+                caller.check_target(Target::PasswordField)?;
+            }
+        }
+        Ok(offer)
+    }
+
+    /// The clipboard of `offer` as `mime`: at most `max` bytes within
+    /// `timeout`. Nothing when the clipboard changed since `offer`.
+    async fn clipboard_read(&self, offer: &clipboard::Offer, mime: &str, max: usize, timeout: Duration) -> Result<Vec<u8>, AgentError> {
+        let (generation, mime) = (offer.generation, mime.to_owned());
+        let fd = self.clipboard_request(|reply| clipboard::Request::Read { generation, mime, reply }).await?;
+        blocking(move || {
+            clipboard::read_pipe(fd, max, timeout).map_err(|e| match e {
+                clipboard::ReadError::TooLarge => AgentError::Failed(format!("the clipboard holds more than {} MiB", max >> 20)),
+                clipboard::ReadError::TimedOut => AgentError::TimedOut("the app that copied did not send it in time".into()),
+                clipboard::ReadError::Failed(e) => AgentError::Failed(e),
+            })
+        })
+        .await
+    }
+
     /// Wait (at most [`SETTLE`]) until the windows show `done`.
     async fn settle(&self, done: impl Fn(&desktop::Snapshot) -> bool) {
         let until = Instant::now() + SETTLE;
@@ -1159,6 +1231,10 @@ const READ: Need = Need::level(Level::ReadOnly);
 const DESKTOP: Need = Need::level(Level::Desktop);
 /// A *Control apps* method's.
 const APPS: Need = Need::level(Level::Apps);
+/// `GetClipboard`'s: reading, with the `clipboard` switch.
+const CLIPBOARD_READ: Need = Need { switch: Some(policy::Switch::Clipboard), ..READ };
+/// `SetClipboard`'s: controlling the desktop, with the `clipboard` switch.
+const CLIPBOARD_SET: Need = Need { switch: Some(policy::Switch::Clipboard), ..DESKTOP };
 
 /// Run `f` where it may block (GIO looking up and starting apps).
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, AgentError> + Send + 'static) -> Result<T, AgentError> {
@@ -1758,6 +1834,59 @@ impl Agent1 {
             Some(_) => Ok(()),
             None => Err(AgentError::NotFound(format!("reminder {id}"))),
         };
+        caller.finish(result)
+    }
+
+    async fn get_clipboard(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<HashMap<String, OwnedValue>, AgentError> {
+        let caller = self.access.check(conn, &header, "GetClipboard", CLIPBOARD_READ, CallOptions::from_dict(&options)).await?;
+        let result = async {
+            let want = actions::text_option(&options, "type")?;
+            let types_only = clipboard::flag(&options, "types-only")?;
+            let offer = self.access.clipboard_offer(&caller).await?;
+            if types_only {
+                return Ok(HashMap::from([("types".to_owned(), value(offer.types))]));
+            }
+            let mime = clipboard::pick(&offer.types, want.as_deref())?;
+            // The kind of data and its length; never the data.
+            caller.detail("mime-type", activity::Detail::Kind(clipboard::log_kind(&mime)));
+            let data = self.access.clipboard_read(&offer, &mime, clipboard::MAX_BYTES, clipboard::READ_TIMEOUT).await?;
+            if data.is_empty() {
+                let now = self.access.clipboard_request(clipboard::Request::Peek).await?;
+                if now.generation != offer.generation {
+                    return Err(AgentError::Failed("the clipboard changed while it was read".into()));
+                }
+            }
+            if self.access.locked() {
+                return Err(AgentError::Locked("the screen is locked".into()));
+            }
+            caller.detail("data-length", activity::Detail::Count(data.len() as u64));
+            Ok(clipboard::record(&mime, data, &offer.types))
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn set_clipboard(
+        &self,
+        mime_type: &str,
+        data: Vec<u8>,
+        options: HashMap<String, OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "SetClipboard", CLIPBOARD_SET, call).await?;
+        caller.detail("mime-type", activity::Detail::Kind(clipboard::log_kind(if mime_type.is_empty() { clipboard::TEXT } else { mime_type })));
+        caller.detail("data-length", activity::Detail::Count(data.len() as u64));
+        let result = async {
+            let mime = clipboard::check_set(mime_type, &data)?;
+            self.access.clipboard_clear(&caller).await?;
+            self.access.confirm(&caller, "SetClipboard", CLIPBOARD_SET, call).await?;
+            self.access.clipboard_clear(&caller).await?;
+            // The compositor owns it on the agent's behalf.
+            self.access.clipboard_request(|reply| clipboard::Request::Set { mime, data, reply }).await
+        }
+        .await;
         caller.finish(result)
     }
 

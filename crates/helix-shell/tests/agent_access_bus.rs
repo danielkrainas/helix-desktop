@@ -173,7 +173,6 @@ async fn policy_over_the_bus() {
     // not there yet; the read methods, without a desktop to read, fail).
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
     let later: Vec<String> = [
-        "GetClipboard", "SetClipboard",
         "Screenshot", "Input",
     ]
     .iter()
