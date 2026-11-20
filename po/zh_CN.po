@@ -1136,9 +1136,9 @@ msgstr "没有应用。"
 
 #: crates/helix-agent/src/read.rs:284 crates/helix-agent/src/read.rs:299
 #: crates/helix-portals/src/dynamic_launcher.rs:154
-#: crates/helix-shell/src/ui/file_chooser.rs:1248
-#: crates/helix-shell/src/ui/file_chooser.rs:1323
-#: crates/helix-shell/src/ui/file_chooser.rs:1725
+#: crates/helix-shell/src/ui/file_chooser.rs:1256
+#: crates/helix-shell/src/ui/file_chooser.rs:1331
+#: crates/helix-shell/src/ui/file_chooser.rs:1734
 msgid "Name"
 msgstr "名称"
 
@@ -1188,19 +1188,19 @@ msgid "No files."
 msgstr "没有文件。"
 
 #: crates/helix-agent/src/read.rs:338
-#: crates/helix-shell/src/ui/file_chooser.rs:1326
-#: crates/helix-shell/src/ui/file_chooser.rs:1697
-#: crates/helix-shell/src/ui/file_chooser.rs:1702
+#: crates/helix-shell/src/ui/file_chooser.rs:1334
+#: crates/helix-shell/src/ui/file_chooser.rs:1706
+#: crates/helix-shell/src/ui/file_chooser.rs:1711
 msgid "Location"
 msgstr "位置"
 
 #: crates/helix-agent/src/read.rs:338
-#: crates/helix-shell/src/ui/file_chooser.rs:1325
+#: crates/helix-shell/src/ui/file_chooser.rs:1333
 msgid "Modified"
 msgstr "修改时间"
 
 #: crates/helix-agent/src/read.rs:338
-#: crates/helix-shell/src/ui/file_chooser.rs:1327
+#: crates/helix-shell/src/ui/file_chooser.rs:1335
 msgid "Type"
 msgstr "类型"
 
@@ -1316,7 +1316,7 @@ msgid "Username"
 msgstr "用户名"
 
 #: crates/helix-greeter/src/atspi.rs:79 crates/helix-greeter/src/paint.rs:479
-#: crates/helix-shell/src/ui/file_chooser.rs:1698
+#: crates/helix-shell/src/ui/file_chooser.rs:1707
 #: crates/helix-shell/src/ui/window_menu.rs:428
 msgid "Back"
 msgstr "返回"
@@ -1377,10 +1377,10 @@ msgstr "要关闭此计算机吗？"
 #: crates/helix-shell/src/ui.rs:1372 crates/helix-shell/src/ui.rs:3388
 #: crates/helix-shell/src/ui/agent_question.rs:192
 #: crates/helix-shell/src/ui/atspi.rs:942
-#: crates/helix-shell/src/ui/file_chooser.rs:1613
-#: crates/helix-shell/src/ui/file_chooser.rs:1666
-#: crates/helix-shell/src/ui/file_chooser.rs:1692
-#: crates/helix-shell/src/ui/file_chooser.rs:1786
+#: crates/helix-shell/src/ui/file_chooser.rs:1622
+#: crates/helix-shell/src/ui/file_chooser.rs:1675
+#: crates/helix-shell/src/ui/file_chooser.rs:1701
+#: crates/helix-shell/src/ui/file_chooser.rs:1795
 #: crates/helix-shell/src/ui/lock.rs:220 crates/helix-shell/src/ui/lock.rs:588
 #: crates/helix-shell/src/ui/prompt.rs:604
 #: crates/helix-shell/src/vpn_secrets.rs:195
@@ -1401,14 +1401,14 @@ msgstr "无障碍"
 #. Translators: the login screen's clock in 12-hour time (strftime).
 #. Translators: a time of day for today, 24-hour and 12-hour (see GLib's g_date_time_format for the codes).
 #: crates/helix-greeter/src/clock.rs:98
-#: crates/helix-shell/src/file_chooser.rs:397
+#: crates/helix-shell/src/file_chooser.rs:400
 msgid "%l:%M %p"
 msgstr "%p%l:%M"
 
 #. Translators: the login screen's clock in 24-hour time (strftime).
 #. Translators: a time of day for today, 24-hour and 12-hour (see GLib's g_date_time_format for the codes).
 #: crates/helix-greeter/src/clock.rs:101
-#: crates/helix-shell/src/file_chooser.rs:397
+#: crates/helix-shell/src/file_chooser.rs:400
 msgid "%H:%M"
 msgstr "%H:%M"
 
@@ -2012,10 +2012,10 @@ msgstr "蓝牙已关闭"
 
 #. Translators: the type of a folder in the file chooser.
 #: crates/helix-shell/src/favorites.rs:147
-#: crates/helix-shell/src/file_chooser.rs:331
+#: crates/helix-shell/src/file_chooser.rs:334
 #: crates/helix-shell/src/ui/atspi.rs:772
 #: crates/helix-shell/src/ui/desktop_icons.rs:378
-#: crates/helix-shell/src/ui/file_chooser.rs:1743
+#: crates/helix-shell/src/ui/file_chooser.rs:1752
 msgid "Folder"
 msgstr "文件夹"
 
@@ -2023,99 +2023,99 @@ msgstr "文件夹"
 msgid "Unnamed Folder"
 msgstr "未命名文件夹"
 
-#: crates/helix-shell/src/file_chooser.rs:307
+#: crates/helix-shell/src/file_chooser.rs:310
 msgid "Program"
 msgstr "程序"
 
-#: crates/helix-shell/src/file_chooser.rs:308
+#: crates/helix-shell/src/file_chooser.rs:311
 msgid "Audio"
 msgstr "音频"
 
-#: crates/helix-shell/src/file_chooser.rs:309
+#: crates/helix-shell/src/file_chooser.rs:312
 msgid "Font"
 msgstr "字体"
 
-#: crates/helix-shell/src/file_chooser.rs:310
+#: crates/helix-shell/src/file_chooser.rs:313
 msgid "Image"
 msgstr "图像"
 
-#: crates/helix-shell/src/file_chooser.rs:311
+#: crates/helix-shell/src/file_chooser.rs:314
 msgid "Archive"
 msgstr "归档"
 
-#: crates/helix-shell/src/file_chooser.rs:312
+#: crates/helix-shell/src/file_chooser.rs:315
 msgid "Markup"
 msgstr "标记"
 
-#: crates/helix-shell/src/file_chooser.rs:313
+#: crates/helix-shell/src/file_chooser.rs:316
 msgid "Text"
 msgstr "文本"
 
-#: crates/helix-shell/src/file_chooser.rs:314
+#: crates/helix-shell/src/file_chooser.rs:317
 msgid "Video"
 msgstr "视频"
 
-#: crates/helix-shell/src/file_chooser.rs:315
+#: crates/helix-shell/src/file_chooser.rs:318
 msgid "Contacts"
 msgstr "联系人"
 
-#: crates/helix-shell/src/file_chooser.rs:316
+#: crates/helix-shell/src/file_chooser.rs:319
 msgid "Calendar"
 msgstr "日历"
 
-#: crates/helix-shell/src/file_chooser.rs:317
+#: crates/helix-shell/src/file_chooser.rs:320
 msgid "Document"
 msgstr "文档"
 
-#: crates/helix-shell/src/file_chooser.rs:318
+#: crates/helix-shell/src/file_chooser.rs:321
 msgid "Presentation"
 msgstr "演示文稿"
 
-#: crates/helix-shell/src/file_chooser.rs:319
+#: crates/helix-shell/src/file_chooser.rs:322
 msgid "Spreadsheet"
 msgstr "电子表格"
 
 #. Translators: a file type the chooser cannot name.
-#: crates/helix-shell/src/file_chooser.rs:321
+#: crates/helix-shell/src/file_chooser.rs:324
 #: crates/helix-shell/src/weather.rs:72
 msgid "Unknown"
 msgstr "未知"
 
 #. Translators: yesterday at a time of day ("14:05", "2:05 PM").
-#: crates/helix-shell/src/file_chooser.rs:405
+#: crates/helix-shell/src/file_chooser.rs:408
 msgid "Yesterday, {time}"
 msgstr "昨天 {time}"
 
-#: crates/helix-shell/src/file_chooser.rs:407
+#: crates/helix-shell/src/file_chooser.rs:410
 #: crates/helix-shell/src/notifications.rs:109
 msgid "Yesterday"
 msgstr "昨天"
 
 #. Translators: a date this year (day and abbreviated month).
-#: crates/helix-shell/src/file_chooser.rs:413
+#: crates/helix-shell/src/file_chooser.rs:416
 msgid "%-e %b"
 msgstr "%-m月%-e日"
 
 #. Translators: a date this year with the time, 24-hour and 12-hour.
-#: crates/helix-shell/src/file_chooser.rs:415
+#: crates/helix-shell/src/file_chooser.rs:418
 msgid "%-e %b, %H:%M"
 msgstr "%-m月%-e日 %H:%M"
 
-#: crates/helix-shell/src/file_chooser.rs:416
+#: crates/helix-shell/src/file_chooser.rs:419
 msgid "%-e %b, %l:%M %p"
 msgstr "%-m月%-e日 %p%l:%M"
 
 #. Translators: a date in another year.
-#: crates/helix-shell/src/file_chooser.rs:418
+#: crates/helix-shell/src/file_chooser.rs:421
 msgid "%-e %b %Y"
 msgstr "%Y年%-m月%-e日"
 
 #. Translators: a date in another year with the time, 24-hour and 12-hour.
-#: crates/helix-shell/src/file_chooser.rs:421
+#: crates/helix-shell/src/file_chooser.rs:424
 msgid "%-e %b %Y, %H:%M"
 msgstr "%Y年%-m月%-e日 %H:%M"
 
-#: crates/helix-shell/src/file_chooser.rs:422
+#: crates/helix-shell/src/file_chooser.rs:425
 msgid "%-e %b %Y, %l:%M %p"
 msgstr "%Y年%-m月%-e日 %p%l:%M"
 
@@ -3423,10 +3423,10 @@ msgstr "背景"
 #: crates/helix-shell/src/ui/atspi.rs:667
 #: crates/helix-shell/src/ui/atspi.rs:892 crates/helix-shell/src/ui/dock.rs:652
 #: crates/helix-shell/src/ui/dock.rs:1804
-#: crates/helix-shell/src/ui/file_chooser.rs:729
-#: crates/helix-shell/src/ui/file_chooser.rs:747
-#: crates/helix-shell/src/ui/file_chooser.rs:975
-#: crates/helix-shell/src/ui/file_chooser.rs:1230
+#: crates/helix-shell/src/ui/file_chooser.rs:733
+#: crates/helix-shell/src/ui/file_chooser.rs:752
+#: crates/helix-shell/src/ui/file_chooser.rs:981
+#: crates/helix-shell/src/ui/file_chooser.rs:1238
 msgid "Trash"
 msgstr "回收站"
 
@@ -3435,8 +3435,8 @@ msgid "Window Menu"
 msgstr "窗口菜单"
 
 #: crates/helix-shell/src/ui/atspi.rs:711
-#: crates/helix-shell/src/ui/file_chooser.rs:1703
-#: crates/helix-shell/src/ui/file_chooser.rs:1717
+#: crates/helix-shell/src/ui/file_chooser.rs:1712
+#: crates/helix-shell/src/ui/file_chooser.rs:1726
 #: crates/helix-shell/src/ui/overview.rs:1194
 msgid "Search"
 msgstr "搜索"
@@ -3931,197 +3931,211 @@ msgstr "完成"
 msgid "Hide Settings"
 msgstr "隐藏设置"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:685
-#: crates/helix-shell/src/ui/file_chooser.rs:724
-#: crates/helix-shell/src/ui/file_chooser.rs:973
+#: crates/helix-shell/src/ui/file_chooser.rs:688
+#: crates/helix-shell/src/ui/file_chooser.rs:727
+#: crates/helix-shell/src/ui/file_chooser.rs:979
 msgid "Home"
 msgstr "主目录"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:686
-#: crates/helix-shell/src/ui/file_chooser.rs:974
-#: crates/helix-shell/src/ui/file_chooser.rs:1826
+#: crates/helix-shell/src/ui/file_chooser.rs:689
+#: crates/helix-shell/src/ui/file_chooser.rs:980
+#: crates/helix-shell/src/ui/file_chooser.rs:1835
 msgid "Computer"
 msgstr "计算机"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:725
+#: crates/helix-shell/src/ui/file_chooser.rs:728
 msgid "Files in {folder}"
 msgstr "{folder} 中的文件"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:727
+#: crates/helix-shell/src/ui/file_chooser.rs:730
 msgid "Recent Files"
 msgstr "最近的文件"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:728
+#: crates/helix-shell/src/ui/file_chooser.rs:731
+msgid "Starred Files"
+msgstr "星标文件"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:732
 msgid "Search results for “{query}”"
 msgstr "“{query}”的搜索结果"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:730
-#: crates/helix-shell/src/ui/file_chooser.rs:748
-#: crates/helix-shell/src/ui/file_chooser.rs:976
-#: crates/helix-shell/src/ui/file_chooser.rs:1231
+#: crates/helix-shell/src/ui/file_chooser.rs:734
+#: crates/helix-shell/src/ui/file_chooser.rs:753
+#: crates/helix-shell/src/ui/file_chooser.rs:982
+#: crates/helix-shell/src/ui/file_chooser.rs:1239
 msgid "Other Locations"
 msgstr "其他位置"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:738
-#: crates/helix-shell/src/ui/file_chooser.rs:1497
-#: crates/helix-shell/src/ui/file_chooser.rs:1597
+#: crates/helix-shell/src/ui/file_chooser.rs:742
+#: crates/helix-shell/src/ui/file_chooser.rs:1505
+#: crates/helix-shell/src/ui/file_chooser.rs:1606
 msgid "Loading…"
 msgstr "正在加载…"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:745
-#: crates/helix-shell/src/ui/file_chooser.rs:972
-#: crates/helix-shell/src/ui/file_chooser.rs:1228
+#: crates/helix-shell/src/ui/file_chooser.rs:749
+#: crates/helix-shell/src/ui/file_chooser.rs:977
+#: crates/helix-shell/src/ui/file_chooser.rs:1235
 msgid "Recent"
 msgstr "最近"
 
 #: crates/helix-shell/src/ui/file_chooser.rs:750
+#: crates/helix-shell/src/ui/file_chooser.rs:978
+#: crates/helix-shell/src/ui/file_chooser.rs:1236
+msgid "Starred"
+msgstr "已星标"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:755
 msgid "{what}, {n} item"
 msgid_plural "{what}, {n} items"
 msgstr[0] "{what}，{n} 项"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1166
+#: crates/helix-shell/src/ui/file_chooser.rs:1173
 msgid "Type a file name or location"
 msgstr "输入文件名或位置"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1167
+#: crates/helix-shell/src/ui/file_chooser.rs:1174
 msgid "Search files"
 msgstr "搜索文件"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1168
-#: crates/helix-shell/src/ui/file_chooser.rs:1704
+#: crates/helix-shell/src/ui/file_chooser.rs:1175
+#: crates/helix-shell/src/ui/file_chooser.rs:1713
 msgid "New folder name"
 msgstr "新文件夹名称"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1229
+#: crates/helix-shell/src/ui/file_chooser.rs:1237
 msgid "Search for “{query}”"
 msgstr "搜索“{query}”"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1324
+#: crates/helix-shell/src/ui/file_chooser.rs:1332
 msgid "Size"
 msgstr "大小"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1466
-#: crates/helix-shell/src/ui/file_chooser.rs:1756
+#: crates/helix-shell/src/ui/file_chooser.rs:1474
+#: crates/helix-shell/src/ui/file_chooser.rs:1765
 msgid "Not mounted"
 msgstr "未挂载"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1501
+#: crates/helix-shell/src/ui/file_chooser.rs:1509
 msgid "This folder cannot be shown: {error}"
 msgstr "无法显示此文件夹：{error}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1504
+#: crates/helix-shell/src/ui/file_chooser.rs:1512
 msgid "Folder is empty"
 msgstr "文件夹为空"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1505
+#: crates/helix-shell/src/ui/file_chooser.rs:1513
 msgid "No recent files"
 msgstr "没有最近的文件"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1506
+#: crates/helix-shell/src/ui/file_chooser.rs:1514
+msgid "No starred files"
+msgstr "没有星标文件"
+
+#: crates/helix-shell/src/ui/file_chooser.rs:1515
 msgid "No results found"
 msgstr "未找到结果"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1507
+#: crates/helix-shell/src/ui/file_chooser.rs:1516
 msgid "Trash is empty"
 msgstr "回收站为空"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1565
+#: crates/helix-shell/src/ui/file_chooser.rs:1574
 msgid "No preview"
 msgstr "无预览"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1588
-#: crates/helix-shell/src/ui/file_chooser.rs:1600
-#: crates/helix-shell/src/ui/file_chooser.rs:1775
+#: crates/helix-shell/src/ui/file_chooser.rs:1597
+#: crates/helix-shell/src/ui/file_chooser.rs:1609
+#: crates/helix-shell/src/ui/file_chooser.rs:1784
 msgid "All Files"
 msgstr "所有文件"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1649
+#: crates/helix-shell/src/ui/file_chooser.rs:1658
 msgid ""
 "A file named “{name}” already exists in “{folder}”. Replacing it overwrites "
 "its contents."
 msgstr "“{folder}”中已存在名为“{name}”的文件。替换将覆盖其内容。"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1654
-#: crates/helix-shell/src/ui/file_chooser.rs:1689
+#: crates/helix-shell/src/ui/file_chooser.rs:1663
+#: crates/helix-shell/src/ui/file_chooser.rs:1698
 msgid "Replace File?"
 msgstr "要替换文件吗？"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1667
-#: crates/helix-shell/src/ui/file_chooser.rs:1693
+#: crates/helix-shell/src/ui/file_chooser.rs:1676
+#: crates/helix-shell/src/ui/file_chooser.rs:1702
 msgid "Replace"
 msgstr "替换"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1691
+#: crates/helix-shell/src/ui/file_chooser.rs:1700
 msgid ""
 "A file named “{name}” already exists. Replacing it overwrites its contents."
 msgstr "已存在名为“{name}”的文件。替换它将覆盖其内容。"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1699
+#: crates/helix-shell/src/ui/file_chooser.rs:1708
 msgid "Forward"
 msgstr "前进"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1720
+#: crates/helix-shell/src/ui/file_chooser.rs:1729
 msgid "New Folder"
 msgstr "新建文件夹"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1722
+#: crates/helix-shell/src/ui/file_chooser.rs:1731
 msgid "Grid View"
 msgstr "网格视图"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1729
+#: crates/helix-shell/src/ui/file_chooser.rs:1738
 msgid "Places"
 msgstr "位置"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1731
+#: crates/helix-shell/src/ui/file_chooser.rs:1740
 msgid "Eject {drive}"
 msgstr "弹出 {drive}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1752
+#: crates/helix-shell/src/ui/file_chooser.rs:1761
 msgid "Modified {when}"
 msgstr "修改于 {when}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:1776
-#: crates/helix-shell/src/ui/file_chooser.rs:1779
+#: crates/helix-shell/src/ui/file_chooser.rs:1785
+#: crates/helix-shell/src/ui/file_chooser.rs:1788
 msgid "File Type"
 msgstr "文件类型"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:2060
+#: crates/helix-shell/src/ui/file_chooser.rs:2070
 msgid "The drive could not be mounted: {error}"
 msgstr "无法挂载驱动器：{error}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:2113
+#: crates/helix-shell/src/ui/file_chooser.rs:2123
 msgid "The folder could not be made: {error}"
 msgstr "无法创建文件夹：{error}"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:2174
+#: crates/helix-shell/src/ui/file_chooser.rs:2184
 msgid "Mounting {drive}…"
 msgstr "正在挂载 {drive}…"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:2228
+#: crates/helix-shell/src/ui/file_chooser.rs:2238
 msgid "Type a name for the file."
 msgstr "请输入文件名。"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:2247
+#: crates/helix-shell/src/ui/file_chooser.rs:2257
 msgid "That folder does not exist."
 msgstr "该文件夹不存在。"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:2321
+#: crates/helix-shell/src/ui/file_chooser.rs:2331
 msgid "Type a name for the folder."
 msgstr "请输入文件夹名称。"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:2323
+#: crates/helix-shell/src/ui/file_chooser.rs:2333
 msgid "Folder names cannot contain “/”."
 msgstr "文件夹名称不能包含“/”。"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:2325
+#: crates/helix-shell/src/ui/file_chooser.rs:2335
 msgid "That name cannot be used."
 msgstr "不能使用该名称。"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:2327
+#: crates/helix-shell/src/ui/file_chooser.rs:2337
 msgid "A file or folder with that name already exists."
 msgstr "已存在同名的文件或文件夹。"
 
-#: crates/helix-shell/src/ui/file_chooser.rs:2358
+#: crates/helix-shell/src/ui/file_chooser.rs:2368
 msgid "“{name}” was not found."
 msgstr "未找到“{name}”。"
 

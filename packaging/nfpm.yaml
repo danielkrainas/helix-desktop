@@ -145,6 +145,8 @@ overrides:
       - pipewire
       # The login screen's monitor layout (helix-login-monitors).
       - pkexec
+      # The file chooser's Starred place (GNOME Files' star store), loaded at run time.
+      - libtinysparql-3.0-0 | libtracker-sparql-3.0-0
     # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
     suggests:
       - fonts-noto-cjk
@@ -174,6 +176,8 @@ overrides:
       - pipewire
       # The login screen's monitor layout (helix-login-monitors).
       - polkit
+      # The file chooser's Starred place (GNOME Files' star store), loaded at run time.
+      - tinysparql
     # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
     suggests:
       - google-noto-sans-cjk-fonts
@@ -205,6 +209,8 @@ overrides:
       - pipewire
       # The login screen's monitor layout (helix-login-monitors).
       - polkit
+      # The file chooser's Starred place (GNOME Files' star store), loaded at run time.
+      - tinysparql
     # Chinese, Japanese and Korean text (TRANSLATING.md, "Fonts").
     suggests:
       - noto-fonts-cjk

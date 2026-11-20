@@ -363,6 +363,8 @@ pub fn merge_rows(rows: &mut Vec<usize>, new: Vec<usize>, order: impl Fn(usize, 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaceKind {
     Recent,
+    /// GNOME Files' starred files (`crate::stars`).
+    Starred,
     Home,
     /// A standard folder (Desktop, Documents, …).
     Standard,
@@ -381,10 +383,10 @@ pub enum PlaceKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
     pub kind: PlaceKind,
-    /// The folder's or bookmark's name (empty for Recent, Home,
-    /// Computer, Trash and Other Locations, which the UI names).
+    /// The folder's or bookmark's name (empty for Recent, Starred,
+    /// Home, Computer, Trash and Other Locations, which the UI names).
     pub label: String,
-    /// `None` for Recent and Other Locations.
+    /// `None` for Recent, Starred and Other Locations.
     pub path: Option<PathBuf>,
 }
 
@@ -401,15 +403,18 @@ pub fn bookmarks(text: &str) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
-/// The places: Recent (when `recent`), Home, the user's standard
-/// folders, the Trash (when `trash`, at its folder), bookmarks, drives,
-/// network places, the whole computer and Other Locations; folders that
-/// do not exist are left out, and none twice.
+/// The places: Recent (when `recent`), Starred (when `starred`), Home,
+/// the user's standard folders, the Trash (when `trash`, at its folder),
+/// bookmarks, drives, network places, the whole computer and Other
+/// Locations; folders that do not exist are left out, and none twice.
 #[allow(clippy::too_many_arguments)]
-pub fn places(home: &Path, standard: &[PathBuf], bookmarks: &[(String, PathBuf)], drives: &[(String, PathBuf)], network: &[(String, PathBuf)], recent: bool, trash: Option<&Path>) -> Vec<Place> {
+pub fn places(home: &Path, standard: &[PathBuf], bookmarks: &[(String, PathBuf)], drives: &[(String, PathBuf)], network: &[(String, PathBuf)], recent: bool, starred: bool, trash: Option<&Path>) -> Vec<Place> {
     let mut out = Vec::new();
     if recent {
         out.push(Place { kind: PlaceKind::Recent, label: String::new(), path: None });
+    }
+    if starred {
+        out.push(Place { kind: PlaceKind::Starred, label: String::new(), path: None });
     }
     out.push(Place { kind: PlaceKind::Home, label: String::new(), path: Some(home.to_path_buf()) });
     let named = |p: &PathBuf| (p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned()), p.clone());
@@ -495,13 +500,22 @@ fn network_places() -> Vec<(String, PathBuf)> {
     out
 }
 
-/// The user's places (see [`places`]): with Recent when `recent`, with
-/// the Trash when `trash`.
+/// The user's places (see [`places`]): with Recent when `recent`, and
+/// then Starred when GNOME Files' star store is there; with the Trash
+/// when `trash`.
 pub fn user_places(home: &Path, recent: bool, trash: bool) -> Vec<Place> {
     let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
     let marks = std::fs::read_to_string(config.join("gtk-3.0/bookmarks")).map(|t| bookmarks(&t)).unwrap_or_default();
     let trash = trash.then(|| home_trash(home).join("files"));
-    places(home, &standard_folders(home), &marks, &drives(), &network_places(), recent, trash.as_deref())
+    let starred = recent && crate::stars::exists(&crate::stars::data_home());
+    places(home, &standard_folders(home), &marks, &drives(), &network_places(), recent, starred, trash.as_deref())
+}
+
+/// GNOME Files' starred files inside `home` that are there, read-only
+/// (`crate::stars`); an error when its store cannot be read.
+pub fn starred_files(home: &Path) -> Result<Vec<Entry>, String> {
+    let paths = crate::stars::starred_paths(&crate::stars::data_home(), home).map_err(|e| format!("Starred files cannot be read: {e}"))?;
+    Ok(paths.into_iter().filter_map(Entry::at).collect())
 }
 
 // ----- The Trash ----------------------------------------------------------
@@ -879,12 +893,12 @@ mod tests {
         let marks = bookmarks(&format!("file://{} Work\nsftp://host/x Remote\nfile://{}\n", mark.display(), docs.display()));
         assert_eq!(marks, [("Work".to_owned(), mark.clone()), ("Documents".to_owned(), docs.clone())]);
         let trash = tmp.join("data/Trash/files");
-        let list = places(&tmp, &[docs.clone(), tmp.join("Missing")], &marks, &[("USB".into(), drive.clone())], &[], true, Some(&trash));
+        let list = places(&tmp, &[docs.clone(), tmp.join("Missing")], &marks, &[("USB".into(), drive.clone())], &[], true, true, Some(&trash));
         let kinds: Vec<(PlaceKind, &str)> = list.iter().map(|p| (p.kind, p.label.as_str())).collect();
-        assert_eq!(kinds, [(PlaceKind::Recent, ""), (PlaceKind::Home, ""), (PlaceKind::Standard, "Documents"), (PlaceKind::Trash, ""), (PlaceKind::Bookmark, "Work"), (PlaceKind::Drive, "USB"), (PlaceKind::Computer, ""), (PlaceKind::Other, "")]);
-        assert_eq!(list[3].path.as_deref(), Some(trash.as_path()), "the Trash although its folder is not there yet");
-        let saving = places(&tmp, &[], &[], &[], &[], false, None);
-        assert!(!saving.iter().any(|p| matches!(p.kind, PlaceKind::Recent | PlaceKind::Trash)), "no Recent or Trash: {saving:?}");
+        assert_eq!(kinds, [(PlaceKind::Recent, ""), (PlaceKind::Starred, ""), (PlaceKind::Home, ""), (PlaceKind::Standard, "Documents"), (PlaceKind::Trash, ""), (PlaceKind::Bookmark, "Work"), (PlaceKind::Drive, "USB"), (PlaceKind::Computer, ""), (PlaceKind::Other, "")]);
+        assert_eq!(list[4].path.as_deref(), Some(trash.as_path()), "the Trash although its folder is not there yet");
+        let saving = places(&tmp, &[], &[], &[], &[], false, false, None);
+        assert!(!saving.iter().any(|p| matches!(p.kind, PlaceKind::Recent | PlaceKind::Starred | PlaceKind::Trash)), "no Recent, Starred or Trash: {saving:?}");
         assert_eq!(saving.last().map(|p| (p.kind, p.path.clone())), Some((PlaceKind::Other, None)), "Other Locations last");
         assert_eq!(gvfs_label("smb-share:server=nas,share=docs"), "docs on nas");
         assert_eq!(gvfs_label("sftp:host=box,user=me"), "me on box");

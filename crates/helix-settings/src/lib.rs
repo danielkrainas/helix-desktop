@@ -20,6 +20,7 @@ pub mod convert;
 pub mod file_index;
 pub mod files;
 pub mod sound;
+pub mod stars;
 pub mod thumbnails;
 
 use std::collections::BTreeMap;

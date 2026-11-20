@@ -161,6 +161,8 @@ pub async fn ask(ui: &mpsc::UnboundedSender<UiEvent>, options: Options) -> Optio
 pub enum Listing {
     Folder(PathBuf),
     Recent,
+    /// GNOME Files' starred files inside the home folder.
+    Starred,
     /// Files below `dir` matching `query` (and the filter, by name).
     Search { dir: PathBuf, query: String, filter: Option<Filter> },
     /// The Trash: the home Trash and those of the drives mounted at
@@ -200,6 +202,7 @@ pub fn list_blocking(listing: &Listing, home: &Path) -> Result<Vec<Entry>, Strin
             Ok(out)
         }
         Listing::Recent => Ok(files::recent_files(home)),
+        Listing::Starred => files::starred_files(home),
         Listing::Trash { tops } => Ok(files::trash_entries(home, tops)),
         Listing::Search { .. } => Err("searches are not blocking".into()),
     }

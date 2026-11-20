@@ -554,6 +554,42 @@ fn grid_trash_and_other_locations() {
     assert_eq!((response, paths(&results)), (0, vec![s.home().join(".local/share/Trash/files/old notes.txt")]));
 }
 
+/// Starred (after Recent): GNOME Files' starred files inside the home
+/// folder, read from Nautilus's store, matching the file type; a
+/// double-click answers the file.
+#[test]
+fn starred_place() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(mut s) = start((1280, 800), SETTINGS, Vec::new(), false) else { return };
+    let docs = s.home().join("Documents");
+    // Starred as Nautilus stars: a PDF, a text file and a folder in the
+    // home folder; one outside it and one gone are not listed.
+    let mut store = helix_settings::stars::Store::open(&s.home().join(".local/share"), true);
+    let uri = |p: &Path| helix_settings::stars::uri_for_path(p).unwrap();
+    let starred = [uri(&docs.join("Invoice-20241.pdf")), uri(&docs.join("notes.md")), uri(&docs.join("Archive")), uri(&docs.join("gone.pdf")), "file:///etc/hostname".to_owned()];
+    if let Err(e) = store.set_starred(&starred, true) {
+        eprintln!("no star store ({e}); skipped");
+        return;
+    }
+    drop(store);
+    let answer = choose(&s, "open", &docs, "");
+    assert!(wait_lines(&s, &["file chooser listed", "entries=15"], 1), "Documents:\n{}", s.log());
+    click_part(&mut s, "Files(Place(1))");
+    assert!(wait_lines(&s, &["file chooser folder", "shown=Starred"], 1), "{}", s.log());
+    assert!(wait_lines(&s, &["file chooser listed", "entries=3 ", "rows=3 "], 1), "three starred:\n{}", s.log());
+    keep(&s, "files-starred.png");
+    // PDF documents: the folder and the PDF.
+    open_menu(&mut s);
+    click_part(&mut s, "Files(FilterItem(1))");
+    assert!(wait_lines(&s, &["file chooser filtered", "rows=2"], 1), "{}", s.log());
+    keep(&s, "files-starred-pdf.png");
+    let row = part(&s, "Files(Row(1))");
+    click(&mut s, row);
+    click(&mut s, row);
+    let (response, results) = wait_answer(answer);
+    assert_eq!((response, paths(&results)), (0, vec![docs.join("Invoice-20241.pdf")]));
+}
+
 /// A folder read slowly comes in batches, shown as they come, the first
 /// row staying the current one; the touchpad flings the list on after
 /// the fingers lift (helixdesktop/desktop#118).

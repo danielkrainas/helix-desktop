@@ -101,6 +101,8 @@ enum Resizing {
 pub(super) enum Shown {
     Folder(PathBuf),
     Recent,
+    /// GNOME Files' starred files (inside the home folder).
+    Starred,
     Search { dir: PathBuf, query: String },
     Trash,
     /// Other Locations: the computer and its drives and volumes.
@@ -471,7 +473,7 @@ impl ChooserView {
             Shown::Folder(_) => (self.opts.mode, self.settings.sort),
             // Newest first.
             Shown::Recent => (Mode::Open, Sort { column: SortColumn::Modified, ascending: false, folders_first: false }),
-            Shown::Search { .. } | Shown::Trash => (Mode::Open, self.settings.sort),
+            Shown::Search { .. } | Shown::Trash | Shown::Starred => (Mode::Open, self.settings.sort),
             // Other Locations as they come (the computer first).
             Shown::Other => (self.opts.mode, self.settings.sort),
         }
@@ -659,6 +661,7 @@ impl ChooserView {
     pub(super) fn current_place(&self) -> Option<usize> {
         match &self.shown {
             Shown::Recent => self.opts.places.iter().position(|p| p.kind == PlaceKind::Recent),
+            Shown::Starred => self.opts.places.iter().position(|p| p.kind == PlaceKind::Starred),
             Shown::Trash => self.opts.places.iter().position(|p| p.kind == PlaceKind::Trash),
             Shown::Other => self.opts.places.iter().position(|p| p.kind == PlaceKind::Other),
             Shown::Search { .. } => None,
@@ -704,7 +707,7 @@ impl ChooserView {
         let folder = match &self.shown {
             Shown::Folder(f) => f.clone(),
             Shown::Search { dir, .. } => dir.clone(),
-            Shown::Recent | Shown::Trash | Shown::Other => paths.first().and_then(|p| p.parent()).map_or_else(|| self.home.clone(), Path::to_path_buf),
+            Shown::Recent | Shown::Starred | Shown::Trash | Shown::Other => paths.first().and_then(|p| p.parent()).map_or_else(|| self.home.clone(), Path::to_path_buf),
         };
         Chosen { paths, folder, filter: self.filter, check: self.check }
     }
@@ -725,6 +728,7 @@ impl ChooserView {
                 trf!("Files in {folder}", folder = name)
             }
             Shown::Recent => tr("Recent Files").to_owned(),
+            Shown::Starred => tr("Starred Files").to_owned(),
             Shown::Search { query, .. } => trf!("Search results for “{query}”", query = query),
             Shown::Trash => tr("Trash").to_owned(),
             Shown::Other => tr("Other Locations").to_owned(),
@@ -743,6 +747,7 @@ impl ChooserView {
         let what = match &self.shown {
             Shown::Folder(f) => f.file_name().map_or_else(|| f.display().to_string(), |n| n.to_string_lossy().into_owned()),
             Shown::Recent => tr("Recent").to_owned(),
+            Shown::Starred => tr("Starred").to_owned(),
             Shown::Search { query, .. } => query.clone(),
             Shown::Trash => tr("Trash").to_owned(),
             Shown::Other => tr("Other Locations").to_owned(),
@@ -946,7 +951,7 @@ fn columns(body: Rect, k: f32, second_w: i32, has_second: bool, modified_w: i32,
 /// The places' groups (a separator between groups).
 fn place_group(kind: PlaceKind) -> u8 {
     match kind {
-        PlaceKind::Recent | PlaceKind::Home | PlaceKind::Standard | PlaceKind::Trash => 0,
+        PlaceKind::Recent | PlaceKind::Starred | PlaceKind::Home | PlaceKind::Standard | PlaceKind::Trash => 0,
         PlaceKind::Bookmark => 1,
         PlaceKind::Drive | PlaceKind::Network => 2,
         PlaceKind::Computer | PlaceKind::Other => 3,
@@ -970,6 +975,7 @@ fn mount_paths(mounts: &[crate::media::MountInfo]) -> Vec<(PathBuf, String)> {
 pub(super) fn place_label(p: &Place) -> String {
     match p.kind {
         PlaceKind::Recent => tr("Recent").to_owned(),
+        PlaceKind::Starred => tr("Starred").to_owned(),
         PlaceKind::Home => tr("Home").to_owned(),
         PlaceKind::Computer => tr("Computer").to_owned(),
         PlaceKind::Trash => tr("Trash").to_owned(),
@@ -984,6 +990,7 @@ fn place_icon(p: &Place, home: &Path) -> &'static str {
     let special = |d: D| gio::glib::user_special_dir(d).is_some_and(|s| p.path.as_deref() == Some(s.as_path()) && s != home);
     match p.kind {
         PlaceKind::Recent => "document-open-recent-symbolic",
+        PlaceKind::Starred => "starred-symbolic",
         PlaceKind::Home => "user-home-symbolic",
         PlaceKind::Computer => "drive-harddisk-symbolic",
         PlaceKind::Drive => "drive-removable-media-symbolic",
@@ -1223,9 +1230,10 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
                     x += cw + 4;
                 }
             }
-            Shown::Recent | Shown::Search { .. } | Shown::Trash | Shown::Other => {
+            Shown::Recent | Shown::Starred | Shown::Search { .. } | Shown::Trash | Shown::Other => {
                 let (icon, lab) = match &view.shown {
                     Shown::Recent => ("document-open-recent-symbolic", tr("Recent").to_owned()),
+                    Shown::Starred => ("starred-symbolic", tr("Starred").to_owned()),
                     Shown::Search { query, .. } => ("edit-find-symbolic", trf!("Search for “{query}”", query = query)),
                     Shown::Trash => ("user-trash-symbolic", tr("Trash").to_owned()),
                     Shown::Other => ("list-add-symbolic", tr("Other Locations").to_owned()),
@@ -1337,7 +1345,7 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
     if let Some((x, cw)) = cols.modified.filter(|_| !other) {
         header_cols.push((SortColumn::Modified, x, cw, false));
     }
-    let sort_on = matches!(view.shown, Shown::Folder(_) | Shown::Search { .. } | Shown::Trash);
+    let sort_on = matches!(view.shown, Shown::Folder(_) | Shown::Search { .. } | Shown::Trash | Shown::Starred);
     for (c, x, cw, right) in &header_cols {
         let r = Rect { x: x - 4, y: head.y, w: cw + 8, h: head.h };
         let lk = look(FilesHit::Column(*c));
@@ -1503,6 +1511,7 @@ pub(super) fn paint_files(canvas: &mut Canvas, p: &mut Paint<'_>, (w, h): (usize
             match view.shown {
                 Shown::Folder(_) | Shown::Other => tr("Folder is empty").to_owned(),
                 Shown::Recent => tr("No recent files").to_owned(),
+                Shown::Starred => tr("No starred files").to_owned(),
                 Shown::Search { .. } => tr("No results found").to_owned(),
                 Shown::Trash => tr("Trash is empty").to_owned(),
             }
@@ -1976,6 +1985,7 @@ impl Ui {
         let listing = match &to {
             Shown::Folder(f) => Listing::Folder(f.clone()),
             Shown::Recent => Listing::Recent,
+            Shown::Starred => Listing::Starred,
             Shown::Search { dir, query } => Listing::Search { dir: dir.clone(), query: query.clone(), filter: view.filter_now().cloned() },
             Shown::Trash => Listing::Trash { tops: view.opts.places.iter().filter(|p| p.kind == PlaceKind::Drive).filter_map(|p| p.path.clone()).collect() },
             Shown::Other => unreachable!(),
@@ -2310,7 +2320,7 @@ impl Ui {
                 let dir = match &view.shown {
                     Shown::Folder(f) => f.clone(),
                     Shown::Search { dir, .. } => dir.clone(),
-                    Shown::Recent | Shown::Trash | Shown::Other => view.home.clone(),
+                    Shown::Recent | Shown::Starred | Shown::Trash | Shown::Other => view.home.clone(),
                 };
                 view.focus = Focus::List;
                 self.files_go(Shown::Search { dir, query: typed }, true);
@@ -2923,6 +2933,7 @@ impl Ui {
                 view.field = None;
                 match (place.kind, place.path) {
                     (PlaceKind::Recent, _) => self.files_go(Shown::Recent, true),
+                    (PlaceKind::Starred, _) => self.files_go(Shown::Starred, true),
                     (PlaceKind::Trash, _) => self.files_go(Shown::Trash, true),
                     (PlaceKind::Other, _) => self.files_go(Shown::Other, true),
                     (_, Some(path)) => self.files_go(Shown::Folder(path), true),
@@ -3337,6 +3348,30 @@ mod tests {
         assert_eq!(up.current_entry().map(|e| e.name.as_str()), Some("Desktop"));
         up.add_batch(vec![entry("Documents", true)]);
         assert_eq!((up.current_entry().map(|e| e.name.as_str()), up.reselect.as_deref()), (Some("Documents"), None));
+    }
+
+    /// Starred (after Recent): GNOME Files' starred files, matching the
+    /// file type; folders stay, to be opened.
+    #[test]
+    fn starred_matches_the_filter() {
+        let home = Path::new("/home/ada");
+        let mut o = options(Mode::Open);
+        o.places = vec![
+            Place { kind: PlaceKind::Recent, label: String::new(), path: None },
+            Place { kind: PlaceKind::Starred, label: String::new(), path: None },
+            Place { kind: PlaceKind::Home, label: String::new(), path: Some(home.into()) },
+        ];
+        let entries = vec![entry("report.pdf", false), entry("notes.txt", false), entry("Work", true)];
+        let mut v = sample_view(o, Shown::Starred, entries, home);
+        v.filter = Some(0);
+        v.refresh_rows();
+        let names: Vec<&str> = v.rows.iter().map(|&i| v.entries[i].name.as_str()).collect();
+        assert_eq!(names, ["Work", "report.pdf"], "the PDF filter");
+        assert_eq!((v.current_place(), place_label(&v.opts.places[1]), place_group(PlaceKind::Starred)), (Some(1), "Starred".to_owned(), 0));
+        assert_eq!(v.list_name(), "Starred Files");
+        v.filter = Some(1);
+        v.refresh_rows();
+        assert_eq!(v.rows.len(), 3, "All Files");
     }
 
     /// The Trash and Other Locations as places and lists.
