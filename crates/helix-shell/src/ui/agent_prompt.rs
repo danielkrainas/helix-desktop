@@ -129,6 +129,15 @@ fn action_title(who: &str, method: &str, action: Option<&str>) -> String {
         "A11yAction" => trf!("Allow {agent} to use a control in an app?", agent = who),
         "A11ySetValue" => trf!("Allow {agent} to change a value in an app?", agent = who),
         "Input" => trf!("Allow {agent} to use your keyboard and pointer?", agent = who),
+        "MediaControl" => trf!("Allow {agent} to control a media player?", agent = who),
+        "SetWallpaper" => trf!("Allow {agent} to change the background?", agent = who),
+        "SetAccent" => trf!("Allow {agent} to change the accent color?", agent = who),
+        "SetPowerMode" => trf!("Allow {agent} to change the power mode?", agent = who),
+        "StarFile" => trf!("Allow {agent} to star or unstar a file?", agent = who),
+        "SetFavorite" => trf!("Allow {agent} to change the dock's favorites?", agent = who),
+        "RevealFile" => trf!("Allow {agent} to show a file in Files?", agent = who),
+        "DismissNotification" => trf!("Allow {agent} to dismiss a notification?", agent = who),
+        "NotificationAction" => trf!("Allow {agent} to press a notification's button?", agent = who),
         _ => trf!("Allow {agent} to do this?", agent = who),
     }
 }
@@ -153,13 +162,17 @@ fn content(view: &AgentPromptView) -> (String, Vec<(String, bool)>) {
                 (tr("While it is active, the top bar shows it, and you can stop it there.").to_owned(), true),
             ],
         ),
-        Question::Confirm { method, action, control } => {
+        Question::Confirm { method, action, control, until } => {
             let mut lines = vec![(program, true)];
             // The control in the app, by the app's own words: it says
             // what is pressed or filled in.
             if let Some(c) = control {
                 let name = if c.name.is_empty() { c.role.to_owned() } else { format!("“{}” ({})", c.name, c.role) };
                 lines.push((trf!("Control: {control} in {app}", control = name, app = c.app), false));
+            }
+            // A temporary change says until when.
+            if let Some(time) = until.and_then(|t| gio::glib::DateTime::from_unix_local(t).ok()).and_then(|d| d.format("%H:%M").ok()) {
+                lines.push((trf!("Until {time}, then it is put back", time = time.as_str()), false));
             }
             lines.push((tr("You asked to confirm actions agents mark as sensitive, such as deleting, sending or changing settings.").to_owned(), true));
             (action_title(&who, method, *action), lines)
@@ -364,7 +377,7 @@ mod tests {
         assert_eq!(v.buttons().iter().map(|b| b.1).collect::<Vec<_>>(), [Answer::Deny, Answer::Session, Answer::Always]);
         let (v, _) = view(Question::Consent { level: Level::Desktop, offer_always: false });
         assert_eq!(v.buttons().len(), 2, "no Always Allow for unidentified agents or under remember-mode ask");
-        let (v, _) = view(Question::Confirm { method: "Open", action: None, control: None });
+        let (v, _) = view(Question::Confirm { method: "Open", action: None, control: None, until: None });
         assert_eq!(v.buttons().iter().map(|b| b.1).collect::<Vec<_>>(), [Answer::Deny, Answer::Session]);
         // Deny has the focus at first.
         assert_eq!(v.focus, 0);
@@ -408,19 +421,19 @@ mod tests {
         assert_eq!(title, "Allow “Build bot” to use your desktop?");
         assert!(lines[0].0.contains("/usr/bin/python3 /home/me/bot.py"));
         assert!(lines[1].0.contains("Control apps"));
-        let (mut v, _) = view(Question::Confirm { method: "Input", action: None, control: None });
+        let (mut v, _) = view(Question::Confirm { method: "Input", action: None, control: None, until: None });
         v.name.clear();
         assert_eq!(content(&v).0, "Allow “python3” to use your keyboard and pointer?");
         // What the action does, where the prompt can say.
-        let (v, _) = view(Question::Confirm { method: "SetToggle", action: Some("wifi-off"), control: None });
+        let (v, _) = view(Question::Confirm { method: "SetToggle", action: Some("wifi-off"), control: None, until: None });
         assert_eq!(content(&v).0, "Allow “Build bot” to turn Wi-Fi off?");
-        let (v, _) = view(Question::Confirm { method: "WindowAction", action: Some("close"), control: None });
+        let (v, _) = view(Question::Confirm { method: "WindowAction", action: Some("close"), control: None, until: None });
         assert_eq!(content(&v).0, "Allow “Build bot” to close a window?");
-        let (v, _) = view(Question::Confirm { method: "WindowAction", action: None, control: None });
+        let (v, _) = view(Question::Confirm { method: "WindowAction", action: None, control: None, until: None });
         assert_eq!(content(&v).0, "Allow “Build bot” to change a window?");
         // An app's control: named with the app.
         let control = crate::agent::Control { name: "Delete All".into(), role: "button", app: "org.example.Files".into() };
-        let (v, _) = view(Question::Confirm { method: "A11yAction", action: None, control: Some(control) });
+        let (v, _) = view(Question::Confirm { method: "A11yAction", action: None, control: Some(control), until: None });
         let (title, lines) = content(&v);
         assert_eq!(title, "Allow “Build bot” to use a control in an app?");
         assert_eq!(lines[1].0, "Control: “Delete All” (button) in org.example.Files");

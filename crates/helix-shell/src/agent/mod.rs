@@ -39,11 +39,20 @@
 //! over ([`screen`]). The scoped actions' first batch
 //! (helixdesktop/desktop#156) reads the media players and controls them
 //! ([`players`]), reads the battery and power mode ([`power`]), and lists
-//! the files starred in the store GNOME Files shares ([`files`]).
+//! the files starred in the store GNOME Files shares ([`files`]). The
+//! second batch (helixdesktop/desktop#157) changes settings (the
+//! background, the accent color, the power mode, quick settings' `until`,
+//! stars and the dock's favorites), keeping each change with its old
+//! value so it can be put back when its time runs out, when the user
+//! stops the agent, or from Settings ([`changes`], [`background`]); and
+//! dismisses notifications, presses their buttons, reveals files and moves
+//! windows to another monitor.
 
 pub mod a11y;
 pub mod actions;
 pub mod activity;
+pub mod background;
+pub mod changes;
 pub mod clipboard;
 pub mod desktop;
 pub mod document;
@@ -103,6 +112,9 @@ pub struct ConfirmRequest {
     pub action: Option<&'static str>,
     /// The app control it uses (*Control apps*), for the prompt to name.
     pub control: Option<Control>,
+    /// Until when a temporary change lasts (Unix seconds), for the prompt
+    /// to say.
+    pub until: Option<i64>,
 }
 
 /// An app's control a sensitive call uses, as the prompt names it: the
@@ -144,6 +156,9 @@ pub struct Setup {
     pub log_dir: Option<PathBuf>,
     /// Where agents' reminders are kept (`None`: memory only).
     pub reminders_path: Option<PathBuf>,
+    /// Where agents' changes and pending restores are kept (`None`:
+    /// memory only).
+    pub changes_path: Option<PathBuf>,
 }
 
 impl Default for Setup {
@@ -156,6 +171,7 @@ impl Default for Setup {
             settings_exes: settings_executables(),
             log_dir: Some(log_dir()),
             reminders_path: Some(talk::default_path()),
+            changes_path: Some(changes::default_path()),
         }
     }
 }
@@ -184,18 +200,21 @@ pub struct CallOptions {
     /// What the call does, for the sensitive-action prompt (not an
     /// option: the method sets it).
     pub action: Option<&'static str>,
+    /// Until when a temporary change lasts, for the prompt (the method
+    /// sets it from its `until`).
+    pub until: Option<i64>,
 }
 
 impl CallOptions {
     pub fn from_dict(options: &HashMap<String, OwnedValue>) -> CallOptions {
         let flag = |key: &str, default: bool| options.get(key).and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(default);
-        CallOptions { interactive: flag("interactive", true), sensitive: flag("sensitive", false), action: None }
+        CallOptions { interactive: flag("interactive", true), sensitive: flag("sensitive", false), action: None, until: None }
     }
 }
 
 impl Default for CallOptions {
     fn default() -> Self {
-        CallOptions { interactive: true, sensitive: false, action: None }
+        CallOptions { interactive: true, sensitive: false, action: None, until: None }
     }
 }
 
@@ -309,6 +328,15 @@ struct Inner {
     /// Input runs going on: their agent and what stops them.
     inputs: Mutex<Vec<(u64, String, Arc<tokio::sync::Notify>)>>,
     next_input: std::sync::atomic::AtomicU64,
+    /// Agents' changes and pending restores; one change, restore or undo
+    /// at a time; what wakes the restores' timer.
+    changes: Mutex<changes::Changes>,
+    change_turn: tokio::sync::Mutex<()>,
+    changes_wake: Arc<tokio::sync::Notify>,
+    /// Changes made, for their rate limit (by method and agent).
+    change_limit: Mutex<actions::NotifyLimit>,
+    /// The connection serving notifications (their signals go out on it).
+    public: OnceLock<Connection>,
 }
 
 /// Where the *Read only* methods read the desktop's state.
@@ -443,6 +471,11 @@ impl AgentAccess {
                 controlling: Mutex::new(HashMap::new()),
                 inputs: Mutex::new(Vec::new()),
                 next_input: std::sync::atomic::AtomicU64::new(1),
+                changes: Mutex::new(changes::Changes::load(setup.changes_path)),
+                change_turn: Default::default(),
+                changes_wake: Default::default(),
+                change_limit: Mutex::new(actions::NotifyLimit::with_max(changes::CHANGES_PER_MINUTE)),
+                public: OnceLock::new(),
                 log: Arc::new(activity::Log::new(setup.log_dir)),
             }),
         }
@@ -470,6 +503,8 @@ impl AgentAccess {
             }
         });
         self.start_reminders();
+        self.start_changes();
+        self.changes_settings(&Config::read());
         let access = self.clone();
         tokio::spawn(async move {
             if !helix_settings::has_schema(policy::SCHEMA) {
@@ -493,6 +528,7 @@ impl AgentAccess {
         if !config.enabled && self.grants().revoke_all() {
             tracing::info!("agent access turned off; session grants ended");
         }
+        self.changes_settings(config);
         self.changed();
     }
 
@@ -610,7 +646,7 @@ impl AgentAccess {
             return Ok(None);
         }
         let _turn = self.inner.prompt.lock().await;
-        let answer = (self.inner.confirm)(ConfirmRequest { agent: agent.clone(), method, action: options.action, control }).await;
+        let answer = (self.inner.confirm)(ConfirmRequest { agent: agent.clone(), method, action: options.action, control, until: options.until }).await;
         if let Some(yes) = answer {
             let outcome = if yes { activity::Outcome::Allowed } else { activity::Outcome::Refused("DeniedByUser".into()) };
             let detail = options.action.map(|a| ("action", activity::Detail::Kind(a))).into_iter().collect();
@@ -793,7 +829,7 @@ impl AgentAccess {
 
     /// How a reminder's notification names its agent, as the indicator.
     fn reminder_label(r: &talk::Reminder) -> String {
-        prompt::Active { agent: r.agent.clone(), executable: r.executable.clone(), name: r.name.clone(), level: Level::ReadOnly, controlling: false }.label()
+        prompt::Active { agent: r.agent.clone(), executable: r.executable.clone(), name: r.name.clone(), level: Level::ReadOnly, controlling: false, restores: Vec::new() }.label()
     }
 
     /// A line about reminder `r` (the event `Reminder`).
@@ -1213,6 +1249,60 @@ impl AgentAccess {
         self.inner.desktop.get().and_then(|d| d.notifications.as_ref()).map(|c| c.listed()).unwrap_or_default()
     }
 
+    /// Notification `id` when `ListNotifications` would give it to
+    /// `caller` now (not an excluded app's, nor about an excluded app's
+    /// window); `NotFound` otherwise, so nothing is learnt of the rest.
+    async fn visible_note(&self, caller: &Caller, id: u32) -> Result<(crate::notifications::Center, crate::notify_store::Notification), AgentError> {
+        let not_found = || AgentError::NotFound(format!("notification {id}"));
+        let center = self.inner.desktop.get().and_then(|d| d.notifications.clone()).ok_or_else(not_found)?;
+        let (note, time) = self.notifications().into_iter().find(|(n, _)| n.id == id).ok_or_else(not_found)?;
+        let info = desktop::note_info(&note, time);
+        if !info.app_id.is_empty() {
+            caller.target(format!("notification:{id} ({})", info.app_id));
+        }
+        let snapshot = self.snapshot().await.unwrap_or_default();
+        let config = caller.config.clone();
+        let hidden = blocking(move || Ok(desktop::note_hidden(&info, &snapshot, &desktop::installed(), &config))).await?;
+        if hidden {
+            return Err(not_found());
+        }
+        Ok((center, note))
+    }
+
+    /// `RevealFile`'s step 9: the file manager (the app owning
+    /// `org.freedesktop.FileManager1`, else the default app for folders
+    /// when the name is only activatable) must not be excluded or
+    /// Settings. `NotSupported` when there is none.
+    async fn file_manager_check(&self, conn: &Connection, caller: &Caller) -> Result<(), AgentError> {
+        let none = || AgentError::NotSupported("no file manager serves org.freedesktop.FileManager1".into());
+        let dbus = fdo::DBusProxy::new(conn).await.map_err(|_| none())?;
+        let name = zbus::names::BusName::from_static_str(FILE_MANAGER).map_err(|_| none())?;
+        if let Ok(owner) = dbus.get_name_owner(name.clone()).await {
+            let pid = dbus.get_connection_unix_process_id(zbus::names::BusName::Unique(owner.into_inner())).await.unwrap_or(0);
+            let snapshot = self.snapshot().await.unwrap_or_default();
+            let (config, proc_root) = (caller.config.clone(), self.inner.proc_root.clone());
+            return blocking(move || a11y::check_app_process(pid, &snapshot, &config, &desktop::installed(), &proc_root)).await;
+        }
+        let activatable = dbus.list_activatable_names().await.unwrap_or_default();
+        if !activatable.iter().any(|n| n.as_str() == FILE_MANAGER) {
+            return Err(none());
+        }
+        for app in blocking(|| Ok(actions::folder_handler().unwrap_or_default())).await? {
+            caller.check_target(Target::App(&app))?;
+        }
+        Ok(())
+    }
+
+    /// Send notifications' signals on `public` (the connection serving
+    /// them) from now on.
+    pub fn set_public(&self, public: &Connection) {
+        let _ = self.inner.public.set(public.clone());
+    }
+
+    fn public_conn(&self) -> Option<Connection> {
+        self.inner.public.get().cloned()
+    }
+
     /// Whether `agent` may still make a call needing `need` (steps 3–8
     /// without asking): for calls that keep running (README.md,
     /// "Settings take effect at once").
@@ -1274,7 +1364,8 @@ impl AgentAccess {
     }
 
     /// The agents the indicator lists at `now`: holding a grant, and with
-    /// an allowed call in the last minute or a call running.
+    /// an allowed call in the last minute or a call running; and agents
+    /// with temporary changes waiting to be put back, with their rows.
     pub fn active(&self, now: i64) -> Vec<prompt::Active> {
         let config = Config::read();
         if !config.enabled {
@@ -1287,15 +1378,25 @@ impl AgentAccess {
             c.retain(|_, until| *until > at);
             c.clone()
         };
+        let mut pending = self.pending_rows();
         let grants = self.grants();
-        let mut out: Vec<prompt::Active> = grants
+        let shown: Vec<(&String, &grants::Entry)> = grants
             .list()
-            .filter(|(id, e)| running.get(*id).is_some_and(|n| *n > 0) || (e.last_active > 0 && now - e.last_active < prompt::ACTIVE_FOR))
+            .filter(|(id, e)| running.get(*id).is_some_and(|n| *n > 0) || (e.last_active > 0 && now - e.last_active < prompt::ACTIVE_FOR) || pending.contains_key(*id))
+            .collect();
+        let mut out: Vec<prompt::Active> = shown
+            .into_iter()
             .filter_map(|(id, e)| {
-                let level = grants.effective(id, &config)?;
-                Some(prompt::Active { agent: id.clone(), executable: e.executable.clone(), name: e.name.clone(), level, controlling: controlling.contains_key(id) })
+                let level = grants.effective(id, &config).or(pending.contains_key(id).then_some(Level::Desktop))?;
+                let restores = pending.remove(id).map(|(_, _, rows)| rows).unwrap_or_default();
+                Some(prompt::Active { agent: id.clone(), executable: e.executable.clone(), name: e.name.clone(), level, controlling: controlling.contains_key(id), restores })
             })
             .collect();
+        // Agents whose grant is gone (a shell restarted meanwhile) still
+        // show what they will have put back.
+        for (id, (executable, name, restores)) in pending {
+            out.push(prompt::Active { agent: id, executable, name, level: Level::Desktop, controlling: false, restores });
+        }
         out.sort_by(|a, b| a.agent.cmp(&b.agent));
         out
     }
@@ -1323,6 +1424,7 @@ impl AgentAccess {
     /// indicator's *Stop*).
     pub fn revoke(&self, agent: &str) {
         self.cancel_inputs(Some(agent));
+        self.restore_soon(Some(agent), changes::Cause::Stopped);
         if self.grants().revoke(agent) {
             tracing::info!(agent, "agent access revoked");
             self.changed();
@@ -1333,6 +1435,7 @@ impl AgentAccess {
     /// even if it is always allowed (README.md, "Indicator").
     pub fn stop(&self, agent: &str) {
         self.cancel_inputs(Some(agent));
+        self.restore_soon(Some(agent), changes::Cause::Stopped);
         let held = {
             let grants = self.grants();
             let config = Config::read();
@@ -1350,6 +1453,7 @@ impl AgentAccess {
     /// Revoke and forget a remembered grant.
     pub fn forget(&self, agent: &str) {
         self.cancel_inputs(Some(agent));
+        self.restore_soon(Some(agent), changes::Cause::Stopped);
         if self.grants().forget(agent) {
             tracing::info!(agent, "agent forgotten");
             self.changed();
@@ -1359,6 +1463,7 @@ impl AgentAccess {
     /// Revoke every agent.
     pub fn stop_all(&self) {
         self.cancel_inputs(None);
+        self.restore_soon(None, changes::Cause::Stopped);
         if self.grants().revoke_all() {
             tracing::info!("every agent's access revoked");
             self.changed();
@@ -1464,6 +1569,12 @@ const CLIPBOARD_READ: Need = Need { switch: Some(policy::Switch::Clipboard), ..R
 const CLIPBOARD_SET: Need = Need { switch: Some(policy::Switch::Clipboard), ..DESKTOP };
 /// A *Screen and input* method's.
 const SCREEN: Need = Need::level(Level::ScreenAndInput);
+/// `NotificationAction`'s: controlling the desktop, with the
+/// `notifications` switch (the buttons' labels say what the notification
+/// says).
+const NOTE_ACTION: Need = Need { switch: Some(policy::Switch::Notifications), ..DESKTOP };
+/// The file manager's name (`RevealFile`).
+const FILE_MANAGER: &str = "org.freedesktop.FileManager1";
 
 /// Run `f` where it may block (GIO looking up and starting apps).
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, AgentError> + Send + 'static) -> Result<T, AgentError> {
@@ -1471,6 +1582,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, AgentError> +
 }
 
 type Records = Vec<HashMap<String, OwnedValue>>;
+type Record = HashMap<String, OwnedValue>;
 
 /// The quick settings' state for `GetState` (README.md, "Records",
 /// State): the settings, and what the sound server, NetworkManager and
@@ -1480,11 +1592,16 @@ async fn quick_state(conn: &Connection, system: Option<&Connection>) -> HashMap<
         let interface = helix_settings::Schema::open("org.gnome.desktop.interface");
         let notifications = helix_settings::Schema::open("org.gnome.desktop.notifications");
         let color = helix_settings::Schema::open("org.gnome.settings-daemon.plugins.color");
-        HashMap::from([
+        let mut out = HashMap::from([
             ("dark-style".to_owned(), value(interface.get::<String>("color-scheme").as_deref() == Some("prefer-dark"))),
             ("do-not-disturb".to_owned(), value(!notifications.get_or("show-banners", true))),
             ("night-light".to_owned(), value(color.get_or("night-light-enabled", false))),
-        ])
+        ]);
+        // As `SetAccent` names it (batch 2).
+        if let Some(accent) = interface.get::<String>("accent-color") {
+            out.insert("accent".to_owned(), value(accent));
+        }
+        out
     };
     let status = match system {
         Some(system) => tokio::time::timeout(Duration::from_secs(3), crate::status::read(Some(system))).await.ok(),
@@ -1514,42 +1631,33 @@ fn deadline(timeout_ms: u32) -> Option<Instant> {
 }
 
 impl Agent1 {
-    /// Turn quick setting `toggle` on or off, as quick settings does.
-    async fn toggle(&self, conn: &Connection, toggle: actions::Toggle, on: bool) -> Result<(), AgentError> {
-        use actions::Toggle;
-        let unavailable = || AgentError::NotSupported(format!("{} is not available", toggle.name()));
-        match toggle {
-            Toggle::DarkStyle | Toggle::NightLight => {
-                let done = if toggle == Toggle::DarkStyle { crate::status::set_dark_style(on) } else { crate::status::set_night_light(on) };
-                if !done {
-                    return Err(unavailable());
-                }
-                gio::Settings::sync();
-            }
-            Toggle::DoNotDisturb => {
-                if !helix_settings::Schema::open("org.gnome.desktop.notifications").has("show-banners") {
-                    return Err(unavailable());
-                }
-                crate::notifications::set_do_not_disturb(on);
-            }
-            Toggle::Wifi | Toggle::AirplaneMode => {
-                let system = self.access.system_bus().await.ok_or_else(unavailable)?;
-                let (wifi, bluetooth) = tokio::time::timeout(Duration::from_secs(3), crate::status::radios(&system)).await.map_err(|_| unavailable())?;
-                let there = if toggle == Toggle::Wifi { wifi.is_some() } else { wifi.is_some() || bluetooth.is_some() };
-                if !there {
-                    return Err(unavailable());
-                }
-                let change = if toggle == Toggle::Wifi { crate::status::Toggle::Wifi(on) } else { crate::status::Toggle::Airplane(on) };
-                crate::status::apply(&system, change).await.map_err(|e| AgentError::Failed(e.to_string()))?;
-                crate::status::changed();
-            }
-            Toggle::Mute => {
-                crate::shell_keys::volume_state().await.ok_or_else(unavailable)?;
-                crate::shell_keys::set_mute(on).await;
-                self.access.refresh_quick(conn).await;
+    /// `WindowAction` `to-monitor`: move window `window` a monitor at a
+    /// time, as Super+Shift+arrow does, until it is on the one named.
+    async fn to_monitor(&self, caller: &Caller, window: u32, options: &HashMap<String, OwnedValue>, call: CallOptions) -> Result<(), AgentError> {
+        caller.detail("action", activity::Detail::Kind("to-monitor"));
+        let connector = actions::monitor_option(options)?;
+        let snapshot = self.access.snapshot().await?;
+        let Some(w) = snapshot.windows.iter().find(|w| w.id == window).cloned() else { return Err(AgentError::NotFound(format!("window {window}"))) };
+        caller.target(format!("window:{window} ({})", w.app_id));
+        caller.check_target(Target::App(&w.app_id))?;
+        actions::to_monitor_step(&w, &snapshot, &connector)?;
+        self.access.confirm(caller, "WindowAction", DESKTOP, call).await?;
+        let on = |s: &desktop::Snapshot| s.windows.iter().find(|w| w.id == window).and_then(|w| desktop::monitor_of(s, w.geometry)).map(|m| m.connector.clone());
+        for _ in 0..snapshot.monitors.len().max(1) {
+            let snapshot = self.access.snapshot().await?;
+            let Some(w) = snapshot.windows.iter().find(|w| w.id == window).cloned() else { return Err(AgentError::NotFound(format!("window {window}"))) };
+            let Some(step) = actions::to_monitor_step(&w, &snapshot, &connector)? else { return Ok(()) };
+            let before = on(&snapshot);
+            self.access.window_ops(vec![actions::WindowOp::Action(window, step)]).await?;
+            self.access.settle(|s| on(s) != before).await;
+            if on(&self.access.snapshot().await?) == before {
+                return Err(AgentError::Failed("the window could not be moved to that monitor".into()));
             }
         }
-        Ok(())
+        match on(&self.access.snapshot().await?) {
+            Some(c) if c == connector => Ok(()),
+            _ => Err(AgentError::Failed("the window could not be moved to that monitor".into())),
+        }
     }
 
     /// The documents the visible windows show, where their apps tell.
@@ -1687,18 +1795,7 @@ impl Agent1 {
             .access
             .notifications()
             .into_iter()
-            .map(|(n, time)| desktop::NoteInfo {
-                id: n.id,
-                app_id: n.app_id.clone(),
-                app_name: n.app_name.clone(),
-                time,
-                summary: n.summary.clone(),
-                body: if n.markup { crate::markup::plain(&n.body) } else { n.body.clone() },
-                window: match n.origin {
-                    crate::notify_store::Origin::Window { id } => Some(id),
-                    _ => None,
-                },
-            })
+            .map(|(n, time)| desktop::note_info(&n, time))
             .collect();
         let config = caller.config.clone();
         let contents = config.notifications;
@@ -1905,6 +2002,10 @@ impl Agent1 {
         let call = CallOptions { action: sensitive.then_some("close"), ..CallOptions::from_dict(&options) };
         let caller = self.access.check_targeted(conn, &header, "WindowAction", need, call).await?;
         caller.target(format!("window:{window}"));
+        if action == "to-monitor" {
+            let result = self.to_monitor(&caller, window, &options, call).await;
+            return caller.finish(result);
+        }
         let result = async {
             let command = actions::WindowCommand::parse(action, &options)?;
             caller.detail("action", activity::Detail::Kind(command.name()));
@@ -1946,14 +2047,18 @@ impl Agent1 {
         // Wi-Fi and airplane mode are sensitive: they change the network.
         let toggle = actions::Toggle::from_name(name);
         let need = Need { sensitive: toggle.is_some_and(actions::Toggle::sensitive), ..DESKTOP };
-        let call = CallOptions { action: toggle.and_then(|t| t.action(on)), ..CallOptions::from_dict(&options) };
+        let until = changes::until_option(&options);
+        let call = CallOptions { action: toggle.and_then(|t| t.action(on)), until: until.as_ref().ok().copied().flatten(), ..CallOptions::from_dict(&options) };
         let caller = self.access.check_targeted(conn, &header, "SetToggle", need, call).await?;
         let result = async {
             let toggle = toggle.ok_or_else(|| AgentError::NotSupported(format!("toggle {name}")))?;
             caller.target(toggle.name());
             caller.detail("state", activity::Detail::Kind(if on { "on" } else { "off" }));
+            let until = until?.map(|u| changes::check_until(u, now())).transpose()?;
             self.access.confirm(&caller, "SetToggle", need, call).await?;
-            self.toggle(conn, toggle, on).await
+            // Its reply stays empty (README.md, "Changing settings"): the
+            // change is in the log.
+            self.access.make_change(&caller, "SetToggle", changes::Setting::Toggle(toggle), None, until, |_| changes::Values::flag(on)).await.map(drop)
         }
         .await;
         caller.finish(result)
@@ -2022,6 +2127,242 @@ impl Agent1 {
             action.supported(&target)?;
             self.access.confirm(&caller, "MediaControl", DESKTOP, call).await?;
             action.send(conn, &target).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn set_wallpaper(&self, uri: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Record, AgentError> {
+        let until = changes::until_option(&options);
+        let call = CallOptions { until: until.as_ref().ok().copied().flatten(), ..CallOptions::from_dict(&options) };
+        let caller = self.access.check_targeted(conn, &header, "SetWallpaper", DESKTOP, call).await?;
+        caller.target("wallpaper");
+        let result = async {
+            let variant: &'static str = match actions::text_option(&options, "variant")?.as_deref() {
+                None | Some("both") => "both",
+                Some("light") => "light",
+                Some("dark") => "dark",
+                Some(_) => return Err(AgentError::invalid_args("“variant” must be light, dark or both")),
+            };
+            caller.detail("variant", activity::Detail::Kind(variant));
+            let fit = actions::text_option(&options, "fit")?;
+            if fit.as_deref().is_some_and(|f| !changes::FITS.contains(&f)) {
+                return Err(AgentError::invalid_args(format!("“fit” must be one of {}", changes::FITS.join(", "))));
+            }
+            let until = until?.map(|u| changes::check_until(u, now())).transpose()?;
+            let path = match actions::Uri::parse(uri)? {
+                actions::Uri::File(path) => path,
+                actions::Uri::Address { scheme, .. } => return Err(AgentError::NotSupported(format!("{scheme}: only local files can be the background"))),
+            };
+            // Opened once; every check is of the file opened (step 9 for
+            // where it is).
+            let places = background::Places::current();
+            let (p, opened_in) = (path.clone(), places.clone());
+            let picture = blocking(move || background::open(&p, &opened_in)).await?;
+            self.access.confirm(&caller, "SetWallpaper", DESKTOP, call).await?;
+            let copied = !places.in_backgrounds(&picture.real);
+            let picture = Arc::new(picture);
+            let (shown, placed_in) = (picture.clone(), places.clone());
+            let uri = blocking(move || background::place(&shown, &placed_in, &background::stamp())).await?;
+            let made = self
+                .access
+                .make_change(&caller, "SetWallpaper", changes::Setting::Wallpaper, Some(variant), until, |old| {
+                    let mut new = old.clone();
+                    if variant != "dark" {
+                        new.value = changes::Val::Text(uri.clone());
+                    }
+                    if variant != "light" {
+                        new.dark = Some(uri.clone());
+                    }
+                    // Without a fit, a picture would not show with none.
+                    new.fit = match fit {
+                        Some(f) => Some(f),
+                        None if old.fit.as_deref() == Some("none") => Some("zoom".to_owned()),
+                        None => old.fit.clone(),
+                    };
+                    new
+                })
+                .await;
+            if made.is_err() && copied {
+                if let Some(path) = gio::glib::filename_from_uri(&uri).ok().map(|(p, _)| p) {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+            made
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn set_accent(&self, name: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Record, AgentError> {
+        let until = changes::until_option(&options);
+        let call = CallOptions { until: until.as_ref().ok().copied().flatten(), ..CallOptions::from_dict(&options) };
+        let caller = self.access.check_targeted(conn, &header, "SetAccent", DESKTOP, call).await?;
+        caller.target("accent");
+        let result = async {
+            if !changes::ACCENTS.contains(&name) {
+                return Err(AgentError::NotSupported(format!("accent color {name}")));
+            }
+            let until = until?.map(|u| changes::check_until(u, now())).transpose()?;
+            self.access.confirm(&caller, "SetAccent", DESKTOP, call).await?;
+            self.access.make_change(&caller, "SetAccent", changes::Setting::Accent, None, until, |_| changes::Values::text(name)).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn set_power_mode(&self, profile: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Record, AgentError> {
+        let until = changes::until_option(&options);
+        let call = CallOptions { until: until.as_ref().ok().copied().flatten(), ..CallOptions::from_dict(&options) };
+        let caller = self.access.check_targeted(conn, &header, "SetPowerMode", DESKTOP, call).await?;
+        caller.target("power-mode");
+        let result = async {
+            if !changes::PROFILES.contains(&profile) {
+                return Err(AgentError::NotSupported(format!("power profile {profile}")));
+            }
+            let until = until?.map(|u| changes::check_until(u, now())).transpose()?;
+            let system = self.access.system_bus().await;
+            let power = power::read(system.as_ref()).await;
+            let offered: Vec<String> = power.get("power-profiles").and_then(|v| Vec::<String>::try_from(v.clone()).ok()).unwrap_or_default();
+            if !power.contains_key("power-profile") {
+                return Err(AgentError::NotSupported("power-profiles-daemon is not running".into()));
+            }
+            if !offered.iter().any(|p| p == profile) {
+                return Err(AgentError::NotSupported(format!("this computer does not offer the power profile {profile}")));
+            }
+            self.access.confirm(&caller, "SetPowerMode", DESKTOP, call).await?;
+            self.access.make_change(&caller, "SetPowerMode", changes::Setting::PowerMode, None, until, |_| changes::Values::text(profile)).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn star_file(&self, uri: &str, starred: bool, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Record, AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "StarFile", DESKTOP, call).await?;
+        let result = async {
+            let path = match actions::Uri::parse(uri)? {
+                actions::Uri::File(path) => path,
+                actions::Uri::Address { scheme, .. } => return Err(AgentError::NotSupported(format!("{scheme}: only files in the home folder can be starred"))),
+            };
+            // As GIO names it (`.` and `..` resolved).
+            let path = gio::prelude::FileExt::path(&gio::File::for_path(&path)).unwrap_or(path);
+            caller.target(actions::Uri::File(path.clone()).log_target());
+            if std::fs::symlink_metadata(&path).is_err() {
+                return Err(AgentError::NotFound(path.display().to_string()));
+            }
+            if !helix_settings::stars::can_star(&gio::glib::home_dir(), &path) {
+                return Err(AgentError::NotSupported("only files in the home folder can be starred".into()));
+            }
+            let file_uri = helix_settings::stars::uri_for_path(&path).ok_or_else(|| AgentError::NotSupported("stars are not available".into()))?;
+            caller.target(file_uri.clone());
+            blocking(|| {
+                let store = helix_settings::stars::Store::open(&helix_settings::stars::data_home(), true);
+                match store.access() {
+                    helix_settings::stars::Access::ReadWrite => Ok(()),
+                    _ => Err(AgentError::NotSupported(format!("stars cannot be written: {}", store.note()))),
+                }
+            })
+            .await?;
+            self.access.confirm(&caller, "StarFile", DESKTOP, call).await?;
+            self.access.make_change(&caller, "StarFile", changes::Setting::Star(file_uri), None, None, |_| changes::Values::flag(starred)).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn set_favorite(&self, app_id: &str, pinned: bool, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Record, AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "SetFavorite", DESKTOP, call).await?;
+        let id = app_id.strip_suffix(".desktop").unwrap_or(app_id).to_owned();
+        let result = async {
+            if id.is_empty() {
+                return Err(AgentError::invalid_args("no app id"));
+            }
+            caller.check_target(Target::App(&id))?;
+            let wanted = id.clone();
+            let plan = blocking(move || actions::plan_launch(&wanted, Vec::new())).await?;
+            for app in &plan.apps {
+                caller.check_target(Target::App(app))?;
+            }
+            self.access.confirm(&caller, "SetFavorite", DESKTOP, call).await?;
+            self.access.make_change(&caller, "SetFavorite", changes::Setting::Favorite(id.clone()), None, None, |_| changes::Values::flag(pinned)).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn reveal_file(&self, uri: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "RevealFile", DESKTOP, call).await?;
+        let result = async {
+            let path = match actions::Uri::parse(uri)? {
+                actions::Uri::File(path) => path,
+                actions::Uri::Address { scheme, .. } => return Err(AgentError::NotSupported(format!("{scheme}: only local files can be revealed"))),
+            };
+            let file_uri = actions::Uri::File(path.clone()).uri();
+            caller.target(file_uri.clone());
+            if std::fs::symlink_metadata(&path).is_err() {
+                return Err(AgentError::NotFound(path.display().to_string()));
+            }
+            self.access.file_manager_check(conn, &caller).await?;
+            self.access.confirm(&caller, "RevealFile", DESKTOP, call).await?;
+            let token = crate::activation::token_async(None).await.unwrap_or_default();
+            let body = (vec![file_uri.as_str()], token.as_str());
+            let shown = conn.call_method(Some(FILE_MANAGER), "/org/freedesktop/FileManager1", Some(FILE_MANAGER), "ShowItems", &body);
+            match tokio::time::timeout(Duration::from_secs(5), shown).await {
+                Ok(Ok(_)) => Ok(()),
+                Ok(Err(err)) => Err(AgentError::Failed(format!("the file manager did not show it: {err}"))),
+                Err(_) => Err(AgentError::Failed("the file manager did not answer in time".into())),
+            }
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn dismiss_notification(&self, id: u32, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "DismissNotification", DESKTOP, call).await?;
+        caller.target(format!("notification:{id}"));
+        let result = async {
+            let (center, note) = self.access.visible_note(&caller, id).await?;
+            self.access.confirm(&caller, "DismissNotification", DESKTOP, call).await?;
+            // The user's ×: the app is told it was dismissed.
+            let public = self.access.public_conn().unwrap_or_else(|| conn.clone());
+            center.close(&public, note.id, crate::notify_store::CloseReason::Dismissed).await.map_err(|e| AgentError::Failed(e.to_string()))
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn notification_action(&self, id: u32, action: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "NotificationAction", NOTE_ACTION, call).await?;
+        caller.target(format!("notification:{id}"));
+        // Never the button's key or label.
+        caller.detail("action", activity::Detail::Kind(if action == "default" { "default" } else { "button" }));
+        let result = async {
+            if action.is_empty() {
+                return Err(AgentError::invalid_args("no action"));
+            }
+            let (center, note) = self.access.visible_note(&caller, id).await?;
+            let info = desktop::note_info(&note, 0);
+            let sensitive_label = a11y::sensitive_button;
+            let (key, label, sensitive) = if action == "default" {
+                if !info.default_action {
+                    return Err(AgentError::NotFound(format!("notification {id} has no default action")));
+                }
+                // Apps often make the default action the one that answers.
+                (None, String::new(), info.actions.iter().any(|(_, l)| sensitive_label(l)))
+            } else {
+                let Some((key, label)) = info.actions.iter().find(|(k, _)| k == action) else { return Err(AgentError::NotFound(format!("notification {id} has no action {action}"))) };
+                (Some(key.clone()), label.clone(), sensitive_label(label))
+            };
+            let app = if info.app_id.is_empty() { info.app_name.clone() } else { info.app_id.clone() };
+            let control = Control { name: talk::clean(&label).chars().take(64).collect(), role: "button", app };
+            self.access.confirm_control(&caller, "NotificationAction", Need { sensitive, ..NOTE_ACTION }, call, control).await?;
+            let public = self.access.public_conn().unwrap_or_else(|| conn.clone());
+            center.activate(&public, note.id, key).await.map_err(|e| AgentError::Failed(e.to_string()))
         }
         .await;
         caller.finish(result)
@@ -2509,8 +2850,34 @@ impl AgentAccessSettings {
             log.record(entry);
         })
         .await;
+        // The changes go with the log (pending restores stay).
+        self.access.changes().clear();
+        self.access.changes_changed();
         tracing::info!("agent activity log cleared");
         Ok(())
+    }
+
+    /// Every change that can still be undone, newest first (README.md,
+    /// "Who may manage grants").
+    async fn list_changes(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<Vec<HashMap<String, OwnedValue>>> {
+        self.access.require_settings(conn, &header, "ListChanges").await?;
+        Ok(self.access.list_changes().await)
+    }
+
+    /// Put change `id`'s old value back, whatever the agents' access.
+    async fn undo(&self, id: &str, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), changes::UndoError> {
+        let exe = self.access.require_settings(conn, &header, "Undo").await.map_err(changes::UndoError::Denied)?;
+        let (change, result) = self.access.undo(id).await;
+        let mut detail = vec![("change", activity::Detail::Text(id.to_owned()))];
+        let mut target = String::new();
+        if let Some(c) = &change {
+            target = c.setting().map(|s| s.log_target()).unwrap_or_default();
+            detail.extend(changes::log_values(&c.setting, &c.new, &c.old));
+        }
+        let error = result.as_ref().err().map(|skip| AgentError::from(skip.clone()).kind().to_owned());
+        let entry = activity::Entry { time: now(), agent: exe.to_string_lossy().into_owned(), method: "Undo".to_owned(), target, error, detail, ..activity::Entry::default() };
+        self.access.inner.log.record(entry);
+        result.map_err(|skip| changes::UndoError::Agent(skip.into()))
     }
 
     /// Every agent's waiting reminders (Reminder records with `agent`,
@@ -2534,4 +2901,8 @@ impl AgentAccessSettings {
     /// The waiting reminders changed.
     #[zbus(signal)]
     pub async fn reminders_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+
+    /// What `ListChanges` gives may have changed.
+    #[zbus(signal)]
+    pub async fn changes_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 }

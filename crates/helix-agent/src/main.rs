@@ -5,6 +5,7 @@
 
 mod a11y;
 mod act;
+mod change;
 mod cli;
 mod clipboard;
 mod complete;
@@ -122,6 +123,9 @@ fn run(p: &cli::Parsed) -> Result<Option<Done>, Failure> {
             read::run(p, &path).map(Some)
         }
         "media list" | "media play" | "media pause" | "media play-pause" | "media next" | "media previous" | "media stop" | "media seek" | "power status" => media::run(p, &path).map(Some),
+        "wallpaper" | "accent" | "power mode" | "files star" | "files unstar" | "files reveal" | "dock pin" | "dock unpin" | "notifications dismiss" | "notifications press" => {
+            change::run(p, &path).map(Some)
+        }
         "open" | "launch" | "window" | "workspace switch" | "toggle" | "set" | "notify" => act::run(p, &path).map(Some),
         "ask" | "confirm" | "remind add" | "remind list" | "remind cancel" => talk::run(p, &path).map(Some),
         "clipboard get" | "clipboard types" | "clipboard set" => {
@@ -159,6 +163,26 @@ pub(crate) fn options(p: &cli::Parsed) -> HashMap<&'static str, Value<'static>> 
         out.insert("sensitive", Value::from(true));
     }
     out
+}
+
+/// Whether the shell's `Agent1` has `method` (introspection): what a
+/// command relies on that an older shell would ignore (`until`).
+pub(crate) fn shell_has(p: &cli::Parsed, method: &str) -> Result<bool, Failure> {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| Failure::new("failed", e.to_string()))?;
+    let timeout = p.timeout.unwrap_or(DEFAULT_TIMEOUT);
+    runtime.block_on(async {
+        let work = async {
+            let conn = zbus::Connection::session().await.map_err(|_| Failure::no_shell())?;
+            let reply = conn.call_method(Some(BUS), PATH, Some("org.freedesktop.DBus.Introspectable"), "Introspect", &()).await.map_err(errors::from_zbus)?;
+            let xml: String = reply.body().deserialize().map_err(|e| Failure::new("failed", e.to_string()))?;
+            Ok(xml.contains(&format!("<method name=\"{method}\"")))
+        };
+        if timeout == 0.0 {
+            work.await
+        } else {
+            tokio::time::timeout(Duration::from_secs_f64(timeout), work).await.unwrap_or_else(|_| Err(Failure::timed_out()))
+        }
+    })
 }
 
 /// Call `method` on the shell's `Agent1`, waiting at most `--timeout`.

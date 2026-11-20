@@ -330,6 +330,33 @@ pub struct NoteInfo {
     pub body: String,
     /// The window it is about (the shell's "… is ready").
     pub window: Option<u32>,
+    /// Its buttons, in order: (key, label); and whether clicking the
+    /// notification itself does something.
+    pub actions: Vec<(String, String)>,
+    pub default_action: bool,
+}
+
+/// What agents may know of notification `n` (arrived at `time`): its
+/// body as plain text, the window it is about, and its buttons but for
+/// the "Reminder set" notification's (the user's way to undo what an
+/// agent scheduled; README.md, "Notifications, files and monitors").
+pub fn note_info(n: &crate::notify_store::Notification, time: i64) -> NoteInfo {
+    use crate::notify_store::Origin;
+    let reminder = matches!(n.origin, Origin::Reminder { .. });
+    NoteInfo {
+        id: n.id,
+        app_id: n.app_id.clone(),
+        app_name: n.app_name.clone(),
+        time,
+        summary: n.summary.clone(),
+        body: if n.markup { crate::markup::plain(&n.body) } else { n.body.clone() },
+        window: match n.origin {
+            Origin::Window { id } => Some(id),
+            _ => None,
+        },
+        actions: if reminder { Vec::new() } else { n.actions.iter().filter(|(key, _)| key != "default").cloned().collect() },
+        default_action: n.has_default && !reminder,
+    }
 }
 
 /// Whether notification `n` is left out: from an excluded app (by its app
@@ -356,6 +383,13 @@ pub fn note_record(n: &NoteInfo, contents: bool) -> Record {
     if contents {
         r.insert("summary".to_owned(), value(n.summary.as_str()));
         r.insert("body".to_owned(), value(n.body.as_str()));
+        // The buttons' labels say what the notification says: only with
+        // the switch, as the contents.
+        if !n.actions.is_empty() {
+            let buttons: Vec<Record> = n.actions.iter().map(|(id, label)| Record::from([("id".to_owned(), value(id.as_str())), ("label".to_owned(), value(label.as_str()))])).collect();
+            r.insert("actions".to_owned(), value(buttons));
+        }
+        r.insert("default-action".to_owned(), value(n.default_action));
     } else {
         r.insert("redacted".to_owned(), value(true));
     }
@@ -497,7 +531,7 @@ mod tests {
     fn notifications() {
         let s = snapshot();
         let installed = vec![Installed { id: "org.keepassxc.KeePassXC".into(), name: "KeePassXC".into(), wm_class: None, exec: None }];
-        let note = |app_id: &str, app_name: &str, window: Option<u32>| NoteInfo { id: 1, app_id: app_id.into(), app_name: app_name.into(), time: 99, summary: "Hi".into(), body: "there".into(), window };
+        let note = |app_id: &str, app_name: &str, window: Option<u32>| NoteInfo { id: 1, app_id: app_id.into(), app_name: app_name.into(), time: 99, summary: "Hi".into(), body: "there".into(), window, actions: Vec::new(), default_action: false };
         assert!(!note_hidden(&note("org.gnome.Calendar", "Calendar", None), &s, &installed, &config()));
         assert!(note_hidden(&note("org.keepassxc.KeePassXC", "KeePassXC", None), &s, &installed, &config()));
         assert!(note_hidden(&note("org.helixdesktop.Settings", "Settings", None), &s, &installed, &config()));

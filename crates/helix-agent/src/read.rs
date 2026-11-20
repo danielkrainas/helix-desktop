@@ -317,14 +317,27 @@ fn notifications_text(notes: &[Record]) -> String {
     let mut redacted = false;
     for n in notes {
         let time = get_num(n, "time").map(local_time).unwrap_or_default();
+        // The id `notifications dismiss` and `press` take.
+        let id = int(n, "id");
         let app = get_str(n, "app-name");
         if get_bool(n, "redacted") == Some(true) {
             redacted = true;
-            out.push_str(&format!("{time}  {app}\n"));
+            out.push_str(&format!("{id}  {time}  {app}\n"));
         } else {
             let body = get_str(n, "body").replace('\n', " ");
             let summary = get_str(n, "summary");
-            out.push_str(&if body.is_empty() { format!("{time}  {app}: {summary}\n") } else { format!("{time}  {app}: {summary} — {body}\n") });
+            out.push_str(&if body.is_empty() { format!("{id}  {time}  {app}: {summary}\n") } else { format!("{id}  {time}  {app}: {summary} — {body}\n") });
+            // Its buttons, by the ids `notifications press` takes.
+            let buttons: Vec<String> = n
+                .get("actions")
+                .and_then(|v| Vec::<Record>::try_from(v.clone()).ok())
+                .unwrap_or_default()
+                .iter()
+                .map(|b| format!("[{}] {}", get_str(b, "id"), get_str(b, "label")))
+                .collect();
+            if !buttons.is_empty() {
+                out.push_str(&format!("    {}\n", buttons.join("  ")));
+            }
         }
     }
     if redacted {
@@ -383,6 +396,11 @@ mod tests {
         assert!(!text.contains("Wi-Fi"), "absent without NetworkManager");
         let n = record(&[("id", Value::from(1u32)), ("app-name", Value::from("Calendar")), ("time", Value::from(0i64)), ("redacted", Value::from(true))]);
         assert!(notifications_text(&[n]).contains("Notification contents are hidden"));
+        let button = |id: &str, label: &str| HashMap::from([("id".to_owned(), OwnedValue::try_from(Value::from(id.to_owned())).unwrap()), ("label".to_owned(), OwnedValue::try_from(Value::from(label.to_owned())).unwrap())]);
+        let mut n = record(&[("id", Value::from(7u32)), ("app-name", Value::from("Chat")), ("time", Value::from(0i64)), ("summary", Value::from("Anna")), ("body", Value::from("Hi"))]);
+        n.insert("actions".into(), OwnedValue::try_from(Value::from(vec![button("reply", "Reply"), button("delete", "Delete")])).unwrap());
+        let text = notifications_text(&[n]);
+        assert!(text.starts_with("7  ") && text.contains("Chat: Anna — Hi\n    [reply] Reply  [delete] Delete\n"), "{text}");
     }
 
     #[test]

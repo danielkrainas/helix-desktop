@@ -271,7 +271,7 @@ async fn apps_over_the_accessibility_bus() {
     });
     let confirm = FakeConfirm::default();
     let log = tmp.join("state/helix/agent-activity");
-    let access = AgentAccess::new(lock.clone(), Setup { grants_path: None, consent, confirm: confirm.hook(), proc_root: "/proc".into(), settings_exes: vec![], log_dir: Some(log.clone()), reminders_path: None });
+    let access = AgentAccess::new(lock.clone(), Setup { grants_path: None, consent, confirm: confirm.hook(), proc_root: "/proc".into(), settings_exes: vec![], log_dir: Some(log.clone()), reminders_path: None, changes_path: None });
     access.set_desktop(Desktop { ui: ui.clone(), notifications: None });
     let server = bus
         .builder()

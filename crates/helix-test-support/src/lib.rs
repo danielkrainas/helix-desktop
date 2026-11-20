@@ -11,6 +11,7 @@
 pub mod a11y;
 pub mod agent;
 pub mod conformance;
+pub mod file_manager;
 pub mod headless;
 pub mod logind;
 pub mod mpris;

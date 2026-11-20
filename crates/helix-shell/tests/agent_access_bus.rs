@@ -153,6 +153,7 @@ async fn policy_over_the_bus() {
             settings_exes: vec![me.clone()],
             log_dir: Some(tmp.join("state/helix/agent-activity")),
             reminders_path: None,
+            changes_path: None,
         },
     );
     let server = bus

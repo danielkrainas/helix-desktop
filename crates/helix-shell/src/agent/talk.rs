@@ -231,7 +231,7 @@ pub fn default_path() -> PathBuf {
 }
 
 /// A new reminder id: 16 random hex digits.
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     let mut bytes = [0u8; 8];
     if getrandom::fill(&mut bytes).is_err() {
         // Unique enough without randomness: the time.

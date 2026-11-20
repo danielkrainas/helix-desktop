@@ -217,6 +217,9 @@ impl std::error::Error for AgentError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Switch {
     Clipboard,
+    /// Notification contents (`NotificationAction`: the buttons' labels
+    /// say what the notification says).
+    Notifications,
 }
 
 /// What a method needs (README.md, "Methods").
@@ -269,6 +272,7 @@ pub fn gate(config: &Config, need: Need, facts: Facts) -> Result<(), AgentError>
     }
     match need.switch {
         Some(Switch::Clipboard) if !config.clipboard => Err(AgentError::FeatureOff("clipboard".into())),
+        Some(Switch::Notifications) if !config.notifications => Err(AgentError::FeatureOff("notifications".into())),
         _ => Ok(()),
     }
 }

@@ -2,7 +2,9 @@
 //! `contracts/agent-access/cli.md`; helixdesktop/desktop#147): `open`,
 //! `launch`, `window`, `workspace switch`, `toggle`, `set` and `notify`.
 //! Each is one `Agent1` call (`toggle` without a state reads `GetState`
-//! first); JSON output is `{}` but for `toggle` and `notify`.
+//! first); JSON output is `{}` but for `toggle` and `notify`. `toggle
+//! --until` and `window … to-monitor` come with the scoped actions
+//! (helixdesktop/desktop#157).
 
 use std::collections::HashMap;
 
@@ -39,16 +41,20 @@ pub fn run(p: &cli::Parsed, path: &str) -> Result<Done, Failure> {
                 "move" => &["x", "y"],
                 "resize" => &["width", "height"],
                 "to-workspace" => &["workspace"],
+                "to-monitor" => &["monitor"],
                 _ => &[],
             };
             if numbers.len() != names.len() {
                 return Err(Failure::usage(match names.len() {
                     0 => trf!("“{action}” takes no numbers", action = action),
+                    _ if action == "to-monitor" => trf!("“{action}” takes a monitor: CONNECTOR (see “helix-agent monitors”)", action = action),
                     n => trf!("“{action}” takes {n} numbers: {names}", action = action, n = n, names = names.join(" ").to_uppercase()),
                 }));
             }
             for (name, text) in names.iter().zip(numbers) {
-                let value = if *name == "workspace" {
+                let value = if *name == "monitor" {
+                    Some(Value::from(text.clone()))
+                } else if *name == "workspace" {
                     text.parse::<u32>().map(Value::from).ok()
                 } else if matches!(*name, "width" | "height") {
                     text.parse::<i32>().ok().filter(|n| *n > 0).map(Value::from)
@@ -74,9 +80,16 @@ pub fn run(p: &cli::Parsed, path: &str) -> Result<Done, Failure> {
                 // Flip it: what is it now?
                 None => !current(p, name, timeout)?,
             };
+            let until = crate::change::add_until(p, &mut options)?;
             crate::call_for::<_, ()>(p, "SetToggle", &(name, on, options), timeout)?;
             let state = if on { helix_i18n::tr("on") } else { helix_i18n::tr("off") };
-            Ok(Done { json: serde_json::json!({ "name": name, "on": on }), text: format!("{name}: {state}") })
+            let mut json = serde_json::json!({ "name": name, "on": on });
+            let mut text = format!("{name}: {state}");
+            if let Some(at) = until {
+                json["until"] = serde_json::json!(at);
+                text.push_str(&crate::change::back_at(at));
+            }
+            Ok(Done { json, text })
         }
         "set" => {
             let percent = p.args[1].trim_end_matches('%').parse::<f64>().ok().filter(|v| v.is_finite() && *v >= 0.0);

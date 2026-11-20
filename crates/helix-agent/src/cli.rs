@@ -30,8 +30,15 @@ pub const LEVELS: &[&str] = &["read-only", "desktop", "apps", "screen-and-input"
 pub const TOGGLES: &[&str] = &["dark-style", "do-not-disturb", "night-light", "wifi", "airplane-mode", "mute"];
 pub const VALUES: &[&str] = &["volume", "brightness"];
 pub const WINDOW_ACTIONS: &[&str] = &[
-    "focus", "close", "minimize", "maximize", "unmaximize", "restore", "fullscreen", "unfullscreen", "tile-left", "tile-right", "move", "resize", "to-workspace",
+    "focus", "close", "minimize", "maximize", "unmaximize", "restore", "fullscreen", "unfullscreen", "tile-left", "tile-right", "move", "resize", "to-workspace", "to-monitor",
 ];
+/// The accent colors Settings offers (`SetAccent`).
+pub const ACCENTS: &[&str] = &["blue", "teal", "green", "yellow", "orange", "red", "pink", "purple", "slate"];
+/// The power profiles (`SetPowerMode`).
+pub const PROFILES: &[&str] = &["power-saver", "balanced", "performance"];
+/// The background's placements (`SetWallpaper`'s `fit`).
+pub const FITS: &[&str] = &["zoom", "scaled", "centered", "stretched", "wallpaper", "spanned"];
+pub const VARIANTS: &[&str] = &["light", "dark", "both"];
 pub const SHELLS: &[&str] = &["bash", "zsh", "fish"];
 /// The types `clipboard set` may set (the shell's list).
 pub const SET_TYPES: &[&str] = &["text/plain", "text/plain;charset=utf-8", "text/html", "text/uri-list", "image/png"];
@@ -52,9 +59,14 @@ pub struct Cmd {
     /// add the rest).
     pub ready: bool,
     /// A group that also runs alone: the subcommand it then is (`media`
-    /// is `media list`).
+    /// is `media list`), or [`ITSELF`] when it runs as itself
+    /// (`notifications` lists, `notifications dismiss` dismisses).
     pub alone: Option<&'static str>,
 }
+
+/// [`Cmd::alone`] of a group that runs as itself, with its own arguments
+/// and options (refused with a subcommand).
+pub const ITSELF: &str = "";
 
 const fn arg(name: &'static str, help: &'static str) -> Arg {
     Arg { name, help, required: true, many: false, choices: &[] }
@@ -87,6 +99,10 @@ const Y: Arg = arg("Y", n_("Down the window from its top edge, in logical pixels
 pub const BUTTONS: &[&str] = &["left", "middle", "right", "back", "forward"];
 const STATE: Opt = Opt { many: true, ..valued("state", "STATE", n_("Only controls in this state, e.g. focused, checked (repeat for more)")) };
 const PLAYER: Opt = valued("player", "ID", n_("This player (an id from “helix-agent media”; default: the active one)"));
+const UNTIL: Opt = valued("until", "WHEN", n_("Put it back then: +30m, +2h or a time (10 seconds to 24 hours ahead)"));
+const FILE: Arg = arg("PATH", n_("A file or folder (a path, or a file:// URI)"));
+const APP: Arg = arg("APP_ID", n_("The app's id, e.g. org.gnome.TextEditor"));
+const NOTE: Arg = arg("ID", n_("A notification id from “helix-agent notifications”"));
 
 /// A `media` command that controls a player.
 const fn playback(name: &'static str, summary: &'static str) -> Cmd {
@@ -114,7 +130,22 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
         Cmd { ready: true, records: Some("App"), opts: &[flag("running", n_("Only running apps"))], ..cmd("apps", n_("Installed and running apps"), Some("read-only")) },
         Cmd { ready: true, records: Some("Workspace"), ..cmd("workspaces", n_("Workspaces"), Some("read-only")) },
         Cmd { ready: true, records: Some("Monitor"), ..cmd("monitors", n_("Monitors"), Some("read-only")) },
-        Cmd { ready: true, records: Some("Notification"), opts: &[LIMIT], ..cmd("notifications", n_("Recent notifications"), Some("read-only")) },
+        Cmd {
+            ready: true,
+            records: Some("Notification"),
+            opts: &[LIMIT],
+            alone: Some(ITSELF),
+            subs: &[
+                Cmd { ready: true, args: &[NOTE], ..cmd("dismiss", n_("Dismiss a notification"), Some("desktop")) },
+                Cmd {
+                    ready: true,
+                    switch: Some("notifications"),
+                    args: &[NOTE, opt_arg("ACTION", n_("A button's id from “helix-agent notifications”, or default (clicking the notification; the default)"))],
+                    ..cmd("press", n_("Press a notification's button"), Some("desktop"))
+                },
+            ],
+            ..cmd("notifications", n_("Recent notifications"), Some("read-only"))
+        },
         Cmd {
             subs: &[
                 Cmd { ready: true, records: Some("File"), opts: &[LIMIT, MIME], ..cmd("recent", n_("Recently used files"), Some("read-only")) },
@@ -132,9 +163,12 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
                     ..cmd("search", n_("Search for files"), Some("read-only"))
                 },
                 Cmd { ready: true, records: Some("File"), opts: &[LIMIT, MIME], ..cmd("starred", n_("Starred files (as in Files)"), Some("read-only")) },
+                Cmd { ready: true, records: Some("Change"), args: &[FILE], ..cmd("star", n_("Star a file in the home folder (as in Files)"), Some("desktop")) },
+                Cmd { ready: true, records: Some("Change"), args: &[FILE], ..cmd("unstar", n_("Unstar a file"), Some("desktop")) },
+                Cmd { ready: true, args: &[FILE], ..cmd("reveal", n_("Show a file in the file manager"), Some("desktop")) },
             ],
             ready: true,
-            ..cmd("files", n_("Recent, starred and found files"), Some("read-only"))
+            ..cmd("files", n_("Recent, starred and found files; star and reveal them"), Some("read-only"))
         },
         Cmd {
             subs: &[
@@ -157,10 +191,19 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
             ..cmd("media", n_("Media players: what plays; play, pause and skip"), Some("read-only"))
         },
         Cmd {
-            subs: &[Cmd { ready: true, records: Some("Power"), ..cmd("status", n_("Battery and power mode (also “power” alone)"), Some("read-only")) }],
+            subs: &[
+                Cmd { ready: true, records: Some("Power"), ..cmd("status", n_("Battery and power mode (also “power” alone)"), Some("read-only")) },
+                Cmd {
+                    ready: true,
+                    records: Some("Change"),
+                    args: &[Arg { choices: PROFILES, ..arg("PROFILE", n_("power-saver, balanced or performance")) }],
+                    opts: &[UNTIL],
+                    ..cmd("mode", n_("Change the power mode"), Some("desktop"))
+                },
+            ],
             ready: true,
             alone: Some("status"),
-            ..cmd("power", n_("Battery and power mode"), Some("read-only"))
+            ..cmd("power", n_("Battery and power mode; change the power mode"), Some("read-only"))
         },
         Cmd {
             subs: &[
@@ -213,9 +256,9 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
         Cmd {
             ready: true,
             args: &[
-                Arg { choices: WINDOW_ACTIONS, ..arg("ACTION", n_("focus, close, minimize, maximize, unmaximize, restore, fullscreen, unfullscreen, tile-left, tile-right, move X Y, resize WIDTH HEIGHT or to-workspace INDEX")) },
+                Arg { choices: WINDOW_ACTIONS, ..arg("ACTION", n_("focus, close, minimize, maximize, unmaximize, restore, fullscreen, unfullscreen, tile-left, tile-right, move X Y, resize WIDTH HEIGHT, to-workspace INDEX or to-monitor CONNECTOR")) },
                 WINDOW,
-                Arg { many: true, ..opt_arg("ARGS", n_("The action's numbers")) },
+                Arg { many: true, ..opt_arg("ARGS", n_("The action's numbers, or the monitor (see “helix-agent monitors”)")) },
             ],
             ..cmd("window", n_("Focus, move, tile or close a window"), Some("desktop"))
         },
@@ -227,9 +270,36 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
         Cmd {
             ready: true,
             args: &[Arg { choices: TOGGLES, ..arg("NAME", n_("dark-style, do-not-disturb, night-light, wifi, airplane-mode or mute")) }, Arg { choices: &["on", "off"], ..opt_arg("STATE", n_("on or off (default: flip it)")) }],
+            opts: &[UNTIL],
             ..cmd("toggle", n_("Turn a quick setting on or off"), Some("desktop"))
         },
         Cmd { ready: true, args: &[Arg { choices: VALUES, ..arg("NAME", n_("volume or brightness")) }, arg("VALUE", n_("A percentage"))], ..cmd("set", n_("Set volume or brightness"), Some("desktop")) },
+        Cmd {
+            ready: true,
+            records: Some("Change"),
+            args: &[arg("PATH", n_("A picture file (PNG, JPEG, WebP, JPEG XL or SVG), or a file:// URI"))],
+            opts: &[
+                Opt { choices: VARIANTS, ..valued("variant", "VARIANT", n_("light, dark (the dark style's picture) or both [default: both]")) },
+                Opt { choices: FITS, ..valued("fit", "FIT", n_("zoom, scaled, centered, stretched, wallpaper or spanned")) },
+                UNTIL,
+            ],
+            ..cmd("wallpaper", n_("Set the background picture"), Some("desktop"))
+        },
+        Cmd {
+            ready: true,
+            records: Some("Change"),
+            args: &[Arg { choices: ACCENTS, ..arg("COLOR", n_("blue, teal, green, yellow, orange, red, pink, purple or slate")) }],
+            opts: &[UNTIL],
+            ..cmd("accent", n_("Set the accent color"), Some("desktop"))
+        },
+        Cmd {
+            ready: true,
+            subs: &[
+                Cmd { ready: true, records: Some("Change"), args: &[APP], ..cmd("pin", n_("Pin an app to the dock"), Some("desktop")) },
+                Cmd { ready: true, records: Some("Change"), args: &[APP], ..cmd("unpin", n_("Take an app out of the dock"), Some("desktop")) },
+            ],
+            ..cmd("dock", n_("Pin or unpin an app in the dock"), Some("desktop"))
+        },
         Cmd {
             ready: true,
             args: &[arg("TITLE", n_("The notification's title")), opt_arg("BODY", n_("More text below it"))],
@@ -510,6 +580,18 @@ pub fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
         return Ok(out);
     }
     let Some(mut c) = at else { return Ok(out) };
+    if out.path.len() >= 2 {
+        // A subcommand of a group that runs as itself: not with the
+        // group's own options (`notifications --limit 5 dismiss 3`).
+        let group = find(&out.path[..out.path.len() - 1]);
+        if let Some((name, _)) = group.filter(|g| g.alone == Some(ITSELF)).and_then(|g| out.opts.iter().find(|(n, _)| g.opts.iter().any(|o| o.name == *n) && !c.opts.iter().any(|o| o.name == *n))) {
+            return Err(trf!("“--{option}” is not an option of “{command}”", option = name, command = out.path.join(" ")));
+        }
+    }
+    if c.alone == Some(ITSELF) && !c.subs.is_empty() {
+        check_args(c, &out.args)?;
+        return Ok(out);
+    }
     if let (false, Some(sub)) = (c.subs.is_empty(), c.alone) {
         // A group that runs alone (`media`: `media list`).
         if let Some(s) = c.subs.iter().find(|s| s.name == sub) {
@@ -623,6 +705,7 @@ pub fn command_help(path: &[&str]) -> Option<String> {
     out.push('\n');
     if let Some(level) = c.level {
         let needs = match c.switch {
+            Some("notifications") => trf!("Needs: the “{level}” access level and Notification access", level = level_name(level)),
             Some(_) => trf!("Needs: the “{level}” access level and Clipboard access", level = level_name(level)),
             None => trf!("Needs: the “{level}” access level", level = level_name(level)),
         };
@@ -713,7 +796,11 @@ mod tests {
         assert!(p("media rewind").is_err());
         assert!(p("media seek").is_err(), "SECONDS is missing");
         assert!(p("media --player vlc").is_err(), "--player is the controls'");
-        assert!(p("power mode").is_err(), "not in this session's commands");
+        assert!(p("power mode").is_err(), "PROFILE is missing");
+        assert!(p("power mode turbo").is_err());
+        assert!(p("accent magenta").is_err());
+        assert!(p("wallpaper a.png --variant sideways").is_err());
+        assert!(p("dock").is_err(), "a subcommand is needed");
     }
 
     #[test]
@@ -730,6 +817,31 @@ mod tests {
         assert!(command_help(&["media"]).unwrap().contains("Usage: helix-agent media [<COMMAND>]"));
         assert!(command_help(&["media", "next"]).unwrap().contains("Needs: the “Control the desktop” access level"));
         assert!(command_help(&["media", "list"]).unwrap().contains("Media player records"));
+    }
+
+    #[test]
+    fn batch_two_commands() {
+        assert_eq!(p("power mode performance --until +30m").unwrap().opt("until"), Some("+30m"));
+        assert_eq!(p("toggle dark-style on --until +1h").unwrap().opt("until"), Some("+1h"));
+        assert_eq!(p("accent red").unwrap().args, ["red"]);
+        let w = p("wallpaper ~/a.png --variant dark --fit zoom").unwrap();
+        assert_eq!((w.opt("variant"), w.opt("fit")), (Some("dark"), Some("zoom")));
+        assert_eq!(p("files star a.txt").unwrap().path, ["files", "star"]);
+        assert_eq!(p("dock unpin org.gnome.Maps").unwrap().path, ["dock", "unpin"]);
+        assert_eq!(p("window to-monitor 5 HDMI-1").unwrap().args, ["to-monitor", "5", "HDMI-1"]);
+        // Notifications: lists alone, or dismisses and presses.
+        assert_eq!(p("notifications").unwrap().path, ["notifications"]);
+        assert_eq!(p("notifications --limit 3").unwrap().opt("limit"), Some("3"));
+        assert_eq!(p("notifications press 7 reply").unwrap().args, ["7", "reply"]);
+        assert_eq!(p("notifications press 7").unwrap().args, ["7"]);
+        assert_eq!(p("notifications dismiss 7").unwrap().path, ["notifications", "dismiss"]);
+        assert!(p("notifications dismiss").is_err(), "ID is missing");
+        assert!(p("notifications --limit 3 dismiss 7").is_err(), "--limit is the list's");
+        assert!(p("notifications dismiss 7 --limit 3").is_err());
+        assert!(p("notifications 7").is_err());
+        assert!(command_help(&["notifications", "press"]).unwrap().contains("Needs: the “Control the desktop” access level and Notification access"));
+        assert!(command_help(&["notifications"]).unwrap().contains("Usage: helix-agent notifications [<COMMAND>] [OPTIONS]"));
+        assert!(command_help(&["accent"]).unwrap().contains("Change records"));
     }
 
     #[test]

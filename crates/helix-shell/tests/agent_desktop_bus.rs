@@ -365,7 +365,7 @@ async fn desktop_actions_over_the_bus() {
     let confirm = FakeConfirm::default();
     let me = std::env::current_exe().unwrap();
     let log = tmp.join("state/helix/agent-activity");
-    let access = AgentAccess::new(lock.clone(), Setup { grants_path: None, consent, confirm: confirm.hook(), proc_root: "/proc".into(), settings_exes: vec![me.clone()], log_dir: Some(log.clone()), reminders_path: None });
+    let access = AgentAccess::new(lock.clone(), Setup { grants_path: None, consent, confirm: confirm.hook(), proc_root: "/proc".into(), settings_exes: vec![me.clone()], log_dir: Some(log.clone()), reminders_path: None, changes_path: None });
     access.set_desktop(Desktop { ui: ui.clone(), notifications: Some(center.clone()) });
     let server = bus
         .builder()

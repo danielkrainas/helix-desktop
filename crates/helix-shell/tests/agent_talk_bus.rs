@@ -195,6 +195,7 @@ async fn talking_to_the_user_over_the_bus() {
         settings_exes: vec![me.clone()],
         log_dir: Some(log.clone()),
         reminders_path: Some(reminders.clone()),
+        changes_path: None,
     };
     let access = AgentAccess::new(lock.clone(), setup());
     access.set_desktop(Desktop { ui: ui.clone(), notifications: Some(center.clone()) });

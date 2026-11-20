@@ -54,6 +54,9 @@ pub const STOP: &str = "Stop";
 pub const REMINDER: &str = "Reminder";
 /// Written once when a day file reaches a cap.
 pub const LOG_FULL: &str = "LogFull";
+/// The shell put back a temporary change (or did not: `cancelled` with
+/// `changed` or `unavailable`; helixdesktop/desktop#157).
+pub const RESTORE: &str = "Restore";
 
 /// How a call ended, as the policy sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -108,6 +111,7 @@ pub fn reason_of(err: &AgentError) -> Option<&'static str> {
             "system-prompt" => Some("system-prompt"),
             "shell" => Some("shell"),
             "settings" => Some("settings"),
+            "private-file" => Some("private-file"),
             t if t.starts_with("app:") => Some("app"),
             _ => None,
         },
@@ -119,17 +123,21 @@ pub fn reason_of(err: &AgentError) -> Option<&'static str> {
         },
         AgentError::FeatureOff(switch) => match switch.as_str() {
             "clipboard" => Some("clipboard"),
+            "notifications" => Some("notifications"),
             _ => None,
         },
         _ => None,
     }
 }
 
-/// A detail's value: a kind (a short token) or a length.
+/// A detail's value: a kind (a short token), a length, or a setting's
+/// value (a change's `old` and `new`: color and profile names, `on` and
+/// `off`, a picture's URI; never contents).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Detail {
     Kind(&'static str),
     Count(u64),
+    Text(String),
 }
 
 /// What makes refusals identical: `agent`, `method`, `target`,
@@ -205,6 +213,7 @@ impl Entry {
             match value {
                 Detail::Kind(kind) => out += &format!(",{}:{}", quote(key), quote(kind)),
                 Detail::Count(n) => out += &format!(",{}:{n}", quote(key)),
+                Detail::Text(text) => out += &format!(",{}:{}", quote(key), quote(&clean_target(text))),
             }
         }
         if self.count > 1 {

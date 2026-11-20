@@ -23,8 +23,8 @@ pub enum Question {
     Consent { level: Level, offer_always: bool },
     /// May the agent do this sensitive action (an `Agent1` method, and
     /// what it does when the prompt can say more: `wifi-off`, `close`; the
-    /// app control it uses)?
-    Confirm { method: &'static str, action: Option<&'static str>, control: Option<Control> },
+    /// app control it uses; until when, for a temporary change)?
+    Confirm { method: &'static str, action: Option<&'static str>, control: Option<Control>, until: Option<i64> },
 }
 
 /// A prompt for the UI.
@@ -87,7 +87,7 @@ pub fn confirm(ui: mpsc::UnboundedSender<UiEvent>) -> Confirm {
     Arc::new(move |request: ConfirmRequest| {
         let ui = ui.clone();
         Box::pin(async move {
-            match ask(&ui, request.agent.name, request.agent.id, Question::Confirm { method: request.method, action: request.action, control: request.control }).await {
+            match ask(&ui, request.agent.name, request.agent.id, Question::Confirm { method: request.method, action: request.action, control: request.control, until: request.until }).await {
                 Answer::Session | Answer::Always => Some(true),
                 Answer::Deny => Some(false),
                 Answer::Unanswered => None,
@@ -108,6 +108,9 @@ pub struct Active {
     /// sending input now (*Screen and input*): the indicator says it
     /// controls the screen.
     pub controlling: bool,
+    /// Its temporary changes waiting to be put back (README.md, "Changes,
+    /// undo and restoring"), soonest first.
+    pub restores: Vec<super::changes::Pending>,
 }
 
 /// How long after its last allowed call an agent counts as active.
@@ -145,12 +148,12 @@ mod tests {
         let (ui, mut events) = mpsc::unbounded_channel();
         let hook = confirm(ui);
         for (answer, expected) in [(Some(Answer::Session), Some(true)), (Some(Answer::Deny), Some(false)), (None, None)] {
-            let asked = hook(ConfirmRequest { agent: agent(), method: "SetToggle", action: Some("wifi-off"), control: None });
+            let asked = hook(ConfirmRequest { agent: agent(), method: "SetToggle", action: Some("wifi-off"), control: None, until: None });
             let answering = async {
                 let Some(UiEvent::AgentPrompt(slot)) = events.recv().await else { panic!("no prompt") };
                 let request = slot.take().unwrap();
                 assert_eq!((request.name.as_str(), request.agent.as_str()), ("Bot", "/usr/bin/bot"));
-                assert_eq!(request.question, Question::Confirm { method: "SetToggle", action: Some("wifi-off"), control: None });
+                assert_eq!(request.question, Question::Confirm { method: "SetToggle", action: Some("wifi-off"), control: None, until: None });
                 match answer {
                     Some(a) => {
                         let _ = request.reply.send(a);
@@ -164,12 +167,12 @@ mod tests {
         }
         // Nobody to ask: the UI is gone.
         drop(events);
-        assert_eq!(hook(ConfirmRequest { agent: agent(), method: "WindowAction", action: Some("close"), control: None }).await, None);
+        assert_eq!(hook(ConfirmRequest { agent: agent(), method: "WindowAction", action: Some("close"), control: None, until: None }).await, None);
     }
 
     #[test]
     fn labels() {
-        let a = |agent: &str, name: &str| Active { agent: agent.into(), executable: agent.split(' ').next().unwrap().into(), name: name.into(), level: Level::ReadOnly, controlling: false };
+        let a = |agent: &str, name: &str| Active { agent: agent.into(), executable: agent.split(' ').next().unwrap().into(), name: name.into(), level: Level::ReadOnly, controlling: false, restores: Vec::new() };
         assert_eq!(a("/usr/bin/python3 /home/me/bot.py", "").label(), "python3 bot.py");
         assert_eq!(a("/usr/bin/python3 /home/me/bot.py", "Build bot").label(), "Build bot (python3)");
         assert_eq!(a("/opt/agent/agent", "").label(), "agent");

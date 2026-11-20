@@ -222,6 +222,12 @@ pub fn plan_open(uri: &Uri, app: Option<&str>) -> Result<Plan, AgentError> {
     Ok(Plan { apps: app_ids(&handler), launch: Launch::App { id, uris: vec![uri.uri()] } })
 }
 
+/// The app ids to check for the default app for folders (the file
+/// manager when it is only activatable).
+pub fn folder_handler() -> Option<Vec<String>> {
+    gio::AppInfo::default_for_type("inode/directory", false).map(|info| app_ids(&info))
+}
+
 /// Do a planned launch, through the shell's launcher.
 pub fn launch(launch: &Launch) -> Result<(), AgentError> {
     match launch {
@@ -304,6 +310,36 @@ impl WindowCommand {
             WindowCommand::ToWorkspace(_) => "to-workspace",
         }
     }
+}
+
+/// `to-monitor`'s `monitor` option: a connector.
+pub fn monitor_option(options: &HashMap<String, OwnedValue>) -> Result<String, AgentError> {
+    text_option(options, "monitor")?.ok_or_else(|| AgentError::invalid_args("“to-monitor” needs “monitor”"))
+}
+
+/// The next step moving window `w` to the monitor `connector`, as
+/// Super+Shift+arrow moves it (to the neighbour that way): `None` when it
+/// is there. `NotFound` for an unknown monitor, `Failed` for a minimized
+/// window.
+pub fn to_monitor_step(w: &WindowInfo, snapshot: &Snapshot, connector: &str) -> Result<Option<WindowAction>, AgentError> {
+    let Some(target) = snapshot.monitors.iter().find(|m| m.connector == connector) else { return Err(AgentError::NotFound(format!("monitor {connector}"))) };
+    if w.minimized {
+        return Err(AgentError::Failed("the window is minimized".into()));
+    }
+    let Some(from) = super::desktop::monitor_of(snapshot, w.geometry) else { return Err(AgentError::NotFound(format!("monitor {connector}"))) };
+    if from.connector == target.connector {
+        return Ok(None);
+    }
+    let center = |a: (i32, i32, i32, i32)| (f64::from(a.0) + f64::from(a.2) / 2.0, f64::from(a.1) + f64::from(a.3) / 2.0);
+    let ((fx, fy), (tx, ty)) = (center(from.area), center(target.area));
+    let (dx, dy) = (tx - fx, ty - fy);
+    Ok(Some(if dx.abs() >= dy.abs() {
+        if dx < 0.0 { WindowAction::MoveToMonitorLeft } else { WindowAction::MoveToMonitorRight }
+    } else if dy < 0.0 {
+        WindowAction::MoveToMonitorUp
+    } else {
+        WindowAction::MoveToMonitorDown
+    }))
 }
 
 /// Whether `action` is sensitive by itself: closing may lose what the
@@ -537,24 +573,48 @@ pub fn percent(value: f64, max: f64) -> Result<u32, AgentError> {
 pub const NOTIFY_MAX: usize = 5;
 pub const NOTIFY_WINDOW: Duration = Duration::from_secs(60);
 
-/// Notifications shown per agent, for the rate limit.
-#[derive(Debug, Default)]
+/// Notifications shown (or other things done) per agent, for a rate
+/// limit: at most `max` in any [`NOTIFY_WINDOW`].
+#[derive(Debug)]
 pub struct NotifyLimit {
+    max: usize,
     shown: HashMap<String, VecDeque<Instant>>,
 }
 
+impl Default for NotifyLimit {
+    fn default() -> Self {
+        NotifyLimit::with_max(NOTIFY_MAX)
+    }
+}
+
 impl NotifyLimit {
-    /// Count one for `agent` at `now`, unless it showed [`NOTIFY_MAX`]
-    /// in the last [`NOTIFY_WINDOW`].
-    pub fn allow(&mut self, agent: &str, now: Instant) -> bool {
+    /// At most `max` a minute.
+    pub fn with_max(max: usize) -> NotifyLimit {
+        NotifyLimit { max, shown: HashMap::new() }
+    }
+
+    fn forget_old(&mut self, now: Instant) {
         self.shown.retain(|_, times| {
             while times.front().is_some_and(|t| now.duration_since(*t) >= NOTIFY_WINDOW) {
                 times.pop_front();
             }
             !times.is_empty()
         });
+    }
+
+    /// Whether `agent` reached the limit at `now` (nothing is counted).
+    pub fn full(&mut self, agent: &str, now: Instant) -> bool {
+        self.forget_old(now);
+        self.shown.get(agent).is_some_and(|t| t.len() >= self.max)
+    }
+
+    /// Count one for `agent` at `now`, unless it reached the limit in the
+    /// last [`NOTIFY_WINDOW`].
+    pub fn allow(&mut self, agent: &str, now: Instant) -> bool {
+        self.forget_old(now);
+        let max = self.max;
         let times = self.shown.entry(agent.to_owned()).or_default();
-        if times.len() >= NOTIFY_MAX {
+        if times.len() >= max {
             return false;
         }
         times.push_back(now);
@@ -572,7 +632,7 @@ pub fn icon_name(name: &str) -> Result<&str, AgentError> {
 /// executable's file name, or the id's file names ("python3 bot.py"), as
 /// the indicator does.
 pub fn agent_label(agent: &super::identity::Agent) -> String {
-    super::prompt::Active { agent: agent.id.clone(), executable: agent.executable.clone(), name: agent.name.clone(), level: super::Level::Desktop, controlling: false }.label()
+    super::prompt::Active { agent: agent.id.clone(), executable: agent.executable.clone(), name: agent.name.clone(), level: super::Level::Desktop, controlling: false, restores: Vec::new() }.label()
 }
 
 #[cfg(test)]
@@ -673,6 +733,22 @@ mod tests {
     }
 
     #[test]
+    fn to_another_monitor() {
+        use super::super::desktop::MonitorInfo;
+        let m = |c: &str, area| MonitorInfo { connector: c.into(), area, scale: 1.0, ..Default::default() };
+        let mut s = snap(WindowInfo { id: 7, geometry: (100, 100, 300, 200), ..Default::default() });
+        s.monitors = vec![m("eDP-1", (0, 0, 1920, 1080)), m("HDMI-1", (1920, 0, 1920, 1080)), m("DP-2", (0, -1080, 1920, 1080))];
+        let w = s.windows[0].clone();
+        assert_eq!(to_monitor_step(&w, &s, "eDP-1").unwrap(), None, "there already");
+        assert_eq!(to_monitor_step(&w, &s, "HDMI-1").unwrap(), Some(WindowAction::MoveToMonitorRight));
+        assert_eq!(to_monitor_step(&w, &s, "DP-2").unwrap(), Some(WindowAction::MoveToMonitorUp));
+        assert_eq!(kind(to_monitor_step(&w, &s, "VGA-9")), "NotFound");
+        let hidden = WindowInfo { minimized: true, ..w };
+        assert_eq!(kind(to_monitor_step(&hidden, &s, "HDMI-1")), "Failed");
+        assert_eq!(kind(monitor_option(&opts(&[]))), "InvalidArgs");
+    }
+
+    #[test]
     fn window_results() {
         let w = WindowInfo { id: 7, geometry: (10, 20, 300, 200), state: TILED_LEFT, ..Default::default() };
         let mut s = snap(w);
@@ -710,6 +786,12 @@ mod tests {
         assert!(!limit.allow("a", t0 + Duration::from_secs(30)), "the sixth within the minute");
         assert!(limit.allow("b", t0), "per agent");
         assert!(limit.allow("a", t0 + NOTIFY_WINDOW), "a minute later");
+        let mut changes = NotifyLimit::with_max(10);
+        for _ in 0..10 {
+            assert!(!changes.full("a", t0));
+            assert!(changes.allow("a", t0));
+        }
+        assert!(changes.full("a", t0) && !changes.full("b", t0));
         assert!(icon_name("dialog-information-symbolic").is_ok());
         for bad in ["/etc/passwd", "../x", "", ".hidden", "a b"] {
             assert!(icon_name(bad).is_err(), "{bad}");

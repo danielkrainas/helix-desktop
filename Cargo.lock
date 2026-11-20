@@ -1351,6 +1351,7 @@ dependencies = [
 name = "helix-agent"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "gio",
  "helix-i18n",
  "helix-settings",

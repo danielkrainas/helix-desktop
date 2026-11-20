@@ -388,6 +388,10 @@ struct Ui {
     agent_screen: agent_screen::AgentScreen,
     /// The agents the indicator's open menu stops, by entry.
     agent_menu: Vec<String>,
+    /// The changes its rows put back, by entry; where it opened and the
+    /// minute its times are of.
+    agent_restores: Vec<String>,
+    agent_menu_at: Option<(i32, i64)>,
     /// An agent prompt waiting for the dialog shown to go.
     agent_waiting: Option<agent_prompt::AgentPromptView>,
     /// Agents' questions waiting for their turn, in order.
@@ -4118,6 +4122,7 @@ impl Ui {
         self.refresh_source_label();
         self.dialog_tick();
         self.agent_prompt_next();
+        self.agents_menu_tick();
         self.files_tick();
         self.osd_tick();
         let minute_changed = self.shown_minute.as_deref() != Some(&clock_text());
@@ -4306,6 +4311,8 @@ pub fn run(
         agents_active: Vec::new(),
         agent_screen: Default::default(),
         agent_menu: Vec::new(),
+        agent_restores: Vec::new(),
+        agent_menu_at: None,
         agent_waiting: None,
         agent_questions: Default::default(),
         recording: None,

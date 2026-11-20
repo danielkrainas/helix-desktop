@@ -271,7 +271,7 @@ async fn clipboard_over_the_bus() {
     let consent: agent::Consent = Arc::new(|_| Box::pin(async { Answer::Session }));
     let confirm = FakeConfirm::default();
     let log = tmp.join("state/helix/agent-activity");
-    let access = AgentAccess::new(lock.clone(), Setup { grants_path: None, consent, confirm: confirm.hook(), proc_root: "/proc".into(), settings_exes: Vec::new(), log_dir: Some(log.clone()), reminders_path: None });
+    let access = AgentAccess::new(lock.clone(), Setup { grants_path: None, consent, confirm: confirm.hook(), proc_root: "/proc".into(), settings_exes: Vec::new(), log_dir: Some(log.clone()), reminders_path: None, changes_path: None });
     access.set_desktop(Desktop { ui: ui.clone(), notifications: None });
     let server = bus.builder().serve_at(OBJECT_PATH, Agent1 { access: access.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
     access.attach(&server);

@@ -482,6 +482,9 @@ pub enum UiRequest {
     /// *Stop* in the agent indicator's menu: end that agent's session
     /// grant (by agent id).
     StopAgent(String),
+    /// *Restore now* in the agent indicator's menu: put that temporary
+    /// change back now (by change id).
+    RestoreChange(String),
     /// Ask the search providers (`query` empty: the launcher opened).
     Search { serial: u64, query: String },
     /// A search provider's result was chosen.
@@ -821,6 +824,7 @@ impl ShellService {
             .serve_at(tray::OBJECT_PATH, tray::Watcher { tray: status_icons.clone() })?
             .build()
             .await?;
+        agent_access.set_public(&public);
         let conn = builder
             .serve_at(OBJECT_PATH, Shell { state: state.clone(), ui: ui.clone(), lock: lock_status.clone() })?
             .serve_at(OBJECT_PATH, extensions::Extensions)?
@@ -853,6 +857,9 @@ impl ShellService {
             .serve_at(agent::OBJECT_PATH, agent::AgentAccessSettings { access: agent_access.clone() })?
             .build()
             .await?;
+        // Temporary changes a shell that did not stop normally left
+        // pending: put back before the desktop shows.
+        agent_access.restore_leftovers().await;
         agent_access.attach(&conn);
         match conn
             .request_name_with_flags(BUS_NAME, RequestNameFlags::DoNotQueue.into())
@@ -998,6 +1005,9 @@ impl ShellService {
     }
 
     pub async fn shutdown(self) -> zbus::Result<()> {
+        // Agents' temporary changes go back first (README.md, "Changes,
+        // undo and restoring": the session that asked for them ends).
+        self.agent.session_ending().await;
         self.ticker.abort();
         self.watcher.abort();
         self.conn.release_name(BUS_NAME).await?;
@@ -1287,6 +1297,13 @@ impl UiBridge {
             }
             UiRequest::StopAgent(agent) => {
                 self.agent.stop(&agent);
+                Ok(())
+            }
+            UiRequest::RestoreChange(id) => {
+                let agent = self.agent.clone();
+                tokio::spawn(async move {
+                    let _ = agent.restore(&id, agent::changes::Cause::RestoreNow).await;
+                });
                 Ok(())
             }
             UiRequest::StopRecording => {

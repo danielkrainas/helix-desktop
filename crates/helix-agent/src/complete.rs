@@ -33,7 +33,10 @@ fn opt_words(opts: &[Opt]) -> Vec<String> {
 fn next_words(c: Option<&'static Cmd>) -> Vec<String> {
     match c {
         None => cli::commands().map(|c| c.name.to_owned()).chain(opt_words(&[])).chain(["--version".to_owned()]).collect(),
-        Some(c) if !c.subs.is_empty() => c.subs.iter().map(|s| s.name.to_owned()).chain(["--help".to_owned()]).collect(),
+        Some(c) if !c.subs.is_empty() => {
+            let own = if c.opts.is_empty() { Vec::new() } else { c.opts.iter().map(|o| format!("--{}", o.name)).collect() };
+            c.subs.iter().map(|s| s.name.to_owned()).chain(own).chain(["--help".to_owned()]).collect()
+        }
         Some(c) => {
             let mut words: Vec<String> = c.args.first().map(|a| a.choices.iter().map(|s| (*s).to_owned()).collect()).unwrap_or_default();
             if c.name == "help" {

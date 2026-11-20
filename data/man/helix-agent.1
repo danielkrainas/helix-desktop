@@ -87,9 +87,9 @@ Workspaces; monitors.
 .TP
 .BR notifications " [" \-\-limit
 .IR N ]
-Recent notifications, newest first (at most 50). Their titles and bodies
-only with \fINotifications access\fR; otherwise only each one's app and
-time.
+Recent notifications, newest first (at most 50), each with its id. Their
+titles, bodies and buttons only with \fINotifications access\fR;
+otherwise only each one's app and time.
 .TP
 .B files recent \fR[\fB\-\-limit \fIN\fR] [\fB\-\-type \fIMIME\fR]
 Recently used files (\fIrecently-used.xbel\fR), newest first; files only
@@ -108,6 +108,16 @@ Files and folders starred in Files (the store GNOME Files and Helix Files
 share) inside the home folder that are still there, most recently changed
 first. None when there is no such store or it cannot be read.
 .TP
+.B files star\fR|\fBunstar \fIPATH\fR
+(Control the desktop.) Star or unstar a file or folder inside the home
+folder, as Files does. Exit 22 when it does not exist, 23 outside the
+home folder or when stars cannot be written. Prints a Change record.
+.TP
+.B files reveal \fIPATH\fR
+(Control the desktop.) Show a file selected in the file manager. Exit 22
+when it does not exist, 23 without a file manager, 14 when the file
+manager is an excluded app.
+.TP
 .BR media " [" list ]
 The media players (MPRIS) and what they play: name, status, title,
 artist, album, length and position where the player tells them. The
@@ -118,6 +128,12 @@ in text output). Players of excluded apps and of Settings are left out.
 The battery's charge, state and time left (UPower), and the power mode
 with the modes there are (power-profiles-daemon). What the computer does
 not have is left out.
+.TP
+.B power mode \fIPROFILE\fR [\fB\-\-until \fIWHEN\fR]
+(Control the desktop.) \fBpower-saver\fR, \fBbalanced\fR or
+\fBperformance\fR, as quick settings sets it; exit 23 without
+power-profiles-daemon or for a mode the computer does not offer. Prints
+a Change record.
 .TP
 .B wait window \fR[\fB\-\-app \fIAPP_ID\fR] [\fB\-\-title \fITEXT\fR] [\fB\-\-focused\fR] [\fB\-\-timeout \fISECONDS\fR]
 Wait until a matching window is open (at once if one is), and print it.
@@ -173,17 +189,54 @@ not as the app that would open a file.
 \fBfocus\fR, \fBclose\fR (sensitive), \fBminimize\fR, \fBmaximize\fR,
 \fBunmaximize\fR, \fBrestore\fR, \fBfullscreen\fR, \fBunfullscreen\fR,
 \fBtile-left\fR, \fBtile-right\fR, \fBmove \fIX Y\fR,
-\fBresize \fIWIDTH HEIGHT\fR, \fBto-workspace \fIINDEX\fR. Returns once
+\fBresize \fIWIDTH HEIGHT\fR, \fBto-workspace \fIINDEX\fR,
+\fBto-monitor \fICONNECTOR\fR (as \fBmonitors\fR names it; as
+Super+Shift+arrow moves it). Returns once
 the windows show it (at most two seconds), so \fBwindows\fR shows the
 result. Windows of excluded apps and of Settings are refused (exit 14).
 .TP
 .B workspace switch \fIINDEX\fR
 Switch to a workspace (from 0).
 .TP
-.B toggle \fINAME\fR [\fBon\fR|\fBoff\fR]
+.B toggle \fINAME\fR [\fBon\fR|\fBoff\fR] [\fB\-\-until \fIWHEN\fR]
 \fBdark-style\fR, \fBdo-not-disturb\fR, \fBnight-light\fR, \fBwifi\fR
 (sensitive), \fBairplane-mode\fR (sensitive), \fBmute\fR; without on or
 off it flips. Exit 23 for what this computer does not have.
+.TP
+.B wallpaper \fIPATH\fR [\fB\-\-variant light\fR|\fBdark\fR|\fBboth\fR] [\fB\-\-fit \fIFIT\fR] [\fB\-\-until \fIWHEN\fR]
+Set the background picture: a PNG, JPEG, WebP, JPEG XL or SVG file, which
+is copied to \fI~/.local/share/backgrounds\fR. \fIFIT\fR: \fBzoom\fR,
+\fBscaled\fR, \fBcentered\fR, \fBstretched\fR, \fBwallpaper\fR,
+\fBspanned\fR. Files in hidden folders (\fI~/.config\fR, \fI~/.cache\fR)
+and system folders are refused (exit 14); exit 23 for a file that is not
+a picture. Prints a Change record.
+.TP
+.B accent \fICOLOR\fR [\fB\-\-until \fIWHEN\fR]
+\fBblue\fR, \fBteal\fR, \fBgreen\fR, \fByellow\fR, \fBorange\fR,
+\fBred\fR, \fBpink\fR, \fBpurple\fR or \fBslate\fR. Prints a Change
+record.
+.TP
+.B dock pin\fR|\fBunpin \fIAPP_ID\fR
+Pin an app the app grid shows to the dock (at the end), or take it out.
+Excluded apps and Settings are refused (exit 14). Prints a Change record.
+.TP
+.B notifications dismiss \fIID\fR
+Dismiss a notification, as its \[mu] does. Exit 22 for a notification
+\fBnotifications\fR does not list.
+.TP
+.B notifications press \fIID\fR [\fIACTION\fR]
+(Needs \fINotifications access\fR.) Press a notification's button: an
+id from its buttons in \fBnotifications\fR, or \fBdefault\fR (clicking
+the notification itself; the default). Buttons that reply, send, delete
+or pay are sensitive.
+.PP
+\fB\-\-until\fR puts the old value back at \fIWHEN\fR (usually relative:
+\fB+30m\fR, \fB+2h\fR; 10 seconds to 24 hours ahead), even when this
+command has long exited; stopping the agent in the indicator puts it back
+at once. The indicator shows the time left. A change can also be undone
+in Settings' Agent Activity. Text output is
+\[lq]Accent color: Blue \[->] Red\[rq], with \[lq], back at 15:30\[rq] for
+\fB\-\-until\fR.
 .TP
 .B media play\fR|\fBpause\fR|\fBplay\-pause\fR|\fBnext\fR|\fBprevious\fR|\fBstop\fR [\fB\-\-player \fIID\fR]
 Ask a media player to play, pause, skip or stop: \fIID\fR is a player's
@@ -384,13 +437,20 @@ connector, name, x, y, width, height, scale, primary.
 .TP
 .B State
 focused-window, active-workspace, dark-style, do-not-disturb, night-light,
-wifi, airplane-mode, muted, volume, brightness (wifi and airplane-mode
+accent, wifi, airplane-mode, muted, volume, brightness (wifi and airplane-mode
 without NetworkManager, volume and muted without a sound server, and
 brightness without a controllable screen are left out).
 .TP
 .B Notification
-id, app-id, app-name, time, and summary and body, or redacted (true)
+id, app-id, app-name, time, and summary, body, actions (a list of id and
+label; absent without buttons) and default-action, or redacted (true)
 without \fINotifications access\fR.
+.TP
+.B Change
+changed (false: it already had that value), id (16 hexadecimal digits),
+name (wallpaper, accent, power-mode, star, favorite), target (a starred
+file's URI, a favorite's app id), old, new, for wallpaper old-dark,
+new-dark, old-fit, new-fit, and until (when it will be put back).
 .TP
 .B File
 uri, name, mime-type, modified, size (local files; not folders), used

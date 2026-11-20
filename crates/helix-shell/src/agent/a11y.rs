@@ -190,6 +190,18 @@ fn names_one_of(text: &str, list: &'static str) -> bool {
     words.iter().any(|w| has_word(&text, w))
 }
 
+/// Words that make a notification's button sensitive on top of
+/// [`SENSITIVE_WORDS`]: a reply answers someone in the user's name
+/// (README.md, "Notifications, files and monitors"). Comma-separated, as
+/// [`SENSITIVE_WORDS`].
+const REPLY_WORDS: &str = n_("reply,answer,respond");
+
+/// Whether pressing a notification's button labelled `label` is a
+/// sensitive action: the words of [`sensitive_control`], and replying.
+pub fn sensitive_button(label: &str) -> bool {
+    sensitive_control(label, "", "click") || names_one_of(label, REPLY_WORDS)
+}
+
 /// Whether a node is a password field: the role `password text`, or an
 /// editable text whose text is hidden or whose name says it is one.
 pub fn password_like(role: u32, name: &str, editable: bool, text: Option<&str>) -> bool {
@@ -1032,6 +1044,16 @@ mod tests {
         assert!(!sensitive_control("Sender", "", "click"), "whole words only");
         assert!(!sensitive_control("Reorder", "", "click"));
         assert!(!sensitive_control("Postpone", "", "click"));
+    }
+
+    #[test]
+    fn sensitive_buttons() {
+        assert!(sensitive_button("Reply"));
+        assert!(sensitive_button("Quick reply"));
+        assert!(sensitive_button("Delete"));
+        assert!(sensitive_button("Mark as spam and delete"));
+        assert!(!sensitive_button("Show"));
+        assert!(!sensitive_button("Replying…"), "whole words only");
     }
 
     #[test]

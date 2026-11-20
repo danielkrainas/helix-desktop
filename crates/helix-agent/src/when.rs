@@ -6,6 +6,19 @@
 use gio::glib;
 use helix_i18n::trf;
 
+/// How far ahead `--until` may be (seconds): the shell's own range
+/// (helixdesktop/spec `contracts/agent-access/README.md`, "Changes, undo
+/// and restoring"; the shell's `agent::changes::UNTIL_MIN` and
+/// `UNTIL_MAX`), checked here so a bad one is a usage error before the
+/// shell is called.
+pub const UNTIL_MIN: i64 = 10;
+pub const UNTIL_MAX: i64 = 24 * 60 * 60;
+
+/// Whether `at` is a time `--until` may be at `now`.
+pub fn until_in_range(at: i64, now: i64) -> bool {
+    (now + UNTIL_MIN..=now + UNTIL_MAX).contains(&at)
+}
+
 /// `text` as Unix seconds, relative to `now` (Unix seconds).
 pub fn parse(text: &str, now: i64) -> Result<i64, String> {
     let bad = || trf!("“{when}” is not a date, a time or a relative time such as +10m or -1d", when = text);

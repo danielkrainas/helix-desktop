@@ -1,7 +1,7 @@
 # bash completion for helix-agent (made by `helix-agent completions bash`)
 _helix_agent() {
     local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD-1]} at= w i
-    local known=" status request state windows apps workspaces monitors notifications files files/recent files/search files/starred media media/list media/play media/pause media/play-pause media/next media/previous media/stop media/seek power power/status wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/types clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll input/drag input/sequence log help completions "
+    local known=" status request state windows apps workspaces monitors notifications notifications/dismiss notifications/press files files/recent files/search files/starred files/star files/unstar files/reveal media media/list media/play media/pause media/play-pause media/next media/previous media/stop media/seek power power/status power/mode wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set wallpaper accent dock dock/pin dock/unpin notify clipboard clipboard/get clipboard/types clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll input/drag input/sequence log help completions "
     for ((i = 1; i < COMP_CWORD; i++)); do
         w=${COMP_WORDS[i]}
         [[ $w == -* ]] && continue
@@ -22,6 +22,8 @@ _helix_agent() {
         --default) return ;;
         --yes) return ;;
         --no) return ;;
+        --variant) COMPREPLY=($(compgen -W "light dark both" -- "$cur")); return ;;
+        --fit) COMPREPLY=($(compgen -W "zoom scaled centered stretched wallpaper spanned" -- "$cur")); return ;;
         --icon) return ;;
         --urgency) COMPREPLY=($(compgen -W "low normal" -- "$cur")); return ;;
         --output) COMPREPLY=($(compgen -f -- "$cur")); return ;;
@@ -41,7 +43,7 @@ _helix_agent() {
     esac
     local words
     case $at in
-        "") words="status request state windows apps workspaces monitors notifications files media power wait ask confirm remind open launch window workspace toggle set notify clipboard a11y screenshot input log help completions --json --text --no-ask --sensitive --timeout --help --version" ;;
+        "") words="status request state windows apps workspaces monitors notifications files media power wait ask confirm remind open launch window workspace toggle set wallpaper accent dock notify clipboard a11y screenshot input log help completions --json --text --no-ask --sensitive --timeout --help --version" ;;
         status) words="--json --text --no-ask --sensitive --timeout --help" ;;
         request) words="--level --json --text --no-ask --sensitive --timeout --help" ;;
         state) words="--json --text --no-ask --sensitive --timeout --help" ;;
@@ -49,11 +51,16 @@ _helix_agent() {
         apps) words="--running --json --text --no-ask --sensitive --timeout --help" ;;
         workspaces) words="--json --text --no-ask --sensitive --timeout --help" ;;
         monitors) words="--json --text --no-ask --sensitive --timeout --help" ;;
-        notifications) words="--limit --json --text --no-ask --sensitive --timeout --help" ;;
-        files) words="recent search starred --help" ;;
+        notifications) words="dismiss press --limit --help" ;;
+        notifications/dismiss) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        notifications/press) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        files) words="recent search starred star unstar reveal --help" ;;
         files/recent) words="--limit --type --json --text --no-ask --sensitive --timeout --help" ;;
         files/search) words="--since --until --type --in --limit --json --text --no-ask --sensitive --timeout --help" ;;
         files/starred) words="--limit --type --json --text --no-ask --sensitive --timeout --help" ;;
+        files/star) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        files/unstar) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        files/reveal) words="--json --text --no-ask --sensitive --timeout --help" ;;
         media) words="list play pause play-pause next previous stop seek --help" ;;
         media/list) words="--json --text --no-ask --sensitive --timeout --help" ;;
         media/play) words="--player --json --text --no-ask --sensitive --timeout --help" ;;
@@ -63,8 +70,9 @@ _helix_agent() {
         media/previous) words="--player --json --text --no-ask --sensitive --timeout --help" ;;
         media/stop) words="--player --json --text --no-ask --sensitive --timeout --help" ;;
         media/seek) words="--player --json --text --no-ask --sensitive --timeout --help" ;;
-        power) words="status --help" ;;
+        power) words="status mode --help" ;;
         power/status) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        power/mode) words="power-saver balanced performance --until --json --text --no-ask --sensitive --timeout --help" ;;
         wait) words="window closed --help" ;;
         wait/window) words="--app --title --focused --timeout --json --text --no-ask --sensitive --timeout --help" ;;
         wait/closed) words="--timeout --json --text --no-ask --sensitive --timeout --help" ;;
@@ -76,11 +84,16 @@ _helix_agent() {
         remind/cancel) words="--json --text --no-ask --sensitive --timeout --help" ;;
         open) words="--app --json --text --no-ask --sensitive --timeout --help" ;;
         launch) words="--json --text --no-ask --sensitive --timeout --help" ;;
-        window) words="focus close minimize maximize unmaximize restore fullscreen unfullscreen tile-left tile-right move resize to-workspace --json --text --no-ask --sensitive --timeout --help" ;;
+        window) words="focus close minimize maximize unmaximize restore fullscreen unfullscreen tile-left tile-right move resize to-workspace to-monitor --json --text --no-ask --sensitive --timeout --help" ;;
         workspace) words="switch --help" ;;
         workspace/switch) words="--json --text --no-ask --sensitive --timeout --help" ;;
-        toggle) words="dark-style do-not-disturb night-light wifi airplane-mode mute --json --text --no-ask --sensitive --timeout --help" ;;
+        toggle) words="dark-style do-not-disturb night-light wifi airplane-mode mute --until --json --text --no-ask --sensitive --timeout --help" ;;
         set) words="volume brightness --json --text --no-ask --sensitive --timeout --help" ;;
+        wallpaper) words="--variant --fit --until --json --text --no-ask --sensitive --timeout --help" ;;
+        accent) words="blue teal green yellow orange red pink purple slate --until --json --text --no-ask --sensitive --timeout --help" ;;
+        dock) words="pin unpin --help" ;;
+        dock/pin) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        dock/unpin) words="--json --text --no-ask --sensitive --timeout --help" ;;
         notify) words="--icon --urgency --json --text --no-ask --sensitive --timeout --help" ;;
         clipboard) words="get types set --help" ;;
         clipboard/get) words="--type --output --json --text --no-ask --sensitive --timeout --help" ;;
@@ -105,7 +118,7 @@ _helix_agent() {
         input/drag) words="--window --button --json --text --no-ask --sensitive --timeout --help" ;;
         input/sequence) words="--window --json --text --no-ask --sensitive --timeout --help" ;;
         log) words="--agent --since --json --text --no-ask --sensitive --timeout --help" ;;
-        help) words="status request state windows apps workspaces monitors notifications files media power wait ask confirm remind open launch window workspace toggle set notify clipboard a11y screenshot input log help completions exit-codes --json --text --no-ask --sensitive --timeout --help" ;;
+        help) words="status request state windows apps workspaces monitors notifications files media power wait ask confirm remind open launch window workspace toggle set wallpaper accent dock notify clipboard a11y screenshot input log help completions exit-codes --json --text --no-ask --sensitive --timeout --help" ;;
         completions) words="bash zsh fish --json --text --no-ask --sensitive --timeout --help" ;;
     esac
     COMPREPLY=($(compgen -W "$words" -- "$cur"))

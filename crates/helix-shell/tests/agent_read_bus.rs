@@ -157,7 +157,7 @@ async fn read_only_over_the_bus() {
     let lock: SharedStatus = Default::default();
     let center = Center::new(ui.clone(), lock.clone());
     let consent: agent::Consent = Arc::new(|_| Box::pin(async { Answer::Session }));
-    let access = AgentAccess::new(lock.clone(), Setup { grants_path: None, consent, confirm: agent::no_confirm(), proc_root: "/proc".into(), settings_exes: Vec::new(), log_dir: Some(tmp.join("state/helix/agent-activity")), reminders_path: None });
+    let access = AgentAccess::new(lock.clone(), Setup { grants_path: None, consent, confirm: agent::no_confirm(), proc_root: "/proc".into(), settings_exes: Vec::new(), log_dir: Some(tmp.join("state/helix/agent-activity")), reminders_path: None, changes_path: None });
     access.set_desktop(Desktop { ui: ui.clone(), notifications: Some(center.clone()) });
     let server = bus.builder().serve_at(OBJECT_PATH, Agent1 { access: access.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
     access.attach(&server);

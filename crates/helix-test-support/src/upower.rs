@@ -88,6 +88,15 @@ impl Profiles {
     fn active_profile(&self) -> String {
         self.active.clone()
     }
+    /// As power-profiles-daemon: only a profile it offers.
+    #[zbus(property)]
+    fn set_active_profile(&mut self, profile: String) -> zbus::fdo::Result<()> {
+        if !self.all.contains(&profile) {
+            return Err(zbus::fdo::Error::InvalidArgs(format!("no such profile {profile}")));
+        }
+        self.active = profile;
+        Ok(())
+    }
     #[zbus(property)]
     fn profiles(&self) -> Vec<HashMap<String, OwnedValue>> {
         self.all
@@ -119,4 +128,21 @@ pub async fn serve(bus: &TestBus, battery: Option<Battery>, profiles: Option<(&s
             .unwrap();
     }
     builder.build().await.unwrap()
+}
+
+/// The active power profile, read from the fake on `bus` (as a client).
+pub async fn active_profile(conn: &zbus::Connection) -> Option<String> {
+    let reply = conn
+        .call_method(Some("org.freedesktop.UPower.PowerProfiles"), "/org/freedesktop/UPower/PowerProfiles", Some("org.freedesktop.DBus.Properties"), "Get", &("org.freedesktop.UPower.PowerProfiles", "ActiveProfile"))
+        .await
+        .ok()?;
+    let value: OwnedValue = reply.body().deserialize().ok()?;
+    String::try_from(value).ok()
+}
+
+/// Set the active power profile on the fake (as the user would).
+pub async fn set_active_profile(conn: &zbus::Connection, profile: &str) {
+    conn.call_method(Some("org.freedesktop.UPower.PowerProfiles"), "/org/freedesktop/UPower/PowerProfiles", Some("org.freedesktop.DBus.Properties"), "Set", &("org.freedesktop.UPower.PowerProfiles", "ActiveProfile", Value::from(profile)))
+        .await
+        .unwrap();
 }

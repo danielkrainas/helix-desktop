@@ -640,7 +640,7 @@ impl Ui {
         if has(&|c| matches!(c, Choice::A11y(_))) {
             return tr("Accessibility").to_owned();
         }
-        if has(&|c| matches!(c, Choice::StopAgent(_))) {
+        if has(&|c| matches!(c, Choice::StopAgent(_) | Choice::RestoreChange(_))) {
             return tr("Agents").to_owned();
         }
         if has(&|c| matches!(c, Choice::CustomizePanel | Choice::Extensions)) {

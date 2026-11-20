@@ -97,7 +97,7 @@ pub fn describe(code: &str) -> String {
         "remote" => tr("Agent access from remote sessions is turned off (Settings › Privacy & Security › Agent Access)").into(),
         "sandboxed" => tr("Agent access is not available to sandboxed apps").into(),
         "needs-confirmation" => tr("This action needs the user's confirmation; run it without --no-ask to ask").into(),
-        "feature-off" => tr("Clipboard access is turned off (Settings › Privacy & Security › Agent Access)").into(),
+        "feature-off" => tr("Clipboard or Notification access is turned off (Settings › Privacy & Security › Agent Access)").into(),
         "no" => tr("The user said no, cancelled the question, or stopped the agent or its input").into(),
         "timed-out" => tr("Timed out").into(),
         "not-found" => tr("No such window, app or item").into(),
@@ -126,7 +126,13 @@ pub fn from_dbus(name: &str, message: &str) -> Failure {
         Some("Remote") => ("remote", tr("Agent access from remote sessions is turned off (Settings › Privacy & Security › Agent Access)").into()),
         Some("Sandboxed") => ("sandboxed", tr("Agent access is not available to sandboxed apps").into()),
         Some("NeedsConfirmation") => ("needs-confirmation", tr("This action needs the user's confirmation; run it without --no-ask to ask").into()),
-        Some("FeatureOff") => ("feature-off", tr("Clipboard access is turned off (Settings › Privacy & Security › Agent Access)").into()),
+        Some("FeatureOff") => (
+            "feature-off",
+            match message.trim() {
+                "notifications" => tr("Notification access is turned off (Settings › Privacy & Security › Agent Access)").into(),
+                _ => tr("Clipboard access is turned off (Settings › Privacy & Security › Agent Access)").into(),
+            },
+        ),
         // Input stopped (README.md, "Screen and input methods"), or a
         // question dismissed.
         Some("Cancelled") => (
@@ -178,6 +184,7 @@ fn excluded_message(token: &str) -> String {
         "password-field" => tr("Agents can't use password fields").into(),
         "system-prompt" => tr("Agents can't act while a system prompt is open").into(),
         "shell" => tr("Agents can't act on the shell itself").into(),
+        "private-file" => tr("Agents can't use files in hidden or system folders").into(),
         _ => match token.strip_prefix("app:") {
             Some(id) => trf!("{app} is excluded from agent access", app = app_name(id)),
             None => tr("The target is excluded from agent access").into(),

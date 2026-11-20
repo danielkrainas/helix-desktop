@@ -58,6 +58,9 @@ pub(super) enum Choice {
     Back,
     /// The agent indicator's *Stop* (index into the menu's agents).
     StopAgent(usize),
+    /// The agent indicator's *Restore now* (index into the menu's
+    /// pending restores).
+    RestoreChange(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -267,21 +270,44 @@ impl Ui {
 
     /// The agent indicator's menu, below it at `x` (helixdesktop/spec
     /// `contracts/agent-access/README.md`, "Indicator"): *Stop* for each
-    /// active agent, and the Agent Access settings.
+    /// active agent, a row for each of its temporary changes with the
+    /// time left (choosing it puts the change back now), and the Agent
+    /// Access settings.
     pub(super) fn show_agents_menu(&mut self, x: i32) {
+        let now = crate::agent::now();
         let item = |label: String, choice| Some(Item { label, choice, checked: None, active: false, sub: Vec::new() });
         let heading = if self.agents_active.iter().any(|a| a.controlling) { tr("An agent is controlling the screen") } else { tr("Agents are using your desktop") };
         let mut items = vec![item(heading.to_owned(), Choice::Disabled)];
         let mut ids = Vec::new();
+        let mut restores = Vec::new();
         for (i, agent) in self.agents_active.iter().enumerate() {
             let level = super::agent_prompt::level_name(agent.level);
             items.push(item(helix_i18n::trf!("Stop {agent} ({level})", agent = agent.label(), level = level), Choice::StopAgent(i)));
             ids.push(agent.agent.clone());
+            for row in &agent.restores {
+                items.push(item(crate::agent::changes::row_label(row, now), Choice::RestoreChange(restores.len())));
+                restores.push(row.id.clone());
+            }
         }
         items.push(None);
         items.push(item(tr("Agent Access Settings").to_owned(), Choice::Settings(super::background_menu::SettingsPanel::AgentAccess)));
         self.open_menu(0, x, panel_height() as i32, items, Vec::new());
         self.agent_menu = ids;
+        self.agent_restores = restores;
+        self.agent_menu_at = Some((x, now / 60));
+    }
+
+    /// The agents' menu, while open, moves on with the clock (its rows say
+    /// the time left).
+    pub(super) fn agents_menu_tick(&mut self) {
+        let Some((x, minute)) = self.agent_menu_at else { return };
+        if self.agent_menu.is_empty() || self.window_menu.is_none() {
+            self.agent_menu_at = None;
+            return;
+        }
+        if crate::agent::now() / 60 != minute && self.agents_active.iter().any(|a| !a.restores.is_empty()) {
+            self.show_agents_menu(x);
+        }
     }
 
     /// The menu just opened belongs to the panel's `item`: its pill
@@ -483,6 +509,13 @@ impl Ui {
         if let Choice::Settings(panel) = item.choice {
             self.agent_menu.clear();
             self.background_menu_choice(panel);
+            return;
+        }
+        if let Choice::RestoreChange(i) = item.choice {
+            self.agent_menu.clear();
+            if let Some(id) = std::mem::take(&mut self.agent_restores).into_iter().nth(i) {
+                let _ = self.requests.send(UiRequest::RestoreChange(id));
+            }
             return;
         }
         if let Choice::StopAgent(i) = item.choice {
