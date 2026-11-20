@@ -61,7 +61,7 @@ pub fn glob(pattern: &str, name: &str) -> bool {
                 Some((_, (true, used))) => go(&rest[used..], &n[1..]),
                 Some((_, (false, _))) => false,
                 // No closing bracket (or no name left): a literal `[`.
-                None => !rest.iter().any(|c| *c == ']') && n.first() == Some(&'[') && go(rest, &n[1..]),
+                None => !rest.contains(&']') && n.first() == Some(&'[') && go(rest, &n[1..]),
             },
             Some((c, rest)) => n.first().is_some_and(|m| m == c) && go(rest, &n[1..]),
         }
