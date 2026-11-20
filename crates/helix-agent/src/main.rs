@@ -220,6 +220,10 @@ fn status(_p: &cli::Parsed, map: Result<HashMap<String, OwnedValue>, Failure>) -
         clipboard = on_off(flag(&map, "clipboard")),
         confirm = on_off(flag(&map, "confirm-sensitive"))
     ));
+    // An older shell does not say.
+    if map.contains_key("read-text-fields") {
+        lines.push(trf!("Reading text fields: {state}", state = on_off(flag(&map, "read-text-fields"))));
+    }
     if !flag(&map, "enabled") {
         lines.push(tr("Agent access is controlled in Settings › Privacy & Security › Agent Access.").to_owned());
     }

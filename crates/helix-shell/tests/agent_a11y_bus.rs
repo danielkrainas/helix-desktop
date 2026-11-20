@@ -5,7 +5,8 @@
 //! user's), a headless compositor for the window to show on, and a
 //! stand-in UI that says which windows there are. The shell's side reads
 //! the window's tree, finds nodes, presses a button, fills in a field,
-//! moves a slider and gives a field the focus; and refuses every way it
+//! moves a slider and gives a field the focus; withholds text fields'
+//! contents unless `read-text-fields` is on; and refuses every way it
 //! must: access off, the level, locked, password fields (read and set,
 //! the role and hidden characters), excluded apps and Settings (also as
 //! another window of the same process), the shell's own process, a system
@@ -347,9 +348,29 @@ async fn apps_over_the_accessibility_bus() {
     assert!(!press_id.contains('/'), "ids are short: {press_id}");
     assert!(<Vec<String>>::try_from(press["actions"].clone()).unwrap().contains(&"click".to_owned()));
     assert!(!text(&press, "parent").is_empty());
+    // Reading text fields is off (the default): the field and its label,
+    // never its text, and finding by name does not look at the text.
+    let name = find(&nodes, "text", "Name field").clone();
+    assert!(!name.contains_key("value"), "{name:?}");
+    assert!(bool::try_from(name["value-hidden"].clone()).unwrap());
+    assert!(!name.contains_key("password"));
+    assert!(states(&name).contains(&"editable".to_owned()));
+    assert!(!format!("{nodes:?}").contains("hello"), "a field's text read with the switch off");
+    let reply = call(&conn, "A11yFind", &(21u32, opts(&[("name", Value::from("hello"))]))).await.unwrap();
+    assert!(reply.body().deserialize::<Vec<Node>>().unwrap().is_empty(), "found by its text");
+    let reply = call(&conn, "A11yFind", &(21u32, opts(&[("role", Value::from("text")), ("name", Value::from("Name field"))]))).await.unwrap();
+    let found: Vec<Node> = reply.body().deserialize().unwrap();
+    assert_eq!(found.len(), 1);
+    assert!(!found[0].contains_key("value") && bool::try_from(found[0]["value-hidden"].clone()).unwrap());
+    // Labels and numbers are not text fields.
+    assert!(find(&nodes, "label", "Clicks: 0").get("value-hidden").is_none());
+    assert_eq!(f64::try_from(find(&nodes, "slider", "Level")["value"].clone()).unwrap(), 0.0);
+    // On, at once: the text is read.
+    settings.set_boolean("read-text-fields", true).unwrap();
+    let nodes = tree(&conn, 21, opts(&[])).await.unwrap();
     let name = find(&nodes, "text", "Name field").clone();
     assert_eq!(text(&name, "value"), "hello", "a field's text is read");
-    assert!(states(&name).contains(&"editable".to_owned()));
+    assert!(!name.contains_key("value-hidden"));
     // Password fields: no value, and marked.
     let password = find(&nodes, "password text", "Password").clone();
     let pin = find(&nodes, "text", "PIN").clone();
@@ -406,6 +427,16 @@ async fn apps_over_the_accessibility_bus() {
     assert!(said(&out, "name length 5").await);
     let now = tree(&conn, 21, opts(&[])).await.unwrap();
     assert_eq!(text(find(&now, "text", "Name field"), "value"), "world");
+    // Off: setting a field's text still works, reading it back does not.
+    settings.set_boolean("read-text-fields", false).unwrap();
+    call(&conn, "A11ySetValue", &(21u32, name_id.as_str(), Value::from("planet"), opts(&[]))).await.unwrap();
+    assert!(said(&out, "name length 6").await);
+    let now = tree(&conn, 21, opts(&[])).await.unwrap();
+    let field = find(&now, "text", "Name field");
+    assert!(!field.contains_key("value") && bool::try_from(field["value-hidden"].clone()).unwrap(), "{field:?}");
+    assert!(!format!("{now:?}").contains("planet"));
+    let sub = tree(&conn, 21, opts(&[("node", Value::from(name_id.clone()))])).await.unwrap();
+    assert!(!sub[0].contains_key("value"), "{:?}", sub[0]);
     let level_id = text(&level, "id");
     call(&conn, "A11ySetValue", &(21u32, level_id.as_str(), Value::from(42.0), opts(&[]))).await.unwrap();
     assert!(said(&out, "level 42").await);
@@ -415,7 +446,8 @@ async fn apps_over_the_accessibility_bus() {
     assert_eq!(short(&call(&conn, "A11ySetValue", &(21u32, press_id.as_str(), Value::from("x"), opts(&[]))).await), "NotSupported");
     // Focus: GTK 4 cannot be given it over AT-SPI (it answers
     // NotSupported to GrabFocus); GTK 3 can, below.
-    assert_eq!(short(&call(&conn, "A11yAction", &(21u32, name_id.as_str(), "focus", opts(&[]))).await), "NotSupported");
+    let r = call(&conn, "A11yAction", &(21u32, name_id.as_str(), "focus", opts(&[]))).await;
+    assert_eq!((short(&r), message(&r)), ("NotSupported".to_owned(), "the app does not let its focus be moved over accessibility".to_owned()));
 
     // Password fields: never set, used or focused, nor read from.
     let excluded = |r: &zbus::Result<zbus::Message>| (short(r), message(r));
@@ -592,6 +624,9 @@ async fn apps_over_the_accessibility_bus() {
     let read = lines.iter().find(|l| l["method"] == "A11yTree" && l["outcome"] == "allowed" && l["target"] == target.as_str() && l.get("error").is_none()).expect("a tree read");
     assert_eq!(read["level"], "apps");
     assert!(read["node-count"].as_u64().unwrap() > 5);
+    // Withheld values, by count.
+    assert!(lines.iter().any(|l| l["method"] == "A11yTree" && l["hidden-count"].as_u64().is_some_and(|n| n >= 1)), "{lines:?}");
+    assert!(lines.iter().any(|l| l["method"] == "A11yTree" && l["outcome"] == "allowed" && l.get("error").is_none() && l.get("hidden-count").is_none()), "with the switch on, nothing withheld");
     let pressed = lines.iter().find(|l| l["method"] == "A11yAction" && l["action"] == "click" && l["role"] == "button" && l["outcome"] == "allowed").expect("a press");
     assert!(pressed.get("error").is_none());
     let set = lines.iter().find(|l| l["method"] == "A11ySetValue" && l["text-length"] == 5).expect("the text set, by length");
@@ -602,7 +637,7 @@ async fn apps_over_the_accessibility_bus() {
     assert!(lines.iter().any(|l| l["method"] == "A11yFind" && l["error"] == "TimedOut" && l["name-length"] == 15));
     assert!(lines.iter().any(|l| l["method"] == "A11yTree" && l["outcome"] == "refused:Excluded" && l["target"] == "window:22 (org.example.Vault)"));
     let raw: String = std::fs::read_dir(&log).unwrap().flatten().map(|e| std::fs::read_to_string(e.path()).unwrap()).collect();
-    for word in ["hello", "world", "again", "hunter2", "secret", "guess", "Press me", "Delete All", "Clicks", "Name field", "A11y Test", "typed", &press_id, &name_id, "/org/"] {
+    for word in ["hello", "world", "planet", "again", "hunter2", "secret", "guess", "Press me", "Delete All", "Clicks", "Name field", "A11y Test", "typed", &press_id, &name_id, "/org/"] {
         assert!(!raw.contains(word), "the log holds {word:?}:\n{raw}");
     }
 

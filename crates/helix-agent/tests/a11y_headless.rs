@@ -196,7 +196,9 @@ fn an_app_driven_through_its_controls() {
     let outline = String::from_utf8_lossy(&text.stdout).into_owned();
     assert!(outline.lines().any(|l| l.trim_start().starts_with("button “Press me”") && l.contains("(click) #")), "{outline}");
     assert!(outline.contains("password text “Password” (password field)"), "{outline}");
-    assert!(outline.contains("text “Name field” = “hello”"), "{outline}");
+    // Reading text fields is off (the default): the field, not its text.
+    assert!(outline.contains("text “Name field” (hidden)"), "{outline}");
+    assert!(!outline.contains("hello") && !tree.to_string().contains("hello"), "{outline}");
     // Where it is, now that it is shown.
     let window = json(&run(&session, &["--json", "windows", "--app", APP]))["windows"][0].clone();
     let area = (window["x"].as_u64().unwrap_or(0) as u32, window["y"].as_u64().unwrap_or(0) as u32, window["width"].as_u64().unwrap() as u32, window["height"].as_u64().unwrap() as u32);
@@ -241,7 +243,9 @@ fn an_app_driven_through_its_controls() {
     let r = run(&session, &["--json", "--no-ask", "a11y", "press", &id, &delete]);
     assert_eq!((code(&r), json(&r)["error"]["code"].as_str()), (18, Some("needs-confirmation")));
     assert_eq!(code(&run(&session, &["--json", "a11y", "press", &id, "no_such_node"])), 22);
-    assert_eq!(code(&run(&session, &["--json", "a11y", "focus", &id, &name])), 23);
+    // The app's reason, not the session's.
+    let r = run(&session, &["--json", "a11y", "focus", &id, &name]);
+    assert_eq!((code(&r), json(&r)["error"]["message"].as_str()), (23, Some("Not supported here: the app does not let its focus be moved over accessibility")));
     let r = run(&session, &["--json", "a11y", "wait", &id, "--name", "Never there", "--timeout", "1"]);
     assert_eq!(code(&r), 21);
     std::thread::sleep(Duration::from_millis(300));

@@ -39,6 +39,11 @@
       <summary>Clipboard access</summary>
       <description>Whether agents may read and set the clipboard.</description>
     </key>
+    <key name="read-text-fields" type="b">
+      <default>false</default>
+      <summary>Let agents read text fields</summary>
+      <description>Whether agents controlling apps may read what is typed in editable text fields. When off, they still see the fields, their labels and other text, numbers of sliders and spin buttons, and may still type into fields, but not the fields' contents.</description>
+    </key>
     <key name="confirm-sensitive" type="b">
       <default>true</default>
       <summary>Confirm sensitive actions</summary>

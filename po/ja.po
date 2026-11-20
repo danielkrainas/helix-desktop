@@ -40,6 +40,11 @@ msgstr ""
 msgid "(password field)"
 msgstr "(パスワード欄)"
 
+#. Translators: in place of a text field's contents, which agents may not read (Settings › Privacy & Security › Agent Access, reading text fields is off).
+#: crates/helix-agent/src/a11y.rs:166
+msgid "(hidden)"
+msgstr "(非表示)"
+
 #: crates/helix-agent/src/act.rs:46
 msgid "“{action}” takes no numbers"
 msgstr "「{action}」は数値を取りません"
@@ -675,7 +680,7 @@ msgstr "使い方:"
 msgid "Options:"
 msgstr "オプション:"
 
-#: crates/helix-agent/src/cli.rs:505 crates/helix-agent/src/main.rs:224
+#: crates/helix-agent/src/cli.rs:505 crates/helix-agent/src/main.rs:228
 msgid ""
 "Agent access is controlled in Settings › Privacy & Security › Agent Access."
 msgstr ""
@@ -715,12 +720,11 @@ msgid "The user said no"
 msgstr "ユーザーは「いいえ」と答えました"
 
 #: crates/helix-agent/src/errors.rs:61 crates/helix-agent/src/errors.rs:90
-#: crates/helix-agent/src/errors.rs:142
+#: crates/helix-agent/src/errors.rs:143
 msgid "Cannot reach the Helix shell (is a Helix session running?)"
 msgstr "Helix シェルに接続できません (Helix セッションは動作していますか?)"
 
-#: crates/helix-agent/src/errors.rs:65 crates/helix-agent/src/errors.rs:104
-#: crates/helix-agent/src/errors.rs:133 crates/helix-agent/src/errors.rs:135
+#: crates/helix-agent/src/errors.rs:65 crates/helix-agent/src/errors.rs:136
 msgid "Not supported by this Helix session"
 msgstr "この Helix セッションでは対応していません"
 
@@ -756,7 +760,7 @@ msgstr "ユーザーはこのエージェントを許可しておらず、確認
 msgid "The user denied this agent access"
 msgstr "ユーザーがこのエージェントのアクセスを拒否しました"
 
-#: crates/helix-agent/src/errors.rs:95 crates/helix-agent/src/errors.rs:159
+#: crates/helix-agent/src/errors.rs:95 crates/helix-agent/src/errors.rs:173
 msgid "The target is excluded from agent access"
 msgstr "対象はエージェントアクセスから除外されています"
 
@@ -799,6 +803,10 @@ msgstr "ユーザーが「いいえ」と答えたか、質問を取り消しま
 msgid "No such window, app or item"
 msgstr "そのようなウィンドウ、アプリ、項目はありません"
 
+#: crates/helix-agent/src/errors.rs:104
+msgid "Not supported by this Helix session, this computer or the app"
+msgstr "この Helix セッション、このコンピューター、またはアプリが対応していません"
+
 #: crates/helix-agent/src/errors.rs:121
 msgid ""
 "This needs the “{level}” access level (Settings › Privacy & Security › Agent "
@@ -815,23 +823,32 @@ msgstr "ユーザーが質問を取り消しました"
 msgid "No such window / app / item: {what}"
 msgstr "そのようなウィンドウ / アプリ / 項目はありません: {what}"
 
-#: crates/helix-agent/src/errors.rs:153
+#: crates/helix-agent/src/errors.rs:156
+msgid "Not supported here"
+msgstr "ここでは対応していません"
+
+#. Translators: {reason} is the shell's explanation, in English (e.g. "the app does not support this").
+#: crates/helix-agent/src/errors.rs:160
+msgid "Not supported here: {reason}"
+msgstr "ここでは対応していません: {reason}"
+
+#: crates/helix-agent/src/errors.rs:167
 msgid "Agents can't use Settings"
 msgstr "エージェントは設定を使えません"
 
-#: crates/helix-agent/src/errors.rs:154
+#: crates/helix-agent/src/errors.rs:168
 msgid "Agents can't use password fields"
 msgstr "エージェントはパスワード欄を使えません"
 
-#: crates/helix-agent/src/errors.rs:155
+#: crates/helix-agent/src/errors.rs:169
 msgid "Agents can't act while a system prompt is open"
 msgstr "システムの確認画面が開いている間、エージェントは操作できません"
 
-#: crates/helix-agent/src/errors.rs:156
+#: crates/helix-agent/src/errors.rs:170
 msgid "Agents can't act on the shell itself"
 msgstr "エージェントはシェル自体を操作できません"
 
-#: crates/helix-agent/src/errors.rs:158
+#: crates/helix-agent/src/errors.rs:172
 msgid "{app} is excluded from agent access"
 msgstr "{app} はエージェントアクセスから除外されています"
 
@@ -902,19 +919,23 @@ msgstr ""
 "通知へのアクセス: {notifications}、クリップボードへのアクセス: {clipboard}、"
 "重要な操作の確認: {confirm}"
 
-#: crates/helix-agent/src/main.rs:234
+#: crates/helix-agent/src/main.rs:225
+msgid "Reading text fields: {state}"
+msgstr "テキスト欄の読み取り: {state}"
+
+#: crates/helix-agent/src/main.rs:238
 msgid "Agent Access version {version}"
 msgstr "エージェントアクセス バージョン {version}"
 
-#: crates/helix-agent/src/main.rs:235
+#: crates/helix-agent/src/main.rs:239
 msgid "Agent Access version unknown (cannot reach the Helix shell)"
 msgstr "エージェントアクセスのバージョンは不明 (Helix シェルに接続できません)"
 
-#: crates/helix-agent/src/main.rs:268
+#: crates/helix-agent/src/main.rs:272
 msgid "Cannot read the activity log: {error}"
 msgstr "アクティビティログを読めません: {error}"
 
-#: crates/helix-agent/src/main.rs:287
+#: crates/helix-agent/src/main.rs:291
 msgid "No agent activity recorded."
 msgstr "エージェントの活動は記録されていません。"
 
@@ -1571,12 +1592,12 @@ msgid "Mouse Keys"
 msgstr "マウスキー"
 
 #. Translators: comma-separated words; an editable text field whose accessible name contains one of them is treated as a password field and never read or filled in by agents. Translate each word, keep the commas; add words your language uses for passwords and PINs.
-#: crates/helix-shell/src/agent/a11y.rs:142
+#: crates/helix-shell/src/agent/a11y.rs:148
 msgid "password,passphrase,passcode,PIN,secret"
 msgstr "パスワード,パスフレーズ,パスコード,暗証番号,PIN,シークレット"
 
 #. Translators: comma-separated words; using a control whose accessible name contains one of them counts as a sensitive action (the user may be asked first). Translate each word, keep the commas; several words for one are fine.
-#: crates/helix-shell/src/agent/a11y.rs:149
+#: crates/helix-shell/src/agent/a11y.rs:155
 msgid ""
 "delete,remove,erase,discard,trash,send,submit,post,publish,pay,purchase,buy,order,checkout,transfer,donate,uninstall,format,wipe,reset,empty,revoke,quit,sign "
 "out,log out,shut down"

@@ -864,7 +864,8 @@ impl AgentAccess {
         let (config, proc_root, shown, pid) = (caller.config.clone(), self.inner.proc_root.clone(), snapshot.clone(), w.pid);
         blocking(move || a11y::check_process(pid, &shown, &config, &desktop::installed(), &proc_root)).await?;
         let bus = self.inner.a11y.get(conn).await?;
-        let scope = a11y::resolve(&bus, &w, &snapshot).await?;
+        let mut scope = a11y::resolve(&bus, &w, &snapshot).await?;
+        scope.read_text_fields = caller.config.read_text_fields;
         Ok((w, scope))
     }
 
@@ -959,6 +960,7 @@ impl AgentAccess {
             ("locked".to_owned(), value(self.locked())),
             ("notifications".to_owned(), value(config.notifications)),
             ("clipboard".to_owned(), value(config.clipboard)),
+            ("read-text-fields".to_owned(), value(config.read_text_fields)),
             ("confirm-sensitive".to_owned(), value(config.confirm_sensitive)),
         ])
     }
@@ -1767,6 +1769,7 @@ impl Agent1 {
             let (w, scope) = self.access.a11y_scope(conn, &caller, window).await?;
             let tree = scope.read(&read).await?;
             caller.detail("node-count", activity::Detail::Count(tree.nodes.len() as u64));
+            hidden_count(&caller, tree.nodes.iter().map(|(info, _, _)| info));
             Ok(HashMap::from([
                 ("window".to_owned(), value(window)),
                 ("app-id".to_owned(), value(w.app_id.as_str())),
@@ -1794,23 +1797,26 @@ impl Agent1 {
             if let Some(name) = &wanted.name {
                 caller.detail("name-length", activity::Detail::Count(name.chars().count() as u64));
             }
-            let (_, scope) = self.access.a11y_scope(conn, &caller, window).await?;
+            let (_, mut scope) = self.access.a11y_scope(conn, &caller, window).await?;
             let _busy = (timeout_ms > 0).then(|| self.access.busy(&caller.agent));
             let until = deadline(timeout_ms);
             let everything = a11y::ReadOptions { max_nodes: a11y::NODES_MAX, ..a11y::ReadOptions::default() };
             loop {
                 let tree = scope.read(&everything).await?;
                 let records = scope.records(&tree);
-                let found: Records = tree.nodes.iter().zip(records).filter(|((info, _, _), _)| wanted.matches(info)).map(|(_, r)| r).take(wanted.limit as usize).collect();
+                let found: Vec<_> = tree.nodes.iter().zip(records).filter(|((info, _, _), _)| wanted.matches(info)).take(wanted.limit as usize).collect();
                 if !found.is_empty() || timeout_ms == 0 {
                     caller.detail("node-count", activity::Detail::Count(found.len() as u64));
-                    return Ok(found);
+                    hidden_count(&caller, found.iter().map(|((info, _, _), _)| info));
+                    return Ok(found.into_iter().map(|(_, r)| r).collect());
                 }
                 if until.is_some_and(|u| Instant::now() >= u) {
                     return Err(AgentError::TimedOut("no such node appeared".into()));
                 }
                 tokio::time::sleep(a11y::WAIT_POLL).await;
-                self.access.recheck(&caller.agent, APPS).await?;
+                // The switch as it is now (README.md, "Settings take
+                // effect at once").
+                scope.read_text_fields = self.access.recheck(&caller.agent, APPS).await?.read_text_fields;
                 self.access.a11y_still_clear(&caller, window).await?;
             }
         }
@@ -1884,6 +1890,15 @@ impl Agent1 {
 
     #[zbus(signal)]
     pub async fn access_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+}
+
+/// Record in the log how many of `nodes` had their text withheld
+/// (`read-text-fields` off), when any did: a count, never which.
+fn hidden_count<'a>(caller: &Caller, nodes: impl Iterator<Item = &'a a11y::Info>) {
+    let hidden = nodes.filter(|n| n.value_hidden).count();
+    if hidden > 0 {
+        caller.detail("hidden-count", activity::Detail::Count(hidden as u64));
+    }
 }
 
 /// How the sensitive-action prompt names an app's control: by its name

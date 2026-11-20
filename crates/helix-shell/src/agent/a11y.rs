@@ -22,6 +22,11 @@
 //!   whose text is all mask characters or whose name says password) have
 //!   no value, their insides are not read, and nothing may be done to
 //!   them or inside them.
+//! - **Text fields' contents** (editable texts, also those only marked
+//!   `editable`) are given only with the `read-text-fields` switch;
+//!   without it their records have `value-hidden` instead of a `value`,
+//!   and a name or description that is the field's text is left out too.
+//!   Numbers (sliders, spin buttons) and other texts are given either way.
 //! - **Nodes** are named by their object path (shortened against the
 //!   window's own); an action first walks from the node up to the window,
 //!   so a node of another window, another app or a password field is
@@ -94,6 +99,7 @@ const STATES: [&str; 44] = [
     "visited", "checkable", "has-popup", "read-only",
 ];
 
+const STATE_EDITABLE: u64 = 1 << 7;
 const STATE_SHOWING: u64 = 1 << 25;
 const STATE_VISIBLE: u64 = 1 << 30;
 
@@ -440,6 +446,8 @@ pub struct Info {
     pub number: Option<(f64, f64, f64)>,
     pub children: Vec<ObjRef>,
     pub password: bool,
+    /// Its text was withheld ([`Info::withhold_text`]).
+    pub value_hidden: bool,
 }
 
 impl Info {
@@ -451,8 +459,34 @@ impl Info {
         self.has("EditableText")
     }
 
+    /// Whether it is a text field: an editable text, or a text the app
+    /// marks `editable` (a web page's editable region).
+    pub fn text_field(&self) -> bool {
+        self.editable() || self.states & STATE_EDITABLE != 0
+    }
+
+    /// Without `read-text-fields`: forget a text field's text (not a
+    /// number's), and a name or description that is that text (some
+    /// toolkits name a field after what is in it), so neither a record
+    /// nor a match by name can give it away.
+    pub fn withhold_text(&mut self) {
+        if self.password || self.number.is_some() || !self.text_field() {
+            return;
+        }
+        let Some(text) = self.text.take() else { return };
+        let is_text = |s: &str| !s.trim().is_empty() && s.trim() == text.trim();
+        if is_text(&self.name) {
+            self.name.clear();
+        }
+        if is_text(&self.description) {
+            self.description.clear();
+        }
+        self.value_hidden = true;
+    }
+
     /// The node's record (README.md, "Records", Accessible node) in the
-    /// tree of the window at `root`: never a password field's value.
+    /// tree of the window at `root`: never a password field's value, nor
+    /// a withheld one.
     pub fn record(&self, root: &str, parent: Option<&str>) -> HashMap<String, OwnedValue> {
         let mut r = HashMap::from([
             ("id".to_owned(), value(node_id(root, self.path.as_str()))),
@@ -466,6 +500,10 @@ impl Info {
         ]);
         if self.password {
             r.insert("password".to_owned(), value(true));
+            return r;
+        }
+        if self.value_hidden {
+            r.insert("value-hidden".to_owned(), value(true));
             return r;
         }
         if let Some((current, min, max)) = self.number {
@@ -574,6 +612,8 @@ async fn owner_pid(bus: &Connection, name: &str) -> Option<u32> {
 pub struct Scope {
     pub app: App,
     pub root: OwnedObjectPath,
+    /// `read-text-fields`: [`Scope::read`] gives text fields' contents.
+    pub read_text_fields: bool,
 }
 
 /// Which accessible object is window `w`'s (see the module documentation);
@@ -588,7 +628,7 @@ pub async fn resolve(bus: &Connection, w: &WindowInfo, snapshot: &Snapshot) -> R
         }
         let root = OwnedObjectPath::try_from(w.a11y_path.clone()).map_err(|_| unclear("a bad object path"))?;
         tracing::debug!(window = w.id, "a window's controls, where its app said");
-        return Ok(Scope { app: App { bus: bus.clone(), name: w.a11y_name.clone() }, root });
+        return Ok(Scope { app: App { bus: bus.clone(), name: w.a11y_name.clone() }, root, read_text_fields: false });
     }
     let registry = App { bus: bus.clone(), name: REGISTRY.to_owned() };
     let apps: Vec<ObjRef> = registry.call(ROOT_PATH, ACCESSIBLE, "GetChildren", &()).await.map_err(|_| AgentError::NotSupported("no accessibility registry".into()))?;
@@ -626,7 +666,7 @@ pub async fn resolve(bus: &Connection, w: &WindowInfo, snapshot: &Snapshot) -> R
         }
     };
     tracing::debug!(window = w.id, "a window's controls, by its process");
-    Ok(Scope { app, root })
+    Ok(Scope { app, root, read_text_fields: false })
 }
 
 // ----- Reading -----------------------------------------------------------------
@@ -780,7 +820,8 @@ impl Scope {
     }
 
     /// Read the tree from the window (or `options.node`), depth first,
-    /// leaving out password fields' insides and other processes' objects.
+    /// leaving out password fields' insides and other processes' objects,
+    /// and text fields' contents without `read_text_fields`.
     pub async fn read(&self, options: &ReadOptions) -> Result<Tree, AgentError> {
         let start = match &options.node {
             Some(id) => self.node(id, |_| {}).await?.path,
@@ -796,12 +837,15 @@ impl Scope {
                 truncated = true;
                 break;
             }
-            let info = match self.app.info(&path).await {
+            let mut info = match self.app.info(&path).await {
                 Ok(info) => info,
                 // A node that went away while reading.
                 Err(AgentError::NotFound(_)) if !nodes.is_empty() => continue,
                 Err(err) => return Err(err),
             };
+            if !self.read_text_fields {
+                info.withhold_text();
+            }
             let bounds = if options.bounds { self.app.extents(path.as_str()).await } else { None };
             // Not into password fields, nor into other processes' objects
             // (their nodes are marked `truncated`).
@@ -851,7 +895,11 @@ impl Scope {
                 if !node.has("Component") {
                     return Err(AgentError::NotSupported("this node cannot take the focus".into()));
                 }
-                let done: bool = self.app.call(p, "org.a11y.atspi.Component", "GrabFocus", &()).await?;
+                // GTK 4 answers that it does not move its focus this way.
+                let done: bool = self.app.call(p, "org.a11y.atspi.Component", "GrabFocus", &()).await.map_err(|e| match e {
+                    AgentError::NotSupported(_) => AgentError::NotSupported("the app does not let its focus be moved over accessibility".into()),
+                    other => other,
+                })?;
                 if done { Ok(()) } else { Err(refused("give it the focus")) }
             }
             "select" if !node.actions.iter().any(|a| a == "select") => {
@@ -1036,6 +1084,59 @@ mod tests {
         let r = info(61, "Doc", Some(&long), true).record("/a/b/root", None);
         assert_eq!(String::try_from(r["value"].clone()).unwrap().chars().count(), TEXT_MAX);
         assert!(bool::try_from(r["value-truncated"].clone()).unwrap());
+    }
+
+    #[test]
+    fn withheld_text_fields() {
+        let hidden = |mut i: Info| {
+            i.withhold_text();
+            i
+        };
+        let flag = |r: &HashMap<String, OwnedValue>, k: &str| r.get(k).is_some_and(|v| bool::try_from(v.clone()).unwrap());
+        // A field: no value, marked; its name (a label) stays.
+        let field = hidden(info(61, "Name field", Some("hello"), true));
+        let r = field.record("/a/b/root", None);
+        assert!(!r.contains_key("value"));
+        assert!(flag(&r, "value-hidden"));
+        assert!(!flag(&r, "password"));
+        assert_eq!(String::try_from(r["name"].clone()).unwrap(), "Name field");
+        // An empty field too: not even whether it is empty.
+        let r = hidden(info(61, "Search", Some(""), true)).record("/a/b/root", None);
+        assert!(!r.contains_key("value") && flag(&r, "value-hidden"));
+        // A long one: nor whether it is long.
+        let r = hidden(info(61, "Doc", Some(&"x".repeat(TEXT_MAX + 1)), true)).record("/a/b/root", None);
+        assert!(!r.contains_key("value") && !r.contains_key("value-truncated") && flag(&r, "value-hidden"));
+        // A field named after what is in it: the name goes too, and a
+        // match by that name finds nothing.
+        let mut named = info(61, "hunter3", Some("hunter3"), true);
+        named.description = "hunter3".into();
+        let named = hidden(named);
+        assert!(named.name.is_empty() && named.description.is_empty());
+        assert!(!Match { name: Some("hunter".into()), limit: 1, ..Match::default() }.matches(&named));
+        // A text only marked editable (a web page's editable region).
+        let mut region = info(73, "", Some("draft"), false);
+        region.states = STATE_EDITABLE;
+        let r = hidden(region).record("/a/b/root", None);
+        assert!(!r.contains_key("value") && flag(&r, "value-hidden"));
+        // Labels and other texts that are not fields stay.
+        let r = hidden(info(29, "Clicks: 0", Some("Clicks: 0"), false)).record("/a/b/root", None);
+        assert!(!r.contains_key("value-hidden"));
+        assert_eq!(String::try_from(r["name"].clone()).unwrap(), "Clicks: 0");
+        let r = hidden(info(73, "Intro", Some("Welcome to the app"), false)).record("/a/b/root", None);
+        assert_eq!(String::try_from(r["value"].clone()).unwrap(), "Welcome to the app");
+        // Numbers stay, also of a spin button that is a text field too.
+        let mut spin = info(52, "Count", Some("7"), true);
+        spin.interfaces.push("org.a11y.atspi.Value".into());
+        spin.number = Some((7.0, 0.0, 10.0));
+        let r = hidden(spin).record("/a/b/root", None);
+        assert_eq!(f64::try_from(r["value"].clone()).unwrap(), 7.0);
+        assert!(!r.contains_key("value-hidden"));
+        // Password fields stay password fields.
+        let r = hidden(info(ROLE_PASSWORD_TEXT, "Password", None, true)).record("/a/b/root", None);
+        assert!(flag(&r, "password") && !r.contains_key("value-hidden"));
+        // A node without text has nothing to withhold.
+        let r = hidden(info(43, "OK", None, false)).record("/a/b/root", None);
+        assert!(!r.contains_key("value-hidden"));
     }
 
     #[test]

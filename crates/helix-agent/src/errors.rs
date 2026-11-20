@@ -101,7 +101,7 @@ pub fn describe(code: &str) -> String {
         "no" => tr("The user said no, or cancelled the question").into(),
         "timed-out" => tr("Timed out").into(),
         "not-found" => tr("No such window, app or item").into(),
-        "not-supported" => tr("Not supported by this Helix session").into(),
+        "not-supported" => tr("Not supported by this Helix session, this computer or the app").into(),
         _ => String::new(),
     }
 }
@@ -130,7 +130,8 @@ pub fn from_dbus(name: &str, message: &str) -> Failure {
         Some("Cancelled") => ("no", tr("The user cancelled the question").into()),
         Some("TimedOut") => ("timed-out", tr("Timed out").into()),
         Some("NotFound") => ("not-found", trf!("No such window / app / item: {what}", what = message)),
-        Some("NotSupported") => ("not-supported", tr("Not supported by this Helix session").into()),
+        // The shell says why: this session, this computer or the app.
+        Some("NotSupported") => ("not-supported", not_supported_message(message.trim())),
         _ => match name {
             "org.freedesktop.DBus.Error.UnknownMethod" => ("not-supported", tr("Not supported by this Helix session").into()),
             // No shell on the bus, or a shell without Agent Access.
@@ -145,6 +146,19 @@ pub fn from_dbus(name: &str, message: &str) -> Failure {
         },
     };
     Failure { code, message: text, dbus_error: Some(name.to_owned()), output: None }
+}
+
+/// `NotSupported`'s message: the shell's reason (in English), which says
+/// whether the session, the computer or the app cannot do it (GTK 4 apps
+/// do not let the focus be moved over accessibility).
+fn not_supported_message(reason: &str) -> String {
+    if reason.is_empty() {
+        tr("Not supported here").into()
+    } else {
+        // Translators: {reason} is the shell's explanation, in English
+        // (e.g. "the app does not support this").
+        trf!("Not supported here: {reason}", reason = reason)
+    }
 }
 
 /// `Excluded`'s message by its token.
@@ -188,6 +202,10 @@ mod tests {
         assert_eq!(from_dbus("org.helixdesktop.Agent1.Error.Excluded", "settings").exit_code(), 14);
         assert_eq!(from_dbus("org.helixdesktop.Agent1.Error.Excluded", "app:org.example.NoSuchApp").message, "org.example.NoSuchApp is excluded from agent access");
         assert_eq!(from_dbus("org.freedesktop.DBus.Error.UnknownMethod", "x").exit_code(), 23);
+        assert_eq!(from_dbus("org.freedesktop.DBus.Error.UnknownMethod", "x").message, "Not supported by this Helix session");
+        let app = from_dbus("org.helixdesktop.Agent1.Error.NotSupported", "the app does not support this");
+        assert_eq!((app.exit_code(), app.message.as_str()), (23, "Not supported here: the app does not support this"));
+        assert_eq!(from_dbus("org.helixdesktop.Agent1.Error.NotSupported", "").message, "Not supported here");
         assert_eq!(from_dbus("org.freedesktop.DBus.Error.ServiceUnknown", "x").exit_code(), 3);
         assert_eq!(from_dbus("org.helixdesktop.Agent1.Error.Failed", "it broke").message, "it broke");
         for (code, exit) in CODES {

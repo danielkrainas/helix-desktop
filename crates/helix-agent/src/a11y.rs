@@ -159,6 +159,11 @@ fn line(n: &Json) -> String {
     }
     if n.get("password").and_then(Json::as_bool) == Some(true) {
         parts.push(tr("(password field)").to_owned());
+    } else if n.get("value-hidden").and_then(Json::as_bool) == Some(true) {
+        // Translators: in place of a text field's contents, which agents
+        // may not read (Settings › Privacy & Security › Agent Access,
+        // reading text fields is off).
+        parts.push(tr("(hidden)").to_owned());
     } else if let Some(v) = n.get("value") {
         let shown = match v {
             Json::String(s) => format!("“{}”", s.replace('\n', "⏎")),
@@ -204,6 +209,7 @@ mod tests {
             serde_json::json!({"id": "b", "parent": "p", "role": "button", "name": "OK", "actions": ["click"]}),
             serde_json::json!({"id": "t", "parent": "p", "role": "text", "name": "Title", "value": "Hi", "states": ["editable", "focused"]}),
             serde_json::json!({"id": "x", "parent": "w", "role": "password text", "name": "Password", "password": true}),
+            serde_json::json!({"id": "h", "parent": "w", "role": "text", "name": "Notes", "value-hidden": true, "states": ["editable"]}),
         ];
         let root = nest(&nodes).unwrap();
         assert_eq!(root["id"], "w");
@@ -216,6 +222,7 @@ mod tests {
         assert_eq!(lines[2], "    button “OK” (click) #b");
         assert_eq!(lines[3], "    text “Title” = “Hi” [editable, focused] #t");
         assert_eq!(lines[4], "  password text “Password” (password field) #x");
+        assert_eq!(lines[5], "  text “Notes” (hidden) [editable] #h");
         assert!(nest(&[]).is_none());
     }
 }

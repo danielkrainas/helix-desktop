@@ -186,6 +186,10 @@ tree; \fBhelix-agent\fR never talks to the accessibility bus.
 Password fields have no value and cannot be used (exit 14); neither can
 windows of excluded apps, Settings, the shell's own prompts, or any window
 while a system prompt (a password or permission prompt) is shown.
+What is typed in text fields is not given unless \fIRead text fields\fR
+is on in Settings: such fields show \fB(hidden)\fR (value-hidden: true)
+instead of their text. Labels, other text, and the numbers of sliders and
+spin buttons are given either way, and fields can still be filled in.
 .TP
 .B a11y tree \fIWINDOW\fR [\fB\-\-depth \fIN\fR] [\fB\-\-node \fINODE\fR] [\fB\-\-max\-nodes \fIN\fR] [\fB\-\-bounds\fR]
 The window's controls as a tree (at most 1000 nodes unless
@@ -211,8 +215,8 @@ pays, removes or the like, and closing the window, is sensitive.
 .TP
 .B a11y set \fIWINDOW NODE VALUE\fR [\fB\-\-number\fR]
 Replace an editable field's text, or set a slider's or spin button's
-number (\fB\-\-number\fR, or text that is one). The log records the
-text's length only.
+number (\fB\-\-number\fR, or text that is one); also with \fIRead text
+fields\fR off. The log records the text's length only.
 .SS "Screen and input (Screen and input)"
 .TP
 .B screenshot \fR[\fB\-\-window \fIWINDOW\fR | \fB\-\-monitor \fICONNECTOR\fR] [\fB\-\-output \fIFILE\fR]
@@ -295,8 +299,9 @@ id, time, text.
 .TP
 .B Accessible node
 id, role, name, description, states, value (text, or a number with min and
-max; never for password fields, which have password: true instead),
-value-truncated, actions, child-count, truncated (some children left out),
+max; never for password fields, which have password: true instead, nor
+for text fields while \fIRead text fields\fR is off, which have
+value-hidden: true instead), value-truncated, actions, child-count, truncated (some children left out),
 x, y, width, height (with \fB\-\-bounds\fR), children (\fBa11y tree\fR).
 \fBa11y tree\fR prints {"window", "app-id", "truncated", "root"};
 \fBa11y find\fR {"nodes": [...]}; \fBa11y wait\fR the node.
@@ -323,8 +328,14 @@ l l l.
 20	no	the user said no or cancelled
 21	timed-out	timed out
 22	not-found	no such window, app or item
-23	not-supported	not supported by this session
+23	not-supported	not supported by this session, computer or app
 .TE
+.PP
+For exit 23 the message gives the shell's reason (in English) after
+\fINot supported here:\fR, saying whether this session, this computer or
+the app cannot do it (GTK 4 apps, for one, do not let the focus be moved
+this way). A command this shell does not have at all says \fINot supported
+by this Helix session\fR.
 .SH ENVIRONMENT
 .TP
 .B HELIX_AGENT_NAME

@@ -39,6 +39,11 @@ msgstr ""
 msgid "(password field)"
 msgstr ""
 
+#. Translators: in place of a text field's contents, which agents may not read (Settings › Privacy & Security › Agent Access, reading text fields is off).
+#: crates/helix-agent/src/a11y.rs:166
+msgid "(hidden)"
+msgstr ""
+
 #: crates/helix-agent/src/act.rs:46
 msgid "“{action}” takes no numbers"
 msgstr ""
@@ -669,7 +674,7 @@ msgstr ""
 msgid "Options:"
 msgstr ""
 
-#: crates/helix-agent/src/cli.rs:505 crates/helix-agent/src/main.rs:224
+#: crates/helix-agent/src/cli.rs:505 crates/helix-agent/src/main.rs:228
 msgid ""
 "Agent access is controlled in Settings › Privacy & Security › Agent Access."
 msgstr ""
@@ -707,12 +712,11 @@ msgid "The user said no"
 msgstr ""
 
 #: crates/helix-agent/src/errors.rs:61 crates/helix-agent/src/errors.rs:90
-#: crates/helix-agent/src/errors.rs:142
+#: crates/helix-agent/src/errors.rs:143
 msgid "Cannot reach the Helix shell (is a Helix session running?)"
 msgstr ""
 
-#: crates/helix-agent/src/errors.rs:65 crates/helix-agent/src/errors.rs:104
-#: crates/helix-agent/src/errors.rs:133 crates/helix-agent/src/errors.rs:135
+#: crates/helix-agent/src/errors.rs:65 crates/helix-agent/src/errors.rs:136
 msgid "Not supported by this Helix session"
 msgstr ""
 
@@ -746,7 +750,7 @@ msgstr ""
 msgid "The user denied this agent access"
 msgstr ""
 
-#: crates/helix-agent/src/errors.rs:95 crates/helix-agent/src/errors.rs:159
+#: crates/helix-agent/src/errors.rs:95 crates/helix-agent/src/errors.rs:173
 msgid "The target is excluded from agent access"
 msgstr ""
 
@@ -782,6 +786,10 @@ msgstr ""
 msgid "No such window, app or item"
 msgstr ""
 
+#: crates/helix-agent/src/errors.rs:104
+msgid "Not supported by this Helix session, this computer or the app"
+msgstr ""
+
 #: crates/helix-agent/src/errors.rs:121
 msgid ""
 "This needs the “{level}” access level (Settings › Privacy & Security › Agent "
@@ -796,23 +804,32 @@ msgstr ""
 msgid "No such window / app / item: {what}"
 msgstr ""
 
-#: crates/helix-agent/src/errors.rs:153
+#: crates/helix-agent/src/errors.rs:156
+msgid "Not supported here"
+msgstr ""
+
+#. Translators: {reason} is the shell's explanation, in English (e.g. "the app does not support this").
+#: crates/helix-agent/src/errors.rs:160
+msgid "Not supported here: {reason}"
+msgstr ""
+
+#: crates/helix-agent/src/errors.rs:167
 msgid "Agents can't use Settings"
 msgstr ""
 
-#: crates/helix-agent/src/errors.rs:154
+#: crates/helix-agent/src/errors.rs:168
 msgid "Agents can't use password fields"
 msgstr ""
 
-#: crates/helix-agent/src/errors.rs:155
+#: crates/helix-agent/src/errors.rs:169
 msgid "Agents can't act while a system prompt is open"
 msgstr ""
 
-#: crates/helix-agent/src/errors.rs:156
+#: crates/helix-agent/src/errors.rs:170
 msgid "Agents can't act on the shell itself"
 msgstr ""
 
-#: crates/helix-agent/src/errors.rs:158
+#: crates/helix-agent/src/errors.rs:172
 msgid "{app} is excluded from agent access"
 msgstr ""
 
@@ -877,19 +894,23 @@ msgid ""
 "Confirm sensitive actions: {confirm}"
 msgstr ""
 
-#: crates/helix-agent/src/main.rs:234
+#: crates/helix-agent/src/main.rs:225
+msgid "Reading text fields: {state}"
+msgstr ""
+
+#: crates/helix-agent/src/main.rs:238
 msgid "Agent Access version {version}"
 msgstr ""
 
-#: crates/helix-agent/src/main.rs:235
+#: crates/helix-agent/src/main.rs:239
 msgid "Agent Access version unknown (cannot reach the Helix shell)"
 msgstr ""
 
-#: crates/helix-agent/src/main.rs:268
+#: crates/helix-agent/src/main.rs:272
 msgid "Cannot read the activity log: {error}"
 msgstr ""
 
-#: crates/helix-agent/src/main.rs:287
+#: crates/helix-agent/src/main.rs:291
 msgid "No agent activity recorded."
 msgstr ""
 
@@ -1539,12 +1560,12 @@ msgid "Mouse Keys"
 msgstr ""
 
 #. Translators: comma-separated words; an editable text field whose accessible name contains one of them is treated as a password field and never read or filled in by agents. Translate each word, keep the commas; add words your language uses for passwords and PINs.
-#: crates/helix-shell/src/agent/a11y.rs:142
+#: crates/helix-shell/src/agent/a11y.rs:148
 msgid "password,passphrase,passcode,PIN,secret"
 msgstr ""
 
 #. Translators: comma-separated words; using a control whose accessible name contains one of them counts as a sensitive action (the user may be asked first). Translate each word, keep the commas; several words for one are fine.
-#: crates/helix-shell/src/agent/a11y.rs:149
+#: crates/helix-shell/src/agent/a11y.rs:155
 msgid ""
 "delete,remove,erase,discard,trash,send,submit,post,publish,pay,purchase,buy,order,checkout,transfer,donate,uninstall,format,wipe,reset,empty,revoke,quit,sign "
 "out,log out,shut down"
