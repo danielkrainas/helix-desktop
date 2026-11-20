@@ -590,7 +590,7 @@ impl Ui {
                 // The agent indicator: a button opening its menu.
                 Slot::Agents => {
                     let names: Vec<String> = self.agents_active.iter().map(|a| if a.name.is_empty() { a.agent.clone() } else { format!("{} ({})", a.name, a.agent) }).collect();
-                    Node::button(tr("Agents active"), r).id("agents").describe(names.join("\n")).expanded(!self.agent_menu.is_empty() && self.window_menu.is_some())
+                    Node::button(if self.agents_active.iter().any(|a| a.controlling) { tr("An agent is controlling the screen") } else { tr("Agents active") }, r).id("agents").describe(names.join("\n")).expanded(!self.agent_menu.is_empty() && self.window_menu.is_some())
                 }
                 Slot::Privacy => {
                     if self.sharing {

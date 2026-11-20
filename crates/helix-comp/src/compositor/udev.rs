@@ -788,7 +788,7 @@ impl Helix {
                 );
             }
         } else {
-            let scene = super::frames::scene(renderer, space, frames, &output, focused.as_ref(), Some((&*animations, wm_settings.motion)), fullscreen_outputs.contains(&output));
+            let scene = super::frames::scene(renderer, space, frames, &output, focused.as_ref(), Some((&*animations, wm_settings.motion)), fullscreen_outputs.contains(&output), None);
             elements.extend(scene.into_iter().map(OutputElements::Scene));
         }
 

@@ -32,7 +32,11 @@
 //! with the shell as the only client agents reach ([`a11y`]). The
 //! clipboard methods (helixdesktop/desktop#151) read and set the clipboard
 //! through the compositor, refusing content whose source is protected
-//! ([`clipboard`]).
+//! ([`clipboard`]). The *Screen and input* methods
+//! (helixdesktop/desktop#150) take screenshots the compositor draws with
+//! protected windows and shell surfaces filled, and send synthetic input
+//! the compositor checks before every event and stops when the user takes
+//! over ([`screen`]).
 
 pub mod a11y;
 pub mod actions;
@@ -45,6 +49,7 @@ pub mod grants;
 pub mod identity;
 pub mod policy;
 pub mod prompt;
+pub mod screen;
 pub mod talk;
 
 use std::collections::HashMap;
@@ -291,6 +296,12 @@ struct Inner {
     reminder_notes: Mutex<HashMap<String, u32>>,
     /// The accessibility bus, for the *Control apps* methods.
     a11y: a11y::Bus,
+    /// Until when each agent shows as controlling the screen (its last
+    /// screenshot or input, and [`screen::CONTROL_SHOWN`]).
+    controlling: Mutex<HashMap<String, Instant>>,
+    /// Input runs going on: their agent and what stops them.
+    inputs: Mutex<Vec<(u64, String, Arc<tokio::sync::Notify>)>>,
+    next_input: std::sync::atomic::AtomicU64,
 }
 
 /// Where the *Read only* methods read the desktop's state.
@@ -422,6 +433,9 @@ impl AgentAccess {
                 reminder_limit: Mutex::new(actions::NotifyLimit::default()),
                 reminder_notes: Mutex::new(HashMap::new()),
                 a11y: a11y::Bus::default(),
+                controlling: Mutex::new(HashMap::new()),
+                inputs: Mutex::new(Vec::new()),
+                next_input: std::sync::atomic::AtomicU64::new(1),
                 log: Arc::new(activity::Log::new(setup.log_dir)),
             }),
         }
@@ -466,6 +480,9 @@ impl AgentAccess {
     /// Apply changed settings.
     pub fn settings_changed(&self, config: &Config) {
         self.inner.log.set_retention(config.log_retention_days, now());
+        if !config.enabled {
+            self.cancel_inputs(None);
+        }
         if !config.enabled && self.grants().revoke_all() {
             tracing::info!("agent access turned off; session grants ended");
         }
@@ -768,7 +785,7 @@ impl AgentAccess {
 
     /// How a reminder's notification names its agent, as the indicator.
     fn reminder_label(r: &talk::Reminder) -> String {
-        prompt::Active { agent: r.agent.clone(), executable: r.executable.clone(), name: r.name.clone(), level: Level::ReadOnly }.label()
+        prompt::Active { agent: r.agent.clone(), executable: r.executable.clone(), name: r.name.clone(), level: Level::ReadOnly, controlling: false }.label()
     }
 
     /// A line about reminder `r` (the event `Reminder`).
@@ -970,6 +987,168 @@ impl AgentAccess {
         .await
     }
 
+    /// Have the UI make screen request `make(reply)` of the compositor,
+    /// waiting at most `timeout` for the answer.
+    async fn screen_request<T>(&self, make: impl FnOnce(tokio::sync::oneshot::Sender<T>) -> screen::Request, timeout: Duration) -> Result<T, AgentError> {
+        let unavailable = || AgentError::Failed("the screen is not available".into());
+        let ui = self.inner.desktop.get().ok_or_else(unavailable)?.ui.clone();
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        ui.send(crate::UiEvent::AgentScreen(screen::ScreenSlot::new(make(reply)))).map_err(|_| unavailable())?;
+        tokio::time::timeout(timeout, answer).await.map_err(|_| AgentError::Failed("the compositor did not answer in time".into()))?.map_err(|_| unavailable())
+    }
+
+    /// Have the UI make screen request `request`, without an answer.
+    fn screen_send(&self, request: screen::Request) {
+        if let Some(desktop) = self.inner.desktop.get() {
+            let _ = desktop.ui.send(crate::UiEvent::AgentScreen(screen::ScreenSlot::new(request)));
+        }
+    }
+
+    /// The *Screen and input* methods' checks of the moment: not locked,
+    /// no system prompt shown. The windows.
+    async fn screen_clear(&self, caller: &Caller) -> Result<desktop::Snapshot, AgentError> {
+        if self.locked() {
+            return Err(AgentError::Locked("the screen is locked".into()));
+        }
+        let snapshot = self.snapshot().await?;
+        if snapshot.system_prompt {
+            caller.check_target(Target::SystemPrompt)?;
+        }
+        Ok(snapshot)
+    }
+
+    /// The windows a screenshot may show: those whose app, and process
+    /// (where it is known), are not protected (README.md, "Screen and
+    /// input methods").
+    async fn shown_windows(&self, caller: &Caller, snapshot: &desktop::Snapshot) -> Vec<u32> {
+        let (config, proc_root, shown) = (caller.config.clone(), self.inner.proc_root.clone(), snapshot.clone());
+        blocking(move || {
+            let installed = desktop::installed();
+            Ok(shown
+                .windows
+                .iter()
+                .filter(|w| policy::check_target(&config, Target::App(&w.app_id)).is_ok())
+                .filter(|w| w.pid == 0 || a11y::check_process(w.pid, &shown, &config, &installed, &proc_root).is_ok())
+                .map(|w| w.id)
+                .collect())
+        })
+        .await
+        .unwrap_or_default()
+    }
+
+    /// Window `id` as a screenshot's or input's target: recorded, and
+    /// refused when its app or process is protected.
+    async fn screen_window(&self, caller: &Caller, snapshot: &desktop::Snapshot, id: u32) -> Result<desktop::WindowInfo, AgentError> {
+        let Some(w) = snapshot.windows.iter().find(|w| w.id == id).cloned() else { return Err(AgentError::NotFound(format!("window {id}"))) };
+        caller.target(format!("window:{id} ({})", w.app_id));
+        caller.check_target(Target::App(&w.app_id))?;
+        if w.pid != 0 {
+            let (config, proc_root, shown, pid) = (caller.config.clone(), self.inner.proc_root.clone(), snapshot.clone(), w.pid);
+            blocking(move || a11y::check_process(pid, &shown, &config, &desktop::installed(), &proc_root)).await?;
+        }
+        Ok(w)
+    }
+
+    /// `agent` took a screenshot or sends input: the indicator says it
+    /// controls the screen, for [`screen::CONTROL_SHOWN`] more.
+    fn controlling(&self, agent: &Agent) {
+        self.inner.controlling.lock().unwrap_or_else(|e| e.into_inner()).insert(agent.id.clone(), Instant::now() + screen::CONTROL_SHOWN);
+        self.publish();
+        let weak = Arc::downgrade(&self.inner);
+        tokio::spawn(async move {
+            tokio::time::sleep(screen::CONTROL_SHOWN + Duration::from_millis(50)).await;
+            if let Some(inner) = weak.upgrade() {
+                AgentAccess { inner }.publish();
+            }
+        });
+    }
+
+    /// Stop `agent`'s input runs (`None`: everyone's) at once: *Stop*,
+    /// Settings' `Revoke` and `StopAll`, access turned off.
+    pub fn cancel_inputs(&self, agent: Option<&str>) {
+        for (_, a, stop) in self.inner.inputs.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            if agent.is_none_or(|x| x == a) {
+                stop.notify_one();
+            }
+        }
+    }
+
+    /// Send `plan`'s steps into `window` for `caller`, one at a time, each
+    /// checked by the compositor just before it is sent and by the shell
+    /// (the grant, system prompts) before it goes. How many steps were
+    /// done, and the error that stopped the rest.
+    async fn run_input(&self, caller: &Caller, window: u32, plan: &screen::Plan) -> (u64, Result<(), AgentError>) {
+        let run_id = self.inner.next_input.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let stop = Arc::new(tokio::sync::Notify::new());
+        self.inner.inputs.lock().unwrap_or_else(|e| e.into_inner()).push((run_id, caller.agent.id.clone(), stop.clone()));
+        let agent = caller.agent.id.clone();
+        let started = self.screen_request(|reply| screen::Request::Start { agent, window, reply }, Duration::from_secs(5)).await;
+        let result = match started {
+            Ok(Ok(run)) => {
+                let result = self.input_steps(caller, window, run, plan, &stop).await;
+                self.screen_send(screen::Request::End { run });
+                result
+            }
+            Ok(Err(why)) => (0, Err(AgentError::NotSupported(why))),
+            Err(err) => (0, Err(err)),
+        };
+        self.inner.inputs.lock().unwrap_or_else(|e| e.into_inner()).retain(|(id, _, _)| *id != run_id);
+        result
+    }
+
+    async fn input_steps(&self, caller: &Caller, window: u32, run: u64, plan: &screen::Plan, stop: &tokio::sync::Notify) -> (u64, Result<(), AgentError>) {
+        let stopped = || AgentError::Cancelled("stopped".into());
+        let mut done = 0u64;
+        for step in &plan.steps {
+            // The grant, the level, the lock (README.md, "Settings take
+            // effect at once"), and the shell's system prompts.
+            if let Err(err) = self.recheck(&caller.agent, SCREEN).await {
+                return (done, Err(err));
+            }
+            if let Err(err) = self.screen_clear(caller).await {
+                return (done, Err(err));
+            }
+            self.controlling(&caller.agent);
+            if let screen::Step::Wait(ms) = step {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_millis(u64::from(*ms))) => {}
+                    _ = stop.notified() => return (done, Err(stopped())),
+                }
+                done += 1;
+                continue;
+            }
+            // Long enough for a text typed a character at a time.
+            let chars = if let screen::Step::Text(t) = step { t.chars().count() as u64 } else { 1 };
+            let timeout = Duration::from_secs(5) + Duration::from_millis(20 * chars);
+            let (reply, answer) = tokio::sync::oneshot::channel();
+            self.screen_send(screen::Request::Step { run, step: step.clone(), reply });
+            let outcome = tokio::select! {
+                got = tokio::time::timeout(timeout, answer) => got,
+                _ = stop.notified() => {
+                    self.screen_send(screen::Request::Cancel { run });
+                    return (done, Err(stopped()));
+                }
+            };
+            match outcome {
+                Ok(Ok(Ok(()))) => done += 1,
+                Ok(Ok(Err(why))) => {
+                    // A stop the hard stop or *Stop* caused is the
+                    // user's: Cancelled.
+                    if why == screen::Stopped::Focus && self.locked() {
+                        return (done, Err(AgentError::Locked("the screen is locked".into())));
+                    }
+                    return (done, Err(why.error(window)));
+                }
+                Ok(Err(_)) => return (done, Err(AgentError::Failed("the input could not be sent".into()))),
+                Err(_) => {
+                    self.screen_send(screen::Request::Cancel { run });
+                    return (done, Err(AgentError::Failed("the compositor did not carry out the input in time".into())));
+                }
+            }
+        }
+        (done, Ok(()))
+    }
+
     /// Wait (at most [`SETTLE`]) until the windows show `done`.
     async fn settle(&self, done: impl Fn(&desktop::Snapshot) -> bool) {
         let until = Instant::now() + SETTLE;
@@ -1064,13 +1243,19 @@ impl AgentAccess {
             return Vec::new();
         }
         let running = self.inner.running.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let controlling = {
+            let mut c = self.inner.controlling.lock().unwrap_or_else(|e| e.into_inner());
+            let at = Instant::now();
+            c.retain(|_, until| *until > at);
+            c.clone()
+        };
         let grants = self.grants();
         let mut out: Vec<prompt::Active> = grants
             .list()
             .filter(|(id, e)| running.get(*id).is_some_and(|n| *n > 0) || (e.last_active > 0 && now - e.last_active < prompt::ACTIVE_FOR))
             .filter_map(|(id, e)| {
                 let level = grants.effective(id, &config)?;
-                Some(prompt::Active { agent: id.clone(), executable: e.executable.clone(), name: e.name.clone(), level })
+                Some(prompt::Active { agent: id.clone(), executable: e.executable.clone(), name: e.name.clone(), level, controlling: controlling.contains_key(id) })
             })
             .collect();
         out.sort_by(|a, b| a.agent.cmp(&b.agent));
@@ -1099,6 +1284,7 @@ impl AgentAccess {
     /// End `agent`'s session grant and denial (Settings' *Revoke*, the
     /// indicator's *Stop*).
     pub fn revoke(&self, agent: &str) {
+        self.cancel_inputs(Some(agent));
         if self.grants().revoke(agent) {
             tracing::info!(agent, "agent access revoked");
             self.changed();
@@ -1108,6 +1294,7 @@ impl AgentAccess {
     /// *Stop* in the indicator: end `agent`'s session grant, and ask again
     /// even if it is always allowed (README.md, "Indicator").
     pub fn stop(&self, agent: &str) {
+        self.cancel_inputs(Some(agent));
         let held = {
             let grants = self.grants();
             let config = Config::read();
@@ -1124,6 +1311,7 @@ impl AgentAccess {
 
     /// Revoke and forget a remembered grant.
     pub fn forget(&self, agent: &str) {
+        self.cancel_inputs(Some(agent));
         if self.grants().forget(agent) {
             tracing::info!(agent, "agent forgotten");
             self.changed();
@@ -1132,6 +1320,7 @@ impl AgentAccess {
 
     /// Revoke every agent.
     pub fn stop_all(&self) {
+        self.cancel_inputs(None);
         if self.grants().revoke_all() {
             tracing::info!("every agent's access revoked");
             self.changed();
@@ -1235,6 +1424,8 @@ const APPS: Need = Need::level(Level::Apps);
 const CLIPBOARD_READ: Need = Need { switch: Some(policy::Switch::Clipboard), ..READ };
 /// `SetClipboard`'s: controlling the desktop, with the `clipboard` switch.
 const CLIPBOARD_SET: Need = Need { switch: Some(policy::Switch::Clipboard), ..DESKTOP };
+/// A *Screen and input* method's.
+const SCREEN: Need = Need::level(Level::ScreenAndInput);
 
 /// Run `f` where it may block (GIO looking up and starting apps).
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, AgentError> + Send + 'static) -> Result<T, AgentError> {
@@ -2012,6 +2203,131 @@ impl Agent1 {
             self.access.confirm_control(&caller, "A11ySetValue", APPS, call, control(&target, &w)).await?;
             self.access.a11y_still_clear(&caller, window).await?;
             scope.set(&target, &to).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn screenshot(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<HashMap<String, OwnedValue>, AgentError> {
+        let caller = self.access.check(conn, &header, "Screenshot", SCREEN, CallOptions::from_dict(&options)).await?;
+        let result = async {
+            let shot = screen::ShotOptions::from_dict(&options)?;
+            caller.detail("scope", activity::Detail::Kind(shot.scope()));
+            caller.target(shot.scope());
+            let _busy = self.access.busy(&caller.agent);
+            let snapshot = self.access.screen_clear(&caller).await?;
+            // The window, or the monitor, or the screen.
+            let (window, area) = match (&shot.window, &shot.monitor) {
+                (Some(id), _) => {
+                    self.access.screen_window(&caller, &snapshot, *id).await?;
+                    (*id, shot.area)
+                }
+                (None, Some(connector)) => {
+                    caller.target(format!("monitor:{connector}"));
+                    let Some(m) = snapshot.monitors.iter().find(|m| &m.connector == connector) else { return Err(AgentError::NotFound(format!("monitor {connector}"))) };
+                    let (mx, my, mw, mh) = m.area;
+                    let area = match shot.area {
+                        None => (mx, my, mw, mh),
+                        Some((x, y, w, h)) => {
+                            if x < 0 || y < 0 || x + w > mw || y + h > mh {
+                                return Err(AgentError::invalid_args("the area is not on the monitor"));
+                            }
+                            (mx + x, my + y, w, h)
+                        }
+                    };
+                    (0, Some(area))
+                }
+                (None, None) => (0, shot.area),
+            };
+            let mut shown = self.access.shown_windows(&caller, &snapshot).await;
+            if window != 0 && !shown.contains(&window) {
+                // Checked just now; only a window that came since.
+                shown.push(window);
+            }
+            let layers: Vec<String> = screen::SHOWN_LAYERS.iter().map(|l| (*l).to_owned()).collect();
+            // Again just before the compositor draws it.
+            self.access.screen_clear(&caller).await?;
+            self.access.controlling(&caller.agent);
+            let got = self.access.screen_request(|reply| screen::Request::Capture { window, area, shown, layers, reply }, Duration::from_secs(10)).await?;
+            let taken = got.map_err(|e| match e {
+                screen::ShotError::Locked => AgentError::Locked("the screen is locked".into()),
+                screen::ShotError::NoWindow => AgentError::NotFound(format!("window {window}")),
+                screen::ShotError::Invalid => AgentError::invalid_args(format!("the area is empty, not on the screen or the window, or more than {} pixels across", 16384)),
+                screen::ShotError::Failed => AgentError::Failed("the compositor could not take the screenshot".into()),
+            })?;
+            let (rect, filled) = (taken.rect, taken.filled);
+            let png = blocking(move || screen::read_png(taken.file)).await?;
+            if self.access.locked() {
+                return Err(AgentError::Locked("the screen is locked".into()));
+            }
+            let record = screen::record(png, rect, filled)?;
+            // Its size and how much was filled; never the pixels.
+            if let (Some(w), Some(h)) = (record.get("width"), record.get("height")) {
+                caller.detail("width", activity::Detail::Count(i32::try_from(w.clone()).unwrap_or(0) as u64));
+                caller.detail("height", activity::Detail::Count(i32::try_from(h.clone()).unwrap_or(0) as u64));
+            }
+            caller.detail("filled-count", activity::Detail::Count(u64::from(filled)));
+            Ok(record)
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn input(
+        &self,
+        events: Vec<HashMap<String, OwnedValue>>,
+        options: HashMap<String, OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "Input", SCREEN, call).await?;
+        let result = async {
+            let plan = screen::plan(&events)?;
+            // Counts and lengths only: never keys or text.
+            caller.detail("event-count", activity::Detail::Count(plan.events));
+            for (key, n) in [("move-count", plan.moves), ("click-count", plan.clicks), ("button-count", plan.buttons), ("scroll-count", plan.scrolls), ("key-count", plan.keys), ("shortcut-count", plan.shortcuts), ("text-length", plan.text_length)] {
+                if n > 0 {
+                    caller.detail(key, activity::Detail::Count(n));
+                }
+            }
+            let wanted = match options.get("window") {
+                None => None,
+                Some(v) => Some(u32::try_from(v.clone()).map_err(|_| AgentError::invalid_args("“window” must be a number (u)"))?).filter(|w| *w != 0),
+            };
+            let snapshot = self.access.screen_clear(&caller).await?;
+            let window = match wanted {
+                Some(w) => w,
+                None if snapshot.focused != 0 => snapshot.focused,
+                None => return Err(AgentError::NotFound("no window has the keyboard focus".into())),
+            };
+            let w = self.access.screen_window(&caller, &snapshot, window).await?;
+            self.access.confirm(&caller, "Input", SCREEN, call).await?;
+            let snapshot = self.access.screen_clear(&caller).await?;
+            if snapshot.focused != window {
+                // The window named: focused first, then checked again.
+                self.access.window_ops(vec![actions::WindowOp::Activate(window)]).await?;
+                self.access.settle(|s| s.focused == window).await;
+                let snapshot = self.access.screen_clear(&caller).await?;
+                if snapshot.focused != window {
+                    return Err(AgentError::Failed("the window did not take the keyboard focus".into()));
+                }
+                self.access.screen_window(&caller, &snapshot, window).await?;
+            }
+            // Positions are in the window: not past its size.
+            let (_, _, width, height) = w.geometry;
+            for step in &plan.steps {
+                if let screen::Step::Motion(x, y) = step {
+                    if *x >= f64::from(width) || *y >= f64::from(height) {
+                        return Err(AgentError::invalid_args(format!("a position outside the window ({width}×{height})")));
+                    }
+                }
+            }
+            let _busy = self.access.busy(&caller.agent);
+            self.access.controlling(&caller.agent);
+            let (done, result) = self.access.run_input(&caller, window, &plan).await;
+            caller.detail("done-count", activity::Detail::Count(done));
+            result
         }
         .await;
         caller.finish(result)

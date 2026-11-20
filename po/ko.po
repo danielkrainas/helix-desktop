@@ -26,7 +26,7 @@ msgstr "“{value}”은(는) 1 이상의 숫자가 아닙니다"
 msgid "No matching controls."
 msgstr "일치하는 컨트롤이 없습니다."
 
-#: crates/helix-agent/src/a11y.rs:81
+#: crates/helix-agent/src/a11y.rs:81 crates/helix-agent/src/screen.rs:26
 msgid "“{value}” is not a number"
 msgstr "“{value}”은(는) 숫자가 아닙니다"
 
@@ -61,12 +61,12 @@ msgstr "“{value}”은(는) {name}에 맞는 숫자가 아닙니다"
 msgid "“{value}” is not a workspace number"
 msgstr "“{value}”은(는) 작업 공간 번호가 아닙니다"
 
-#: crates/helix-agent/src/act.rs:78 crates/helix-agent/src/main.rs:199
+#: crates/helix-agent/src/act.rs:78 crates/helix-agent/src/main.rs:204
 #: crates/helix-agent/src/read.rs:190
 msgid "off"
 msgstr "꺼짐"
 
-#: crates/helix-agent/src/act.rs:78 crates/helix-agent/src/main.rs:199
+#: crates/helix-agent/src/act.rs:78 crates/helix-agent/src/main.rs:204
 #: crates/helix-agent/src/read.rs:190
 msgid "on"
 msgstr "켜짐"
@@ -108,18 +108,30 @@ msgid "Only controls whose name contains TEXT"
 msgstr "이름에 TEXT가 들어 있는 컨트롤만"
 
 #: crates/helix-agent/src/cli.rs:80
+msgid "Into this window, focusing it first (default: the focused window)"
+msgstr "이 창에 입력(먼저 포커스를 줍니다. 기본값: 포커스가 있는 창)"
+
+#: crates/helix-agent/src/cli.rs:81
+msgid "Across the window from its left edge, in logical pixels"
+msgstr "창 왼쪽 가장자리로부터의 가로 위치(논리 픽셀)"
+
+#: crates/helix-agent/src/cli.rs:82
+msgid "Down the window from its top edge, in logical pixels"
+msgstr "창 위쪽 가장자리로부터의 세로 위치(논리 픽셀)"
+
+#: crates/helix-agent/src/cli.rs:85
 msgid "Only controls in this state, e.g. focused, checked (repeat for more)"
 msgstr "이 상태의 컨트롤만 (예: focused, checked, 여러 개는 반복)"
 
-#: crates/helix-agent/src/cli.rs:84
+#: crates/helix-agent/src/cli.rs:89
 msgid "Status:"
 msgstr "상태:"
 
-#: crates/helix-agent/src/cli.rs:85
+#: crates/helix-agent/src/cli.rs:90
 msgid "Show whether agent access is on and what this agent may do"
 msgstr "에이전트 접근이 켜져 있는지, 이 에이전트가 무엇을 할 수 있는지 표시"
 
-#: crates/helix-agent/src/cli.rs:88
+#: crates/helix-agent/src/cli.rs:93
 msgid ""
 "The level to ask for: read-only, desktop, apps or screen-and-input (default: "
 "the level set in Settings)"
@@ -127,194 +139,194 @@ msgstr ""
 "요청할 수준: read-only, desktop, apps, screen-and-input (기본값: 설정에서 고"
 "른 수준)"
 
-#: crates/helix-agent/src/cli.rs:89
+#: crates/helix-agent/src/cli.rs:94
 msgid "Ask the user for access now"
 msgstr "지금 사용자에게 접근을 요청"
 
-#: crates/helix-agent/src/cli.rs:92
+#: crates/helix-agent/src/cli.rs:97
 msgid "Read (Read only):"
 msgstr "읽기 (읽기 전용):"
 
-#: crates/helix-agent/src/cli.rs:93
+#: crates/helix-agent/src/cli.rs:98
 msgid "Focused window, workspace and quick settings"
 msgstr "포커스된 창, 작업 공간, 빠른 설정"
 
-#: crates/helix-agent/src/cli.rs:97
+#: crates/helix-agent/src/cli.rs:102
 msgid "Only the focused window"
 msgstr "포커스된 창만"
 
-#: crates/helix-agent/src/cli.rs:97
+#: crates/helix-agent/src/cli.rs:102
 msgid "Only this app's windows"
 msgstr "이 앱의 창만"
 
-#: crates/helix-agent/src/cli.rs:98
+#: crates/helix-agent/src/cli.rs:103
 msgid "Open windows"
 msgstr "열린 창"
 
-#: crates/helix-agent/src/cli.rs:100
+#: crates/helix-agent/src/cli.rs:105
 msgid "Installed and running apps"
 msgstr "설치된 앱과 실행 중인 앱"
 
-#: crates/helix-agent/src/cli.rs:100
+#: crates/helix-agent/src/cli.rs:105
 msgid "Only running apps"
 msgstr "실행 중인 앱만"
 
-#: crates/helix-agent/src/cli.rs:101 crates/helix-shell/src/panel_layout.rs:49
+#: crates/helix-agent/src/cli.rs:106 crates/helix-shell/src/panel_layout.rs:49
 #: crates/helix-shell/src/ui/atspi.rs:562
 #: crates/helix-shell/src/ui/overview.rs:1201
 #: crates/helix-shell/src/ui/workspace_popup.rs:171
 msgid "Workspaces"
 msgstr "작업 공간"
 
-#: crates/helix-agent/src/cli.rs:102
+#: crates/helix-agent/src/cli.rs:107
 msgid "Monitors"
 msgstr "모니터"
 
-#: crates/helix-agent/src/cli.rs:103
+#: crates/helix-agent/src/cli.rs:108
 msgid "Recent notifications"
 msgstr "최근 알림"
 
-#: crates/helix-agent/src/cli.rs:106
+#: crates/helix-agent/src/cli.rs:111
 msgid "Recently used files"
 msgstr "최근 사용한 파일"
 
-#: crates/helix-agent/src/cli.rs:110
+#: crates/helix-agent/src/cli.rs:115
 msgid "Words in the file's name or contents"
 msgstr "파일 이름이나 내용에 있는 단어"
 
-#: crates/helix-agent/src/cli.rs:112
+#: crates/helix-agent/src/cli.rs:117
 msgid "Changed at or after WHEN"
 msgstr "WHEN 이후에 변경됨"
 
-#: crates/helix-agent/src/cli.rs:113
+#: crates/helix-agent/src/cli.rs:118
 msgid "Changed before WHEN"
 msgstr "WHEN 이전에 변경됨"
 
-#: crates/helix-agent/src/cli.rs:115
+#: crates/helix-agent/src/cli.rs:120
 msgid "Only in this folder"
 msgstr "이 폴더 안에서만"
 
-#: crates/helix-agent/src/cli.rs:118
+#: crates/helix-agent/src/cli.rs:123
 msgid "Search for files"
 msgstr "파일 검색"
 
-#: crates/helix-agent/src/cli.rs:122
+#: crates/helix-agent/src/cli.rs:127
 msgid "Recent files and file search"
 msgstr "최근 파일과 파일 검색"
 
-#: crates/helix-agent/src/cli.rs:129
+#: crates/helix-agent/src/cli.rs:134
 msgid "A window of this app"
 msgstr "이 앱의 창"
 
-#: crates/helix-agent/src/cli.rs:129
+#: crates/helix-agent/src/cli.rs:134
 msgid "A window whose title contains TEXT"
 msgstr "제목에 TEXT가 들어간 창"
 
-#: crates/helix-agent/src/cli.rs:129
+#: crates/helix-agent/src/cli.rs:134
 msgid "Only once it has the focus"
 msgstr "포커스를 받은 뒤에만"
 
-#: crates/helix-agent/src/cli.rs:130
+#: crates/helix-agent/src/cli.rs:135
 msgid "Wait until a matching window is open"
 msgstr "조건에 맞는 창이 열릴 때까지 대기"
 
-#: crates/helix-agent/src/cli.rs:132
+#: crates/helix-agent/src/cli.rs:137
 msgid "Wait until a window is closed"
 msgstr "창이 닫힐 때까지 대기"
 
-#: crates/helix-agent/src/cli.rs:135
+#: crates/helix-agent/src/cli.rs:140
 msgid "Wait for a window to appear or close"
 msgstr "창이 나타나거나 닫힐 때까지 대기"
 
-#: crates/helix-agent/src/cli.rs:138
+#: crates/helix-agent/src/cli.rs:143
 msgid "Talk to the user (Read only):"
 msgstr "사용자와 대화 (읽기 전용):"
 
-#: crates/helix-agent/src/cli.rs:141 crates/helix-agent/src/cli.rs:151
+#: crates/helix-agent/src/cli.rs:146 crates/helix-agent/src/cli.rs:156
 msgid "What to ask (plain text, at most 500 characters)"
 msgstr "물을 내용 (일반 텍스트, 최대 500자)"
 
-#: crates/helix-agent/src/cli.rs:143
+#: crates/helix-agent/src/cli.rs:148
 msgid "An answer to offer (2 to 8; repeat for more)"
 msgstr "제시할 답 (2~8개, 여러 번 지정)"
 
-#: crates/helix-agent/src/cli.rs:144
+#: crates/helix-agent/src/cli.rs:149
 msgid "The answer filled in at first, or the choice picked at first"
 msgstr "처음에 입력된 답 또는 처음에 선택된 항목"
 
-#: crates/helix-agent/src/cli.rs:147
+#: crates/helix-agent/src/cli.rs:152
 msgid "Ask the user a question"
 msgstr "사용자에게 질문"
 
-#: crates/helix-agent/src/cli.rs:152
+#: crates/helix-agent/src/cli.rs:157
 msgid "The no button's label (at most 24 characters)"
 msgstr "'아니요' 단추의 레이블 (최대 24자)"
 
-#: crates/helix-agent/src/cli.rs:152
+#: crates/helix-agent/src/cli.rs:157
 msgid "The yes button's label (at most 24 characters)"
 msgstr "'예' 단추의 레이블 (최대 24자)"
 
-#: crates/helix-agent/src/cli.rs:153
+#: crates/helix-agent/src/cli.rs:158
 msgid "Ask the user yes or no"
 msgstr "사용자에게 예 또는 아니요로 질문"
 
-#: crates/helix-agent/src/cli.rs:158
+#: crates/helix-agent/src/cli.rs:163
 msgid "Add a reminder"
 msgstr "알림 추가"
 
-#: crates/helix-agent/src/cli.rs:158
+#: crates/helix-agent/src/cli.rs:163
 msgid "What to say (at most 500 characters)"
 msgstr "알릴 내용 (최대 500자)"
 
-#: crates/helix-agent/src/cli.rs:158
+#: crates/helix-agent/src/cli.rs:163
 msgid "When to remind: a date and time, or +10m, +2h…"
 msgstr "알릴 시각: 날짜와 시간 또는 +10m, +2h 등"
 
-#: crates/helix-agent/src/cli.rs:159
+#: crates/helix-agent/src/cli.rs:164
 msgid "This agent's reminders"
 msgstr "이 에이전트의 알림"
 
-#: crates/helix-agent/src/cli.rs:160
+#: crates/helix-agent/src/cli.rs:165
 msgid "A reminder id from “helix-agent remind list”"
 msgstr "“helix-agent remind list”에서 얻은 알림 ID"
 
-#: crates/helix-agent/src/cli.rs:160
+#: crates/helix-agent/src/cli.rs:165
 msgid "Cancel a reminder"
 msgstr "알림 취소"
 
-#: crates/helix-agent/src/cli.rs:162
+#: crates/helix-agent/src/cli.rs:167
 msgid "Reminders for the user"
 msgstr "사용자를 위한 알림"
 
-#: crates/helix-agent/src/cli.rs:165
+#: crates/helix-agent/src/cli.rs:170
 msgid "Act (Control the desktop):"
 msgstr "동작 (데스크톱 제어):"
 
-#: crates/helix-agent/src/cli.rs:166
+#: crates/helix-agent/src/cli.rs:171
 msgid "A file, folder or URL"
 msgstr "파일, 폴더 또는 URL"
 
-#: crates/helix-agent/src/cli.rs:166
+#: crates/helix-agent/src/cli.rs:171
 msgid "Open a file or URL in its app"
 msgstr "파일이나 URL을 해당 앱으로 열기"
 
-#: crates/helix-agent/src/cli.rs:166
+#: crates/helix-agent/src/cli.rs:171
 msgid "Open it with this app"
 msgstr "이 앱으로 열기"
 
-#: crates/helix-agent/src/cli.rs:169
+#: crates/helix-agent/src/cli.rs:174
 msgid "Files or URLs to open in it"
 msgstr "그 앱에서 열 파일이나 URL"
 
-#: crates/helix-agent/src/cli.rs:169
+#: crates/helix-agent/src/cli.rs:174
 msgid "The app's id, e.g. org.gnome.TextEditor"
 msgstr "앱 ID (예: org.gnome.TextEditor)"
 
-#: crates/helix-agent/src/cli.rs:170
+#: crates/helix-agent/src/cli.rs:175
 msgid "Start an app"
 msgstr "앱 시작"
 
-#: crates/helix-agent/src/cli.rs:175
+#: crates/helix-agent/src/cli.rs:180
 msgid ""
 "focus, close, minimize, maximize, unmaximize, restore, fullscreen, "
 "unfullscreen, tile-left, tile-right, move X Y, resize WIDTH HEIGHT or to-"
@@ -324,415 +336,454 @@ msgstr ""
 "unfullscreen, tile-left, tile-right, move X Y, resize WIDTH HEIGHT 또는 to-"
 "workspace INDEX"
 
-#: crates/helix-agent/src/cli.rs:177
+#: crates/helix-agent/src/cli.rs:182
 msgid "The action's numbers"
 msgstr "동작에 쓸 숫자"
 
-#: crates/helix-agent/src/cli.rs:179
+#: crates/helix-agent/src/cli.rs:184
 msgid "Focus, move, tile or close a window"
 msgstr "창 포커스, 이동, 배치 또는 닫기"
 
-#: crates/helix-agent/src/cli.rs:183
+#: crates/helix-agent/src/cli.rs:188
 msgid "Switch to a workspace"
 msgstr "작업 공간으로 전환"
 
-#: crates/helix-agent/src/cli.rs:183
+#: crates/helix-agent/src/cli.rs:188
 msgid "The workspace's number, from 0"
 msgstr "작업 공간 번호 (0부터)"
 
-#: crates/helix-agent/src/cli.rs:184
+#: crates/helix-agent/src/cli.rs:189
 msgid "Switch workspaces"
 msgstr "작업 공간 전환"
 
-#: crates/helix-agent/src/cli.rs:188
+#: crates/helix-agent/src/cli.rs:193
 msgid "dark-style, do-not-disturb, night-light, wifi, airplane-mode or mute"
 msgstr "dark-style, do-not-disturb, night-light, wifi, airplane-mode 또는 mute"
 
-#: crates/helix-agent/src/cli.rs:188
+#: crates/helix-agent/src/cli.rs:193
 msgid "on or off (default: flip it)"
 msgstr "on 또는 off (기본값: 반전)"
 
-#: crates/helix-agent/src/cli.rs:189
+#: crates/helix-agent/src/cli.rs:194
 msgid "Turn a quick setting on or off"
 msgstr "빠른 설정 켜기 또는 끄기"
 
-#: crates/helix-agent/src/cli.rs:191
+#: crates/helix-agent/src/cli.rs:196
 msgid "A percentage"
 msgstr "백분율"
 
-#: crates/helix-agent/src/cli.rs:191
+#: crates/helix-agent/src/cli.rs:196
 msgid "Set volume or brightness"
 msgstr "음량 또는 밝기 설정"
 
-#: crates/helix-agent/src/cli.rs:191
+#: crates/helix-agent/src/cli.rs:196
 msgid "volume or brightness"
 msgstr "volume 또는 brightness"
 
-#: crates/helix-agent/src/cli.rs:194
+#: crates/helix-agent/src/cli.rs:199
 msgid "More text below it"
 msgstr "아래에 표시할 추가 텍스트"
 
-#: crates/helix-agent/src/cli.rs:194
+#: crates/helix-agent/src/cli.rs:199
 msgid "The notification's title"
 msgstr "알림 제목"
 
-#: crates/helix-agent/src/cli.rs:195
+#: crates/helix-agent/src/cli.rs:200
 msgid "An icon name"
 msgstr "아이콘 이름"
 
-#: crates/helix-agent/src/cli.rs:195
+#: crates/helix-agent/src/cli.rs:200
 msgid "low or normal"
 msgstr "low 또는 normal"
 
-#: crates/helix-agent/src/cli.rs:196
+#: crates/helix-agent/src/cli.rs:201
 msgid "Show the user a notification"
 msgstr "사용자에게 알림 표시"
 
-#: crates/helix-agent/src/cli.rs:207
+#: crates/helix-agent/src/cli.rs:212
 msgid ""
 "The type to read, e.g. text/plain, text/html or image/* (default: text, else "
 "an image)"
-msgstr "읽을 형식(예: text/plain, text/html, image/*; 기본값: 텍스트, 없으면 이미지)"
+msgstr ""
+"읽을 형식(예: text/plain, text/html, image/*; 기본값: 텍스트, 없으면 이미지)"
 
-#: crates/helix-agent/src/cli.rs:208
+#: crates/helix-agent/src/cli.rs:213
 msgid "Write the content to FILE"
 msgstr "내용을 FILE에 쓰기"
 
-#: crates/helix-agent/src/cli.rs:210
+#: crates/helix-agent/src/cli.rs:215
 msgid "Read the clipboard"
 msgstr "클립보드 읽기"
 
-#: crates/helix-agent/src/cli.rs:212
+#: crates/helix-agent/src/cli.rs:217
 msgid "The types the clipboard offers"
 msgstr "클립보드가 제공하는 형식"
 
-#: crates/helix-agent/src/cli.rs:216
+#: crates/helix-agent/src/cli.rs:221
 msgid "The text (default: read from standard input)"
 msgstr "텍스트 (기본값: 표준 입력에서 읽음)"
 
-#: crates/helix-agent/src/cli.rs:217
+#: crates/helix-agent/src/cli.rs:222
 msgid "text/plain (default), text/html, text/uri-list or image/png"
 msgstr "text/plain(기본값), text/html, text/uri-list 또는 image/png"
 
-#: crates/helix-agent/src/cli.rs:218
+#: crates/helix-agent/src/cli.rs:223
 msgid "Set the clipboard"
 msgstr "클립보드 설정"
 
-#: crates/helix-agent/src/cli.rs:221
+#: crates/helix-agent/src/cli.rs:226
 msgid "Read or set the clipboard (needs Clipboard access)"
 msgstr "클립보드 읽기 또는 설정 (클립보드 접근 필요)"
 
-#: crates/helix-agent/src/cli.rs:224
+#: crates/helix-agent/src/cli.rs:229
 msgid "Apps (Control apps):"
 msgstr "앱 (앱 제어):"
 
-#: crates/helix-agent/src/cli.rs:232
+#: crates/helix-agent/src/cli.rs:237
 msgid "How many levels down to go (0: the node alone)"
 msgstr "몇 단계 아래까지 읽을지 (0: 그 노드만)"
 
-#: crates/helix-agent/src/cli.rs:233
+#: crates/helix-agent/src/cli.rs:238
 msgid "Start at this node"
 msgstr "이 노드에서 시작"
 
-#: crates/helix-agent/src/cli.rs:234
+#: crates/helix-agent/src/cli.rs:239
 msgid "Read at most N nodes [default: 1000]"
 msgstr "최대 N개의 노드 읽기 [기본값: 1000]"
 
-#: crates/helix-agent/src/cli.rs:235
+#: crates/helix-agent/src/cli.rs:240
 msgid "Where each control is in its window"
 msgstr "각 컨트롤이 창 안의 어디에 있는지"
 
-#: crates/helix-agent/src/cli.rs:237
+#: crates/helix-agent/src/cli.rs:242
 msgid "An app window's controls"
 msgstr "앱 창의 컨트롤"
 
-#: crates/helix-agent/src/cli.rs:239
+#: crates/helix-agent/src/cli.rs:244
 msgid "Find controls by role, name or state"
 msgstr "역할, 이름 또는 상태로 컨트롤 찾기"
 
-#: crates/helix-agent/src/cli.rs:240
+#: crates/helix-agent/src/cli.rs:245
 msgid "Wait until a matching control is there"
 msgstr "일치하는 컨트롤이 나타날 때까지 기다리기"
 
-#: crates/helix-agent/src/cli.rs:241
+#: crates/helix-agent/src/cli.rs:246
 msgid "One of the node's actions, e.g. click"
 msgstr "노드의 동작 중 하나 (예: click)"
 
-#: crates/helix-agent/src/cli.rs:241
+#: crates/helix-agent/src/cli.rs:246
 msgid "Use a control"
 msgstr "컨트롤 사용"
 
-#: crates/helix-agent/src/cli.rs:242
+#: crates/helix-agent/src/cli.rs:247
 msgid "Press a control (its first action)"
 msgstr "컨트롤 누르기 (첫 번째 동작)"
 
-#: crates/helix-agent/src/cli.rs:243
+#: crates/helix-agent/src/cli.rs:248
 msgid "Give a control the keyboard focus"
 msgstr "컨트롤에 키보드 포커스 주기"
 
-#: crates/helix-agent/src/cli.rs:244
+#: crates/helix-agent/src/cli.rs:249
 msgid "Select an item in its list or tabs"
 msgstr "목록이나 탭에서 항목 선택하기"
 
-#: crates/helix-agent/src/cli.rs:247
+#: crates/helix-agent/src/cli.rs:252
 msgid "The new text, or number with --number"
 msgstr "새 텍스트, 또는 --number와 함께 숫자"
 
-#: crates/helix-agent/src/cli.rs:248
+#: crates/helix-agent/src/cli.rs:253
 msgid "VALUE is a number (sliders, spin buttons)"
 msgstr "VALUE는 숫자입니다 (슬라이더, 스핀 버튼)"
 
-#: crates/helix-agent/src/cli.rs:249
+#: crates/helix-agent/src/cli.rs:254
 msgid "Change a control's text or value"
 msgstr "컨트롤의 텍스트나 값 바꾸기"
 
-#: crates/helix-agent/src/cli.rs:252
+#: crates/helix-agent/src/cli.rs:257
 msgid "Read and use an app's controls"
 msgstr "앱의 컨트롤 읽기 및 사용"
 
-#: crates/helix-agent/src/cli.rs:254
+#: crates/helix-agent/src/cli.rs:259
 msgid "Screen and input (Screen and input):"
 msgstr "화면 및 입력 (화면 및 입력):"
 
-#: crates/helix-agent/src/cli.rs:257
-msgid "Only this monitor"
-msgstr "이 모니터만"
+#: crates/helix-agent/src/cli.rs:264
+msgid "Only this window (it may be on another workspace)"
+msgstr "이 창만(다른 작업 공간에 있어도 됩니다)"
 
-#: crates/helix-agent/src/cli.rs:257
-msgid "Only this window"
-msgstr "이 창만"
+#: crates/helix-agent/src/cli.rs:265
+msgid "Only this monitor, e.g. eDP-1 (see “helix-agent monitors”)"
+msgstr "이 모니터만, 예: eDP-1(“helix-agent monitors” 참고)"
 
-#: crates/helix-agent/src/cli.rs:257
+#: crates/helix-agent/src/cli.rs:266
+msgid ""
+"Only this area: in the window, the monitor or the screen, in logical pixels"
+msgstr "이 영역만: 창, 모니터 또는 화면 안의 논리 픽셀"
+
+#: crates/helix-agent/src/cli.rs:267
 msgid "Write the PNG to FILE"
 msgstr "PNG를 FILE에 쓰기"
 
-#: crates/helix-agent/src/cli.rs:258
+#: crates/helix-agent/src/cli.rs:269
 msgid "Take a screenshot"
 msgstr "스크린샷 찍기"
 
-#: crates/helix-agent/src/cli.rs:262
-msgid "Key combinations such as ctrl+c, alt+F4 or Return"
-msgstr "ctrl+c, alt+F4, Return 같은 키 조합"
+#: crates/helix-agent/src/cli.rs:274
+msgid "Key combinations such as ctrl+s, alt+F4 or Return, pressed in turn"
+msgstr "ctrl+s, alt+F4, Return 같은 키 조합(차례로 누릅니다)"
 
-#: crates/helix-agent/src/cli.rs:262
+#: crates/helix-agent/src/cli.rs:274
 msgid "Press keys"
 msgstr "키 누르기"
 
-#: crates/helix-agent/src/cli.rs:263
-msgid "The text"
-msgstr "텍스트"
+#: crates/helix-agent/src/cli.rs:275
+msgid "The text (any characters; a line break is Return)"
+msgstr "텍스트(아무 문자나 가능, 줄바꿈은 Return)"
 
-#: crates/helix-agent/src/cli.rs:263
+#: crates/helix-agent/src/cli.rs:275
 msgid "Type text"
 msgstr "텍스트 입력"
 
-#: crates/helix-agent/src/cli.rs:264
-msgid "1 left, 2 middle, 3 right (default 1)"
-msgstr "1 왼쪽, 2 가운데, 3 오른쪽 (기본값 1)"
+#: crates/helix-agent/src/cli.rs:279
+msgid "Click N times (2: a double click; at most 3)"
+msgstr "N번 클릭(2: 두 번 클릭, 최대 3)"
 
-#: crates/helix-agent/src/cli.rs:264 crates/helix-agent/src/cli.rs:265
-msgid "Across, in logical pixels"
-msgstr "가로, 논리 픽셀"
+#: crates/helix-agent/src/cli.rs:279 crates/helix-agent/src/cli.rs:292
+msgid "left (default), middle, right, back or forward"
+msgstr "left(기본값), middle, right, back 또는 forward"
 
-#: crates/helix-agent/src/cli.rs:264
-msgid "Click at a point"
-msgstr "한 지점 클릭"
+#: crates/helix-agent/src/cli.rs:280
+msgid "Click at a point in the window"
+msgstr "창 안의 한 지점을 클릭"
 
-#: crates/helix-agent/src/cli.rs:264 crates/helix-agent/src/cli.rs:265
-msgid "Down, in logical pixels"
-msgstr "세로, 논리 픽셀"
+#: crates/helix-agent/src/cli.rs:282
+msgid "Move the pointer to a point in the window"
+msgstr "포인터를 창 안의 한 지점으로 이동"
 
-#: crates/helix-agent/src/cli.rs:265
-msgid "Move the pointer"
-msgstr "포인터 이동"
+#: crates/helix-agent/src/cli.rs:285
+msgid "Wheel steps across (negative: left)"
+msgstr "가로 휠 단계(음수: 왼쪽)"
 
-#: crates/helix-agent/src/cli.rs:266
-msgid "Across, in pixels"
-msgstr "가로, 픽셀"
+#: crates/helix-agent/src/cli.rs:285
+msgid "Wheel steps down (negative: up)"
+msgstr "세로 휠 단계(음수: 위쪽)"
 
-#: crates/helix-agent/src/cli.rs:266
-msgid "Down, in pixels"
-msgstr "세로, 픽셀"
+#: crates/helix-agent/src/cli.rs:286
+msgid "Scroll at this point in the window (default: where the pointer is)"
+msgstr "창 안의 이 지점에서 스크롤(기본값: 포인터가 있는 곳)"
 
-#: crates/helix-agent/src/cli.rs:266
+#: crates/helix-agent/src/cli.rs:287
 msgid "Scroll"
 msgstr "스크롤"
 
-#: crates/helix-agent/src/cli.rs:268
+#: crates/helix-agent/src/cli.rs:291
+msgid "From, across"
+msgstr "시작, 가로"
+
+#: crates/helix-agent/src/cli.rs:291
+msgid "From, down"
+msgstr "시작, 세로"
+
+#: crates/helix-agent/src/cli.rs:291
+msgid "To, across"
+msgstr "끝, 가로"
+
+#: crates/helix-agent/src/cli.rs:291
+msgid "To, down"
+msgstr "끝, 세로"
+
+#: crates/helix-agent/src/cli.rs:293
+msgid "Drag from one point to another"
+msgstr "한 지점에서 다른 지점으로 끌기"
+
+#: crates/helix-agent/src/cli.rs:297
+msgid ""
+"move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
+"[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
+"scroll DX DY, type TEXT, wait MS"
+msgstr "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS"
+
+#: crates/helix-agent/src/cli.rs:299
+msgid ""
+"Several steps in one go (keys and buttons held down are let go at the end)"
+msgstr "여러 단계를 한 번에(누르고 있는 키와 버튼은 끝에 놓습니다)"
+
+#: crates/helix-agent/src/cli.rs:302
 msgid "Send keys, text, clicks and scrolling"
 msgstr "키, 텍스트, 클릭, 스크롤 보내기"
 
-#: crates/helix-agent/src/cli.rs:271
+#: crates/helix-agent/src/cli.rs:305
 msgid "Other:"
 msgstr "기타:"
 
-#: crates/helix-agent/src/cli.rs:272
+#: crates/helix-agent/src/cli.rs:306
 msgid "Only entries at or after WHEN"
 msgstr "WHEN 이후 항목만"
 
-#: crates/helix-agent/src/cli.rs:272
+#: crates/helix-agent/src/cli.rs:306
 msgid "Only this agent"
 msgstr "이 에이전트만"
 
-#: crates/helix-agent/src/cli.rs:272
+#: crates/helix-agent/src/cli.rs:306
 msgid "Show what agents did"
 msgstr "에이전트가 한 일 표시"
 
-#: crates/helix-agent/src/cli.rs:273
+#: crates/helix-agent/src/cli.rs:307
 msgid "A command, or “exit-codes”"
 msgstr "명령 또는 “exit-codes”"
 
-#: crates/helix-agent/src/cli.rs:273
+#: crates/helix-agent/src/cli.rs:307
 msgid "Help for a command, or \"help exit-codes\""
 msgstr "명령의 도움말 또는 “help exit-codes”"
 
-#: crates/helix-agent/src/cli.rs:274
+#: crates/helix-agent/src/cli.rs:308
 msgid "Shell completions"
 msgstr "셸 자동 완성"
 
-#: crates/helix-agent/src/cli.rs:274
+#: crates/helix-agent/src/cli.rs:308
 msgid "bash, zsh or fish"
 msgstr "bash, zsh 또는 fish"
 
-#: crates/helix-agent/src/cli.rs:280
+#: crates/helix-agent/src/cli.rs:314
 msgid "JSON output (default when not on a terminal)"
 msgstr "JSON 출력 (터미널이 아니면 기본값)"
 
-#: crates/helix-agent/src/cli.rs:281
+#: crates/helix-agent/src/cli.rs:315
 msgid "Readable text (default on a terminal)"
 msgstr "읽기 쉬운 텍스트 (터미널에서 기본값)"
 
-#: crates/helix-agent/src/cli.rs:282
+#: crates/helix-agent/src/cli.rs:316
 msgid "Never ask the user; fail instead"
 msgstr "사용자에게 묻지 않고 대신 실패"
 
-#: crates/helix-agent/src/cli.rs:283
+#: crates/helix-agent/src/cli.rs:317
 msgid "Mark this action sensitive"
 msgstr "이 동작을 민감한 동작으로 표시"
 
-#: crates/helix-agent/src/cli.rs:284
+#: crates/helix-agent/src/cli.rs:318
 msgid "How long to wait for the shell [default: 30]"
 msgstr "셸의 응답을 기다릴 시간 [기본값: 30]"
 
-#: crates/helix-agent/src/cli.rs:304
+#: crates/helix-agent/src/cli.rs:338
 #: crates/helix-shell/src/ui/agent_prompt.rs:93
 msgid "Read only"
 msgstr "읽기 전용"
 
-#: crates/helix-agent/src/cli.rs:305
+#: crates/helix-agent/src/cli.rs:339
 #: crates/helix-shell/src/ui/agent_prompt.rs:94
 msgid "Control the desktop"
 msgstr "데스크톱 제어"
 
-#: crates/helix-agent/src/cli.rs:306
+#: crates/helix-agent/src/cli.rs:340
 #: crates/helix-shell/src/ui/agent_prompt.rs:95
 msgid "Control apps"
 msgstr "앱 제어"
 
-#: crates/helix-agent/src/cli.rs:307
+#: crates/helix-agent/src/cli.rs:341
 #: crates/helix-shell/src/ui/agent_prompt.rs:96
 msgid "Screen and input"
 msgstr "화면 및 입력"
 
-#: crates/helix-agent/src/cli.rs:373
+#: crates/helix-agent/src/cli.rs:407
 msgid "unknown option “{option}”"
 msgstr "알 수 없는 옵션 “{option}”"
 
-#: crates/helix-agent/src/cli.rs:390
+#: crates/helix-agent/src/cli.rs:424
 msgid "unknown option “--{option}”"
 msgstr "알 수 없는 옵션 “--{option}”"
 
-#: crates/helix-agent/src/cli.rs:394
+#: crates/helix-agent/src/cli.rs:428
 msgid "“--{option}” takes no value"
 msgstr "“--{option}”은(는) 값을 받지 않습니다"
 
-#: crates/helix-agent/src/cli.rs:401
+#: crates/helix-agent/src/cli.rs:435
 msgid "“--{option}” needs a value"
 msgstr "“--{option}”에는 값이 필요합니다"
 
-#: crates/helix-agent/src/cli.rs:405 crates/helix-agent/src/cli.rs:474
+#: crates/helix-agent/src/cli.rs:439 crates/helix-agent/src/cli.rs:508
+#: crates/helix-agent/src/screen.rs:63
 msgid "“{value}” is not one of: {choices}"
 msgstr "“{value}”은(는) 다음 중 하나가 아닙니다: {choices}"
 
-#: crates/helix-agent/src/cli.rs:431 crates/helix-agent/src/main.rs:142
+#: crates/helix-agent/src/cli.rs:465 crates/helix-agent/src/main.rs:147
 msgid "unknown command “{command}”"
 msgstr "알 수 없는 명령 “{command}”"
 
-#: crates/helix-agent/src/cli.rs:433
+#: crates/helix-agent/src/cli.rs:467
 msgid "unknown command “{command}” for “{parent}”"
 msgstr "“{parent}”의 알 수 없는 명령 “{command}”"
 
-#: crates/helix-agent/src/cli.rs:444
+#: crates/helix-agent/src/cli.rs:478
 msgid "“{command}” needs a subcommand: {subs}"
 msgstr "“{command}”에는 하위 명령이 필요합니다: {subs}"
 
-#: crates/helix-agent/src/cli.rs:458
+#: crates/helix-agent/src/cli.rs:492
 msgid "“{value}” is not a number of seconds"
 msgstr "“{value}”은(는) 초 단위 숫자가 아닙니다"
 
-#: crates/helix-agent/src/cli.rs:467
+#: crates/helix-agent/src/cli.rs:501
 msgid "missing argument: {names}"
 msgstr "인수가 없습니다: {names}"
 
-#: crates/helix-agent/src/cli.rs:470
+#: crates/helix-agent/src/cli.rs:504
 msgid "unexpected argument “{argument}”"
 msgstr "예상하지 못한 인수 “{argument}”"
 
-#: crates/helix-agent/src/cli.rs:503
+#: crates/helix-agent/src/cli.rs:537
 msgid "Print help"
 msgstr "도움말 표시"
 
-#: crates/helix-agent/src/cli.rs:504
+#: crates/helix-agent/src/cli.rs:538
 msgid "Print version"
 msgstr "버전 표시"
 
-#: crates/helix-agent/src/cli.rs:510
+#: crates/helix-agent/src/cli.rs:544
 msgid "Let an agent read and act on your Helix session."
 msgstr "에이전트가 Helix 세션을 읽고 조작하게 합니다."
 
-#: crates/helix-agent/src/cli.rs:510 crates/helix-agent/src/cli.rs:534
+#: crates/helix-agent/src/cli.rs:544 crates/helix-agent/src/cli.rs:568
 msgid "Usage:"
 msgstr "사용법:"
 
-#: crates/helix-agent/src/cli.rs:520 crates/helix-agent/src/cli.rs:568
+#: crates/helix-agent/src/cli.rs:554 crates/helix-agent/src/cli.rs:602
 msgid "Options:"
 msgstr "옵션:"
 
-#: crates/helix-agent/src/cli.rs:524 crates/helix-agent/src/main.rs:234
+#: crates/helix-agent/src/cli.rs:558 crates/helix-agent/src/main.rs:239
 msgid ""
 "Agent access is controlled in Settings › Privacy & Security › Agent Access."
 msgstr ""
 "에이전트 접근은 설정 › 개인 정보 및 보안 › 에이전트 접근에서 설정합니다."
 
-#: crates/helix-agent/src/cli.rs:549
+#: crates/helix-agent/src/cli.rs:583
 msgid "Needs: the “{level}” access level and Clipboard access"
 msgstr "필요: “{level}” 접근 수준과 클립보드 접근"
 
-#: crates/helix-agent/src/cli.rs:550
+#: crates/helix-agent/src/cli.rs:584
 msgid "Needs: the “{level}” access level"
 msgstr "필요: “{level}” 접근 수준"
 
-#: crates/helix-agent/src/cli.rs:557
+#: crates/helix-agent/src/cli.rs:591
 msgid "Commands:"
 msgstr "명령:"
 
-#: crates/helix-agent/src/cli.rs:563
+#: crates/helix-agent/src/cli.rs:597
 msgid "Arguments:"
 msgstr "인수:"
 
-#: crates/helix-agent/src/cli.rs:576
+#: crates/helix-agent/src/cli.rs:610
 msgid "JSON output: {record} records (helix-agent(1), “RECORDS”)."
 msgstr "JSON 출력: {record} 레코드 (helix-agent(1), “RECORDS”)."
 
-#: crates/helix-agent/src/cli.rs:581
+#: crates/helix-agent/src/cli.rs:615
 msgid "This Helix session does not support this command yet."
 msgstr "이 Helix 세션은 아직 이 명령을 지원하지 않습니다."
 
-#: crates/helix-agent/src/cli.rs:589
+#: crates/helix-agent/src/cli.rs:623
 msgid "Exit codes:"
 msgstr "종료 코드:"
 
-#: crates/helix-agent/src/clipboard.rs:55
+#: crates/helix-agent/src/clipboard.rs:55 crates/helix-agent/src/screen.rs:243
 msgid "Cannot write {path}: {error}"
 msgstr "{path}에 쓸 수 없습니다: {error}"
 
@@ -740,7 +791,9 @@ msgstr "{path}에 쓸 수 없습니다: {error}"
 msgid ""
 "The clipboard holds binary data; use --output FILE or redirect standard "
 "output"
-msgstr "클립보드에 바이너리 데이터가 있습니다. --output FILE을 사용하거나 표준 출력을 리디렉션하십시오"
+msgstr ""
+"클립보드에 바이너리 데이터가 있습니다. --output FILE을 사용하거나 표준 출력"
+"을 리디렉션하십시오"
 
 #: crates/helix-agent/src/clipboard.rs:87
 msgid "At most {n} MiB can be put on the clipboard"
@@ -751,16 +804,16 @@ msgid "The user said no"
 msgstr "사용자가 아니요라고 답했습니다"
 
 #: crates/helix-agent/src/errors.rs:61 crates/helix-agent/src/errors.rs:90
-#: crates/helix-agent/src/errors.rs:143
+#: crates/helix-agent/src/errors.rs:153
 msgid "Cannot reach the Helix shell (is a Helix session running?)"
 msgstr "Helix 셸에 연결할 수 없습니다 (Helix 세션이 실행 중인가요?)"
 
-#: crates/helix-agent/src/errors.rs:65 crates/helix-agent/src/errors.rs:136
+#: crates/helix-agent/src/errors.rs:65 crates/helix-agent/src/errors.rs:146
 msgid "Not supported by this Helix session"
 msgstr "이 Helix 세션에서 지원하지 않습니다"
 
 #: crates/helix-agent/src/errors.rs:69 crates/helix-agent/src/errors.rs:102
-#: crates/helix-agent/src/errors.rs:131
+#: crates/helix-agent/src/errors.rs:141
 msgid "Timed out"
 msgstr "시간 초과"
 
@@ -790,7 +843,7 @@ msgstr "사용자가 이 에이전트를 허용하지 않았고 물어볼 수도
 msgid "The user denied this agent access"
 msgstr "사용자가 이 에이전트의 접근을 거부했습니다"
 
-#: crates/helix-agent/src/errors.rs:95 crates/helix-agent/src/errors.rs:173
+#: crates/helix-agent/src/errors.rs:95 crates/helix-agent/src/errors.rs:183
 msgid "The target is excluded from agent access"
 msgstr "대상이 에이전트 접근에서 제외되어 있습니다"
 
@@ -823,8 +876,9 @@ msgstr ""
 "클립보드 접근이 꺼져 있습니다 (설정 › 개인 정보 및 보안 › 에이전트 접근)"
 
 #: crates/helix-agent/src/errors.rs:101
-msgid "The user said no, or cancelled the question"
-msgstr "사용자가 아니요라고 했거나 질문을 취소했습니다"
+msgid ""
+"The user said no, cancelled the question, or stopped the agent or its input"
+msgstr "사용자가 거절했거나, 질문을 취소했거나, 에이전트 또는 그 입력을 멈췄습니다"
 
 #: crates/helix-agent/src/errors.rs:103
 msgid "No such window, app or item"
@@ -841,80 +895,92 @@ msgid ""
 msgstr ""
 "“{level}” 접근 수준이 필요합니다 (설정 › 개인 정보 및 보안 › 에이전트 접근)"
 
-#: crates/helix-agent/src/errors.rs:130
+#: crates/helix-agent/src/errors.rs:135
+msgid "Stopped: the user took over the keyboard or pointer"
+msgstr "멈춤: 사용자가 키보드나 포인터를 넘겨받았습니다"
+
+#: crates/helix-agent/src/errors.rs:136
+msgid "The user is using the keyboard or pointer; try again in a moment"
+msgstr "사용자가 키보드나 포인터를 쓰고 있습니다. 잠시 뒤에 다시 하십시오"
+
+#: crates/helix-agent/src/errors.rs:137
+msgid "The user stopped the agent"
+msgstr "사용자가 에이전트를 멈췄습니다"
+
+#: crates/helix-agent/src/errors.rs:138
 msgid "The user cancelled the question"
 msgstr "사용자가 질문을 취소했습니다"
 
-#: crates/helix-agent/src/errors.rs:132
+#: crates/helix-agent/src/errors.rs:142
 msgid "No such window / app / item: {what}"
 msgstr "그런 창 / 앱 / 항목이 없습니다: {what}"
 
-#: crates/helix-agent/src/errors.rs:156
+#: crates/helix-agent/src/errors.rs:166
 msgid "Not supported here"
 msgstr "여기에서는 지원하지 않습니다"
 
 #. Translators: {reason} is the shell's explanation, in English (e.g. "the app does not support this").
-#: crates/helix-agent/src/errors.rs:160
+#: crates/helix-agent/src/errors.rs:170
 msgid "Not supported here: {reason}"
 msgstr "여기에서는 지원하지 않습니다: {reason}"
 
-#: crates/helix-agent/src/errors.rs:167
+#: crates/helix-agent/src/errors.rs:177
 msgid "Agents can't use Settings"
 msgstr "에이전트는 설정을 사용할 수 없습니다"
 
-#: crates/helix-agent/src/errors.rs:168
+#: crates/helix-agent/src/errors.rs:178
 msgid "Agents can't use password fields"
 msgstr "에이전트는 암호 입력란을 사용할 수 없습니다"
 
-#: crates/helix-agent/src/errors.rs:169
+#: crates/helix-agent/src/errors.rs:179
 msgid "Agents can't act while a system prompt is open"
 msgstr "시스템 확인 창이 열려 있는 동안 에이전트는 동작할 수 없습니다"
 
-#: crates/helix-agent/src/errors.rs:170
+#: crates/helix-agent/src/errors.rs:180
 msgid "Agents can't act on the shell itself"
 msgstr "에이전트는 셸 자체를 조작할 수 없습니다"
 
-#: crates/helix-agent/src/errors.rs:172
+#: crates/helix-agent/src/errors.rs:182
 msgid "{app} is excluded from agent access"
 msgstr "{app}은(는) 에이전트 접근에서 제외되어 있습니다"
 
-#: crates/helix-agent/src/main.rs:80
+#: crates/helix-agent/src/main.rs:81
 msgid "Run “helix-agent --help” for help."
 msgstr "도움말은 “helix-agent --help”로 볼 수 있습니다."
 
-#: crates/helix-agent/src/main.rs:201
+#: crates/helix-agent/src/main.rs:206
 msgid "Agent access: {state}"
 msgstr "에이전트 접근: {state}"
 
-#: crates/helix-agent/src/main.rs:202
+#: crates/helix-agent/src/main.rs:207
 msgid "Access level: {level}"
 msgstr "접근 수준: {level}"
 
-#: crates/helix-agent/src/main.rs:206
+#: crates/helix-agent/src/main.rs:211
 msgid "This agent: {agent}"
 msgstr "이 에이전트: {agent}"
 
-#: crates/helix-agent/src/main.rs:206
+#: crates/helix-agent/src/main.rs:211
 msgid "This agent: {name} ({agent})"
 msgstr "이 에이전트: {name} ({agent})"
 
-#: crates/helix-agent/src/main.rs:209
+#: crates/helix-agent/src/main.rs:214
 msgid "Allowed for this session: {level}"
 msgstr "이번 세션에서 허용: {level}"
 
-#: crates/helix-agent/src/main.rs:210
+#: crates/helix-agent/src/main.rs:215
 msgid "Always allowed: {level}"
 msgstr "항상 허용: {level}"
 
-#: crates/helix-agent/src/main.rs:211
+#: crates/helix-agent/src/main.rs:216
 msgid "Denied by the user for this session"
 msgstr "이번 세션에서 사용자가 거부함"
 
-#: crates/helix-agent/src/main.rs:212
+#: crates/helix-agent/src/main.rs:217
 msgid "Not allowed yet: the user is asked on first use"
 msgstr "아직 허용되지 않음: 처음 사용할 때 사용자에게 묻습니다"
 
-#: crates/helix-agent/src/main.rs:215
+#: crates/helix-agent/src/main.rs:220
 msgid ""
 "This agent could not be told apart from the program that started it, so it "
 "can only be allowed for this session."
@@ -922,20 +988,20 @@ msgstr ""
 "이 에이전트는 자신을 시작한 프로그램과 구별할 수 없어 이번 세션에서만 허용할 "
 "수 있습니다."
 
-#: crates/helix-agent/src/main.rs:218
+#: crates/helix-agent/src/main.rs:223
 msgid "Running in a remote session (allowed)"
 msgstr "원격 세션에서 실행 중 (허용됨)"
 
-#: crates/helix-agent/src/main.rs:218
+#: crates/helix-agent/src/main.rs:223
 msgid ""
 "Running in a remote session; agent access from remote sessions is turned off"
 msgstr "원격 세션에서 실행 중. 원격 세션의 에이전트 접근이 꺼져 있습니다"
 
-#: crates/helix-agent/src/main.rs:221
+#: crates/helix-agent/src/main.rs:226
 msgid "The screen is locked"
 msgstr "화면이 잠겨 있습니다"
 
-#: crates/helix-agent/src/main.rs:223
+#: crates/helix-agent/src/main.rs:228
 msgid ""
 "Notifications access: {notifications}, Clipboard access: {clipboard}, "
 "Confirm sensitive actions: {confirm}"
@@ -943,23 +1009,23 @@ msgstr ""
 "알림 접근: {notifications}, 클립보드 접근: {clipboard}, 민감한 동작 확인: "
 "{confirm}"
 
-#: crates/helix-agent/src/main.rs:231
+#: crates/helix-agent/src/main.rs:236
 msgid "Reading text fields: {state}"
 msgstr "텍스트 입력란 읽기: {state}"
 
-#: crates/helix-agent/src/main.rs:244
+#: crates/helix-agent/src/main.rs:249
 msgid "Agent Access version {version}"
 msgstr "에이전트 접근 버전 {version}"
 
-#: crates/helix-agent/src/main.rs:245
+#: crates/helix-agent/src/main.rs:250
 msgid "Agent Access version unknown (cannot reach the Helix shell)"
 msgstr "에이전트 접근 버전을 알 수 없음 (Helix 셸에 연결할 수 없음)"
 
-#: crates/helix-agent/src/main.rs:278
+#: crates/helix-agent/src/main.rs:283
 msgid "Cannot read the activity log: {error}"
 msgstr "활동 기록을 읽을 수 없습니다: {error}"
 
-#: crates/helix-agent/src/main.rs:297
+#: crates/helix-agent/src/main.rs:302
 msgid "No agent activity recorded."
 msgstr "기록된 에이전트 활동이 없습니다."
 
@@ -1151,6 +1217,55 @@ msgstr "수정한 날짜"
 msgid "Type"
 msgstr "종류"
 
+#: crates/helix-agent/src/screen.rs:30
+msgid "“{value}” is not a whole number"
+msgstr "“{value}”은(는) 정수가 아닙니다"
+
+#: crates/helix-agent/src/screen.rs:44
+msgid "“{value}” is not an area: X,Y,WIDTH,HEIGHT"
+msgstr "“{value}”은(는) 영역이 아닙니다: X,Y,너비,높이"
+
+#: crates/helix-agent/src/screen.rs:54
+msgid "“{value}” is not a point: X,Y"
+msgstr "“{value}”은(는) 지점이 아닙니다: X,Y"
+
+#: crates/helix-agent/src/screen.rs:71
+msgid "“{step}” needs more"
+msgstr "“{step}”에 값이 더 필요합니다"
+
+#: crates/helix-agent/src/screen.rs:136
+msgid "“{value}” is not a number of milliseconds"
+msgstr "“{value}”은(는) 밀리초 수가 아닙니다"
+
+#: crates/helix-agent/src/screen.rs:142
+msgid "unknown step “{step}”; steps: {steps}"
+msgstr "알 수 없는 단계 “{step}”, 단계: {steps}"
+
+#: crates/helix-agent/src/screen.rs:146
+msgid "no steps"
+msgstr "단계가 없습니다"
+
+#: crates/helix-agent/src/screen.rs:175
+msgid "“{value}” is not a number from 1 to 3"
+msgstr "“{value}”은(는) 1에서 3 사이의 수가 아닙니다"
+
+#: crates/helix-agent/src/screen.rs:226
+msgid "--window and --monitor cannot both be given"
+msgstr "--window와 --monitor를 함께 지정할 수 없습니다"
+
+#: crates/helix-agent/src/screen.rs:248
+msgid "Saved a {width}×{height} screenshot to {path}"
+msgstr "{width}×{height} 스크린샷을 {path}에 저장했습니다"
+
+#: crates/helix-agent/src/screen.rs:251
+msgid "Blacked out: {count}"
+msgstr "검게 가림: {count}"
+
+#: crates/helix-agent/src/screen.rs:261
+msgid ""
+"A screenshot is binary data; use --output FILE or redirect standard output"
+msgstr "스크린샷은 바이너리 데이터입니다. --output 파일을 쓰거나 표준 출력을 리디렉션하십시오"
+
 #: crates/helix-agent/src/talk.rs:59
 msgid "Reminder {id} set for {time}"
 msgstr "알림 {id}을(를) {time}에 설정했습니다"
@@ -1215,24 +1330,24 @@ msgstr "사용자 이름"
 
 #: crates/helix-greeter/src/atspi.rs:79 crates/helix-greeter/src/paint.rs:479
 #: crates/helix-shell/src/ui/file_chooser.rs:1446
-#: crates/helix-shell/src/ui/window_menu.rs:427
+#: crates/helix-shell/src/ui/window_menu.rs:428
 msgid "Back"
 msgstr "뒤로"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5615 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5636 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:587
 msgid "Power Off…"
 msgstr "전원 끄기…"
 
 #: crates/helix-greeter/src/atspi.rs:91 crates/helix-greeter/src/paint.rs:496
-#: crates/helix-shell/src/ui.rs:5612 crates/helix-shell/src/ui/lock.rs:505
+#: crates/helix-shell/src/ui.rs:5633 crates/helix-shell/src/ui/lock.rs:505
 #: crates/helix-shell/src/ui/lock.rs:586
 msgid "Restart…"
 msgstr "다시 시작…"
 
 #: crates/helix-greeter/src/atspi.rs:97 crates/helix-greeter/src/paint.rs:504
-#: crates/helix-shell/src/ui.rs:1327 crates/helix-shell/src/ui/lock.rs:185
+#: crates/helix-shell/src/ui.rs:1336 crates/helix-shell/src/ui/lock.rs:185
 #: crates/helix-shell/src/ui/lock.rs:186 crates/helix-shell/src/ui/lock.rs:589
 msgid "Restart"
 msgstr "다시 시작"
@@ -1243,7 +1358,7 @@ msgid "Restart this computer?"
 msgstr "이 컴퓨터를 다시 시작할까요?"
 
 #: crates/helix-greeter/src/atspi.rs:98 crates/helix-greeter/src/paint.rs:505
-#: crates/helix-shell/src/ui.rs:1326 crates/helix-shell/src/ui/lock.rs:187
+#: crates/helix-shell/src/ui.rs:1335 crates/helix-shell/src/ui/lock.rs:187
 #: crates/helix-shell/src/ui/lock.rs:188 crates/helix-shell/src/ui/lock.rs:590
 msgid "Power Off"
 msgstr "전원 끄기"
@@ -1261,7 +1376,7 @@ msgstr "이 컴퓨터의 전원을 끌까요?"
 #: crates/helix-shell/src/bluetooth_agent.rs:104
 #: crates/helix-shell/src/bluetooth_agent.rs:165
 #: crates/helix-shell/src/keyring_prompt.rs:85
-#: crates/helix-shell/src/lib.rs:1464 crates/helix-shell/src/lib.rs:1552
+#: crates/helix-shell/src/lib.rs:1467 crates/helix-shell/src/lib.rs:1555
 #: crates/helix-shell/src/mount_handler.rs:125
 #: crates/helix-shell/src/mount_handler.rs:139
 #: crates/helix-shell/src/mount_handler.rs:174
@@ -1271,8 +1386,8 @@ msgstr "이 컴퓨터의 전원을 끌까요?"
 #: crates/helix-shell/src/obex.rs:500 crates/helix-shell/src/obex.rs:548
 #: crates/helix-shell/src/polkit.rs:231 crates/helix-shell/src/polkit.rs:314
 #: crates/helix-shell/src/portal_dialog.rs:122
-#: crates/helix-shell/src/run_dialog.rs:184 crates/helix-shell/src/ui.rs:1360
-#: crates/helix-shell/src/ui.rs:1363 crates/helix-shell/src/ui.rs:3373
+#: crates/helix-shell/src/run_dialog.rs:184 crates/helix-shell/src/ui.rs:1369
+#: crates/helix-shell/src/ui.rs:1372 crates/helix-shell/src/ui.rs:3388
 #: crates/helix-shell/src/ui/agent_question.rs:192
 #: crates/helix-shell/src/ui/atspi.rs:942
 #: crates/helix-shell/src/ui/file_chooser.rs:1361
@@ -1364,7 +1479,7 @@ msgstr "{}%"
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
 #: crates/helix-shell/src/geoclue_agent.rs:115
-#: crates/helix-shell/src/ui.rs:1368 crates/helix-shell/src/ui.rs:1375
+#: crates/helix-shell/src/ui.rs:1377 crates/helix-shell/src/ui.rs:1384
 #: crates/helix-shell/src/ui/agent_prompt.rs:68
 msgid "Allow"
 msgstr "허용"
@@ -1375,7 +1490,7 @@ msgstr "허용"
 #: crates/helix-shell/src/bluetooth_agent.rs:170
 #: crates/helix-shell/src/bluetooth_agent.rs:175
 #: crates/helix-shell/src/geoclue_agent.rs:116
-#: crates/helix-shell/src/ui.rs:1367 crates/helix-shell/src/ui.rs:1374
+#: crates/helix-shell/src/ui.rs:1376 crates/helix-shell/src/ui.rs:1383
 #: crates/helix-shell/src/ui/agent_prompt.rs:62
 #: crates/helix-shell/src/ui/agent_prompt.rs:68
 msgid "Deny"
@@ -1389,8 +1504,8 @@ msgstr "{}에서 사용자 이름을 알고 싶어 합니다."
 msgid "Name: {real} ({user})"
 msgstr "이름: {real} ({user})"
 
-#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3380
-#: crates/helix-shell/src/ui.rs:3381 crates/helix-shell/src/ui.rs:3383
+#: crates/helix-portals/src/dialogs.rs:181 crates/helix-shell/src/ui.rs:3395
+#: crates/helix-shell/src/ui.rs:3396 crates/helix-shell/src/ui.rs:3398
 #: crates/helix-shell/src/ui/atspi.rs:943
 msgid "Share"
 msgstr "공유"
@@ -1652,7 +1767,7 @@ msgid "This code is not valid."
 msgstr "올바른 코드가 아닙니다."
 
 #: crates/helix-shell/src/bluetooth_agent.rs:124
-#: crates/helix-shell/src/lib.rs:1278 crates/helix-shell/src/obex.rs:478
+#: crates/helix-shell/src/lib.rs:1281 crates/helix-shell/src/obex.rs:478
 #: crates/helix-shell/src/panel_layout.rs:221
 #: crates/helix-shell/src/ui/quick.rs:405
 msgid "Bluetooth"
@@ -2071,53 +2186,53 @@ msgstr "계속"
 msgid "More"
 msgstr "더 보기"
 
-#: crates/helix-shell/src/lib.rs:1129
+#: crates/helix-shell/src/lib.rs:1132
 msgid "Nothing was turned off or restarted. {err}"
 msgstr "아무것도 끄거나 다시 시작하지 않았습니다. {err}"
 
-#: crates/helix-shell/src/lib.rs:1129
+#: crates/helix-shell/src/lib.rs:1132
 msgid "Software"
 msgstr "소프트웨어"
 
-#: crates/helix-shell/src/lib.rs:1129
+#: crates/helix-shell/src/lib.rs:1132
 msgid "Updates could not be scheduled"
 msgstr "업데이트를 예약할 수 없습니다"
 
-#: crates/helix-shell/src/lib.rs:1278
+#: crates/helix-shell/src/lib.rs:1281
 msgid "Cannot pair with {name}"
 msgstr "{name}와(과) 페어링할 수 없습니다"
 
-#: crates/helix-shell/src/lib.rs:1365
+#: crates/helix-shell/src/lib.rs:1368
 #: crates/helix-shell/src/panel_layout.rs:223
 #: crates/helix-shell/src/ui/quick.rs:411
 msgid "Auto Rotate"
 msgstr "자동 회전"
 
-#: crates/helix-shell/src/lib.rs:1365
+#: crates/helix-shell/src/lib.rs:1368
 msgid "Rotation Locked"
 msgstr "회전 잠김"
 
-#: crates/helix-shell/src/lib.rs:1461
+#: crates/helix-shell/src/lib.rs:1464
 msgid "Rename Folder"
 msgstr "폴더 이름 바꾸기"
 
-#: crates/helix-shell/src/lib.rs:1462
+#: crates/helix-shell/src/lib.rs:1465
 msgid "Folder name"
 msgstr "폴더 이름"
 
-#: crates/helix-shell/src/lib.rs:1463
+#: crates/helix-shell/src/lib.rs:1466
 msgid "Rename"
 msgstr "이름 바꾸기"
 
-#: crates/helix-shell/src/lib.rs:1549
+#: crates/helix-shell/src/lib.rs:1552
 msgid "Empty Trash?"
 msgstr "휴지통을 비울까요?"
 
-#: crates/helix-shell/src/lib.rs:1550
+#: crates/helix-shell/src/lib.rs:1553
 msgid "All items in the Trash will be permanently deleted."
 msgstr "휴지통의 모든 항목이 영구히 삭제됩니다."
 
-#: crates/helix-shell/src/lib.rs:1551 crates/helix-shell/src/ui/dock.rs:1491
+#: crates/helix-shell/src/lib.rs:1554 crates/helix-shell/src/ui/dock.rs:1491
 msgid "Empty Trash"
 msgstr "휴지통 비우기"
 
@@ -2596,7 +2711,7 @@ msgstr "{1}에서 보낸 “{0}”을(를) 받지 못했습니다."
 msgid "A new version of the system"
 msgstr "새 버전의 시스템"
 
-#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5308
+#: crates/helix-shell/src/panel_layout.rs:48 crates/helix-shell/src/ui.rs:5329
 msgid "Apps"
 msgstr "앱"
 
@@ -2793,47 +2908,47 @@ msgstr "{app}에서 화면을 보고 입력 장치를 제어하려고 합니다.
 msgid "An application"
 msgstr "프로그램"
 
-#: crates/helix-shell/src/ui.rs:1319
+#: crates/helix-shell/src/ui.rs:1328
 msgid "It will be able to:"
 msgstr "다음을 할 수 있습니다:"
 
-#: crates/helix-shell/src/ui.rs:1321
+#: crates/helix-shell/src/ui.rs:1330
 msgid "Some applications are busy or have unsaved work:"
 msgstr "일부 프로그램이 사용 중이거나 저장하지 않은 작업이 있습니다:"
 
-#: crates/helix-shell/src/ui.rs:1328 crates/helix-shell/src/ui.rs:1329
+#: crates/helix-shell/src/ui.rs:1337 crates/helix-shell/src/ui.rs:1338
 msgid "Restart & Install"
 msgstr "다시 시작 및 설치"
 
-#: crates/helix-shell/src/ui.rs:1328
+#: crates/helix-shell/src/ui.rs:1337
 msgid "Restart & Install Updates"
 msgstr "다시 시작 및 업데이트 설치"
 
-#: crates/helix-shell/src/ui.rs:1329
+#: crates/helix-shell/src/ui.rs:1338
 msgid "Restart & Install Upgrade"
 msgstr "다시 시작 및 업그레이드 설치"
 
-#: crates/helix-shell/src/ui.rs:1330
+#: crates/helix-shell/src/ui.rs:1339
 msgid "Log Out"
 msgstr "로그아웃"
 
-#: crates/helix-shell/src/ui.rs:1337
+#: crates/helix-shell/src/ui.rs:1346
 msgid "Power Off Anyway"
 msgstr "그래도 전원 끄기"
 
-#: crates/helix-shell/src/ui.rs:1338
+#: crates/helix-shell/src/ui.rs:1347
 msgid "Restart Anyway"
 msgstr "그래도 다시 시작"
 
-#: crates/helix-shell/src/ui.rs:1339
+#: crates/helix-shell/src/ui.rs:1348
 msgid "Restart & Install Anyway"
 msgstr "그래도 다시 시작 및 설치"
 
-#: crates/helix-shell/src/ui.rs:1340
+#: crates/helix-shell/src/ui.rs:1349
 msgid "Log Out Anyway"
 msgstr "그래도 로그아웃"
 
-#: crates/helix-shell/src/ui.rs:1345
+#: crates/helix-shell/src/ui.rs:1354
 msgid ""
 "The computer will restart and install updates in {remaining} second. "
 "Installing can take a while."
@@ -2844,7 +2959,7 @@ msgstr[0] ""
 "{remaining}초 후 컴퓨터를 다시 시작하고 업데이트를 설치합니다. 설치에 시간이 "
 "걸릴 수 있습니다."
 
-#: crates/helix-shell/src/ui.rs:1351
+#: crates/helix-shell/src/ui.rs:1360
 msgid ""
 "{name} will be installed after the restart, in {remaining} second. "
 "Installing can take a long time."
@@ -2855,28 +2970,28 @@ msgstr[0] ""
 "{remaining}초 후 다시 시작한 다음 {name}을(를) 설치합니다. 설치에 오랜 시간"
 "이 걸릴 수 있습니다."
 
-#: crates/helix-shell/src/ui.rs:1358
+#: crates/helix-shell/src/ui.rs:1367
 msgid "The session will end automatically in {remaining} second."
 msgid_plural "The session will end automatically in {remaining} seconds."
 msgstr[0] "{remaining}초 후 세션이 자동으로 끝납니다."
 
-#: crates/helix-shell/src/ui.rs:1363
+#: crates/helix-shell/src/ui.rs:1372
 msgid "Turn On"
 msgstr "켜기"
 
-#: crates/helix-shell/src/ui.rs:1363
+#: crates/helix-shell/src/ui.rs:1372
 msgid "Turn on {name}?"
 msgstr "{name}을(를) 켤까요?"
 
-#: crates/helix-shell/src/ui.rs:1365
+#: crates/helix-shell/src/ui.rs:1374
 msgid "Allow remote control?"
 msgstr "원격 제어를 허용할까요?"
 
-#: crates/helix-shell/src/ui.rs:1372
+#: crates/helix-shell/src/ui.rs:1381
 msgid "Allow {app} to use all keyboard shortcuts?"
 msgstr "{app}에서 모든 키보드 바로 가기 키를 사용하도록 허용할까요?"
 
-#: crates/helix-shell/src/ui.rs:1373
+#: crates/helix-shell/src/ui.rs:1382
 msgid ""
 "While it has the keyboard, the desktop's shortcuts go to it. Super+Escape "
 "gives them back."
@@ -2884,141 +2999,141 @@ msgstr ""
 "키보드를 사용하는 동안 데스크톱 바로 가기 키가 해당 앱으로 전달됩니다. "
 "Super+Escape를 누르면 되돌려 받습니다."
 
-#: crates/helix-shell/src/ui.rs:1379
+#: crates/helix-shell/src/ui.rs:1388
 msgid "“{title}” is not responding."
 msgstr "“{title}”이(가) 응답하지 않습니다."
 
-#: crates/helix-shell/src/ui.rs:1380
+#: crates/helix-shell/src/ui.rs:1389
 msgid ""
 "You may choose to wait a short while for it to continue or force the app to "
 "quit entirely."
 msgstr "잠시 기다려 계속 진행되게 하거나 앱을 강제로 종료할 수 있습니다."
 
-#: crates/helix-shell/src/ui.rs:1381
+#: crates/helix-shell/src/ui.rs:1390
 msgid "Wait"
 msgstr "기다리기"
 
-#: crates/helix-shell/src/ui.rs:1382
+#: crates/helix-shell/src/ui.rs:1391
 msgid "Force Quit"
 msgstr "강제 종료"
 
-#: crates/helix-shell/src/ui.rs:1386
+#: crates/helix-shell/src/ui.rs:1395
 msgid "Keep the new display settings?"
 msgstr "새 디스플레이 설정을 유지할까요?"
 
-#: crates/helix-shell/src/ui.rs:1387
+#: crates/helix-shell/src/ui.rs:1396
 msgid "The previous settings come back in {remaining} second."
 msgid_plural "The previous settings come back in {remaining} seconds."
 msgstr[0] "{remaining}초 후 이전 설정으로 돌아갑니다."
 
-#: crates/helix-shell/src/ui.rs:1388
+#: crates/helix-shell/src/ui.rs:1397
 msgid "Revert"
 msgstr "되돌리기"
 
-#: crates/helix-shell/src/ui.rs:1389
+#: crates/helix-shell/src/ui.rs:1398
 msgid "Keep"
 msgstr "유지"
 
-#: crates/helix-shell/src/ui.rs:1447 crates/helix-shell/src/ui/atspi.rs:919
+#: crates/helix-shell/src/ui.rs:1456 crates/helix-shell/src/ui/atspi.rs:919
 msgid "Install pending software updates"
 msgstr "대기 중인 소프트웨어 업데이트 설치"
 
-#: crates/helix-shell/src/ui.rs:1476
+#: crates/helix-shell/src/ui.rs:1485
 msgid "Muted"
 msgstr "음소거됨"
 
-#: crates/helix-shell/src/ui.rs:1477 crates/helix-shell/src/ui/atspi.rs:984
-#: crates/helix-shell/src/ui/gallery.rs:1245
+#: crates/helix-shell/src/ui.rs:1486 crates/helix-shell/src/ui/atspi.rs:984
+#: crates/helix-shell/src/ui/gallery.rs:1246
 #: crates/helix-shell/src/ui/quick.rs:445
 msgid "Volume"
 msgstr "음량"
 
-#: crates/helix-shell/src/ui.rs:1478 crates/helix-shell/src/ui/quick.rs:449
+#: crates/helix-shell/src/ui.rs:1487 crates/helix-shell/src/ui/quick.rs:449
 msgid "Brightness"
 msgstr "밝기"
 
-#: crates/helix-shell/src/ui.rs:1479
+#: crates/helix-shell/src/ui.rs:1488
 msgid "Microphone off"
 msgstr "마이크 꺼짐"
 
-#: crates/helix-shell/src/ui.rs:1480
+#: crates/helix-shell/src/ui.rs:1489
 msgid "Microphone on"
 msgstr "마이크 켜짐"
 
-#: crates/helix-shell/src/ui.rs:2434 crates/helix-shell/src/ui/gallery.rs:295
+#: crates/helix-shell/src/ui.rs:2449 crates/helix-shell/src/ui/gallery.rs:295
 #: crates/helix-shell/src/ui/overview.rs:682
 msgid "Type to search…"
 msgstr "입력하여 검색…"
 
-#: crates/helix-shell/src/ui.rs:2648
+#: crates/helix-shell/src/ui.rs:2663
 msgid "Checking…"
 msgstr "확인하는 중…"
 
-#: crates/helix-shell/src/ui.rs:2690
+#: crates/helix-shell/src/ui.rs:2705
 msgid "Incorrect password. Try again."
 msgstr "암호가 올바르지 않습니다. 다시 시도하십시오."
 
-#: crates/helix-shell/src/ui.rs:2700
+#: crates/helix-shell/src/ui.rs:2715
 msgid "Cannot check password: {err}"
 msgstr "암호를 확인할 수 없습니다: {err}"
 
-#: crates/helix-shell/src/ui.rs:3329 crates/helix-shell/src/ui/atspi.rs:929
+#: crates/helix-shell/src/ui.rs:3344 crates/helix-shell/src/ui/atspi.rs:929
 msgid "Share your screen?"
 msgstr "화면을 공유할까요?"
 
-#: crates/helix-shell/src/ui.rs:3334
+#: crates/helix-shell/src/ui.rs:3349
 msgid "{app} wants to see your screen. Choose what to share."
 msgstr "{app}에서 화면을 보려고 합니다. 공유할 대상을 선택하십시오."
 
-#: crates/helix-shell/src/ui.rs:3340 crates/helix-shell/src/ui/atspi.rs:931
+#: crates/helix-shell/src/ui.rs:3355 crates/helix-shell/src/ui/atspi.rs:931
 msgid "It will be able to share the same screen again without asking."
 msgstr "다음에는 묻지 않고 같은 화면을 다시 공유할 수 있습니다."
 
-#: crates/helix-shell/src/ui.rs:3653
+#: crates/helix-shell/src/ui.rs:3668
 msgid "New virtual monitor"
 msgstr "새 가상 모니터"
 
-#: crates/helix-shell/src/ui.rs:5300 crates/helix-shell/src/ui/atspi.rs:785
+#: crates/helix-shell/src/ui.rs:5321 crates/helix-shell/src/ui/atspi.rs:785
 msgid "No matching apps"
 msgstr "일치하는 앱 없음"
 
-#: crates/helix-shell/src/ui.rs:5307
+#: crates/helix-shell/src/ui.rs:5328
 msgid "Open Windows"
 msgstr "열린 창"
 
-#: crates/helix-shell/src/ui.rs:5348
+#: crates/helix-shell/src/ui.rs:5369
 msgid "Search for “{query}” in {name}"
 msgstr "{name}에서 “{query}” 검색"
 
-#: crates/helix-shell/src/ui.rs:5413
+#: crates/helix-shell/src/ui.rs:5434
 msgid "{n} more result"
 msgid_plural "{n} more results"
 msgstr[0] "결과 {n}개 더"
 
-#: crates/helix-shell/src/ui.rs:5415
+#: crates/helix-shell/src/ui.rs:5436
 msgid "{n} result above"
 msgid_plural "{n} results above"
 msgstr[0] "위에 결과 {n}개"
 
-#: crates/helix-shell/src/ui.rs:5600 crates/helix-shell/src/ui/atspi.rs:417
+#: crates/helix-shell/src/ui.rs:5621 crates/helix-shell/src/ui/atspi.rs:417
 #: crates/helix-shell/src/ui/quick.rs:556
 msgid "Lock Screen"
 msgstr "화면 잠금"
 
-#: crates/helix-shell/src/ui.rs:5603 crates/helix-shell/src/ui/lock.rs:515
+#: crates/helix-shell/src/ui.rs:5624 crates/helix-shell/src/ui/lock.rs:515
 #: crates/helix-shell/src/ui/lock.rs:597
 msgid "Switch User…"
 msgstr "사용자 전환…"
 
-#: crates/helix-shell/src/ui.rs:5606
+#: crates/helix-shell/src/ui.rs:5627
 msgid "Suspend"
 msgstr "대기 모드"
 
-#: crates/helix-shell/src/ui.rs:5609
+#: crates/helix-shell/src/ui.rs:5630
 msgid "Log Out…"
 msgstr "로그아웃…"
 
-#: crates/helix-shell/src/ui.rs:5697
+#: crates/helix-shell/src/ui.rs:5718
 msgid "The app"
 msgstr "앱"
 
@@ -3305,6 +3420,11 @@ msgstr "시스템"
 #: crates/helix-shell/src/ui/atspi.rs:593
 msgid "Agents active"
 msgstr "에이전트 활성"
+
+#: crates/helix-shell/src/ui/atspi.rs:593
+#: crates/helix-shell/src/ui/window_menu.rs:273
+msgid "An agent is controlling the screen"
+msgstr "에이전트가 화면을 제어하고 있습니다"
 
 #: crates/helix-shell/src/ui/atspi.rs:597
 msgid "Sharing"
@@ -4290,11 +4410,11 @@ msgstr "아래쪽 모니터로 이동"
 msgid "Agents are using your desktop"
 msgstr "에이전트가 데스크톱을 사용 중입니다"
 
-#: crates/helix-shell/src/ui/window_menu.rs:277
+#: crates/helix-shell/src/ui/window_menu.rs:278
 msgid "Stop {agent} ({level})"
 msgstr "{agent} 중지 ({level})"
 
-#: crates/helix-shell/src/ui/window_menu.rs:281
+#: crates/helix-shell/src/ui/window_menu.rs:282
 msgid "Agent Access Settings"
 msgstr "에이전트 접근 설정"
 

@@ -76,6 +76,9 @@ impl TextInputHandle {
             instance: instance.clone(),
             serial: 0,
             pending_state: Default::default(),
+            client_pending: (None, None),
+            client_enabled: false,
+            client_purpose: None,
         });
     }
 
@@ -89,6 +92,53 @@ impl TextInputHandle {
             .find(|instance| instance.instance == *text_input)
         {
             instance.serial += 1
+        }
+    }
+
+    /// Helix: whether the focused client has a text input enabled whose
+    /// content purpose is a password or a PIN (whether or not an input
+    /// method runs).
+    pub fn focused_secret(&self) -> bool {
+        let inner = self.inner.lock().unwrap();
+        let Some(surface) = inner.focus.as_ref().filter(|surface| surface.is_alive()) else {
+            return false;
+        };
+        inner.instances.iter().any(|i| {
+            i.instance.id().same_client_as(&surface.id())
+                && i.client_enabled
+                && matches!(i.client_purpose, Some(ContentPurpose::Password | ContentPurpose::Pin))
+        })
+    }
+
+    /// Helix: note what the client asked for, before anything is
+    /// discarded for want of an input method.
+    fn note_client_request(&self, text_input: &ZwpTextInputV3, request: &zwp_text_input_v3::Request) {
+        let mut inner = self.inner.lock().unwrap();
+        let Some(i) = inner.instances.iter_mut().find(|i| i.instance == *text_input) else {
+            return;
+        };
+        match request {
+            zwp_text_input_v3::Request::Enable => {
+                // Enabling resets the state (zwp_text_input_v3.enable).
+                i.client_pending = (Some(true), None);
+            }
+            zwp_text_input_v3::Request::Disable => i.client_pending.0 = Some(false),
+            zwp_text_input_v3::Request::SetContentType { purpose, .. } => {
+                i.client_pending.1 = purpose.into_result().ok();
+            }
+            zwp_text_input_v3::Request::Commit => {
+                let (enable, purpose) = std::mem::take(&mut i.client_pending);
+                if let Some(enable) = enable {
+                    i.client_enabled = enable;
+                    if enable {
+                        i.client_purpose = None;
+                    }
+                }
+                if purpose.is_some() {
+                    i.client_purpose = purpose;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -208,6 +258,7 @@ where
         if matches!(request, zwp_text_input_v3::Request::Commit) {
             data.handle.increment_serial(resource);
         }
+        data.handle.note_client_request(resource, &request);
 
         // Discard requsets without any active input method instance.
         if !data.input_method_handle.has_instance() {
@@ -358,6 +409,12 @@ struct Instance {
     instance: ZwpTextInputV3,
     serial: u32,
     pending_state: TextInputState,
+    /// Helix: what the client asked for, tracked whether or not an input
+    /// method runs (enabled, and the content purpose), pending and
+    /// committed.
+    client_pending: (Option<bool>, Option<ContentPurpose>),
+    client_enabled: bool,
+    client_purpose: Option<ContentPurpose>,
 }
 
 #[derive(Debug, Default)]

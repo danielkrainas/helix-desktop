@@ -188,13 +188,24 @@ impl Helix {
             Command::Move(..) | Command::Click(..) | Command::Touch(Some(_), _) if self.protected_prompt_shown() => {
                 tracing::debug!("test input dropped: an agent prompt is shown");
             }
-            Command::Move(x, y) => self.headless_move(x, y),
+            Command::Move(x, y) => {
+                // The test's stand-in for the user's devices: stops an
+                // agent's input (the hard stop).
+                self.agent_input_interrupted();
+                self.headless_move(x, y);
+            }
             Command::Click(x, y, button) => {
+                self.agent_input_interrupted();
                 self.headless_move(x, y);
                 self.remote_input(RemoteInput::Button { button, pressed: true });
                 self.remote_input(RemoteInput::Button { button, pressed: false });
             }
-            Command::Touch(at, down) => self.headless_touch(at, down),
+            Command::Touch(at, down) => {
+                if at.is_some() {
+                    self.agent_input_interrupted();
+                }
+                self.headless_touch(at, down);
+            }
         }
         let _ = self.display_handle.flush_clients();
     }

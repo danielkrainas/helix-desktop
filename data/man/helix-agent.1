@@ -240,12 +240,70 @@ Replace an editable field's text, or set a slider's or spin button's
 number (\fB\-\-number\fR, or text that is one); also with \fIRead text
 fields\fR off. The log records the text's length only.
 .SS "Screen and input (Screen and input)"
+The riskiest level: Settings offers it separately, behind a warning.
+While an agent takes a screenshot or sends input, and for 3 seconds
+after, the top bar's indicator says an agent is controlling the screen.
+Nothing works while the screen is locked (exit 15) or a system prompt (a
+password or permission prompt) is shown (exit 14).
 .TP
-.B screenshot \fR[\fB\-\-window \fIWINDOW\fR | \fB\-\-monitor \fICONNECTOR\fR] [\fB\-\-output \fIFILE\fR]
-Take a screenshot.
+.B screenshot \fR[\fB\-\-window \fIWINDOW\fR | \fB\-\-monitor \fICONNECTOR\fR] [\fB\-\-area \fIX\fB,\fIY\fB,\fIWIDTH\fB,\fIHEIGHT\fR] [\fB\-\-output \fIFILE\fR]
+Take a screenshot of every monitor, one monitor (its connector, as
+\fBmonitors\fR lists them), or one window (whether or not it is shown),
+or an area of it (logical pixels). The compositor draws it: excluded
+apps' windows, Settings, password and permission prompts, the shell's
+dialogs, notifications, overview, launcher, menus and on-screen keyboard,
+and windows of programs that show any of those, are opaque black; the
+pointer is not drawn. A window screenshot of such a window is refused
+(exit 14). Password fields show what the app shows (dots). Writes the
+PNG to \fIFILE\fR, or to standard output when it is not a terminal;
+\fB\-\-json\fR gives it in base64. At most 16384 pixels either way.
+The log records the size and how much was blacked out, never the
+picture.
 .TP
-.B input key \fIKEYS\fR...; \fBinput type \fITEXT\fR; \fBinput click \fIX Y\fR [\fB\-\-button \fIN\fR]; \fBinput move \fIX Y\fR; \fBinput scroll \fIDX DY\fR
-Send keys, text, clicks and scrolling.
+.B input key \fIKEYS\fR... [\fB\-\-window \fIWINDOW\fR]
+Press key combinations in turn: \fBctrl+s\fR, \fBalt+F4\fR,
+\fBReturn\fR, \fBshift+Tab\fR (XKB key names; modifiers \fBctrl\fR,
+\fBalt\fR, \fBshift\fR, \fBsuper\fR, \fBaltgr\fR).
+.TP
+.B input type \fITEXT\fR [\fB\-\-window \fIWINDOW\fR]
+Type \fITEXT\fR: any characters, whatever the keyboard layout (a line
+break is Return); at most 10000.
+.TP
+.B input click \fIX Y\fR [\fB\-\-button left\fR|\fBmiddle\fR|\fBright\fR|\fBback\fR|\fBforward\fR] [\fB\-\-count \fIN\fR] [\fB\-\-window \fIWINDOW\fR]
+Click (\fIN\fR times, at most 3) at \fIX\fR, \fIY\fR in the window.
+.TP
+.B input move \fIX Y\fR; \fBinput scroll \fIDX DY\fR [\fB\-\-at \fIX\fB,\fIY\fR]; \fBinput drag \fIX1 Y1 X2 Y2\fR [\fB\-\-button \fIBUTTON\fR]
+Move the pointer; scroll by wheel steps (negative: left, up) where the
+pointer is or at \fIX\fR, \fIY\fR; drag with a button held.
+.TP
+.B input sequence \fISTEP\fR... [\fB\-\-window \fIWINDOW\fR]
+Several steps in one go: \fBmove \fIX Y\fR, \fBclick \fR[\fIBUTTON\fR] [\fIX Y\fR],
+\fBdouble-click \fR[\fIBUTTON\fR] [\fIX Y\fR], \fBmouse-down \fR[\fIBUTTON\fR] [\fIX Y\fR],
+\fBmouse-up \fR[\fIBUTTON\fR], \fBkey \fIKEYS\fR, \fBkey-down \fIKEY\fR,
+\fBkey-up \fIKEY\fR, \fBscroll \fIDX DY\fR, \fBtype \fITEXT\fR, \fBwait \fIMS\fR
+(e.g. \fBkey-down shift click 10 20 key-up shift\fR). Keys and buttons
+still held are let go at the end.
+.PP
+Input goes to one window: \fB\-\-window\fR (after the subcommand) names
+it and it is focused first; otherwise the focused window. \fIX\fR and
+\fIY\fR are logical pixels from the window's top-left corner. Not into
+excluded apps, Settings, password or permission prompts, the shell's top
+bar, dock, overview or notifications (exit 14). The compositor sends each
+event straight to the app, never to its own shortcuts (Super, Alt+Tab,
+Ctrl+Alt+F\fIn\fR and the lock key do nothing but reach the app), and
+checks before each that the window still has the focus and the point is
+on it: when another window, a dialog or a prompt takes the focus, the
+rest is not sent (exit 1 or 14). Typing into a password field (as the app
+marks it) is refused (exit 14).
+.PP
+\fBThe user's own input stops it.\fR Pressing a key or button, moving
+or scrolling the mouse or touching the screen while input is being sent
+stops it at once (exit 20, \fIStopped: the user took over the keyboard
+or pointer\fR); for 2 seconds after, input is refused (exit 20). The
+indicator's \fIStop\fR, and Settings, stop it at once too (exit 20).
+Input is sensitive only when marked (\fB\-\-sensitive\fR). The log
+records counts of moves, clicks, keys and shortcuts and the text's
+length, never the text, keys or positions.
 .SS Other
 .TP
 .B log \fR[\fB\-\-agent \fIID\fR] [\fB\-\-since \fIWHEN\fR]
@@ -264,10 +322,6 @@ time: \fB+10m\fR, \fB+2h\fR, \fB\-1d\fR, \fByesterday\fR, \fBtoday\fR.
 \fISensitive\fR actions (and any command run with \fB\-\-sensitive\fR) are
 confirmed by the user first when \fIConfirm sensitive actions\fR is on; with
 \fB\-\-no\-ask\fR they fail (exit 18), and a declined one exits 13.
-.PP
-Commands whose shell support is still to come (\fBscreenshot\fR,
-\fBinput\fR) answer exit 23 (\fBnot-supported\fR) in
-this version.
 .SH OUTPUT
 With \fB\-\-json\fR, success prints one JSON object: the status dictionary
 for \fBstatus\fR and \fBrequest\fR, \fB{"windows": [...]}\fR and similar for
@@ -333,7 +387,9 @@ mime-type, and text (text types) or data (base64), or path with
 \fB\-\-output\fR; types (every type offered).
 .TP
 .B Image
-png (base64) or path, width, height, scale.
+png (base64) or path, width, height (pixels), scale, x, y,
+logical-width, logical-height (the rectangle captured, in logical
+pixels), filled (how many windows and surfaces were blacked out).
 .SH EXIT STATUS
 .TS
 l l l.
@@ -351,7 +407,7 @@ l l l.
 17	sandboxed	sandboxed apps are refused
 18	needs-confirmation	needs confirmation, but \-\-no\-ask
 19	feature-off	clipboard access is off
-20	no	the user said no or cancelled
+20	no	the user said no, cancelled or stopped it
 21	timed-out	timed out
 22	not-found	no such window, app or item
 23	not-supported	not supported by this session, computer or app
@@ -399,6 +455,11 @@ $ helix-agent remind add +30m "Check the deploy"
 $ helix-agent a11y find 21 \-\-role button \-\-name save
 $ helix-agent a11y press 21 3f2a9c1e_4b7d_4c1a_9e2f_0a6b5d8c7e31
 $ helix-agent a11y set 21 8e1d4a6b_2c3f_4d5e_8a9b_1c2d3e4f5a6b "Quarterly report"
+$ helix-agent screenshot \-\-output screen.png
+$ helix-agent screenshot \-\-window 21 \-\-area 0,0,400,120 \-\-output top.png
+$ helix-agent input click \-\-window 21 120 40
+$ helix-agent input type "Quarterly report"
+$ helix-agent input key ctrl+s
 .fi
 .SH SEE ALSO
 .BR gsettings (1),

@@ -104,6 +104,10 @@ pub struct Active {
     pub name: String,
     /// The level it may use now.
     pub level: Level,
+    /// It took a screenshot or sent input in the last few seconds, or is
+    /// sending input now (*Screen and input*): the indicator says it
+    /// controls the screen.
+    pub controlling: bool,
 }
 
 /// How long after its last allowed call an agent counts as active.
@@ -165,7 +169,7 @@ mod tests {
 
     #[test]
     fn labels() {
-        let a = |agent: &str, name: &str| Active { agent: agent.into(), executable: agent.split(' ').next().unwrap().into(), name: name.into(), level: Level::ReadOnly };
+        let a = |agent: &str, name: &str| Active { agent: agent.into(), executable: agent.split(' ').next().unwrap().into(), name: name.into(), level: Level::ReadOnly, controlling: false };
         assert_eq!(a("/usr/bin/python3 /home/me/bot.py", "").label(), "python3 bot.py");
         assert_eq!(a("/usr/bin/python3 /home/me/bot.py", "Build bot").label(), "Build bot (python3)");
         assert_eq!(a("/opt/agent/agent", "").label(), "agent");

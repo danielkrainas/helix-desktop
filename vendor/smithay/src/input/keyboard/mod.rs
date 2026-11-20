@@ -767,6 +767,40 @@ impl<D: SeatHandler + 'static> KeyboardHandle<D> {
         true
     }
 
+    /// Helix: send a key of `keymap`, not the seat's, to the focused
+    /// client, as a virtual keyboard does: the client gets `keymap` (and
+    /// `mods`) first unless it has it; the seat's keymap goes back with the
+    /// seat's next key. The seat's own state (pressed keys, modifiers,
+    /// grabs, key bindings) is left alone. `keycode` is `keymap`'s.
+    #[cfg(feature = "wayland_frontend")]
+    pub fn input_foreign(
+        &self,
+        data: &mut D,
+        keymap: &KeymapFile,
+        mods: ModifiersState,
+        keycode: Keycode,
+        state: KeyState,
+        time: u32,
+    ) where
+        <D as SeatHandler>::KeyboardFocus: crate::wayland::seat::WaylandFocus,
+    {
+        use crate::wayland::seat::WaylandFocus;
+        use wayland_server::protocol::wl_keyboard::KeyState as WlKeyState;
+        let seat = self.get_seat(data);
+        let mut internal = self.arc.internal.lock().unwrap();
+        let focus = internal.focus.as_mut().map(|(focus, _)| focus);
+        self.send_keymap(data, &focus, keymap, mods);
+        if let Some(wl_surface) = focus.and_then(|f| f.wl_surface()) {
+            let wl_state = match state {
+                KeyState::Pressed => WlKeyState::Pressed,
+                KeyState::Released => WlKeyState::Released,
+            };
+            crate::wayland::seat::keyboard::for_each_focused_kbds(&seat, &wl_surface, |kbd| {
+                kbd.key(SERIAL_COUNTER.next_serial().0, time, keycode.raw().saturating_sub(8), wl_state);
+            });
+        }
+    }
+
     fn update_xkb_state(&self, data: &mut D, keymap: xkb::Keymap) {
         let mut internal = self.arc.internal.lock().unwrap();
 

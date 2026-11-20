@@ -270,7 +270,8 @@ impl Ui {
     /// active agent, and the Agent Access settings.
     pub(super) fn show_agents_menu(&mut self, x: i32) {
         let item = |label: String, choice| Some(Item { label, choice, checked: None, active: false, sub: Vec::new() });
-        let mut items = vec![item(tr("Agents are using your desktop").to_owned(), Choice::Disabled)];
+        let heading = if self.agents_active.iter().any(|a| a.controlling) { tr("An agent is controlling the screen") } else { tr("Agents are using your desktop") };
+        let mut items = vec![item(heading.to_owned(), Choice::Disabled)];
         let mut ids = Vec::new();
         for (i, agent) in self.agents_active.iter().enumerate() {
             let level = super::agent_prompt::level_name(agent.level);
@@ -486,6 +487,8 @@ impl Ui {
         }
         if let Choice::StopAgent(i) = item.choice {
             if let Some(agent) = std::mem::take(&mut self.agent_menu).into_iter().nth(i) {
+                // Its input stops now; its grant through the agent code.
+                self.stop_agent_input(&agent);
                 let _ = self.requests.send(UiRequest::StopAgent(agent));
             }
             return;

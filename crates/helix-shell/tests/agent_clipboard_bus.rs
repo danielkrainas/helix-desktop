@@ -279,8 +279,7 @@ async fn clipboard_over_the_bus() {
 
     // The clipboard methods are there, as the contract has them.
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
-    let later = ["method Screenshot", "method Input"];
-    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &later));
+    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &[]));
 
     let quiet = || opts(&[("interactive", Value::from(false))]);
     clip.lock().unwrap().set(SourceKind::App, "org.gnome.TextEditor", 0, &[(TEXT, "Dear diary".as_bytes()), ("text/html", b"<p>Dear diary</p>"), ("image/png", PNG)]);

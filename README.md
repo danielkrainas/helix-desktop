@@ -261,6 +261,9 @@ helix-agent a11y find 21 --role button --name save   # an app's controls (Contro
 helix-agent a11y press 21 <NODE>
 helix-agent --text clipboard get   # needs Clipboard access, a separate switch
 echo hello | helix-agent clipboard set
+helix-agent screenshot --output shot.png   # Screen and input: excluded apps black
+helix-agent input click --window 21 120 40 # into one window, checked per event
+helix-agent input type 'Héllo'             # stops when you touch the keyboard or mouse
 helix-agent --help                 # every command; JSON when piped
 man helix-agent
 ```

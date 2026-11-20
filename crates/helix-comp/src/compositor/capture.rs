@@ -60,6 +60,47 @@ pub struct Pending {
     target: Target,
     cursor: bool,
     fd: OwnedFd,
+    /// An Agent Access screenshot (`target` is then unused).
+    agent: Option<AgentShot>,
+}
+
+/// What `agent_capture` asked for.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentShot {
+    /// A window list id; 0: the layout.
+    pub window: u32,
+    /// In the layout, or in the window; `None`: all of it.
+    pub area: Option<Rectangle<i32, Logical>>,
+    /// Windows that may be shown.
+    pub shown: Vec<u32>,
+    /// Layer surface namespaces that may be shown.
+    pub layers: Vec<String>,
+}
+
+/// The widest or tallest agent screenshot, in pixels.
+pub const AGENT_MAX_PX: u32 = 16384;
+
+/// `image` (of `rect`) cut to `area` (in the same coordinates).
+pub fn crop(image: &Image, rect: Rectangle<i32, Logical>, area: Rectangle<i32, Logical>) -> Option<Image> {
+    if rect.size.w <= 0 || rect.size.h <= 0 || area.size.w <= 0 || area.size.h <= 0 {
+        return None;
+    }
+    let sx = f64::from(image.width) / f64::from(rect.size.w);
+    let sy = f64::from(image.height) / f64::from(rect.size.h);
+    let x0 = (f64::from(area.loc.x - rect.loc.x) * sx).round() as u32;
+    let y0 = (f64::from(area.loc.y - rect.loc.y) * sy).round() as u32;
+    let w = ((f64::from(area.size.w) * sx).round() as u32).max(1).min(image.width.saturating_sub(x0));
+    let h = ((f64::from(area.size.h) * sy).round() as u32).max(1).min(image.height.saturating_sub(y0));
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let mut out = Image::transparent(w, h);
+    for y in 0..h {
+        let src = ((y0 + y) as usize * image.width as usize + x0 as usize) * 4;
+        let dst = y as usize * w as usize * 4;
+        out.rgba[dst..dst + w as usize * 4].copy_from_slice(&image.rgba[src..src + w as usize * 4]);
+    }
+    Some(out)
 }
 
 type Outcome = (HelixScreenshotFrameV1, Result<Rectangle<i32, Logical>, Reason>);
@@ -318,14 +359,19 @@ impl Helix {
     /// named cursors itself (bare hardware).
     pub fn run_captures(&mut self, renderer: &mut GlesRenderer, named_cursor: bool) {
         for pending in std::mem::take(&mut self.captures.pending) {
-            let Pending { frame, target, cursor, fd } = pending;
+            let Pending { frame, target, cursor, fd, agent } = pending;
             if !frame.is_alive() {
+                continue;
+            }
+            if let Some(agent) = agent {
+                let result = self.capture_agent(Some(renderer), &agent);
+                self.finish_agent_capture(frame, fd, result);
                 continue;
             }
             let result = if self.lock.locked {
                 Err(Reason::Locked)
             } else {
-                self.capture(renderer, target, cursor.then_some(named_cursor), &frame)
+                self.capture(renderer, target, cursor.then_some(named_cursor), Some(&frame))
             };
             self.finish_capture(frame, fd, result);
         }
@@ -357,10 +403,160 @@ impl Helix {
         }
     }
 
+    /// An agent capture's result: `filled`, then the image as any other.
+    fn finish_agent_capture(&mut self, frame: HelixScreenshotFrameV1, fd: OwnedFd, result: Result<(Rectangle<i32, Logical>, Image, u32), Reason>) {
+        match result {
+            Ok((rect, image, filled)) => {
+                tracing::info!(width = image.width, height = image.height, filled, "agent screenshot taken");
+                frame.filled(filled);
+                self.finish_capture(frame, fd, Ok((rect, image)));
+            }
+            Err(reason) => {
+                tracing::info!(?reason, "agent screenshot refused");
+                self.finish_capture(frame, fd, Err(reason));
+            }
+        }
+    }
+
+    /// Where what an agent may not see is, in a capture of the layout
+    /// (for counting): every window not in `shown` (with its popups and
+    /// title bar) and every layer surface whose namespace is not in
+    /// `layers` (with its popups), in layout coordinates.
+    pub fn agent_fills(&self, shown: &[u32], layers: &[String]) -> Vec<Rectangle<i32, Logical>> {
+        let mut out = Vec::new();
+        for window in self.space.elements() {
+            let id = self.window_list.ids.iter().find(|(w, _)| w == window).map(|(_, id)| *id);
+            if id.is_some_and(|id| shown.contains(&id)) {
+                continue;
+            }
+            if let Some(rect) = super::frames::mask_rect(&self.space, window) {
+                out.push(rect);
+            }
+        }
+        for output in self.space.outputs() {
+            let Some(output_geo) = self.space.output_geometry(output) else { continue };
+            let fullscreen = self.in_fullscreen(output);
+            let map = smithay::desktop::layer_map_for_output(output);
+            for layer in map.layers() {
+                if layers.iter().any(|n| n == layer.namespace()) {
+                    continue;
+                }
+                let level = layer.layer();
+                if level == smithay::wayland::shell::wlr_layer::Layer::Top && fullscreen && super::wm::hidden_in_fullscreen(level, layer.namespace()) {
+                    continue;
+                }
+                let Some(geometry) = map.layer_geometry(layer) else { continue };
+                let mut rect = layer.bbox_with_popups();
+                rect.loc += geometry.loc + output_geo.loc;
+                out.push(rect.merge(Rectangle::new(geometry.loc + output_geo.loc, geometry.size)));
+            }
+        }
+        out
+    }
+
+    /// An Agent Access screenshot (`agent_capture`): the image, its
+    /// rectangle and how many windows and surfaces were filled in it.
+    /// `renderer`: `None` on the headless backend (drawn in software).
+    fn capture_agent(&mut self, renderer: Option<&mut GlesRenderer>, agent: &AgentShot) -> Result<(Rectangle<i32, Logical>, Image, u32), Reason> {
+        if self.lock.locked {
+            return Err(Reason::Locked);
+        }
+        let failed = |err: String| {
+            tracing::warn!(err, "agent screenshot failed");
+            Reason::Failed
+        };
+        let too_big = |image: &Image| image.width > AGENT_MAX_PX || image.height > AGENT_MAX_PX;
+        if agent.window != 0 {
+            if !agent.shown.contains(&agent.window) {
+                return Err(Reason::NoWindow);
+            }
+            let window = self.window_by_list_id(agent.window).ok_or(Reason::NoWindow)?;
+            let (rect, image) = match renderer {
+                Some(renderer) => {
+                    let geometry = window.geometry();
+                    let scale = self.primary().map_or(1.0, |o| o.current_scale().fractional_scale());
+                    let at: Point<i32, Physical> = Point::<i32, Logical>::from((-geometry.loc.x, -geometry.loc.y)).to_physical_precise_round(scale);
+                    let elements: Vec<CaptureElement> = window
+                        .render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(renderer, at, Scale::from(scale), 1.0)
+                        .into_iter()
+                        .map(CaptureElement::Surface)
+                        .collect();
+                    let image = render(renderer, geometry.size, scale, &elements).map_err(failed)?;
+                    (Rectangle::new(self.window_geometry_location(&window), geometry.size), image)
+                }
+                None => self.capture_soft(Target::WindowId(agent.window))?,
+            };
+            let Some(area) = agent.area else {
+                return if too_big(&image) { Err(Reason::Invalid) } else { Ok((rect, image, 0)) };
+            };
+            // The area is in the window.
+            let inside = Rectangle::new(area.loc + rect.loc, area.size);
+            if area.size.w <= 0 || area.size.h <= 0 || inside.intersection(rect) != Some(inside) {
+                return Err(Reason::Invalid);
+            }
+            let image = crop(&image, rect, inside).ok_or(Reason::Invalid)?;
+            return if too_big(&image) { Err(Reason::Invalid) } else { Ok((inside, image, 0)) };
+        }
+        let layout = self.space.outputs().filter_map(|o| self.space.output_geometry(o)).reduce(|a, b| a.merge(b)).ok_or(Reason::Invalid)?;
+        let area = agent.area.unwrap_or(layout);
+        if area.size.w <= 0 || area.size.h <= 0 || area.intersection(layout) != Some(area) {
+            return Err(Reason::Invalid);
+        }
+        // Not drawn at all when it would be too big.
+        let scale = self
+            .space
+            .outputs()
+            .filter(|o| self.space.output_geometry(o).is_some_and(|g| g.overlaps(area)))
+            .map(|o| if renderer.is_some() { o.current_scale().fractional_scale() } else { 1.0 })
+            .fold(1.0, f64::max);
+        if f64::from(area.size.w) * scale > f64::from(AGENT_MAX_PX) || f64::from(area.size.h) * scale > f64::from(AGENT_MAX_PX) {
+            return Err(Reason::Invalid);
+        }
+        // Hidden: windows the shell did not clear (and those it does not
+        // know, such as X11 menus), and layer surfaces of other namespaces.
+        let ids = &self.window_list.ids;
+        let hidden_window = |w: &Window| !ids.iter().find(|(x, _)| x == w).is_some_and(|(_, id)| agent.shown.contains(id));
+        let hidden_layer = |l: &smithay::desktop::LayerSurface| !agent.layers.iter().any(|n| n == l.namespace());
+        let mask = super::frames::Mask { window: &hidden_window, layer: &hidden_layer };
+        let outputs: Vec<_> = self.space.outputs().filter(|o| self.space.output_geometry(o).is_some_and(|g| g.overlaps(area))).cloned().collect();
+        let mut pieces = Vec::new();
+        match renderer {
+            Some(renderer) => {
+                let focused = self.focused_window();
+                for output in &outputs {
+                    let Some(geometry) = self.space.output_geometry(output) else { continue };
+                    let output_scale = output.current_scale().fractional_scale();
+                    let elements: Vec<CaptureElement> = super::frames::scene(renderer, &self.space, &self.frames, output, focused.as_ref(), None, self.in_fullscreen(output), Some(&mask))
+                        .into_iter()
+                        .map(CaptureElement::Scene)
+                        .collect();
+                    let image = render(renderer, geometry.size, output_scale, &elements).map_err(failed)?;
+                    pieces.push(Piece { geometry, scale: output_scale, image });
+                }
+            }
+            None => {
+                for output in &outputs {
+                    let Some(geometry) = self.space.output_geometry(output) else { continue };
+                    let image = self.headless_image_masked(output, Some(&mask)).ok_or(Reason::Failed)?.to_rgba();
+                    pieces.push(Piece { geometry, scale: 1.0, image });
+                }
+            }
+        }
+        let image = compose(area, scale, &pieces);
+        let rect = area;
+        let filled = self.agent_fills(&agent.shown, &agent.layers).iter().filter(|r| r.overlaps(rect)).count() as u32;
+        Ok((rect, image, filled))
+    }
+
     /// The headless backend's captures, drawn in software.
     fn run_captures_headless(&mut self) {
-        for Pending { frame, target, fd, .. } in std::mem::take(&mut self.captures.pending) {
+        for Pending { frame, target, fd, agent, .. } in std::mem::take(&mut self.captures.pending) {
             if !frame.is_alive() {
+                continue;
+            }
+            if let Some(agent) = agent {
+                let result = self.capture_agent(None, &agent);
+                self.finish_agent_capture(frame, fd, result);
                 continue;
             }
             let result = if self.lock.locked { Err(Reason::Locked) } else { self.capture_soft(target) };
@@ -432,7 +628,7 @@ impl Helix {
         renderer: &mut GlesRenderer,
         target: Target,
         cursor: Option<bool>,
-        _frame: &HelixScreenshotFrameV1,
+        _frame: Option<&HelixScreenshotFrameV1>,
     ) -> Result<(Rectangle<i32, Logical>, Image), Reason> {
         let failed = |err: String| {
             tracing::warn!(err, "screen capture failed");
@@ -527,7 +723,7 @@ impl Helix {
         };
         let focused = self.focused_window();
         let fullscreen = self.in_fullscreen(output);
-        let scene = super::frames::scene(renderer, &self.space, &self.frames, output, focused.as_ref(), None, fullscreen);
+        let scene = super::frames::scene(renderer, &self.space, &self.frames, output, focused.as_ref(), None, fullscreen, None);
         elements.extend(scene.into_iter().map(CaptureElement::Scene));
         Ok((geometry.size, scale, elements))
     }
@@ -677,6 +873,20 @@ impl Dispatch<HelixScreenshotManagerV1, ()> for Helix {
                 state.receive_clipboard(generation, mime_type, fd);
                 return;
             }
+            Request::AgentCapture { id, window, x, y, width, height, shown, layers, fd } => {
+                let frame = data_init.init(id, ());
+                let shown: Vec<u32> = shown.as_chunks::<4>().0.iter().map(|b| u32::from_ne_bytes(*b)).collect();
+                let layers: Vec<String> = layers.split(',').filter(|l| !l.is_empty()).map(str::to_owned).collect();
+                let area = (width > 0 || height > 0).then(|| Rectangle::new((x, y).into(), (width, height).into()));
+                tracing::info!(window, ?area, shown = shown.len(), "agent screenshot requested");
+                let agent = AgentShot { window, area, shown, layers };
+                state.queue_capture(Pending { frame, target: Target::Screen, cursor: false, fd, agent: Some(agent) });
+                return;
+            }
+            Request::AgentInput { id, window } => {
+                state.agent_input_new(data_init, id, window);
+                return;
+            }
             Request::Destroy => return,
             _ => return,
         };
@@ -686,7 +896,7 @@ impl Dispatch<HelixScreenshotManagerV1, ()> for Helix {
         } else {
             tracing::info!(?target, cursor, "screen capture requested");
         }
-        state.queue_capture(Pending { frame, target, cursor, fd });
+        state.queue_capture(Pending { frame, target, cursor, fd, agent: None });
     }
 }
 
@@ -757,6 +967,18 @@ mod tests {
         let info = reader.next_frame(&mut buf).unwrap();
         assert_eq!((info.width, info.height), (3, 2));
         assert_eq!(&buf[..4], &[10, 20, 30, 255]);
+    }
+
+    #[test]
+    fn crops_to_an_area() {
+        let mut image = solid(8, 8, [1, 1, 1, 255]);
+        let i = (3 * 8 + 4) * 4;
+        image.rgba[i..i + 4].copy_from_slice(&[7, 7, 7, 255]);
+        // The window at (10, 10), 4x4 at scale 2; its pixel (2, 1) logical.
+        let out = crop(&image, Rectangle::new((10, 10).into(), (4, 4).into()), Rectangle::new((12, 11).into(), (2, 2).into())).unwrap();
+        assert_eq!((out.width, out.height), (4, 4));
+        assert_eq!(at(&out, 0, 1), [7, 7, 7, 255]);
+        assert_eq!(at(&out, 1, 1), [1, 1, 1, 255]);
     }
 
     #[test]

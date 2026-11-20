@@ -162,9 +162,11 @@ fn against_a_session() {
     assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (10, Json::from("access-off")));
     let out = cli(&["wait", "window", "--app", "org.gnome.TextEditor", "--timeout", "1"]);
     assert_eq!(code(&out), 10);
-    // Commands whose shell methods come later.
+    // Screenshots and input are refused like any call.
     let out = cli(&["screenshot"]);
-    assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (23, Json::from("not-supported")));
+    assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (10, Json::from("access-off")));
+    let out = cli(&["input", "type", "hello"]);
+    assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (10, Json::from("access-off")));
     // Driving apps is refused like any call.
     let out = cli(&["a11y", "tree", "1"]);
     assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (10, Json::from("access-off")));

@@ -11,7 +11,7 @@
     The global is only advertised to privileged clients (the shell the
     compositor launched itself).
   </description>
-  <interface name="helix_screenshot_manager_v1" version="7">
+  <interface name="helix_screenshot_manager_v1" version="8">
     <description summary="takes captures">
       Each request captures the scene as it is when the compositor handles
       the request, so surfaces the shell destroyed before sending it are
@@ -136,13 +136,54 @@
       <arg name="mime_type" type="string"/>
       <arg name="fd" type="fd"/>
     </request>
+    <request name="agent_capture" since="8">
+      <description summary="a screenshot for Agent Access">
+        For Agent Access's Screenshot method: an image of the layout
+        rectangle x, y, width, height (window 0), or of window (its window
+        list id; drawn whether or not it is shown, cropped to its window
+        geometry, and then to x, y, width, height in the window when width
+        is positive), never with the pointer.
+
+        Everything the shell has not cleared is drawn as opaque black in
+        its place in the stacking order (what is above it is drawn over
+        it), so a window or surface that appears after the shell decided
+        is never shown: in a layout capture, every window whose window
+        list id is not in shown (an array of uint32, in host byte order;
+        its rectangle with its popups and title bar), every window that
+        has none (X11 override-redirect windows), and every layer surface
+        whose namespace is not one of layers (comma-separated; its
+        rectangle with its popups). Layer surfaces hidden by a full-screen
+        window are not drawn and not filled. The frame's filled event says how many were filled in the
+        rectangle captured, before done. Failed with locked while the
+        session is locked, no_window for a window that is unknown or not
+        in shown, and invalid for an empty rectangle, one outside the
+        layout or window, or an image of more than 8192 pixels either way.
+      </description>
+      <arg name="id" type="new_id" interface="helix_screenshot_frame_v1"/>
+      <arg name="window" type="uint"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="shown" type="array"/>
+      <arg name="layers" type="string"/>
+      <arg name="fd" type="fd"/>
+    </request>
+    <request name="agent_input" since="8">
+      <description summary="synthetic input for Agent Access">
+        For Agent Access's Input method: a run of synthetic input into
+        window (its window list id). See helix_agent_input_v1.
+      </description>
+      <arg name="id" type="new_id" interface="helix_agent_input_v1"/>
+      <arg name="window" type="uint"/>
+    </request>
     <request name="destroy" type="destructor">
       <description summary="destroy the manager">
         Captures in progress are not affected.
       </description>
     </request>
   </interface>
-  <interface name="helix_screenshot_frame_v1" version="2">
+  <interface name="helix_screenshot_frame_v1" version="8">
     <description summary="one capture">
       Receives exactly one done or failed event.
     </description>
@@ -163,6 +204,13 @@
     </event>
     <event name="failed">
       <arg name="reason" type="uint" enum="reason"/>
+    </event>
+    <event name="filled" since="8">
+      <description summary="how much was blacked out">
+        agent_capture only, before done: how many windows and surfaces
+        were filled in the rectangle captured.
+      </description>
+      <arg name="count" type="uint"/>
     </event>
     <request name="destroy" type="destructor">
       <description summary="destroy the frame"/>
@@ -199,5 +247,98 @@
     <request name="destroy" type="destructor">
       <description summary="destroy the object"/>
     </request>
+  </interface>
+  <interface name="helix_agent_input_v1" version="8">
+    <description summary="an agent's synthetic input into one window">
+      Requests are carried out in order, one at a time; each is answered
+      with done once carried out, or the run ends with stopped (and
+      nothing more is carried out). Positions are logical pixels in the
+      window's geometry (its top-left corner is 0, 0).
+
+      Before every key, button, motion and scroll event the compositor
+      checks that the session is not locked, no Agent Access prompt is
+      shown, the window is still mapped and has the keyboard focus (also
+      through one of its popups), for keys and text that the app's focused
+      text field (zwp_text_input_v3) is not a password or PIN field, and,
+      for pointer events, that the point
+      is inside the window and the surface there is the window's own (not
+      another window, a title bar or a shell surface over it). Events go
+      straight to the client: never through the compositor's key bindings,
+      the shell's keys, click-to-focus or window moving.
+
+      Input from anything else (the machine's devices, a remote desktop
+      session, EIS, the headless test socket: a key or button press,
+      pointer motion, scrolling, a touch) stops the run at once (stopped
+      user_input) and refuses new runs for a while (stopped cooldown).
+      Keys and buttons the run holds are released when it ends.
+    </description>
+    <enum name="reason">
+      <entry name="cancelled" value="0" summary="cancel was sent"/>
+      <entry name="user_input" value="1" summary="the user used an input device"/>
+      <entry name="cooldown" value="2" summary="the user used an input device moments ago"/>
+      <entry name="locked" value="3" summary="the session is locked"/>
+      <entry name="prompt" value="4" summary="an Agent Access prompt is shown"/>
+      <entry name="gone" value="5" summary="the window is gone or not mapped"/>
+      <entry name="focus" value="6" summary="the window does not have the keyboard focus"/>
+      <entry name="outside" value="7" summary="the point is outside the window or covered"/>
+      <entry name="no_key" value="8" summary="the keyboard layout has no key for a keysym"/>
+      <entry name="invalid" value="9" summary="a malformed request"/>
+      <entry name="password" value="10" summary="a key or text while the app's focused text field is a password or PIN field (its text-input-v3 content purpose)"/>
+    </enum>
+    <enum name="state">
+      <entry name="up" value="0"/>
+      <entry name="down" value="1"/>
+    </enum>
+    <request name="motion">
+      <description summary="move the pointer to x, y in the window"/>
+      <arg name="x" type="fixed"/>
+      <arg name="y" type="fixed"/>
+    </request>
+    <request name="button">
+      <description summary="a pointer button down or up where the pointer is">
+        button is an evdev code (272 left, 273 right, 274 middle).
+      </description>
+      <arg name="button" type="uint"/>
+      <arg name="state" type="uint" enum="state"/>
+    </request>
+    <request name="scroll">
+      <description summary="scroll where the pointer is">
+        By steps of a wheel (positive: right, down).
+      </description>
+      <arg name="steps_x" type="int"/>
+      <arg name="steps_y" type="int"/>
+    </request>
+    <request name="key">
+      <description summary="a key of the user's layout down or up">
+        The key that gives keysym in the active layout, at its first or
+        second level (with Shift around it for the second); stopped
+        no_key when there is none.
+      </description>
+      <arg name="keysym" type="uint"/>
+      <arg name="state" type="uint" enum="state"/>
+    </request>
+    <request name="text">
+      <description summary="type text">
+        Each character as a key of a keymap made for the text, pressed and
+        released with no modifiers, whatever the user's layout, Caps Lock
+        or held keys (line feed is Return, tab is Tab).
+      </description>
+      <arg name="text" type="string"/>
+    </request>
+    <request name="cancel">
+      <description summary="stop the run now">
+        Stops the run (stopped cancelled), even in the middle of a text.
+      </description>
+    </request>
+    <request name="destroy" type="destructor">
+      <description summary="end the run, releasing what it holds"/>
+    </request>
+    <event name="done">
+      <description summary="the oldest request not yet answered was carried out"/>
+    </event>
+    <event name="stopped">
+      <description summary="the run ended; nothing more is carried out"/>
+      <arg name="reason" type="uint" enum="reason"/>
+    </event>
   </interface>
 </protocol>

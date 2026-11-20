@@ -1,7 +1,7 @@
 # bash completion for helix-agent (made by `helix-agent completions bash`)
 _helix_agent() {
     local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD-1]} at= w i
-    local known=" status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/types clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions "
+    local known=" status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/types clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll input/drag input/sequence log help completions "
     for ((i = 1; i < COMP_CWORD; i++)); do
         w=${COMP_WORDS[i]}
         [[ $w == -* ]] && continue
@@ -32,7 +32,10 @@ _helix_agent() {
         --state) return ;;
         --window) return ;;
         --monitor) return ;;
-        --button) return ;;
+        --area) return ;;
+        --button) COMPREPLY=($(compgen -W "left middle right back forward" -- "$cur")); return ;;
+        --count) return ;;
+        --at) return ;;
         --agent) return ;;
     esac
     local words
@@ -79,13 +82,15 @@ _helix_agent() {
         a11y/focus) words="--json --text --no-ask --sensitive --timeout --help" ;;
         a11y/select) words="--json --text --no-ask --sensitive --timeout --help" ;;
         a11y/set) words="--number --json --text --no-ask --sensitive --timeout --help" ;;
-        screenshot) words="--window --monitor --output --json --text --no-ask --sensitive --timeout --help" ;;
-        input) words="key type click move scroll --help" ;;
-        input/key) words="--json --text --no-ask --sensitive --timeout --help" ;;
-        input/type) words="--json --text --no-ask --sensitive --timeout --help" ;;
-        input/click) words="--button --json --text --no-ask --sensitive --timeout --help" ;;
-        input/move) words="--json --text --no-ask --sensitive --timeout --help" ;;
-        input/scroll) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        screenshot) words="--window --monitor --area --output --json --text --no-ask --sensitive --timeout --help" ;;
+        input) words="key type click move scroll drag sequence --help" ;;
+        input/key) words="--window --json --text --no-ask --sensitive --timeout --help" ;;
+        input/type) words="--window --json --text --no-ask --sensitive --timeout --help" ;;
+        input/click) words="--window --button --count --json --text --no-ask --sensitive --timeout --help" ;;
+        input/move) words="--window --json --text --no-ask --sensitive --timeout --help" ;;
+        input/scroll) words="--window --at --json --text --no-ask --sensitive --timeout --help" ;;
+        input/drag) words="--window --button --json --text --no-ask --sensitive --timeout --help" ;;
+        input/sequence) words="--window --json --text --no-ask --sensitive --timeout --help" ;;
         log) words="--agent --since --json --text --no-ask --sensitive --timeout --help" ;;
         help) words="status request state windows apps workspaces monitors notifications files wait ask confirm remind open launch window workspace toggle set notify clipboard a11y screenshot input log help completions exit-codes --json --text --no-ask --sensitive --timeout --help" ;;
         completions) words="bash zsh fish --json --text --no-ask --sensitive --timeout --help" ;;

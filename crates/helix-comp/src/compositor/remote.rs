@@ -101,6 +101,10 @@ impl Helix {
             tracing::debug!(?input, "remote input dropped: an agent prompt is shown");
             return;
         }
+        // A remote user's input stops an agent's too (the hard stop).
+        if !is_release(&input) {
+            self.agent_input_interrupted();
+        }
         self.note_activity();
         if self.capture_remote(&input) {
             return;

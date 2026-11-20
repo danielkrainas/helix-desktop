@@ -77,6 +77,11 @@ const WINDOW: Arg = arg("WINDOW", n_("A window id from “helix-agent windows”
 const NODE: Arg = arg("NODE", n_("A node id from “helix-agent a11y tree” or “find”"));
 const ROLE: Opt = valued("role", "ROLE", n_("Only controls of this role, e.g. button, text, check box"));
 const NAME: Opt = valued("name", "TEXT", n_("Only controls whose name contains TEXT"));
+const INPUT_WINDOW: Opt = valued("window", "WINDOW", n_("Into this window, focusing it first (default: the focused window)"));
+const X: Arg = arg("X", n_("Across the window from its left edge, in logical pixels"));
+const Y: Arg = arg("Y", n_("Down the window from its top edge, in logical pixels"));
+/// Pointer buttons by name.
+pub const BUTTONS: &[&str] = &["left", "middle", "right", "back", "forward"];
 const STATE: Opt = Opt { many: true, ..valued("state", "STATE", n_("Only controls in this state, e.g. focused, checked (repeat for more)")) };
 
 /// The top-level commands, in `--help`'s groups.
@@ -253,17 +258,46 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
     }]),
     (n_("Screen and input (Screen and input):"), &[
         Cmd {
+            ready: true,
             records: Some("Image"),
-            opts: &[valued("window", "WINDOW", n_("Only this window")), valued("monitor", "CONNECTOR", n_("Only this monitor")), valued("output", "FILE", n_("Write the PNG to FILE"))],
+            opts: &[
+                valued("window", "WINDOW", n_("Only this window (it may be on another workspace)")),
+                valued("monitor", "CONNECTOR", n_("Only this monitor, e.g. eDP-1 (see “helix-agent monitors”)")),
+                valued("area", "X,Y,WIDTH,HEIGHT", n_("Only this area: in the window, the monitor or the screen, in logical pixels")),
+                valued("output", "FILE", n_("Write the PNG to FILE")),
+            ],
             ..cmd("screenshot", n_("Take a screenshot"), Some("screen-and-input"))
         },
         Cmd {
+            ready: true,
             subs: &[
-                Cmd { args: &[Arg { many: true, ..arg("KEYS", n_("Key combinations such as ctrl+c, alt+F4 or Return")) }], ..cmd("key", n_("Press keys"), Some("screen-and-input")) },
-                Cmd { args: &[arg("TEXT", n_("The text"))], ..cmd("type", n_("Type text"), Some("screen-and-input")) },
-                Cmd { args: &[arg("X", n_("Across, in logical pixels")), arg("Y", n_("Down, in logical pixels"))], opts: &[valued("button", "N", n_("1 left, 2 middle, 3 right (default 1)"))], ..cmd("click", n_("Click at a point"), Some("screen-and-input")) },
-                Cmd { args: &[arg("X", n_("Across, in logical pixels")), arg("Y", n_("Down, in logical pixels"))], ..cmd("move", n_("Move the pointer"), Some("screen-and-input")) },
-                Cmd { args: &[arg("DX", n_("Across, in pixels")), arg("DY", n_("Down, in pixels"))], ..cmd("scroll", n_("Scroll"), Some("screen-and-input")) },
+                Cmd { ready: true, args: &[Arg { many: true, ..arg("KEYS", n_("Key combinations such as ctrl+s, alt+F4 or Return, pressed in turn")) }], opts: &[INPUT_WINDOW], ..cmd("key", n_("Press keys"), Some("screen-and-input")) },
+                Cmd { ready: true, args: &[arg("TEXT", n_("The text (any characters; a line break is Return)"))], opts: &[INPUT_WINDOW], ..cmd("type", n_("Type text"), Some("screen-and-input")) },
+                Cmd {
+                    ready: true,
+                    args: &[X, Y],
+                    opts: &[INPUT_WINDOW, Opt { choices: BUTTONS, ..valued("button", "BUTTON", n_("left (default), middle, right, back or forward")) }, valued("count", "N", n_("Click N times (2: a double click; at most 3)"))],
+                    ..cmd("click", n_("Click at a point in the window"), Some("screen-and-input"))
+                },
+                Cmd { ready: true, args: &[X, Y], opts: &[INPUT_WINDOW], ..cmd("move", n_("Move the pointer to a point in the window"), Some("screen-and-input")) },
+                Cmd {
+                    ready: true,
+                    args: &[arg("DX", n_("Wheel steps across (negative: left)")), arg("DY", n_("Wheel steps down (negative: up)"))],
+                    opts: &[INPUT_WINDOW, valued("at", "X,Y", n_("Scroll at this point in the window (default: where the pointer is)"))],
+                    ..cmd("scroll", n_("Scroll"), Some("screen-and-input"))
+                },
+                Cmd {
+                    ready: true,
+                    args: &[arg("X1", n_("From, across")), arg("Y1", n_("From, down")), arg("X2", n_("To, across")), arg("Y2", n_("To, down"))],
+                    opts: &[INPUT_WINDOW, Opt { choices: BUTTONS, ..valued("button", "BUTTON", n_("left (default), middle, right, back or forward")) }],
+                    ..cmd("drag", n_("Drag from one point to another"), Some("screen-and-input"))
+                },
+                Cmd {
+                    ready: true,
+                    args: &[Arg { many: true, ..arg("STEP", n_("move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS")) }],
+                    opts: &[INPUT_WINDOW],
+                    ..cmd("sequence", n_("Several steps in one go (keys and buttons held down are let go at the end)"), Some("screen-and-input"))
+                },
             ],
             ..cmd("input", n_("Send keys, text, clicks and scrolling"), Some("screen-and-input"))
         },

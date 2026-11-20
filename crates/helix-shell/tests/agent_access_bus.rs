@@ -169,17 +169,10 @@ async fn policy_over_the_bus() {
     access.attach(&server);
     let conn = bus.connect().await;
 
-    // The interfaces match their contracts (methods of later stages are
-    // not there yet; the read methods, without a desktop to read, fail).
+    // The interfaces match their contracts (the read methods, without a
+    // desktop to read, fail).
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
-    let later: Vec<String> = [
-        "Screenshot", "Input",
-    ]
-    .iter()
-    .map(|m| format!("method {m}"))
-    .collect();
-    let later: Vec<&str> = later.iter().map(String::as_str).collect();
-    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &later));
+    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &[]));
     assert_conformant(SETTINGS_IFACE, &check(SETTINGS_IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.AgentAccess1.xml"), &actual, &[]));
 
     let mut signals = zbus::MessageStream::for_match_rule(

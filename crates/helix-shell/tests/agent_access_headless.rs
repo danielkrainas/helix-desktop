@@ -115,16 +115,9 @@ fn agent_access_in_a_session() {
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
     rt.block_on(async {
         let conn = session.bus().connect().await;
-        // As the contract says; later stages' methods are not there yet.
+        // As the contract says.
         let actual = introspect(&conn, "org.gnome.Shell", PATH).await;
-        let later: Vec<String> = [
-            "Screenshot", "Input",
-        ]
-        .iter()
-        .map(|m| format!("method {m}"))
-        .collect();
-        let later: Vec<&str> = later.iter().map(String::as_str).collect();
-        assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &later));
+        assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &[]));
 
         // On, but without logind the caller counts as remote.
         let s = status(&conn).await;

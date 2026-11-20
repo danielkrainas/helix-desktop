@@ -254,6 +254,28 @@ impl Helix {
         ) {
             self.note_activity();
         }
+        // The user's own input stops an agent's (helixdesktop/spec
+        // `contracts/agent-access/README.md`, "Hard stop"): presses,
+        // motion, scrolling, touches; not releases.
+        let user = match &event {
+            InputEvent::Keyboard { event, .. } => event.state() == KeyState::Pressed,
+            InputEvent::PointerButton { event, .. } => event.state() == ButtonState::Pressed,
+            InputEvent::PointerMotion { .. }
+            | InputEvent::PointerMotionAbsolute { .. }
+            | InputEvent::PointerAxis { .. }
+            | InputEvent::TouchDown { .. }
+            | InputEvent::TouchMotion { .. }
+            | InputEvent::TabletToolAxis { .. }
+            | InputEvent::TabletToolTip { .. }
+            | InputEvent::TabletToolButton { .. }
+            | InputEvent::GestureSwipeBegin { .. }
+            | InputEvent::GesturePinchBegin { .. }
+            | InputEvent::GestureHoldBegin { .. } => true,
+            _ => false,
+        };
+        if user {
+            self.agent_input_interrupted();
+        }
         // Anything but motion happens where the pointer is now: held
         // motion goes first.
         if !matches!(event, InputEvent::PointerMotion { .. } | InputEvent::PointerMotionAbsolute { .. }) {

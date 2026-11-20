@@ -11,6 +11,7 @@ mod complete;
 mod errors;
 mod json;
 mod read;
+mod screen;
 mod talk;
 mod when;
 
@@ -125,6 +126,10 @@ fn run(p: &cli::Parsed) -> Result<Option<Done>, Failure> {
             // SAFETY: isatty on standard output.
             let json = p.json.unwrap_or(unsafe { libc::isatty(1) } != 1);
             clipboard::run(p, &path, json)
+        }
+        "screenshot" | "input key" | "input type" | "input click" | "input move" | "input scroll" | "input drag" | "input sequence" => {
+            let json = p.json.unwrap_or(unsafe { libc::isatty(1) } != 1);
+            screen::run(p, &path, json)
         }
         "a11y tree" | "a11y find" | "a11y wait" | "a11y do" | "a11y press" | "a11y focus" | "a11y select" | "a11y set" => a11y::run(p, &path).map(Some),
         // The shell's methods for the rest come with helixdesktop/desktop

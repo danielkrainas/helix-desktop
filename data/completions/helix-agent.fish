@@ -1,6 +1,6 @@
 # fish completion for helix-agent (made by `helix-agent completions fish`)
 function __helix_agent_at
-    set -l known status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/types clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions
+    set -l known status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/types clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll input/drag input/sequence log help completions
     set -l at
     for w in (commandline -opc)[2..-1]
         string match -q -- '-*' $w; and continue
@@ -102,15 +102,28 @@ complete -c helix-agent -n '__helix_agent_at a11y/wait' -l name -x -d 'Only cont
 complete -c helix-agent -n '__helix_agent_at a11y/wait' -l state -x -d 'Only controls in this state, e.g. focused, checked (repeat for more)'
 complete -c helix-agent -n '__helix_agent_at a11y/wait' -l timeout -x -d 'Give up after this long [default: 60; 0: never]'
 complete -c helix-agent -n '__helix_agent_at a11y/set' -l number -d 'VALUE is a number (sliders, spin buttons)'
-complete -c helix-agent -n '__helix_agent_at screenshot' -l window -x -d 'Only this window'
-complete -c helix-agent -n '__helix_agent_at screenshot' -l monitor -x -d 'Only this monitor'
+complete -c helix-agent -n '__helix_agent_at screenshot' -l window -x -d 'Only this window (it may be on another workspace)'
+complete -c helix-agent -n '__helix_agent_at screenshot' -l monitor -x -d 'Only this monitor, e.g. eDP-1 (see “helix-agent monitors”)'
+complete -c helix-agent -n '__helix_agent_at screenshot' -l area -x -d 'Only this area: in the window, the monitor or the screen, in logical pixels'
 complete -c helix-agent -n '__helix_agent_at screenshot' -l output -r -F -d 'Write the PNG to FILE'
 complete -c helix-agent -n '__helix_agent_at input' -a key -d 'Press keys'
 complete -c helix-agent -n '__helix_agent_at input' -a type -d 'Type text'
-complete -c helix-agent -n '__helix_agent_at input' -a click -d 'Click at a point'
-complete -c helix-agent -n '__helix_agent_at input' -a move -d 'Move the pointer'
+complete -c helix-agent -n '__helix_agent_at input' -a click -d 'Click at a point in the window'
+complete -c helix-agent -n '__helix_agent_at input' -a move -d 'Move the pointer to a point in the window'
 complete -c helix-agent -n '__helix_agent_at input' -a scroll -d 'Scroll'
-complete -c helix-agent -n '__helix_agent_at input/click' -l button -x -d '1 left, 2 middle, 3 right (default 1)'
+complete -c helix-agent -n '__helix_agent_at input' -a drag -d 'Drag from one point to another'
+complete -c helix-agent -n '__helix_agent_at input' -a sequence -d 'Several steps in one go (keys and buttons held down are let go at the end)'
+complete -c helix-agent -n '__helix_agent_at input/key' -l window -x -d 'Into this window, focusing it first (default: the focused window)'
+complete -c helix-agent -n '__helix_agent_at input/type' -l window -x -d 'Into this window, focusing it first (default: the focused window)'
+complete -c helix-agent -n '__helix_agent_at input/click' -l window -x -d 'Into this window, focusing it first (default: the focused window)'
+complete -c helix-agent -n '__helix_agent_at input/click' -l button -x -a 'left middle right back forward' -d 'left (default), middle, right, back or forward'
+complete -c helix-agent -n '__helix_agent_at input/click' -l count -x -d 'Click N times (2: a double click; at most 3)'
+complete -c helix-agent -n '__helix_agent_at input/move' -l window -x -d 'Into this window, focusing it first (default: the focused window)'
+complete -c helix-agent -n '__helix_agent_at input/scroll' -l window -x -d 'Into this window, focusing it first (default: the focused window)'
+complete -c helix-agent -n '__helix_agent_at input/scroll' -l at -x -d 'Scroll at this point in the window (default: where the pointer is)'
+complete -c helix-agent -n '__helix_agent_at input/drag' -l window -x -d 'Into this window, focusing it first (default: the focused window)'
+complete -c helix-agent -n '__helix_agent_at input/drag' -l button -x -a 'left middle right back forward' -d 'left (default), middle, right, back or forward'
+complete -c helix-agent -n '__helix_agent_at input/sequence' -l window -x -d 'Into this window, focusing it first (default: the focused window)'
 complete -c helix-agent -n '__helix_agent_at log' -l agent -x -d 'Only this agent'
 complete -c helix-agent -n '__helix_agent_at log' -l since -x -d 'Only entries at or after WHEN'
 complete -c helix-agent -n '__helix_agent_at completions' -a 'bash zsh fish'

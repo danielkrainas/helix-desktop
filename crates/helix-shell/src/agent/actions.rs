@@ -572,7 +572,7 @@ pub fn icon_name(name: &str) -> Result<&str, AgentError> {
 /// executable's file name, or the id's file names ("python3 bot.py"), as
 /// the indicator does.
 pub fn agent_label(agent: &super::identity::Agent) -> String {
-    super::prompt::Active { agent: agent.id.clone(), executable: agent.executable.clone(), name: agent.name.clone(), level: super::Level::Desktop }.label()
+    super::prompt::Active { agent: agent.id.clone(), executable: agent.executable.clone(), name: agent.name.clone(), level: super::Level::Desktop, controlling: false }.label()
 }
 
 #[cfg(test)]

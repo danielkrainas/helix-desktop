@@ -314,10 +314,38 @@ pub fn client_rect(space: &Space<Window>, window: &Window) -> Option<Rectangle<i
     Some(Rectangle::new(space.element_location(window)?, window.geometry().size))
 }
 
+/// What an Agent Access screenshot may not show: windows and layer
+/// surfaces drawn as opaque black (with their popups and title bars)
+/// instead of themselves.
+pub struct Mask<'a> {
+    pub window: &'a dyn Fn(&Window) -> bool,
+    pub layer: &'a dyn Fn(&smithay::desktop::LayerSurface) -> bool,
+}
+
+/// Opaque black over `rect` (output-local logical).
+fn blacked_out(rect: Rectangle<i32, Logical>, scale: f64) -> SceneElement {
+    let geometry = rect.to_physical_precise_round(scale);
+    SceneElement::Preview(SolidColorRenderElement::new(smithay::backend::renderer::element::Id::new(), geometry, 0usize, [0.0, 0.0, 0.0, 1.0], Kind::Unspecified))
+}
+
+/// The rectangle a masked window is drawn as: its surfaces with their
+/// popups, and its title bar (layout coordinates).
+pub fn mask_rect(space: &Space<Window>, window: &Window) -> Option<Rectangle<i32, Logical>> {
+    let location = space.element_location(window)?;
+    let mut rect = window.bbox_with_popups();
+    rect.loc += location - window.geometry().loc;
+    let top = frame_top(window);
+    if top > 0 {
+        rect = rect.merge(Rectangle::new((location.x, location.y - top).into(), (window.geometry().size.w, top).into()));
+    }
+    Some(rect)
+}
+
 /// What `output` shows, front to back: shell layers above windows, windows
 /// (each with its title bar), shell layers below. On an output in full
 /// screen (`fullscreen`), top-layer surfaces other than the
-/// [`super::wm::hidden_in_fullscreen`] exceptions are left out.
+/// [`super::wm::hidden_in_fullscreen`] exceptions are left out. With
+/// `mask`, what it hides is opaque black.
 #[allow(clippy::too_many_arguments)]
 pub fn scene(
     renderer: &mut GlesRenderer,
@@ -327,6 +355,7 @@ pub fn scene(
     focused: Option<&Window>,
     animations: Option<(&super::animations::Animations, helix_comp::animation::Motion)>,
     fullscreen: bool,
+    mask: Option<&Mask<'_>>,
 ) -> Vec<SceneElement> {
     let Some(output_geo) = space.output_geometry(output) else { return Vec::new() };
     let scale = output.current_scale().fractional_scale();
@@ -340,6 +369,12 @@ pub fn scene(
     let push_layers = |elements: &mut Vec<SceneElement>, renderer: &mut GlesRenderer, list: &[&smithay::desktop::LayerSurface]| {
         for surface in list {
             let Some(geo) = layers.layer_geometry(surface) else { continue };
+            if mask.is_some_and(|m| (m.layer)(surface)) {
+                let mut rect = surface.bbox_with_popups();
+                rect.loc += geo.loc;
+                elements.push(blacked_out(rect.merge(geo), scale));
+                continue;
+            }
             elements.extend(
                 AsRenderElements::<GlesRenderer>::render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
                     *surface,
@@ -381,6 +416,13 @@ pub fn scene(
         let bbox = space.element_bbox(window).unwrap_or(client);
         let reach = Rectangle::new((bbox.loc.x, bbox.loc.y - top).into(), (bbox.size.w, bbox.size.h + top).into());
         if !output_geo.overlaps(reach) {
+            continue;
+        }
+        if mask.is_some_and(|m| (m.window)(window)) {
+            if let Some(mut rect) = mask_rect(space, window) {
+                rect.loc -= output_geo.loc;
+                elements.push(blacked_out(rect, scale));
+            }
             continue;
         }
         let shaded = frames.shaded.contains(window);

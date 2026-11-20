@@ -58,6 +58,7 @@ use helix_i18n::tr;
 use helix_i18n::trf;
 
 mod agent_prompt;
+mod agent_screen;
 mod agent_question;
 mod app_grid;
 mod atspi;
@@ -383,6 +384,8 @@ struct Ui {
     sharing: bool,
     /// Agents the indicator lists (Agent Access; none: no indicator).
     agents_active: Vec<crate::agent::prompt::Active>,
+    /// Agents' input runs through the compositor.
+    agent_screen: agent_screen::AgentScreen,
     /// The agents the indicator's open menu stops, by entry.
     agent_menu: Vec<String>,
     /// An agent prompt waiting for the dialog shown to go.
@@ -1005,6 +1008,9 @@ struct PanelModel<'a> {
     /// icon (white).
     pub agents: usize,
     pub agent_icon: Option<&'a helix_draw::Image>,
+    /// An agent takes screenshots or sends input now (*Screen and
+    /// input*): the indicator says so (another icon, a white ring).
+    pub agents_controlling: bool,
     /// Dragging in the panel editor: where the item would go.
     pub drag_target: Option<i32>,
     /// The control with the keyboard focus (`switch-panels`).
@@ -1224,7 +1230,10 @@ fn paint_panel(canvas: &mut Canvas, text: Option<&Text>, (w, h): (usize, usize),
                     PRIVACY_PILL
                 };
                 canvas.round_rect(f64::from(x), py, f64::from(iw), ph, ph / 2.0, color);
-                if helix_draw::high_contrast() {
+                if m.agents_controlling {
+                    // Controlling the screen: a white ring inside the pill.
+                    canvas.round_outline(f64::from(x) + 1.5, py + 1.5, f64::from(iw) - 3.0, ph - 3.0, ph / 2.0 - 1.5, 2.0, 0xFFFFFFFF);
+                } else if helix_draw::high_contrast() {
                     canvas.round_outline(f64::from(x) + 0.5, py + 0.5, f64::from(iw) - 1.0, ph - 1.0, ph / 2.0 - 0.5, 1.0, 0xFFFFFFFF);
                 }
                 let (ix, iy) = (x + helix_draw::theme::grow(PRIVACY_PAD), (h as i32 - status::ICON) / 2);
@@ -1498,7 +1507,12 @@ impl Ui {
         let power_icon = self.symbolic_icon("system-shutdown-symbolic", scale);
         let sharing_icon = if self.sharing { self.symbolic_icon_color("screen-shared-symbolic", f64::from(status::ICON), scale, 0xFFFFFFFF) } else { None };
         let record_icon = if self.recording.is_some() { self.symbolic_icon_color("media-record-symbolic", f64::from(status::ICON), scale, 0xFFFFFFFF) } else { None };
-        let agent_icon = if self.agents_active.is_empty() { None } else { self.symbolic_icon_color("system-run-symbolic", f64::from(status::ICON), scale, 0xFFFFFFFF) };
+        let controlling = self.agents_active.iter().any(|a| a.controlling);
+        let agent_icon = match (self.agents_active.is_empty(), controlling) {
+            (true, _) => None,
+            (false, false) => self.symbolic_icon_color("system-run-symbolic", f64::from(status::ICON), scale, 0xFFFFFFFF),
+            (false, true) => self.symbolic_icon_color("input-mouse-symbolic", f64::from(status::ICON), scale, 0xFFFFFFFF),
+        };
         let elapsed = self.recording_elapsed();
         self.shown_elapsed = elapsed.clone();
         let tray_images = self.tray_images(scale);
@@ -1535,6 +1549,7 @@ impl Ui {
             privacy_icons: (sharing_icon.as_ref(), record_icon.as_ref()),
             agents: self.agents_active.len(),
             agent_icon: agent_icon.as_ref(),
+            agents_controlling: controlling,
             drag_target: self.panel_drag.as_ref().filter(|d| d.moving && !d.off_panel).and_then(|d| d.target.as_ref()).map(|t| t.2),
             focus: self.panel_focus,
             hover: self.panel_lit,
@@ -3671,6 +3686,11 @@ impl Ui {
                     self.agent_clipboard(request);
                 }
             }
+            UiEvent::AgentScreen(slot) => {
+                if let Some(request) = slot.take() {
+                    self.agent_screen(request);
+                }
+            }
             UiEvent::AgentWindow(slot) => {
                 if let Some(request) = slot.take() {
                     let _ = request.reply.send(self.agent_window(&request.ops));
@@ -4151,7 +4171,7 @@ pub fn run(
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
     let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=13, ()).ok();
-    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=7, ()).ok();
+    let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=8, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
         .ok();
@@ -4282,6 +4302,7 @@ pub fn run(
         attention: Default::default(),
         sharing: false,
         agents_active: Vec::new(),
+        agent_screen: Default::default(),
         agent_menu: Vec::new(),
         agent_waiting: None,
         agent_questions: Default::default(),
@@ -5763,7 +5784,7 @@ mod tests {
         let paint = |hover: Option<Slot>| {
             let mut data = vec![0u8; w * h * 4];
             let mut canvas = super::Canvas::scaled(&mut data, w, h, 1.0);
-            let model = super::PanelModel { layout: &layout, clock: "Sat 14:05", status_items: &[], tray_images: &[], tray_w: 0, ext_items: &[], ext_icons: &[], ext_widths: &[], locked: false, launcher_open: false, power_open: false, list_open: false, menu_open: None, unseen_dot: false, workspaces: (4, 1), a11y_shown: false, source_label: None, sharing: true, recording: Some("0:42"), privacy_icons: (None, None), agents: 0, agent_icon: None, drag_target: None, focus: None, hover, pressed: None, power_icon: None, bold: None };
+            let model = super::PanelModel { layout: &layout, clock: "Sat 14:05", status_items: &[], tray_images: &[], tray_w: 0, ext_items: &[], ext_icons: &[], ext_widths: &[], locked: false, launcher_open: false, power_open: false, list_open: false, menu_open: None, unseen_dot: false, workspaces: (4, 1), a11y_shown: false, source_label: None, sharing: true, recording: Some("0:42"), privacy_icons: (None, None), agents: 0, agent_icon: None, agents_controlling: false, drag_target: None, focus: None, hover, pressed: None, power_icon: None, bold: None };
             let placed = super::paint_panel(&mut canvas, text.as_ref(), (w, h), &model);
             (data, placed)
         };

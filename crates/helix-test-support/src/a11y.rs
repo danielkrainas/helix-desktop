@@ -14,6 +14,9 @@ use crate::TestBus;
 pub const GTK4_CONTROLS: &str = include_str!("../data/gtk4-controls.py");
 /// A GTK 3 test window's (AT-SPI through ATK's bridge).
 pub const GTK3_CONTROLS: &str = include_str!("../data/gtk3-controls.py");
+/// GTK 4 windows for synthetic input and screenshots: a button and text
+/// fields that print what is done to them, and (`--vault`) an all red one.
+pub const GTK4_INPUT: &str = include_str!("../data/gtk4-input.py");
 
 /// at-spi2-core's registry daemon, where it is installed.
 pub fn registryd() -> Option<PathBuf> {
@@ -107,5 +110,12 @@ pub fn write_gtk4_controls(dir: &Path) -> PathBuf {
 pub fn write_gtk3_controls(dir: &Path) -> PathBuf {
     let path = dir.join("gtk3-controls.py");
     std::fs::write(&path, GTK3_CONTROLS).expect("write the test window's program");
+    path
+}
+
+/// Write the GTK 4 input test windows' program to `dir`; its path.
+pub fn write_gtk4_input(dir: &Path) -> PathBuf {
+    let path = dir.join("gtk4-input.py");
+    std::fs::write(&path, GTK4_INPUT).expect("write the test window's program");
     path
 }

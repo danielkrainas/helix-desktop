@@ -3,6 +3,7 @@
 //! Structure follows Smithay's `smallvil` example (MIT licensed).
 
 mod a11y;
+mod agent_input;
 mod actions;
 mod zoom;
 mod alive;
@@ -231,6 +232,8 @@ pub struct Helix {
     pub window_list: window_list::WindowList,
     /// Screen captures asked for by the shell.
     pub captures: capture::Captures,
+    /// Agent Access's synthetic input runs.
+    pub agent_input: agent_input::AgentInputState,
     pub workspaces: workspaces::WorkspaceState,
     /// Title bars of X11 windows.
     pub frames: frames::Frames,
@@ -289,7 +292,7 @@ impl Helix {
         dh.create_global::<Self, helix_protocols::server::helix_keybindings_manager_v1::HelixKeybindingsManagerV1, _>(2, ());
         dh.create_global::<Self, helix_protocols::server::helix_window_list_v1::HelixWindowListV1, _>(13, ());
         helix_comp::tablet_v2::TabletV2::global::<Self>(&dh);
-        dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(7, ());
+        dh.create_global::<Self, helix_protocols::server::helix_screenshot_manager_v1::HelixScreenshotManagerV1, _>(8, ());
         let socket_name = Self::listen(display, event_loop)?;
         let mut helix = Self {
             start_time: Instant::now(),
@@ -385,6 +388,7 @@ impl Helix {
             hdr_test: std::env::var_os("HELIX_TEST_HDR").map(|_| Default::default()),
             window_list: Default::default(),
             captures: Default::default(),
+            agent_input: Default::default(),
             workspaces: Default::default(),
             frames: Default::default(),
             layer_released: Default::default(),

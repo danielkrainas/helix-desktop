@@ -196,20 +196,40 @@ impl Helix {
     /// What `output` shows (shared-memory surfaces, at scale 1); logs
     /// where each window is.
     pub(super) fn headless_image(&self, output: &Output) -> Option<Image> {
+        self.headless_image_masked(output, None)
+    }
+
+    /// [`Self::headless_image`], with what `mask` hides opaque black.
+    pub(super) fn headless_image_masked(&self, output: &Output, mask: Option<&super::frames::Mask<'_>>) -> Option<Image> {
         let geo = self.space.output_geometry(output)?;
         let mut image = Image::filled(geo.size.w, geo.size.h);
         let fullscreen = self.in_fullscreen(output);
-        let layers: Vec<(Layer, WlSurface, Point<i32, Logical>)> = {
+        // (Each with the rectangle it is blacked out as, when masked.)
+        type Black = Option<smithay::utils::Rectangle<i32, Logical>>;
+        let layers: Vec<(Layer, WlSurface, Point<i32, Logical>, Black)> = {
             let map = layer_map_for_output(output);
             map.layers()
                 .filter(|l| !(fullscreen && super::wm::hidden_in_fullscreen(l.layer(), l.namespace())))
-                .filter_map(|l| Some((l.layer(), l.wl_surface().clone(), map.layer_geometry(l)?.loc + geo.loc)))
+                .filter_map(|l| {
+                    let lg = map.layer_geometry(l)?;
+                    let black = mask.filter(|m| (m.layer)(l)).map(|_| {
+                        let mut rect = l.bbox_with_popups();
+                        rect.loc += lg.loc;
+                        let mut rect = rect.merge(lg);
+                        rect.loc += geo.loc;
+                        rect
+                    });
+                    Some((l.layer(), l.wl_surface().clone(), lg.loc + geo.loc, black))
+                })
                 .collect()
         };
         let draw_layers = |image: &mut Image, kinds: &[Layer]| {
-            for (kind, surface, at) in &layers {
+            for (kind, surface, at, black) in &layers {
                 if kinds.contains(kind) {
-                    image.draw_tree(surface, *at - geo.loc);
+                    match black {
+                        Some(rect) => image.fill_rect(rect.loc - geo.loc, rect.size, 0xFF000000),
+                        None => image.draw_tree(surface, *at - geo.loc),
+                    }
                 }
             }
         };
@@ -218,6 +238,12 @@ impl Helix {
         for window in &windows {
             let (Some(location), Some(surface)) = (self.space.element_location(window), super::wm::surface_of(window)) else { continue };
             let geometry = window.geometry();
+            if mask.is_some_and(|m| (m.window)(window)) {
+                if let Some(rect) = super::frames::mask_rect(&self.space, window) {
+                    image.fill_rect(rect.loc - geo.loc, rect.size, 0xFF000000);
+                }
+                continue;
+            }
             image.draw_tree(&surface, location - geometry.loc - geo.loc);
             let toplevel = window.toplevel().map(|t| {
                 let current = t.current_state();
@@ -273,6 +299,15 @@ impl Image {
 
 impl Image {
     /// Draw `surface` and its subsurfaces with the surface's origin at `at`.
+    /// `size` at `at` in one opaque `argb`.
+    pub(super) fn fill_rect(&mut self, at: Point<i32, Logical>, size: Size<i32, Logical>, argb: u32) {
+        for y in at.y.max(0)..(at.y + size.h).min(self.height) {
+            for x in at.x.max(0)..(at.x + size.w).min(self.width) {
+                self.pixels[(y * self.width + x) as usize] = argb;
+            }
+        }
+    }
+
     pub(super) fn draw_tree(&mut self, surface: &WlSurface, at: Point<i32, Logical>) {
         with_surface_tree_downward(
             surface,

@@ -98,7 +98,7 @@ pub fn describe(code: &str) -> String {
         "sandboxed" => tr("Agent access is not available to sandboxed apps").into(),
         "needs-confirmation" => tr("This action needs the user's confirmation; run it without --no-ask to ask").into(),
         "feature-off" => tr("Clipboard access is turned off (Settings › Privacy & Security › Agent Access)").into(),
-        "no" => tr("The user said no, or cancelled the question").into(),
+        "no" => tr("The user said no, cancelled the question, or stopped the agent or its input").into(),
         "timed-out" => tr("Timed out").into(),
         "not-found" => tr("No such window, app or item").into(),
         "not-supported" => tr("Not supported by this Helix session, this computer or the app").into(),
@@ -127,7 +127,17 @@ pub fn from_dbus(name: &str, message: &str) -> Failure {
         Some("Sandboxed") => ("sandboxed", tr("Agent access is not available to sandboxed apps").into()),
         Some("NeedsConfirmation") => ("needs-confirmation", tr("This action needs the user's confirmation; run it without --no-ask to ask").into()),
         Some("FeatureOff") => ("feature-off", tr("Clipboard access is turned off (Settings › Privacy & Security › Agent Access)").into()),
-        Some("Cancelled") => ("no", tr("The user cancelled the question").into()),
+        // Input stopped (README.md, "Screen and input methods"), or a
+        // question dismissed.
+        Some("Cancelled") => (
+            "no",
+            match message.trim() {
+                "user-input" => tr("Stopped: the user took over the keyboard or pointer").into(),
+                "cooldown" => tr("The user is using the keyboard or pointer; try again in a moment").into(),
+                "stopped" => tr("The user stopped the agent").into(),
+                _ => tr("The user cancelled the question").into(),
+            },
+        ),
         Some("TimedOut") => ("timed-out", tr("Timed out").into()),
         Some("NotFound") => ("not-found", trf!("No such window / app / item: {what}", what = message)),
         // The shell says why: this session, this computer or the app.
@@ -208,6 +218,9 @@ mod tests {
         assert_eq!(from_dbus("org.helixdesktop.Agent1.Error.NotSupported", "").message, "Not supported here");
         assert_eq!(from_dbus("org.freedesktop.DBus.Error.ServiceUnknown", "x").exit_code(), 3);
         assert_eq!(from_dbus("org.helixdesktop.Agent1.Error.Failed", "it broke").message, "it broke");
+        let stopped = from_dbus("org.helixdesktop.Agent1.Error.Cancelled", "user-input");
+        assert_eq!((stopped.exit_code(), stopped.message.as_str()), (20, "Stopped: the user took over the keyboard or pointer"));
+        assert_eq!(from_dbus("org.helixdesktop.Agent1.Error.Cancelled", "stopped").message, "The user stopped the agent");
         for (code, exit) in CODES {
             assert_eq!(exit_code(code), *exit);
             assert!(!describe(code).is_empty(), "{code}");
