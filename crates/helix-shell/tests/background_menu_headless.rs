@@ -6,8 +6,8 @@
 //! settings app at that panel; a long press of the left button or a
 //! finger opens it too, a short click does not; it is used with the
 //! keyboard; a right click on the panel opens the panel's own menu
-//! instead, and with desktop icons shown one on an icon opens none while
-//! one beside them opens the background's.
+//! instead, and with desktop icons shown one on an icon opens the icon's
+//! file menu ("Open") while one beside them opens the background's.
 //!
 //! The settings app is a stand-in `helix-settings-app` first on `PATH`
 //! that writes its arguments to a file. The menu's entries are found from
@@ -154,8 +154,10 @@ fn background_menu() {
     std::thread::sleep(Duration::from_millis(500));
     session.input("keysym 0xff1b 1\nkeysym 0xff1b 0");
 
-    // With desktop icons: a right click on an icon opens nothing, one
-    // beside the icons the background's menu.
+    // With desktop icons: a right click on an icon opens its file menu
+    // (since the desktop icons' menu, helixdesktop/spec
+    // contracts/gsettings/background.md, "Desktop icons"), one beside the
+    // icons the background's menu.
     std::fs::create_dir_all(session.home().join("Desktop")).unwrap();
     std::fs::write(session.home().join("Desktop/notes.txt"), "notes").unwrap();
     assert!(session.wait_for_log("namespace=\"helix-background-icons\"", Duration::from_secs(10)), "the desktop icons:\n{}", session.log());
@@ -163,10 +165,13 @@ fn background_menu() {
     std::thread::sleep(Duration::from_millis(3000));
     // The first cell: 12 pixels in from the icons' surface, under the panel.
     session.input("move 60 100\nbutton 273 1\nbutton 273 0");
-    std::thread::sleep(Duration::from_millis(500));
-    assert_eq!(shown_count(&session), 5, "no menu on an icon:\n{}", session.log());
-    session.input("move 60 500\nbutton 273 1\nbutton 273 0");
     let entries = menu_shown(&session, 5);
+    assert_eq!(labels(&entries), ["Open"], "a plain file's menu on an icon, not the background's: {entries:?}");
+    std::thread::sleep(Duration::from_millis(300));
+    session.input("keysym 0xff1b 1\nkeysym 0xff1b 0");
+    std::thread::sleep(Duration::from_millis(300));
+    session.input("move 60 500\nbutton 273 1\nbutton 273 0");
+    let entries = menu_shown(&session, 6);
     assert_eq!(labels(&entries), ["Change Background…", "Display Settings", "Settings"], "beside the icons: {entries:?}");
     session.input("keysym 0xff1b 1\nkeysym 0xff1b 0");
     std::thread::sleep(Duration::from_millis(300));
