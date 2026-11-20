@@ -16,13 +16,53 @@ use gio::prelude::*;
 /// A filter: its name and patterns, (0, glob) or (1, MIME type).
 pub type Filter = (String, Vec<(u32, String)>);
 
-/// `*` and `?` glob matching, ignoring case.
+/// Glob matching as GLib's `GPatternSpec`-style file filters use it,
+/// ignoring case: `*`, `?` and bracket classes (`[aA]`, `[0-9]`, `[!x]` or
+/// `[^x]`). Apps make case-insensitive filters with classes: Chromium's
+/// file dialog and GTK's `gtk_file_filter_add_suffix` send `*.[pP][dD][fF]`.
+/// A `[` with no closing `]` matches itself.
 pub fn glob(pattern: &str, name: &str) -> bool {
+    /// The class at the start of `p` (just after its `[`): whether `c`
+    /// is in it, and how many chars the class used up (with its `]`).
+    fn class(p: &[char], c: char) -> Option<(bool, usize)> {
+        let mut i = 0;
+        let negate = matches!(p.first(), Some('!' | '^'));
+        if negate {
+            i += 1;
+        }
+        let mut found = false;
+        let mut first = true;
+        while i < p.len() {
+            let a = p[i];
+            if a == ']' && !first {
+                return Some((found != negate, i + 1));
+            }
+            first = false;
+            if i + 2 < p.len() && p[i + 1] == '-' && p[i + 2] != ']' {
+                if a <= c && c <= p[i + 2] {
+                    found = true;
+                }
+                i += 3;
+            } else {
+                if a == c {
+                    found = true;
+                }
+                i += 1;
+            }
+        }
+        None
+    }
     fn go(p: &[char], n: &[char]) -> bool {
         match p.split_first() {
             None => n.is_empty(),
             Some(('*', rest)) => (0..=n.len()).any(|i| go(rest, &n[i..])),
             Some(('?', rest)) => !n.is_empty() && go(rest, &n[1..]),
+            Some(('[', rest)) => match n.first().and_then(|c| class(rest, *c).map(|r| (c, r))) {
+                Some((_, (true, used))) => go(&rest[used..], &n[1..]),
+                Some((_, (false, _))) => false,
+                // No closing bracket (or no name left): a literal `[`.
+                None => !rest.iter().any(|c| *c == ']') && n.first() == Some(&'[') && go(rest, &n[1..]),
+            },
             Some((c, rest)) => n.first().is_some_and(|m| m == c) && go(rest, &n[1..]),
         }
     }
@@ -735,6 +775,26 @@ mod tests {
         assert!(glob("*.png", "Photo.PNG"));
         assert!(glob("img-??.jpg", "img-01.jpg"));
         assert!(!glob("*.png", "notes.txt"));
+        // Case-insensitive suffixes as Chromium and GTK send them.
+        assert!(glob("*.[pP][dD][fF]", "Report.pdf"));
+        assert!(glob("*.[pP][dD][fF]", "SCAN.PDF"));
+        assert!(!glob("*.[pP][dD][fF]", "notes.txt"));
+        assert!(!glob("*.[pP][dD][fF]", "a.pd"));
+        assert!(glob("img[0-9].png", "img7.png"));
+        assert!(!glob("img[0-9].png", "imgx.png"));
+        assert!(glob("[!.]*", "visible"));
+        assert!(!glob("[!.]*", ".hidden"));
+        assert!(glob("[^.]*", "visible"));
+        assert!(glob("[]x]", "]"));
+        assert!(glob("a[b", "a[b"));
+        assert!(!glob("a[b", "ab"));
+        let upload: Filter = ("Custom Files".into(), vec![(0, "*.[jJ][pP][gG]".into()), (0, "*.[pP][nN][gG]".into())]);
+        assert!(passes(&upload, "Holiday.JPG"));
+        assert!(passes(&upload, "icon.png"));
+        assert!(!passes(&upload, "cv.docx"));
+        let any_image: Filter = ("Images".into(), vec![(1, "image/*".into())]);
+        assert!(passes(&any_image, "a.png"));
+        assert!(!passes(&any_image, "a.pdf"));
         let images: Filter = ("Images".into(), vec![(0, "*.jpg".into()), (1, "image/png".into())]);
         assert!(passes(&images, "a.jpg"));
         assert!(passes(&images, "b.png"));
