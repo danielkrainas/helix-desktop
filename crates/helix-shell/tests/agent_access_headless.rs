@@ -118,7 +118,7 @@ fn agent_access_in_a_session() {
         // As the contract says; later stages' methods are not there yet.
         let actual = introspect(&conn, "org.gnome.Shell", PATH).await;
         let later: Vec<String> = [
-            "Ask", "Confirm", "AddReminder", "ListReminders", "CancelReminder", "Open", "Launch", "WindowAction", "SwitchWorkspace", "SetToggle", "SetValue", "Notify",
+            "Ask", "Confirm", "AddReminder", "ListReminders", "CancelReminder",
             "GetClipboard", "SetClipboard", "A11yTree", "A11yAction", "A11ySetValue", "Screenshot", "Input",
         ]
         .iter()

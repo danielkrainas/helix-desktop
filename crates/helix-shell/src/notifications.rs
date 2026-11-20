@@ -326,6 +326,30 @@ impl Center {
         }, None)
     }
 
+    /// A notification an agent shows (helixdesktop/desktop#147), under
+    /// "Agent: <agent>" (`agent` the label the indicator gives it) in place
+    /// of an app's name, so it cannot pass for the system's or an app's.
+    /// Plain text, never critical, no buttons.
+    pub fn agent_notice(&self, agent: &str, summary: &str, body: &str, icon: Option<&str>, low: bool) -> u32 {
+        let urgency = if low { Urgency::Low } else { Urgency::Normal };
+        let plain = |text: &str| text.chars().filter(|c| !c.is_control() || *c == '\n').collect::<String>();
+        self.post(Notification {
+            id: 0,
+            app_name: trf!("Agent: {agent}", agent = agent),
+            summary: plain(summary).replace('\n', " "),
+            body: plain(body),
+            actions: Vec::new(),
+            has_default: false,
+            urgency,
+            timeout: Notification::timeout_from(-1, urgency),
+            icon: Some(IconSource::Names(vec![icon.unwrap_or("dialog-information-symbolic").into(), "dialog-information-symbolic".into()])),
+            origin: Origin::Freedesktop { resident: false },
+            markup: false,
+            transient: false,
+            app_id: String::new(),
+        }, None)
+    }
+
     /// "<title> is ready": window `id` of app `app_id` wants attention.
     pub fn window_ready(&self, id: u32, title: &str, app_id: &str) -> u32 {
         use gio::prelude::*;

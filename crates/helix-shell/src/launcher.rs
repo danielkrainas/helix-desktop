@@ -51,12 +51,24 @@ pub fn installed() -> Vec<App> {
 
 /// Launch an app by desktop file id.
 pub fn launch(id: &str) -> Result<(), String> {
+    launch_with(id, &[])
+}
+
+/// Launch an app by desktop file id, handing it `uris` (agents' `Open`
+/// and `Launch`, helixdesktop/desktop#147).
+pub fn launch_with(id: &str, uris: &[String]) -> Result<(), String> {
     let info = gio::AppInfo::all()
         .into_iter()
         .find(|a| a.id().is_some_and(|i| i == id))
         .ok_or_else(|| format!("no app {id}"))?;
-    info.launch(&[], Some(&crate::app_scope::context(None)))
-        .map_err(|e| e.to_string())?;
+    let context = crate::app_scope::context(None);
+    if uris.is_empty() {
+        info.launch(&[], Some(&context))
+    } else {
+        let uris: Vec<&str> = uris.iter().map(String::as_str).collect();
+        info.launch_uris(&uris, Some(&context))
+    }
+    .map_err(|e| e.to_string())?;
     crate::app_usage::record(id);
     Ok(())
 }

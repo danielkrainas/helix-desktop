@@ -56,7 +56,7 @@ _helix_agent() {
         remind/cancel) words="--json --text --no-ask --sensitive --timeout --help" ;;
         open) words="--app --json --text --no-ask --sensitive --timeout --help" ;;
         launch) words="--json --text --no-ask --sensitive --timeout --help" ;;
-        window) words="focus close minimize maximize unmaximize fullscreen unfullscreen tile-left tile-right move resize to-workspace --json --text --no-ask --sensitive --timeout --help" ;;
+        window) words="focus close minimize maximize unmaximize restore fullscreen unfullscreen tile-left tile-right move resize to-workspace --json --text --no-ask --sensitive --timeout --help" ;;
         workspace) words="switch --help" ;;
         workspace/switch) words="--json --text --no-ask --sensitive --timeout --help" ;;
         toggle) words="dark-style do-not-disturb night-light wifi airplane-mode mute --json --text --no-ask --sensitive --timeout --help" ;;

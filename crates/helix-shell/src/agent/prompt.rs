@@ -21,8 +21,9 @@ use crate::UiEvent;
 pub enum Question {
     /// May the agent have `level`? *Always allow* offered or not.
     Consent { level: Level, offer_always: bool },
-    /// May the agent do this sensitive action (an `Agent1` method)?
-    Confirm { method: &'static str },
+    /// May the agent do this sensitive action (an `Agent1` method, and
+    /// what it does when the prompt can say more: `wifi-off`, `close`)?
+    Confirm { method: &'static str, action: Option<&'static str> },
 }
 
 /// A prompt for the UI.
@@ -85,7 +86,7 @@ pub fn confirm(ui: mpsc::UnboundedSender<UiEvent>) -> Confirm {
     Arc::new(move |request: ConfirmRequest| {
         let ui = ui.clone();
         Box::pin(async move {
-            match ask(&ui, request.agent.name, request.agent.id, Question::Confirm { method: request.method }).await {
+            match ask(&ui, request.agent.name, request.agent.id, Question::Confirm { method: request.method, action: request.action }).await {
                 Answer::Session | Answer::Always => Some(true),
                 Answer::Deny => Some(false),
                 Answer::Unanswered => None,
@@ -127,6 +128,39 @@ impl Active {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn agent() -> super::super::identity::Agent {
+        super::super::identity::Agent { id: "/usr/bin/bot".into(), executable: "/usr/bin/bot".into(), name: "Bot".into(), identified: true, pid: 1, caller_pid: 1, ssh: false }
+    }
+
+    /// The sensitive-action hook asks the UI with the method and what it
+    /// does, and turns its answer into yes, no or unanswered.
+    #[tokio::test]
+    async fn sensitive_action_prompt() {
+        let (ui, mut events) = mpsc::unbounded_channel();
+        let hook = confirm(ui);
+        for (answer, expected) in [(Some(Answer::Session), Some(true)), (Some(Answer::Deny), Some(false)), (None, None)] {
+            let asked = hook(ConfirmRequest { agent: agent(), method: "SetToggle", action: Some("wifi-off") });
+            let answering = async {
+                let Some(UiEvent::AgentPrompt(slot)) = events.recv().await else { panic!("no prompt") };
+                let request = slot.take().unwrap();
+                assert_eq!((request.name.as_str(), request.agent.as_str()), ("Bot", "/usr/bin/bot"));
+                assert_eq!(request.question, Question::Confirm { method: "SetToggle", action: Some("wifi-off") });
+                match answer {
+                    Some(a) => {
+                        let _ = request.reply.send(a);
+                    }
+                    // The prompt went away (the screen locked).
+                    None => drop(request),
+                }
+            };
+            let (got, ()) = tokio::join!(asked, answering);
+            assert_eq!(got, expected);
+        }
+        // Nobody to ask: the UI is gone.
+        drop(events);
+        assert_eq!(hook(ConfirmRequest { agent: agent(), method: "WindowAction", action: Some("close") }).await, None);
+    }
 
     #[test]
     fn labels() {

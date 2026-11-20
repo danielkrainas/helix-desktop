@@ -456,6 +456,28 @@ pub async fn apply(system: &Connection, toggle: Toggle) -> zbus::Result<()> {
     }
 }
 
+/// Whether there is Wi-Fi (NetworkManager's switch) and Bluetooth (an
+/// adapter), and whether each is on: `None` for what is not there.
+pub async fn radios(system: &Connection) -> (Option<bool>, Option<bool>) {
+    let wifi = prop::<bool>(system, NM, NM_PATH, NM, "WirelessEnabled").await;
+    let adapters = adapters(system).await;
+    (wifi, (!adapters.is_empty()).then(|| adapters.iter().any(|(_, on)| *on)))
+}
+
+/// Quick settings' Night Light switch (`org.gnome.settings-daemon.plugins.color`
+/// `night-light-enabled`); false when the setting is not installed.
+pub fn set_night_light(on: bool) -> bool {
+    let schema = helix_settings::Schema::open("org.gnome.settings-daemon.plugins.color");
+    schema.has("night-light-enabled") && schema.set("night-light-enabled", on)
+}
+
+/// Quick settings' Dark Style switch (`org.gnome.desktop.interface`
+/// `color-scheme`); false when the setting is not installed.
+pub fn set_dark_style(on: bool) -> bool {
+    let schema = helix_settings::Schema::open("org.gnome.desktop.interface");
+    schema.has("color-scheme") && schema.set("color-scheme", if on { "prefer-dark" } else { "default" })
+}
+
 static POKE: LazyLock<Notify> = LazyLock::new(Notify::new);
 
 /// Something changed (volume, a switch): read the status again soon.

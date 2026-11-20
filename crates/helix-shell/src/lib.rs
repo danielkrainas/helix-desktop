@@ -324,6 +324,9 @@ pub enum UiEvent {
     /// What agents may read of the windows, workspaces and monitors
     /// (helixdesktop/desktop#146).
     AgentSnapshot(agent::desktop::SnapshotSlot),
+    /// Window and workspace requests of agents, for the compositor's
+    /// window list (helixdesktop/desktop#147).
+    AgentWindow(agent::actions::WindowSlot),
 }
 
 /// What the quick settings menu changes.

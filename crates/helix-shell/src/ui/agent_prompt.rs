@@ -108,7 +108,15 @@ fn level_text(level: Level) -> &'static str {
 }
 
 /// What a sensitive call does, as the question's title.
-fn action_title(who: &str, method: &str) -> String {
+fn action_title(who: &str, method: &str, action: Option<&str>) -> String {
+    match action {
+        Some("wifi-on") => return trf!("Allow {agent} to turn Wi-Fi on?", agent = who),
+        Some("wifi-off") => return trf!("Allow {agent} to turn Wi-Fi off?", agent = who),
+        Some("airplane-mode-on") => return trf!("Allow {agent} to turn airplane mode on?", agent = who),
+        Some("airplane-mode-off") => return trf!("Allow {agent} to turn airplane mode off?", agent = who),
+        Some("close") => return trf!("Allow {agent} to close a window?", agent = who),
+        _ => {}
+    }
     match method {
         "Open" => trf!("Allow {agent} to open a file or link?", agent = who),
         "Launch" => trf!("Allow {agent} to start an app?", agent = who),
@@ -145,8 +153,8 @@ fn content(view: &AgentPromptView) -> (String, Vec<(String, bool)>) {
                 (tr("While it is active, the top bar shows it, and you can stop it there.").to_owned(), true),
             ],
         ),
-        Question::Confirm { method } => (
-            action_title(&who, method),
+        Question::Confirm { method, action } => (
+            action_title(&who, method, *action),
             vec![(program, true), (tr("You asked to confirm actions agents mark as sensitive, such as deleting, sending or changing settings.").to_owned(), true)],
         ),
     }
@@ -342,7 +350,7 @@ mod tests {
         assert_eq!(v.buttons().iter().map(|b| b.1).collect::<Vec<_>>(), [Answer::Deny, Answer::Session, Answer::Always]);
         let (v, _) = view(Question::Consent { level: Level::Desktop, offer_always: false });
         assert_eq!(v.buttons().len(), 2, "no Always Allow for unidentified agents or under remember-mode ask");
-        let (v, _) = view(Question::Confirm { method: "Open" });
+        let (v, _) = view(Question::Confirm { method: "Open", action: None });
         assert_eq!(v.buttons().iter().map(|b| b.1).collect::<Vec<_>>(), [Answer::Deny, Answer::Session]);
         // Deny has the focus at first.
         assert_eq!(v.focus, 0);
@@ -386,9 +394,16 @@ mod tests {
         assert_eq!(title, "Allow “Build bot” to use your desktop?");
         assert!(lines[0].0.contains("/usr/bin/python3 /home/me/bot.py"));
         assert!(lines[1].0.contains("Control apps"));
-        let (mut v, _) = view(Question::Confirm { method: "Input" });
+        let (mut v, _) = view(Question::Confirm { method: "Input", action: None });
         v.name.clear();
         assert_eq!(content(&v).0, "Allow “python3” to use your keyboard and pointer?");
+        // What the action does, where the prompt can say.
+        let (v, _) = view(Question::Confirm { method: "SetToggle", action: Some("wifi-off") });
+        assert_eq!(content(&v).0, "Allow “Build bot” to turn Wi-Fi off?");
+        let (v, _) = view(Question::Confirm { method: "WindowAction", action: Some("close") });
+        assert_eq!(content(&v).0, "Allow “Build bot” to close a window?");
+        let (v, _) = view(Question::Confirm { method: "WindowAction", action: None });
+        assert_eq!(content(&v).0, "Allow “Build bot” to change a window?");
     }
 
     #[test]

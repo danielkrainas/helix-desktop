@@ -21,8 +21,12 @@
 //! The *Read only* methods (helixdesktop/desktop#146) read the UI's
 //! windows, workspaces and monitors ([`desktop`]), the notification list,
 //! the quick settings' state, recent files and file search ([`files`]),
-//! and what document a window shows ([`document`]).
+//! and what document a window shows ([`document`]). The *Control the
+//! desktop* methods (helixdesktop/desktop#147) open and launch through the
+//! shell's launcher, act on windows and workspaces through the UI's window
+//! list, change quick settings and show notifications ([`actions`]).
 
+pub mod actions;
 pub mod activity;
 pub mod desktop;
 pub mod document;
@@ -74,6 +78,8 @@ pub struct ConfirmRequest {
     pub agent: Agent,
     /// The `Agent1` method.
     pub method: &'static str,
+    /// What it does, when the prompt can say more (`wifi-off`, `close`).
+    pub action: Option<&'static str>,
 }
 
 /// The sensitive-action prompt: `Some(yes)`, or `None` when the user could
@@ -139,18 +145,21 @@ pub struct CallOptions {
     pub interactive: bool,
     /// The agent marked the call sensitive.
     pub sensitive: bool,
+    /// What the call does, for the sensitive-action prompt (not an
+    /// option: the method sets it).
+    pub action: Option<&'static str>,
 }
 
 impl CallOptions {
     pub fn from_dict(options: &HashMap<String, OwnedValue>) -> CallOptions {
         let flag = |key: &str, default: bool| options.get(key).and_then(|v| bool::try_from(v.clone()).ok()).unwrap_or(default);
-        CallOptions { interactive: flag("interactive", true), sensitive: flag("sensitive", false) }
+        CallOptions { interactive: flag("interactive", true), sensitive: flag("sensitive", false), action: None }
     }
 }
 
 impl Default for CallOptions {
     fn default() -> Self {
-        CallOptions { interactive: true, sensitive: false }
+        CallOptions { interactive: true, sensitive: false, action: None }
     }
 }
 
@@ -241,6 +250,8 @@ struct Inner {
     log: Arc<activity::Log>,
     /// Where the desktop's state comes from (the UI, the notifications).
     desktop: OnceLock<Desktop>,
+    /// Agents' notifications, for the rate limit.
+    notify_limit: Mutex<actions::NotifyLimit>,
 }
 
 /// Where the *Read only* methods read the desktop's state.
@@ -253,6 +264,8 @@ pub struct Desktop {
 
 /// How often waits look at the windows again.
 const WAIT_POLL: Duration = Duration::from_millis(200);
+/// How long a window or workspace action waits to see it done.
+const SETTLE: Duration = Duration::from_secs(2);
 
 /// Agent Access's state: grants and the policy check.
 #[derive(Clone)]
@@ -340,6 +353,7 @@ impl AgentAccess {
                 shown: Mutex::new(Vec::new()),
                 running: Mutex::new(HashMap::new()),
                 desktop: OnceLock::new(),
+                notify_limit: Mutex::new(actions::NotifyLimit::default()),
                 log: Arc::new(activity::Log::new(setup.log_dir)),
             }),
         }
@@ -486,24 +500,49 @@ impl AgentAccess {
             Decision::Denied => return Err(AgentError::DeniedByUser("the user denied this agent access".into())),
             Decision::Ask => config = self.ask_consent(&agent, need, options).await?,
         }
-        if policy::sensitive_step(&config, need, options.sensitive, options.interactive)? {
-            let _turn = self.inner.prompt.lock().await;
-            let answer = (self.inner.confirm)(ConfirmRequest { agent: agent.clone(), method }).await;
-            if let Some(yes) = answer {
-                let outcome = if yes { activity::Outcome::Allowed } else { activity::Outcome::Refused("DeniedByUser".into()) };
-                self.inner.log.record(activity::Entry { target: method.to_owned(), ..Self::entry(&agent, activity::SENSITIVE_PROMPT, need.level, outcome) });
-            }
-            match answer {
-                Some(true) => {}
-                Some(false) => return Err(AgentError::DeniedByUser("the user declined this action".into())),
-                None => return Err(AgentError::NeedsConfirmation("the user could not be asked to confirm".into())),
-            }
-            config = Config::read();
-            self.gate(&agent, &config, need).await?;
+        if let Some(after) = self.sensitive_step(&agent, &config, method, need, options).await? {
+            config = after;
         }
         self.grants().touch(&agent, now());
         self.publish();
         Ok((agent, config))
+    }
+
+    /// Step 10: a sensitive call (with `confirm-sensitive` on) asks the
+    /// user first, and is checked again after the answer; the settings in
+    /// force then, or `None` when nobody had to be asked.
+    async fn sensitive_step(&self, agent: &Agent, config: &Config, method: &'static str, need: Need, options: CallOptions) -> Result<Option<Config>, AgentError> {
+        if !policy::sensitive_step(config, need, options.sensitive, options.interactive)? {
+            return Ok(None);
+        }
+        let _turn = self.inner.prompt.lock().await;
+        let answer = (self.inner.confirm)(ConfirmRequest { agent: agent.clone(), method, action: options.action }).await;
+        if let Some(yes) = answer {
+            let outcome = if yes { activity::Outcome::Allowed } else { activity::Outcome::Refused("DeniedByUser".into()) };
+            let detail = options.action.map(|a| ("action", activity::Detail::Kind(a))).into_iter().collect();
+            self.inner.log.record(activity::Entry { target: method.to_owned(), detail, ..Self::entry(agent, activity::SENSITIVE_PROMPT, need.level, outcome) });
+        }
+        match answer {
+            Some(true) => {}
+            Some(false) => return Err(AgentError::DeniedByUser("the user declined this action".into())),
+            None => return Err(AgentError::NeedsConfirmation("the user could not be asked to confirm".into())),
+        }
+        let config = Config::read();
+        self.gate(agent, &config, need).await?;
+        Ok(Some(config))
+    }
+
+    /// The policy check of a method that names a target: steps 1–8 now,
+    /// and step 10 (sensitive actions) left for [`Self::confirm`] once
+    /// the method has checked its target (step 9), so the user is never
+    /// asked about something the exclusions refuse anyway.
+    pub async fn check_targeted(&self, conn: &Connection, header: &Header<'_>, method: &'static str, need: Need, options: CallOptions) -> Result<Caller, AgentError> {
+        self.check(conn, header, method, Need { sensitive: false, ..need }, CallOptions { sensitive: false, ..options }).await
+    }
+
+    /// Step 10 for a caller of [`Self::check_targeted`].
+    pub async fn confirm(&self, caller: &Caller, method: &'static str, need: Need, options: CallOptions) -> Result<(), AgentError> {
+        self.sensitive_step(&caller.agent, &caller.config, method, need, options).await.map(drop)
     }
 
     /// Step 8 without a grant: ask the user (one prompt at a time), record
@@ -570,6 +609,40 @@ impl AgentAccess {
         let (reply, answer) = tokio::sync::oneshot::channel();
         ui.send(crate::UiEvent::AgentSnapshot(desktop::SnapshotSlot::new(reply))).map_err(|_| unavailable())?;
         tokio::time::timeout(Duration::from_secs(5), answer).await.map_err(|_| unavailable())?.map_err(|_| unavailable())
+    }
+
+    /// Have the UI make `ops` of the compositor's window list.
+    async fn window_ops(&self, ops: Vec<actions::WindowOp>) -> Result<(), AgentError> {
+        if ops.is_empty() {
+            return Ok(());
+        }
+        let unavailable = || AgentError::Failed("the window list is not available".into());
+        let ui = self.inner.desktop.get().ok_or_else(unavailable)?.ui.clone();
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        ui.send(crate::UiEvent::AgentWindow(actions::WindowSlot::new(actions::WindowRequest { ops, reply }))).map_err(|_| unavailable())?;
+        let done = tokio::time::timeout(Duration::from_secs(5), answer).await.map_err(|_| unavailable())?.map_err(|_| unavailable())?;
+        done.map_err(AgentError::NotSupported)
+    }
+
+    /// Wait (at most [`SETTLE`]) until the windows show `done`.
+    async fn settle(&self, done: impl Fn(&desktop::Snapshot) -> bool) {
+        let until = Instant::now() + SETTLE;
+        while Instant::now() < until {
+            if self.snapshot().await.is_ok_and(|s| done(&s)) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// Tell quick settings the volume and brightness again.
+    async fn refresh_quick(&self, conn: &Connection) {
+        crate::status::changed();
+        let Some(ui) = self.inner.desktop.get().map(|d| d.ui.clone()) else { return };
+        let (_, max) = crate::shell_keys::volume_limits();
+        let volume = crate::shell_keys::volume_state().await.map(|(p, m)| (p, m, max));
+        let brightness = crate::shell_keys::brightness_percent(conn).await;
+        let _ = ui.send(crate::UiEvent::QuickSettings { volume, brightness });
     }
 
     /// The notification list, newest first.
@@ -750,6 +823,14 @@ impl AgentAccess {
             .collect()
     }
 
+    /// Record a call of Settings' that takes access away (`Revoke`,
+    /// `Forget`, `StopAll`), by the Settings executable `exe`, about agent
+    /// `target` ("" for every agent).
+    fn record_settings(&self, exe: &Path, method: &str, target: &str) {
+        let entry = activity::Entry { time: now(), agent: exe.to_string_lossy().into_owned(), method: method.to_owned(), target: target.to_owned(), ..activity::Entry::default() };
+        self.inner.log.record(entry);
+    }
+
     /// Refuse callers other than the Settings app (README.md, "Who may
     /// manage grants"), recording the refusal; Settings' executable.
     async fn require_settings(&self, conn: &Connection, header: &Header<'_>, method: &str) -> fdo::Result<PathBuf> {
@@ -799,6 +880,13 @@ impl Drop for Busy {
 
 /// The common options and the policy check of a *Read only* method.
 const READ: Need = Need::level(Level::ReadOnly);
+/// A *Control the desktop* method's.
+const DESKTOP: Need = Need::level(Level::Desktop);
+
+/// Run `f` where it may block (GIO looking up and starting apps).
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, AgentError> + Send + 'static) -> Result<T, AgentError> {
+    tokio::task::spawn_blocking(f).await.map_err(|e| AgentError::Failed(e.to_string()))?
+}
 
 type Records = Vec<HashMap<String, OwnedValue>>;
 
@@ -844,6 +932,44 @@ fn deadline(timeout_ms: u32) -> Option<Instant> {
 }
 
 impl Agent1 {
+    /// Turn quick setting `toggle` on or off, as quick settings does.
+    async fn toggle(&self, conn: &Connection, toggle: actions::Toggle, on: bool) -> Result<(), AgentError> {
+        use actions::Toggle;
+        let unavailable = || AgentError::NotSupported(format!("{} is not available", toggle.name()));
+        match toggle {
+            Toggle::DarkStyle | Toggle::NightLight => {
+                let done = if toggle == Toggle::DarkStyle { crate::status::set_dark_style(on) } else { crate::status::set_night_light(on) };
+                if !done {
+                    return Err(unavailable());
+                }
+                gio::Settings::sync();
+            }
+            Toggle::DoNotDisturb => {
+                if !helix_settings::Schema::open("org.gnome.desktop.notifications").has("show-banners") {
+                    return Err(unavailable());
+                }
+                crate::notifications::set_do_not_disturb(on);
+            }
+            Toggle::Wifi | Toggle::AirplaneMode => {
+                let system = self.access.system_bus().await.ok_or_else(unavailable)?;
+                let (wifi, bluetooth) = tokio::time::timeout(Duration::from_secs(3), crate::status::radios(&system)).await.map_err(|_| unavailable())?;
+                let there = if toggle == Toggle::Wifi { wifi.is_some() } else { wifi.is_some() || bluetooth.is_some() };
+                if !there {
+                    return Err(unavailable());
+                }
+                let change = if toggle == Toggle::Wifi { crate::status::Toggle::Wifi(on) } else { crate::status::Toggle::Airplane(on) };
+                crate::status::apply(&system, change).await.map_err(|e| AgentError::Failed(e.to_string()))?;
+                crate::status::changed();
+            }
+            Toggle::Mute => {
+                crate::shell_keys::volume_state().await.ok_or_else(unavailable)?;
+                crate::shell_keys::set_mute(on).await;
+                self.access.refresh_quick(conn).await;
+            }
+        }
+        Ok(())
+    }
+
     /// The documents the visible windows show, where their apps tell.
     async fn documents(conn: &Connection, windows: &[&desktop::WindowInfo]) -> HashMap<u32, String> {
         let players = document::players(conn).await;
@@ -1097,6 +1223,180 @@ impl Agent1 {
         caller.finish(result)
     }
 
+    async fn open(&self, uri: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "Open", DESKTOP, call).await?;
+        let result = async {
+            let app = actions::text_option(&options, "app")?;
+            let uri = actions::Uri::parse(uri)?;
+            caller.target(uri.log_target());
+            if let Some(app) = &app {
+                caller.check_target(Target::App(app))?;
+            }
+            let plan = blocking(move || actions::plan_open(&uri, app.as_deref())).await?;
+            for app in &plan.apps {
+                caller.check_target(Target::App(app))?;
+            }
+            self.access.confirm(&caller, "Open", DESKTOP, call).await?;
+            blocking(move || actions::launch(&plan.launch)).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn launch(
+        &self,
+        app_id: &str,
+        uris: Vec<String>,
+        options: HashMap<String, OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "Launch", DESKTOP, call).await?;
+        if !uris.is_empty() {
+            caller.detail("uri-count", activity::Detail::Count(uris.len() as u64));
+        }
+        let result = async {
+            if app_id.is_empty() {
+                return Err(AgentError::invalid_args("no app id"));
+            }
+            caller.check_target(Target::App(app_id))?;
+            let uris = uris.iter().map(|u| actions::Uri::parse(u).map(|u| u.uri())).collect::<Result<Vec<_>, _>>()?;
+            let id = app_id.to_owned();
+            let plan = blocking(move || actions::plan_launch(&id, uris)).await?;
+            for app in &plan.apps {
+                caller.check_target(Target::App(app))?;
+            }
+            self.access.confirm(&caller, "Launch", DESKTOP, call).await?;
+            blocking(move || actions::launch(&plan.launch)).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn window_action(
+        &self,
+        window: u32,
+        action: &str,
+        options: HashMap<String, OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<(), AgentError> {
+        // Closing may lose what the window holds.
+        let sensitive = actions::window_action_sensitive(action);
+        let need = Need { sensitive, ..DESKTOP };
+        let call = CallOptions { action: sensitive.then_some("close"), ..CallOptions::from_dict(&options) };
+        let caller = self.access.check_targeted(conn, &header, "WindowAction", need, call).await?;
+        caller.target(format!("window:{window}"));
+        let result = async {
+            let command = actions::WindowCommand::parse(action, &options)?;
+            caller.detail("action", activity::Detail::Kind(command.name()));
+            let snapshot = self.access.snapshot().await?;
+            let Some(w) = snapshot.windows.iter().find(|w| w.id == window) else { return Err(AgentError::NotFound(format!("window {window}"))) };
+            caller.target(format!("window:{window} ({})", w.app_id));
+            caller.check_target(Target::App(&w.app_id))?;
+            let ops = actions::plan_window(command, w, &snapshot)?;
+            self.access.confirm(&caller, "WindowAction", need, call).await?;
+            self.access.window_ops(ops).await?;
+            self.access.settle(|s| actions::window_done(command, window, s)).await;
+            Ok(())
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn switch_workspace(&self, index: u32, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "SwitchWorkspace", DESKTOP, call).await?;
+        caller.target(format!("workspace:{index}"));
+        let result = async {
+            self.access.confirm(&caller, "SwitchWorkspace", DESKTOP, call).await?;
+            let snapshot = self.access.snapshot().await?;
+            if !actions::workspace_exists(&snapshot, index) {
+                return Err(AgentError::NotFound(format!("workspace {index}")));
+            }
+            if snapshot.active != index {
+                self.access.window_ops(vec![actions::WindowOp::SwitchWorkspace(index)]).await?;
+                self.access.settle(|s| s.active == index).await;
+            }
+            Ok(())
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn set_toggle(&self, name: &str, on: bool, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), AgentError> {
+        // Wi-Fi and airplane mode are sensitive: they change the network.
+        let toggle = actions::Toggle::from_name(name);
+        let need = Need { sensitive: toggle.is_some_and(actions::Toggle::sensitive), ..DESKTOP };
+        let call = CallOptions { action: toggle.and_then(|t| t.action(on)), ..CallOptions::from_dict(&options) };
+        let caller = self.access.check_targeted(conn, &header, "SetToggle", need, call).await?;
+        let result = async {
+            let toggle = toggle.ok_or_else(|| AgentError::NotSupported(format!("toggle {name}")))?;
+            caller.target(toggle.name());
+            caller.detail("state", activity::Detail::Kind(if on { "on" } else { "off" }));
+            self.access.confirm(&caller, "SetToggle", need, call).await?;
+            self.toggle(conn, toggle, on).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn set_value(&self, name: &str, value: f64, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "SetValue", DESKTOP, call).await?;
+        let result = async {
+            let slider = actions::Slider::from_name(name).ok_or_else(|| AgentError::NotSupported(format!("value {name}")))?;
+            caller.target(slider.name());
+            self.access.confirm(&caller, "SetValue", DESKTOP, call).await?;
+            let unavailable = || AgentError::NotSupported(format!("{name} is not available"));
+            match slider {
+                actions::Slider::Volume => {
+                    let (_, max) = crate::shell_keys::volume_limits();
+                    let percent = actions::percent(value, f64::from(max) / 100.0)?;
+                    crate::shell_keys::volume_state().await.ok_or_else(unavailable)?;
+                    crate::shell_keys::set_volume(percent).await;
+                }
+                actions::Slider::Brightness => {
+                    let percent = actions::percent(value, 1.0)?;
+                    crate::shell_keys::brightness_percent(conn).await.ok_or_else(unavailable)?;
+                    crate::shell_keys::set_brightness_percent(conn, percent).await;
+                }
+            }
+            self.access.refresh_quick(conn).await;
+            Ok(())
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn notify(&self, title: &str, body: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<u32, AgentError> {
+        let caller = self.access.check(conn, &header, "Notify", DESKTOP, CallOptions::from_dict(&options)).await?;
+        // The text itself is never recorded.
+        caller.detail("title-length", activity::Detail::Count(title.chars().count() as u64));
+        caller.detail("body-length", activity::Detail::Count(body.chars().count() as u64));
+        let result = async {
+            if title.trim().is_empty() {
+                return Err(AgentError::invalid_args("the title is empty"));
+            }
+            let icon = actions::text_option(&options, "icon")?.map(|i| actions::icon_name(&i).map(str::to_owned)).transpose()?;
+            let low = match actions::text_option(&options, "urgency")?.as_deref() {
+                None | Some("normal") => false,
+                Some("low") => true,
+                Some(_) => return Err(AgentError::invalid_args("“urgency” must be low or normal")),
+            };
+            let center = self.access.inner.desktop.get().and_then(|d| d.notifications.clone()).ok_or_else(|| AgentError::Failed("notifications are not available".into()))?;
+            let allowed = self.access.inner.notify_limit.lock().unwrap_or_else(|e| e.into_inner()).allow(&caller.agent.id, Instant::now());
+            if !allowed {
+                return Err(AgentError::Failed(format!("too many notifications: at most {} a minute", actions::NOTIFY_MAX)));
+            }
+            Ok(center.agent_notice(&actions::agent_label(&caller.agent), title, body, icon.as_deref(), low))
+        }
+        .await;
+        caller.finish(result)
+    }
+
     #[zbus(signal)]
     pub async fn access_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 }
@@ -1114,20 +1414,23 @@ impl AgentAccessSettings {
     }
 
     async fn revoke(&self, agent: &str, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<()> {
-        self.access.require_settings(conn, &header, "Revoke").await?;
+        let exe = self.access.require_settings(conn, &header, "Revoke").await?;
         self.access.revoke(agent);
+        self.access.record_settings(&exe, "Revoke", agent);
         Ok(())
     }
 
     async fn forget(&self, agent: &str, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<()> {
-        self.access.require_settings(conn, &header, "Forget").await?;
+        let exe = self.access.require_settings(conn, &header, "Forget").await?;
         self.access.forget(agent);
+        self.access.record_settings(&exe, "Forget", agent);
         Ok(())
     }
 
     async fn stop_all(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<()> {
-        self.access.require_settings(conn, &header, "StopAll").await?;
+        let exe = self.access.require_settings(conn, &header, "StopAll").await?;
         self.access.stop_all();
+        self.access.record_settings(&exe, "StopAll", "");
         Ok(())
     }
 

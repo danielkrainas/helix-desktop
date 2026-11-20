@@ -122,7 +122,7 @@ fn limit(p: &cli::Parsed) -> Result<Option<u32>, Failure> {
 }
 
 /// A window id from `windows`.
-fn window_id(text: &str) -> Result<u32, Failure> {
+pub(crate) fn window_id(text: &str) -> Result<u32, Failure> {
     text.parse::<u32>().ok().filter(|n| *n > 0).ok_or_else(|| Failure::usage(trf!("“{value}” is not a window id", value = text)))
 }
 
@@ -143,7 +143,7 @@ fn call_timeout(p: &cli::Parsed, wait: f64) -> f64 {
 }
 
 /// A folder for `--in`, made absolute (`~` is the home folder).
-fn absolute(folder: &str) -> Result<String, Failure> {
+pub(crate) fn absolute(folder: &str) -> Result<String, Failure> {
     if folder.contains("://") {
         return Ok(folder.to_owned());
     }

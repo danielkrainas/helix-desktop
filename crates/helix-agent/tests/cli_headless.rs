@@ -490,3 +490,146 @@ fn reads_a_session() {
     drop((secret, settings_window));
     let _ = std::fs::remove_dir_all(&schemas);
 }
+
+/// What the CLI does to a session with real windows (helixdesktop/desktop#147):
+/// focus, tile and move windows and switch workspaces, and the windows
+/// and workspaces show it; quick settings in the scratch settings; a
+/// notification under the agent's name; the refusals of what is not
+/// there, unsupported addresses, unknown apps and a sensitive action
+/// without asking; all in the activity log.
+#[test]
+fn acts_on_a_session() {
+    let (Some(comp), Some(shell)) = (sibling_binary("helix-comp"), sibling_binary("helix-shell")) else {
+        eprintln!("helix-comp or helix-shell not built; skipping");
+        return;
+    };
+    let schemas = std::env::temp_dir().join(format!("helix-agent-cli-act-schemas-{}", std::process::id()));
+    std::fs::create_dir_all(&schemas).unwrap();
+    for schema in ["org.helixdesktop.agent-access", "org.helixdesktop.shell", "org.helixdesktop.extensions"] {
+        let data = format!("{}/../../data/{schema}.gschema.xml", env!("CARGO_MANIFEST_DIR"));
+        std::fs::copy(data, schemas.join(format!("{schema}.gschema.xml"))).unwrap();
+    }
+    let Ok(compiled) = Command::new("glib-compile-schemas").arg(&schemas).status() else {
+        eprintln!("glib-compile-schemas is not installed; skipping");
+        return;
+    };
+    assert!(compiled.success());
+    let me = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+    let grants = format!("version = 1\n\n[[agent]]\nid = \"{me}\"\nexecutable = \"{me}\"\nname = \"\"\nlevel = \"desktop\"\ngranted = 1\n");
+    let base = "[org/helixdesktop/agent-access]\nenabled=true\nallow-remote=true\naccess-level='desktop'\nremember-mode='remember'\n";
+    let Some(session) = HeadlessSession::start_prepared(
+        Options {
+            comp: &comp,
+            shell: Some(&shell),
+            size: (1024, 768),
+            settings: base,
+            env: vec![
+                ("GSETTINGS_SCHEMA_DIR".into(), schemas.to_string_lossy().into_owned()),
+                // No sound server for the volume.
+                ("PULSE_SERVER".into(), "unix:/nonexistent/helix-test".into()),
+            ],
+        },
+        |home| {
+            std::fs::create_dir_all(home.join(".config/helix")).unwrap();
+            std::fs::write(home.join(".config/helix/agent-grants.toml"), &grants).unwrap();
+        },
+    ) else {
+        return;
+    };
+    assert!(session.wait_for_log("shell ready", Duration::from_secs(30)), "the shell did not start:\n{}", session.log());
+    let (bus, home) = (session.bus().address().to_owned(), session.home().to_owned());
+    let cli = |args: &[&str]| run(&bus, &home, args, &[("HELIX_AGENT_NAME", "CLI test"), ("PULSE_SERVER", "unix:/nonexistent/helix-test")]);
+    let keyfile = home.join(".config/glib-2.0/settings/keyfile");
+    let window_of = |app: &str| -> Json {
+        let out = cli(&["windows", "--app", app]);
+        assert_eq!(code(&out), 0, "{}", String::from_utf8_lossy(&out.stdout));
+        json(&out)["windows"][0].clone()
+    };
+
+    let mut client = client::Client::connect(&session.wayland_display, &home.join("tmp"));
+    let first = client.window("org.helixdesktop.TestAgentFirst", "First");
+    let second = client.window("org.helixdesktop.TestAgentSecond", "Second");
+    until("the windows were not listed", || cli(&["windows"]), |o| json(o)["windows"].as_array().is_some_and(|w| w.len() == 2 && w.iter().any(|w| w["app-id"] == "org.helixdesktop.TestAgentSecond" && w["focused"] == true)));
+    let a = window_of("org.helixdesktop.TestAgentFirst")["id"].as_u64().unwrap().to_string();
+
+    // Focus: the first window has the focus at once.
+    let out = cli(&["window", "focus", &a]);
+    assert_eq!((code(&out), json(&out)), (0, serde_json::json!({})), "{}", String::from_utf8_lossy(&out.stdout));
+    assert_eq!(window_of("org.helixdesktop.TestAgentFirst")["focused"], true);
+    assert_eq!(json(&cli(&["state"]))["focused-window"].as_u64().map(|n| n.to_string()), Some(a.clone()));
+    // Tile, then move (which ends the tile).
+    assert_eq!(code(&cli(&["window", "tile-left", &a])), 0);
+    let w = window_of("org.helixdesktop.TestAgentFirst");
+    assert_eq!((w["state"].clone(), w["x"].clone()), (Json::from("tiled-left"), Json::from(0)), "{w}");
+    assert_eq!(code(&cli(&["--text", "window", "move", &a, "200", "150"])), 0);
+    let w = window_of("org.helixdesktop.TestAgentFirst");
+    assert_eq!((w["state"].clone(), w["x"].clone(), w["y"].clone()), (Json::from("normal"), Json::from(200), Json::from(150)), "{w}");
+    assert_eq!(code(&cli(&["window", "maximize", &a])), 0);
+    assert_eq!(window_of("org.helixdesktop.TestAgentFirst")["state"], "maximized");
+    assert_eq!(code(&cli(&["window", "restore", &a])), 0);
+    assert_eq!(window_of("org.helixdesktop.TestAgentFirst")["state"], "normal");
+    // Usage errors never reach the shell.
+    assert_eq!(code(&cli(&["window", "move", &a, "200"])), 2);
+    assert_eq!(code(&cli(&["window", "wiggle", &a])), 2);
+    assert_eq!(code(&cli(&["window", "focus", "999999"])), 22);
+
+    // Workspaces: there is always an empty one after the last.
+    let spaces = json(&cli(&["workspaces"]))["workspaces"].as_array().unwrap().len();
+    assert!(spaces >= 2, "{spaces} workspaces");
+    assert_eq!(code(&cli(&["window", "to-workspace", &a, "1"])), 0);
+    assert_eq!(window_of("org.helixdesktop.TestAgentFirst")["workspace"], 1);
+    assert_eq!(code(&cli(&["workspace", "switch", "1"])), 0);
+    let spaces = json(&cli(&["workspaces"]));
+    assert_eq!(spaces["workspaces"][1]["active"], true, "{spaces}");
+    assert_eq!(json(&cli(&["state"]))["active-workspace"], 1);
+    assert_eq!(code(&cli(&["workspace", "switch", "0"])), 0);
+    assert_eq!(code(&cli(&["workspace", "switch", "99"])), 22);
+
+    // Closing is sensitive: without asking, it needs confirmation.
+    let out = cli(&["--no-ask", "window", "close", &a]);
+    assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (18, Json::from("needs-confirmation")));
+    let out = cli(&["--no-ask", "toggle", "wifi", "off"]);
+    assert_eq!(code(&out), 18);
+
+    // Quick settings, in the session's own settings file.
+    let out = cli(&["toggle", "dark-style", "on"]);
+    assert_eq!((code(&out), json(&out)), (0, serde_json::json!({"name": "dark-style", "on": true})), "{}", String::from_utf8_lossy(&out.stdout));
+    until("dark style was not written", || cli(&["state"]), |o| json(o)["dark-style"] == true);
+    assert!(std::fs::read_to_string(&keyfile).unwrap().contains("color-scheme='prefer-dark'"));
+    let out = cli(&["--text", "toggle", "night-light"]);
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "night-light: on", "flipped from off");
+    // What is not there: no sound server, no NetworkManager.
+    let out = cli(&["set", "volume", "50"]);
+    assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (23, Json::from("not-supported")));
+    assert_eq!(code(&cli(&["toggle", "mute"])), 23, "nothing to flip");
+    assert_eq!(code(&cli(&["set", "volume", "loud"])), 2);
+    // Opening: refused addresses and apps, never started here.
+    assert_eq!(code(&cli(&["open", "ssh://example.org"])), 23);
+    assert_eq!(code(&cli(&["open", "/nonexistent/helix-test"])), 22);
+    assert_eq!(code(&cli(&["launch", "org.example.Nothing"])), 22);
+    let out = cli(&["launch", "org.helixdesktop.Settings"]);
+    assert_eq!((code(&out), json(&out)["error"]["message"].clone()), (14, Json::from("Agents can't use Settings")));
+
+    // A notification, under the agent's name.
+    let out = cli(&["notify", "Build finished", "All green"]);
+    assert_eq!(code(&out), 0, "{}", String::from_utf8_lossy(&out.stdout));
+    let id = json(&out)["id"].as_u64().unwrap();
+    let notes = json(&cli(&["notifications"]));
+    let n = notes["notifications"].as_array().unwrap().iter().find(|n| n["id"].as_u64() == Some(id)).cloned().unwrap();
+    assert!(n["app-name"].as_str().unwrap().starts_with("Agent: CLI test ("), "{n}");
+
+    // Recorded, without the text.
+    let log = std::fs::read_dir(home.join(".local/state/helix/agent-activity")).unwrap().flatten().map(|e| std::fs::read_to_string(e.path()).unwrap()).collect::<String>();
+    let lines: Vec<Json> = log.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let has = |method: &str, outcome: &str, extra: &dyn Fn(&Json) -> bool| lines.iter().any(|l| l["method"] == method && l["outcome"] == outcome && l["agent"] == me.as_str() && extra(l));
+    assert!(has("WindowAction", "allowed", &|l| l["action"] == "tile-left" && l["target"] == format!("window:{a} (org.helixdesktop.TestAgentFirst)").as_str()), "{log}");
+    assert!(has("WindowAction", "refused:NeedsConfirmation", &|l| l["action"] == "close"));
+    assert!(has("SwitchWorkspace", "allowed", &|l| l["target"] == "workspace:1"));
+    assert!(has("SetToggle", "allowed", &|l| l["target"] == "dark-style" && l["state"] == "on"));
+    assert!(has("SetValue", "allowed", &|l| l["error"] == "NotSupported"));
+    assert!(has("Launch", "refused:Excluded", &|l| l["target"] == "org.helixdesktop.Settings"));
+    assert!(has("Notify", "allowed", &|l| l["title-length"] == 14));
+    assert!(!log.contains("Build finished") && !log.contains("All green"));
+    drop((first, second));
+    let _ = std::fs::remove_dir_all(&schemas);
+}

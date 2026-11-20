@@ -3422,6 +3422,27 @@ impl Ui {
         Snapshot { windows, focused: self.windows.focused(), workspaces: self.windows.count, active: self.windows.active, monitors, primary: self.primary_area }
     }
 
+    /// Make agents' window and workspace requests of the window list, all
+    /// of them or (when the compositor's list is too old for one) none.
+    fn agent_window(&self, ops: &[crate::agent::actions::WindowOp]) -> Result<(), String> {
+        use crate::agent::actions::WindowOp;
+        let Some(list) = &self.window_list else { return Err("no window list".into()) };
+        if let Some(op) = ops.iter().find(|op| op.since() > list.version()) {
+            return Err(format!("the compositor cannot do {op:?}"));
+        }
+        for op in ops {
+            tracing::debug!(?op, "agent window request");
+            match *op {
+                WindowOp::Activate(id) => list.activate(id),
+                WindowOp::Action(id, action) => list.window_action(id, action),
+                WindowOp::MoveResize { id, x, y, width, height } => list.move_resize(id, x, y, width, height),
+                WindowOp::ToWorkspace { id, workspace } => list.move_window(id, workspace),
+                WindowOp::SwitchWorkspace(workspace) => list.switch_workspace(workspace),
+            }
+        }
+        Ok(())
+    }
+
     /// One label per output whose connector is in `labels`, top left below
     /// the panel. Labels take no input.
     fn show_monitor_labels(&mut self, labels: &HashMap<String, i32>) {
@@ -3612,6 +3633,11 @@ impl Ui {
             UiEvent::AgentSnapshot(slot) => {
                 if let Some(reply) = slot.take() {
                     let _ = reply.send(self.agent_snapshot());
+                }
+            }
+            UiEvent::AgentWindow(slot) => {
+                if let Some(request) = slot.take() {
+                    let _ = request.reply.send(self.agent_window(&request.ops));
                 }
             }
             UiEvent::Windows(slot) => {
@@ -4082,7 +4108,7 @@ pub fn run(
     let primary_selections = smithay_client_toolkit::primary_selection::PrimarySelectionManagerState::bind(&globals, &qh).ok();
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=11, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=12, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=6, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())

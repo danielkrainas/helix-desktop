@@ -73,6 +73,20 @@ pub fn placed(action: Action, area: Rectangle<i32, Logical>, size: (i32, i32), t
     (x, y + top).into()
 }
 
+/// How much of a window placed with `move_resize` stays on its monitor.
+pub const KEEP_SHOWN: i32 = 64;
+
+/// Where a window of `size` asked to go to `at` is kept on `area` (a work
+/// area): its top below the area's top and the title bar (`top` high),
+/// and at least [`KEEP_SHOWN`] pixels of it inside across and down.
+pub fn kept_shown(at: (i32, i32), size: (i32, i32), area: Rectangle<i32, Logical>, top: i32) -> (i32, i32) {
+    let keep_w = KEEP_SHOWN.min(size.0);
+    let keep_h = KEEP_SHOWN.min(size.1);
+    let x = at.0.clamp(area.loc.x - size.0 + keep_w, (area.loc.x + area.size.w - keep_w).max(area.loc.x));
+    let y = at.1.clamp(area.loc.y + top, (area.loc.y + area.size.h - keep_h).max(area.loc.y + top));
+    (x, y)
+}
+
 impl Helix {
     /// Run `action` on the shell's window `id` (0: the focused window).
     pub fn window_action(&mut self, id: u32, action: Action) {
@@ -143,6 +157,36 @@ impl Helix {
             Action::Wait => self.wait_for(&window),
             _ => {}
         }
+        self.sync_window_list();
+    }
+
+    /// Put the shell's window `id` at `x`, `y` (its window geometry, as the
+    /// window list's geometry event has it) and ask for `w` × `h`, ending
+    /// a maximize, tile or full screen first. Kept on a monitor: the top
+    /// below the top of the work area (and the title bar), and at least
+    /// [`KEEP_SHOWN`] pixels on the monitor. Minimized windows and windows
+    /// on another workspace are left alone.
+    pub fn move_resize_window(&mut self, id: u32, x: i32, y: i32, w: i32, h: i32) {
+        let Some(window) = self.window_by_list_id(id).filter(|w| !is_override_redirect(w)) else { return };
+        if self.space.element_location(&window).is_none() {
+            return;
+        }
+        if self.restore.iter().any(|(w, _, _)| *w == window) {
+            self.restore_window(&window);
+        }
+        let (w, h) = (w.max(1), h.max(1));
+        let output = self.output_at((f64::from(x), f64::from(y)).into()).cloned().or_else(|| self.output_of(&window));
+        let Some(area) = output.and_then(|o| self.usable_area_of(&o)) else { return };
+        let location: Point<i32, Logical> = kept_shown((x, y), (w, h), area, frame_top(&window)).into();
+        tracing::debug!(id, ?location, w, h, "moving and resizing a window for the shell");
+        if let Some(toplevel) = window.toplevel() {
+            toplevel.with_pending_state(|state| state.size = Some((w, h).into()));
+            toplevel.configure_pending();
+        } else if let Some(x11) = window.x11_surface() {
+            let _ = x11.configure(Rectangle::new(location, (w, h).into()));
+        }
+        self.space.map_element(window.clone(), location, false);
+        self.restack_above();
         self.sync_window_list();
     }
 
@@ -351,5 +395,15 @@ mod tests {
         assert_eq!(placed(Action::MoveToCornerSe, area, (400, 300), 0, at), (600, 500).into());
         assert_eq!(placed(Action::MoveToSideN, area, (400, 300), 34, at), (100, 66).into(), "below the title bar");
         assert_eq!(placed(Action::MoveToSideW, area, (400, 300), 0, at), (0, 200).into());
+    }
+
+    #[test]
+    fn kept_on_the_monitor() {
+        let area = r(0, 32, 1000, 768);
+        assert_eq!(kept_shown((100, 200), (400, 300), area, 0), (100, 200), "inside: as asked");
+        assert_eq!(kept_shown((100, 0), (400, 300), area, 30), (100, 62), "below the top bar and the title bar");
+        assert_eq!(kept_shown((-1000, 5000), (400, 300), area, 0), (-400 + KEEP_SHOWN, 800 - KEEP_SHOWN));
+        assert_eq!(kept_shown((5000, 100), (400, 300), area, 0), (1000 - KEEP_SHOWN, 100));
+        assert_eq!(kept_shown((5000, 100), (20, 20), area, 0), (980, 100), "small windows stay whole");
     }
 }

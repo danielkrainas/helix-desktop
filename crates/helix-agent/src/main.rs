@@ -3,6 +3,7 @@
 //! the shell's `org.helixdesktop.Agent1` with no policy of its own: every
 //! refusal comes from the shell, and becomes an exit code and a message.
 
+mod act;
 mod cli;
 mod complete;
 mod errors;
@@ -109,6 +110,7 @@ fn run(p: &cli::Parsed) -> Result<Option<Done>, Failure> {
         "state" | "windows" | "apps" | "workspaces" | "monitors" | "notifications" | "files recent" | "files search" | "wait window" | "wait closed" => {
             read::run(p, &path).map(Some)
         }
+        "open" | "launch" | "window" | "workspace switch" | "toggle" | "set" | "notify" => act::run(p, &path).map(Some),
         // The shell's methods for the rest come with helixdesktop/desktop
         // #146–#151 (`Cmd::ready`); until then this session cannot do them.
         _ => Err(Failure::not_supported()),

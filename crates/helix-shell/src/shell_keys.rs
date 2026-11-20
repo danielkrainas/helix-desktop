@@ -533,6 +533,11 @@ pub async fn set_volume(percent: u32) {
     let _ = pactl(&["set-sink-mute", SINK, "0"]).await;
 }
 
+/// Mute or unmute the default output.
+pub async fn set_mute(muted: bool) {
+    let _ = pactl(&["set-sink-mute", SINK, if muted { "1" } else { "0" }]).await;
+}
+
 pub async fn toggle_mute() {
     let _ = pactl(&["set-sink-mute", SINK, "toggle"]).await;
 }

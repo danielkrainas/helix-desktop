@@ -194,14 +194,10 @@ impl Ui {
             }
             Switch::AutoRotate => crate::extra_keys::toggle_orientation_lock(),
             Switch::NightLight => {
-                if let Some(s) = settings(COLOR, "night-light-enabled") {
-                    let _ = s.set_boolean("night-light-enabled", on);
-                }
+                crate::status::set_night_light(on);
             }
             Switch::DarkStyle => {
-                if let Some(s) = settings(INTERFACE, "color-scheme") {
-                    let _ = s.set_string("color-scheme", if on { "prefer-dark" } else { "default" });
-                }
+                crate::status::set_dark_style(on);
             }
             Switch::DoNotDisturb => {
                 self.notify.do_not_disturb = on;

@@ -172,9 +172,8 @@ async fn policy_over_the_bus() {
     // not there yet; the read methods, without a desktop to read, fail).
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
     let later: Vec<String> = [
-        "Ask", "Confirm", "AddReminder", "ListReminders", "CancelReminder", "Open", "Launch",
-        "WindowAction", "SwitchWorkspace", "SetToggle", "SetValue", "Notify", "GetClipboard", "SetClipboard", "A11yTree",
-        "A11yAction", "A11ySetValue", "Screenshot", "Input",
+        "Ask", "Confirm", "AddReminder", "ListReminders", "CancelReminder", "GetClipboard", "SetClipboard", "A11yTree", "A11yAction", "A11ySetValue",
+        "Screenshot", "Input",
     ]
     .iter()
     .map(|m| format!("method {m}"))
@@ -313,8 +312,9 @@ async fn policy_over_the_bus() {
     settings_call(&conn, "StopAll", &()).await.unwrap();
     settings_call(&conn, "Forget", &("/no/such/agent",)).await.unwrap();
     // The calls are in the activity log (refusals, the prompts' answers,
-    // failures after the check), with nothing of Settings' calls but
-    // ClearLog's and nothing of GetStatus.
+    // failures after the check), Settings' calls that take access away
+    // (by Settings, about the agent), and nothing of GetStatus or
+    // ListAgents.
     let log = tmp.join("state/helix/agent-activity");
     let lines = activity(&log);
     let has = |method: &str, outcome: &str, extra: &dyn Fn(&serde_json::Value) -> bool| {
@@ -330,9 +330,23 @@ async fn policy_over_the_bus() {
     assert!(has("ConsentPrompt", "allowed", &|l| l["grant"] == "session" && l["level"] == "read-only"));
     assert!(has("ConsentPrompt", "allowed", &|l| l["grant"] == "always" && l["level"] == "desktop"));
     assert!(has("ConsentPrompt", "cancelled", &any), "the prompt went away unanswered");
-    for quiet in ["GetStatus", "ListAgents", "Revoke", "Forget", "StopAll"] {
+    for quiet in ["GetStatus", "ListAgents"] {
         assert!(!lines.iter().any(|l| l["method"] == quiet), "{quiet} is not recorded");
     }
+    let by_settings = |method: &str, target: Option<&str>| {
+        lines.iter().any(|l| {
+            l["method"] == method
+                && l["agent"] == me.to_string_lossy().as_ref()
+                && l["name"] == ""
+                && l["outcome"] == "allowed"
+                && l.get("level").is_none()
+                && l.get("target").and_then(|t| t.as_str()) == target
+        })
+    };
+    assert!(by_settings("Revoke", Some(me.to_str().unwrap())), "{lines:#?}");
+    assert!(by_settings("Forget", Some(me.to_str().unwrap())), "{lines:#?}");
+    assert!(by_settings("Forget", Some("/no/such/agent")), "unknown agents too: {lines:#?}");
+    assert!(by_settings("StopAll", None), "{lines:#?}");
     for l in &lines {
         assert!(l["time"].is_i64() && l["outcome"].is_string(), "{l}");
     }

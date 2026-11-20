@@ -30,7 +30,7 @@ pub const LEVELS: &[&str] = &["read-only", "desktop", "apps", "screen-and-input"
 pub const TOGGLES: &[&str] = &["dark-style", "do-not-disturb", "night-light", "wifi", "airplane-mode", "mute"];
 pub const VALUES: &[&str] = &["volume", "brightness"];
 pub const WINDOW_ACTIONS: &[&str] = &[
-    "focus", "close", "minimize", "maximize", "unmaximize", "fullscreen", "unfullscreen", "tile-left", "tile-right", "move", "resize", "to-workspace",
+    "focus", "close", "minimize", "maximize", "unmaximize", "restore", "fullscreen", "unfullscreen", "tile-left", "tile-right", "move", "resize", "to-workspace",
 ];
 pub const SHELLS: &[&str] = &["bash", "zsh", "fish"];
 
@@ -154,26 +154,34 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
         },
     ]),
     (n_("Act (Control the desktop):"), &[
-        Cmd { args: &[arg("URI-OR-PATH", n_("A file, folder or URL"))], opts: &[valued("app", "APP_ID", n_("Open it with this app"))], ..cmd("open", n_("Open a file or URL in its app"), Some("desktop")) },
+        Cmd { ready: true, args: &[arg("URI-OR-PATH", n_("A file, folder or URL"))], opts: &[valued("app", "APP_ID", n_("Open it with this app"))], ..cmd("open", n_("Open a file or URL in its app"), Some("desktop")) },
         Cmd {
+            ready: true,
             args: &[arg("APP_ID", n_("The app's id, e.g. org.gnome.TextEditor")), Arg { many: true, ..opt_arg("URI-OR-PATH", n_("Files or URLs to open in it")) }],
             ..cmd("launch", n_("Start an app"), Some("desktop"))
         },
         Cmd {
+            ready: true,
             args: &[
-                Arg { choices: WINDOW_ACTIONS, ..arg("ACTION", n_("focus, close, minimize, maximize, unmaximize, fullscreen, unfullscreen, tile-left, tile-right, move X Y, resize WIDTH HEIGHT or to-workspace INDEX")) },
+                Arg { choices: WINDOW_ACTIONS, ..arg("ACTION", n_("focus, close, minimize, maximize, unmaximize, restore, fullscreen, unfullscreen, tile-left, tile-right, move X Y, resize WIDTH HEIGHT or to-workspace INDEX")) },
                 WINDOW,
                 Arg { many: true, ..opt_arg("ARGS", n_("The action's numbers")) },
             ],
             ..cmd("window", n_("Focus, move, tile or close a window"), Some("desktop"))
         },
-        Cmd { subs: &[Cmd { args: &[arg("INDEX", n_("The workspace's number, from 0"))], ..cmd("switch", n_("Switch to a workspace"), Some("desktop")) }], ..cmd("workspace", n_("Switch workspaces"), Some("desktop")) },
         Cmd {
+            ready: true,
+            subs: &[Cmd { ready: true, args: &[arg("INDEX", n_("The workspace's number, from 0"))], ..cmd("switch", n_("Switch to a workspace"), Some("desktop")) }],
+            ..cmd("workspace", n_("Switch workspaces"), Some("desktop"))
+        },
+        Cmd {
+            ready: true,
             args: &[Arg { choices: TOGGLES, ..arg("NAME", n_("dark-style, do-not-disturb, night-light, wifi, airplane-mode or mute")) }, Arg { choices: &["on", "off"], ..opt_arg("STATE", n_("on or off (default: flip it)")) }],
             ..cmd("toggle", n_("Turn a quick setting on or off"), Some("desktop"))
         },
-        Cmd { args: &[Arg { choices: VALUES, ..arg("NAME", n_("volume or brightness")) }, arg("VALUE", n_("A percentage"))], ..cmd("set", n_("Set volume or brightness"), Some("desktop")) },
+        Cmd { ready: true, args: &[Arg { choices: VALUES, ..arg("NAME", n_("volume or brightness")) }, arg("VALUE", n_("A percentage"))], ..cmd("set", n_("Set volume or brightness"), Some("desktop")) },
         Cmd {
+            ready: true,
             args: &[arg("TITLE", n_("The notification's title")), opt_arg("BODY", n_("More text below it"))],
             opts: &[valued("icon", "ICON", n_("An icon name")), Opt { choices: &["low", "normal"], ..valued("urgency", "URGENCY", n_("low or normal")) }],
             ..cmd("notify", n_("Show the user a notification"), Some("desktop"))

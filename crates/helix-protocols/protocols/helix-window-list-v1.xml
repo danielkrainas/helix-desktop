@@ -10,7 +10,7 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="11">
+  <interface name="helix_window_list_v1" version="12">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
       open window, topmost first, then a focused event (and, since version
@@ -223,6 +223,23 @@
       <arg name="id" type="uint"/>
       <arg name="state" type="uint" enum="window_state"/>
     </event>
+    <request name="move_resize" since="12">
+      <description summary="put a window somewhere, at a size">
+        Place window id's window geometry at x, y (layout coordinates,
+        logical pixels, as the geometry event has them) and ask its app
+        for width × height (the app may choose another size). A
+        maximized, tiled or full-screen window is restored first. The
+        window is kept on a monitor: its top stays in the work area below
+        the top bar, and part of it stays on the monitor. Minimized
+        windows, windows on another workspace and unknown ids are
+        ignored.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
     <event name="menu" since="4">
       <description summary="show the window menu">
         Show the window menu of window id at x, y (layout coordinates,

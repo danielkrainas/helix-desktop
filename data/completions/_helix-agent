@@ -68,7 +68,7 @@ _helix_agent() {
         remind/cancel) compadd -- --json --text --no-ask --sensitive --timeout --help ;;
         open) compadd -- --app --json --text --no-ask --sensitive --timeout --help ;;
         launch) compadd -- --json --text --no-ask --sensitive --timeout --help ;;
-        window) compadd -- focus close minimize maximize unmaximize fullscreen unfullscreen tile-left tile-right move resize to-workspace --json --text --no-ask --sensitive --timeout --help ;;
+        window) compadd -- focus close minimize maximize unmaximize restore fullscreen unfullscreen tile-left tile-right move resize to-workspace --json --text --no-ask --sensitive --timeout --help ;;
         workspace/switch) compadd -- --json --text --no-ask --sensitive --timeout --help ;;
         toggle) compadd -- dark-style do-not-disturb night-light wifi airplane-mode mute --json --text --no-ask --sensitive --timeout --help ;;
         set) compadd -- volume brightness --json --text --no-ask --sensitive --timeout --help ;;

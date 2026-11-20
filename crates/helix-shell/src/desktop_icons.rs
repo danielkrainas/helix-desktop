@@ -68,6 +68,21 @@ fn launcher(path: &Path, trusted: &dyn Fn(&Path) -> bool) -> Option<(String, Opt
     (executable && trusted(path)).then_some(entry)
 }
 
+/// Whether the `.desktop` file at `path` launches its application when
+/// opened: an application's entry, executable, not writable by others
+/// and marked trusted (agents' `Open` follows the same rule,
+/// helixdesktop/desktop#147).
+pub fn trusted_launcher(path: &Path) -> bool {
+    launcher(path, &marked_trusted).is_some()
+}
+
+/// Start the application of the `.desktop` file at `path` (looked at
+/// with [`trusted_launcher`] first).
+pub fn launch_file(path: &Path) -> Result<(), String> {
+    // gio's own tool starts a desktop file's application.
+    std::process::Command::new("gio").arg("launch").arg(path).spawn().map(drop).map_err(|e| e.to_string())
+}
+
 /// What a file's menu offers about launching it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Launching {
@@ -192,9 +207,8 @@ pub fn open(item: &DesktopItem) {
     use gio::prelude::*;
     tracing::info!(path = %item.path.display(), launcher = item.launcher, "opening a desktop item");
     // Looked at again: the file may have changed since it was listed.
-    let result = if item.launcher && launcher(&item.path, &marked_trusted).is_some() {
-        // gio's own tool starts a desktop file's application.
-        std::process::Command::new("gio").arg("launch").arg(&item.path).spawn().map(drop).map_err(|e| e.to_string())
+    let result = if item.launcher && trusted_launcher(&item.path) {
+        launch_file(&item.path)
     } else {
         let uri = gio::File::for_path(&item.path).uri();
         gio::AppInfo::launch_default_for_uri(&uri, Some(&crate::app_scope::context(None))).map_err(|e| e.to_string())
