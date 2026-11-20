@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<!-- What is translatable in a polkit policy: each action's description
+     and message (as polkit's own polkit.its). Used by update-pot.sh
+     (xgettext) and packaging/stage.sh (msgfmt in XML mode) through
+     GETTEXTDATADIRS=tools/i18n. -->
+<its:rules xmlns:its="http://www.w3.org/2005/11/its" version="2.0">
+  <its:translateRule selector="/policyconfig" translate="no"/>
+  <its:translateRule selector="/policyconfig/action/description | /policyconfig/action/message" translate="yes"/>
+</its:rules>

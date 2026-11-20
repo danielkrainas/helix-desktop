@@ -19,6 +19,8 @@ serde.workspace = true
 serde_json.workspace = true
 zeroize.workspace = true
 toml.workspace = true
+# helix-login-config: changes greeter.toml keeping its comments and layout.
+toml_edit.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 libc.workspace = true
@@ -32,7 +34,17 @@ zune-jpeg = "0.5"
 
 [dev-dependencies]
 helix-test-support.workspace = true
+# helix-login-config's polkit policy.
+roxmltree = "0.20"
+
+[lib]
+name = "helix_greeter"
+path = "src/lib.rs"
 
 [[bin]]
 name = "helix-greeter"
 path = "src/main.rs"
+
+[[bin]]
+name = "helix-login-config"
+path = "src/bin/helix-login-config.rs"

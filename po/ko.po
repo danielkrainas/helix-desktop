@@ -601,7 +601,10 @@ msgid ""
 "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
 "scroll DX DY, type TEXT, wait MS"
-msgstr "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS"
+msgstr ""
+"move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
+"[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
+"scroll DX DY, type TEXT, wait MS"
 
 #: crates/helix-agent/src/cli.rs:299
 msgid ""
@@ -878,7 +881,8 @@ msgstr ""
 #: crates/helix-agent/src/errors.rs:101
 msgid ""
 "The user said no, cancelled the question, or stopped the agent or its input"
-msgstr "사용자가 거절했거나, 질문을 취소했거나, 에이전트 또는 그 입력을 멈췄습니다"
+msgstr ""
+"사용자가 거절했거나, 질문을 취소했거나, 에이전트 또는 그 입력을 멈췄습니다"
 
 #: crates/helix-agent/src/errors.rs:103
 msgid "No such window, app or item"
@@ -1264,7 +1268,9 @@ msgstr "검게 가림: {count}"
 #: crates/helix-agent/src/screen.rs:261
 msgid ""
 "A screenshot is binary data; use --output FILE or redirect standard output"
-msgstr "스크린샷은 바이너리 데이터입니다. --output 파일을 쓰거나 표준 출력을 리디렉션하십시오"
+msgstr ""
+"스크린샷은 바이너리 데이터입니다. --output 파일을 쓰거나 표준 출력을 리디렉션"
+"하십시오"
 
 #: crates/helix-agent/src/talk.rs:59
 msgid "Reminder {id} set for {time}"
@@ -4587,6 +4593,23 @@ msgstr "화면 사용 시간 제한 도달"
 #: crates/helix-shell/src/windows.rs:266
 msgid "Untitled window"
 msgstr "제목 없는 창"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Authentication is required to change the login screen settings"
+msgstr "로그인 화면 설정을 변경하려면 인증이 필요합니다"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Change the login screen settings"
+msgstr "로그인 화면 설정 변경"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid ""
+"Authentication is required to use this monitor layout for the login screen"
+msgstr "이 모니터 배치를 로그인 화면에 사용하려면 인증이 필요합니다"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid "Set the login screen's monitor layout"
+msgstr "로그인 화면의 모니터 배치 설정"
 
 #: session/helix.desktop
 msgid "Helix"

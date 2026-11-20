@@ -71,6 +71,10 @@ You need the GNU gettext tools (`msginit`, `msgmerge`, `msgfmt`).
 `helix-desktop` package, which `helix-greeter` depends on) and merges the
 translated session name into `/usr/share/wayland-sessions/helix.desktop`
 (`Name[de]=…`), which login screens show.
+It also merges the polkit policies' descriptions and messages (the
+password dialogs of `helix-login-monitors` and `helix-login-config`)
+into their files in `/usr/share/polkit-1/actions` (`<message
+xml:lang="de">…`), using the rules in `tools/i18n/its`.
 
 ## Updating a translation
 

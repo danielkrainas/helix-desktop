@@ -110,7 +110,9 @@ msgstr "Nur Bedienelemente, deren Name TEXT enthält"
 
 #: crates/helix-agent/src/cli.rs:80
 msgid "Into this window, focusing it first (default: the focused window)"
-msgstr "In dieses Fenster, das zuerst fokussiert wird (Standard: das fokussierte Fenster)"
+msgstr ""
+"In dieses Fenster, das zuerst fokussiert wird (Standard: das fokussierte "
+"Fenster)"
 
 #: crates/helix-agent/src/cli.rs:81
 msgid "Across the window from its left edge, in logical pixels"
@@ -523,7 +525,9 @@ msgstr "Nur dieser Bildschirm, z. B. eDP-1 (siehe „helix-agent monitors“)"
 #: crates/helix-agent/src/cli.rs:266
 msgid ""
 "Only this area: in the window, the monitor or the screen, in logical pixels"
-msgstr "Nur dieser Bereich: im Fenster, auf dem Bildschirm oder der ganzen Anzeige, in logischen Pixeln"
+msgstr ""
+"Nur dieser Bereich: im Fenster, auf dem Bildschirm oder der ganzen Anzeige, "
+"in logischen Pixeln"
 
 #: crates/helix-agent/src/cli.rs:267
 msgid "Write the PNG to FILE"
@@ -535,7 +539,8 @@ msgstr "Ein Bildschirmfoto aufnehmen"
 
 #: crates/helix-agent/src/cli.rs:274
 msgid "Key combinations such as ctrl+s, alt+F4 or Return, pressed in turn"
-msgstr "Tastenkombinationen wie ctrl+s, alt+F4 oder Return, nacheinander gedrückt"
+msgstr ""
+"Tastenkombinationen wie ctrl+s, alt+F4 oder Return, nacheinander gedrückt"
 
 #: crates/helix-agent/src/cli.rs:274
 msgid "Press keys"
@@ -606,12 +611,17 @@ msgid ""
 "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
 "scroll DX DY, type TEXT, wait MS"
-msgstr "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS"
+msgstr ""
+"move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
+"[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
+"scroll DX DY, type TEXT, wait MS"
 
 #: crates/helix-agent/src/cli.rs:299
 msgid ""
 "Several steps in one go (keys and buttons held down are let go at the end)"
-msgstr "Mehrere Schritte auf einmal (gehaltene Tasten und Knöpfe werden am Ende losgelassen)"
+msgstr ""
+"Mehrere Schritte auf einmal (gehaltene Tasten und Knöpfe werden am Ende "
+"losgelassen)"
 
 #: crates/helix-agent/src/cli.rs:302
 msgid "Send keys, text, clicks and scrolling"
@@ -890,7 +900,9 @@ msgstr ""
 #: crates/helix-agent/src/errors.rs:101
 msgid ""
 "The user said no, cancelled the question, or stopped the agent or its input"
-msgstr "Der Benutzer hat abgelehnt, die Frage abgebrochen oder den Agenten bzw. seine Eingabe angehalten"
+msgstr ""
+"Der Benutzer hat abgelehnt, die Frage abgebrochen oder den Agenten bzw. "
+"seine Eingabe angehalten"
 
 #: crates/helix-agent/src/errors.rs:103
 msgid "No such window, app or item"
@@ -915,7 +927,9 @@ msgstr "Angehalten: Der Benutzer hat Tastatur oder Zeiger übernommen"
 
 #: crates/helix-agent/src/errors.rs:136
 msgid "The user is using the keyboard or pointer; try again in a moment"
-msgstr "Der Benutzer verwendet Tastatur oder Zeiger; versuchen Sie es gleich noch einmal"
+msgstr ""
+"Der Benutzer verwendet Tastatur oder Zeiger; versuchen Sie es gleich noch "
+"einmal"
 
 #: crates/helix-agent/src/errors.rs:137
 msgid "The user stopped the agent"
@@ -1282,7 +1296,9 @@ msgstr "Geschwärzt: {count}"
 #: crates/helix-agent/src/screen.rs:261
 msgid ""
 "A screenshot is binary data; use --output FILE or redirect standard output"
-msgstr "Ein Bildschirmfoto sind Binärdaten; verwenden Sie --output DATEI oder leiten Sie die Standardausgabe um"
+msgstr ""
+"Ein Bildschirmfoto sind Binärdaten; verwenden Sie --output DATEI oder leiten "
+"Sie die Standardausgabe um"
 
 #: crates/helix-agent/src/talk.rs:59
 msgid "Reminder {id} set for {time}"
@@ -4679,6 +4695,23 @@ msgstr "Bildschirmzeitlimit erreicht"
 #: crates/helix-shell/src/windows.rs:266
 msgid "Untitled window"
 msgstr "Unbenanntes Fenster"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Authentication is required to change the login screen settings"
+msgstr "Zur Änderung der Einstellungen des Anmeldebildschirms ist eine Authentifizierung erforderlich"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Change the login screen settings"
+msgstr "Einstellungen des Anmeldebildschirms ändern"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid ""
+"Authentication is required to use this monitor layout for the login screen"
+msgstr "Zur Verwendung dieser Bildschirmanordnung für den Anmeldebildschirm ist eine Authentifizierung erforderlich"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid "Set the login screen's monitor layout"
+msgstr "Bildschirmanordnung des Anmeldebildschirms festlegen"
 
 #: session/helix.desktop
 msgid "Helix"

@@ -110,7 +110,8 @@ msgstr "Alleen bedieningselementen waarvan de naam TEXT bevat"
 
 #: crates/helix-agent/src/cli.rs:80
 msgid "Into this window, focusing it first (default: the focused window)"
-msgstr "In dit venster, dat eerst de focus krijgt (standaard: het actieve venster)"
+msgstr ""
+"In dit venster, dat eerst de focus krijgt (standaard: het actieve venster)"
 
 #: crates/helix-agent/src/cli.rs:81
 msgid "Across the window from its left edge, in logical pixels"
@@ -522,7 +523,9 @@ msgstr "Alleen dit beeldscherm, bijv. eDP-1 (zie ‘helix-agent monitors’)"
 #: crates/helix-agent/src/cli.rs:266
 msgid ""
 "Only this area: in the window, the monitor or the screen, in logical pixels"
-msgstr "Alleen dit gebied: in het venster, het beeldscherm of het hele scherm, in logische pixels"
+msgstr ""
+"Alleen dit gebied: in het venster, het beeldscherm of het hele scherm, in "
+"logische pixels"
 
 #: crates/helix-agent/src/cli.rs:267
 msgid "Write the PNG to FILE"
@@ -605,12 +608,17 @@ msgid ""
 "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
 "scroll DX DY, type TEXT, wait MS"
-msgstr "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS"
+msgstr ""
+"move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
+"[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
+"scroll DX DY, type TEXT, wait MS"
 
 #: crates/helix-agent/src/cli.rs:299
 msgid ""
 "Several steps in one go (keys and buttons held down are let go at the end)"
-msgstr "Meerdere stappen tegelijk (vastgehouden toetsen en knoppen worden aan het eind losgelaten)"
+msgstr ""
+"Meerdere stappen tegelijk (vastgehouden toetsen en knoppen worden aan het "
+"eind losgelaten)"
 
 #: crates/helix-agent/src/cli.rs:302
 msgid "Send keys, text, clicks and scrolling"
@@ -887,7 +895,8 @@ msgstr ""
 #: crates/helix-agent/src/errors.rs:101
 msgid ""
 "The user said no, cancelled the question, or stopped the agent or its input"
-msgstr "De gebruiker zei nee, annuleerde de vraag of stopte de agent of zijn invoer"
+msgstr ""
+"De gebruiker zei nee, annuleerde de vraag of stopte de agent of zijn invoer"
 
 #: crates/helix-agent/src/errors.rs:103
 msgid "No such window, app or item"
@@ -1276,7 +1285,9 @@ msgstr "Zwart gemaakt: {count}"
 #: crates/helix-agent/src/screen.rs:261
 msgid ""
 "A screenshot is binary data; use --output FILE or redirect standard output"
-msgstr "Een schermafdruk is binaire data; gebruik --output BESTAND of leid de standaarduitvoer om"
+msgstr ""
+"Een schermafdruk is binaire data; gebruik --output BESTAND of leid de "
+"standaarduitvoer om"
 
 #: crates/helix-agent/src/talk.rs:59
 msgid "Reminder {id} set for {time}"
@@ -4647,6 +4658,23 @@ msgstr "Schermtijdlimiet bereikt"
 #: crates/helix-shell/src/windows.rs:266
 msgid "Untitled window"
 msgstr "Naamloos venster"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Authentication is required to change the login screen settings"
+msgstr "Authenticatie is vereist om de instellingen van het aanmeldscherm te wijzigen"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Change the login screen settings"
+msgstr "Instellingen van het aanmeldscherm wijzigen"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid ""
+"Authentication is required to use this monitor layout for the login screen"
+msgstr "Authenticatie is vereist om deze schermindeling voor het aanmeldscherm te gebruiken"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid "Set the login screen's monitor layout"
+msgstr "Schermindeling van het aanmeldscherm instellen"
 
 #: session/helix.desktop
 msgid "Helix"

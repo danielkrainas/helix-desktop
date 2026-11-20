@@ -109,7 +109,9 @@ msgstr "名前に TEXT を含むコントロールのみ"
 
 #: crates/helix-agent/src/cli.rs:80
 msgid "Into this window, focusing it first (default: the focused window)"
-msgstr "このウィンドウに入力（先にフォーカスします。既定: フォーカスのあるウィンドウ）"
+msgstr ""
+"このウィンドウに入力（先にフォーカスします。既定: フォーカスのあるウィンド"
+"ウ）"
 
 #: crates/helix-agent/src/cli.rs:81
 msgid "Across the window from its left edge, in logical pixels"
@@ -602,7 +604,10 @@ msgid ""
 "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
 "scroll DX DY, type TEXT, wait MS"
-msgstr "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS"
+msgstr ""
+"move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
+"[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
+"scroll DX DY, type TEXT, wait MS"
 
 #: crates/helix-agent/src/cli.rs:299
 msgid ""
@@ -884,7 +889,9 @@ msgstr ""
 #: crates/helix-agent/src/errors.rs:101
 msgid ""
 "The user said no, cancelled the question, or stopped the agent or its input"
-msgstr "ユーザーが拒否したか、質問を取り消したか、エージェントまたはその入力を停止しました"
+msgstr ""
+"ユーザーが拒否したか、質問を取り消したか、エージェントまたはその入力を停止し"
+"ました"
 
 #: crates/helix-agent/src/errors.rs:103
 msgid "No such window, app or item"
@@ -909,7 +916,9 @@ msgstr "停止しました: ユーザーがキーボードまたはポインタ�
 
 #: crates/helix-agent/src/errors.rs:136
 msgid "The user is using the keyboard or pointer; try again in a moment"
-msgstr "ユーザーがキーボードまたはポインターを使用中です。少し待ってからやり直してください"
+msgstr ""
+"ユーザーがキーボードまたはポインターを使用中です。少し待ってからやり直してく"
+"ださい"
 
 #: crates/helix-agent/src/errors.rs:137
 msgid "The user stopped the agent"
@@ -1274,7 +1283,9 @@ msgstr "黒塗り: {count}"
 #: crates/helix-agent/src/screen.rs:261
 msgid ""
 "A screenshot is binary data; use --output FILE or redirect standard output"
-msgstr "スクリーンショットはバイナリーデータです。--output ファイル を使うか標準出力をリダイレクトしてください"
+msgstr ""
+"スクリーンショットはバイナリーデータです。--output ファイル を使うか標準出力"
+"をリダイレクトしてください"
 
 #: crates/helix-agent/src/talk.rs:59
 msgid "Reminder {id} set for {time}"
@@ -4615,6 +4626,23 @@ msgstr "スクリーンタイムの上限に達しました"
 #: crates/helix-shell/src/windows.rs:266
 msgid "Untitled window"
 msgstr "無題のウィンドウ"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Authentication is required to change the login screen settings"
+msgstr "ログイン画面の設定を変更するには認証が必要です"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Change the login screen settings"
+msgstr "ログイン画面の設定を変更"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid ""
+"Authentication is required to use this monitor layout for the login screen"
+msgstr "このモニター配置をログイン画面で使用するには認証が必要です"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid "Set the login screen's monitor layout"
+msgstr "ログイン画面のモニター配置を設定"
 
 #: session/helix.desktop
 msgid "Helix"

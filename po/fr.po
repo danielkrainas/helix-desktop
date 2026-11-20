@@ -110,15 +110,19 @@ msgstr "Seulement les commandes dont le nom contient TEXT"
 
 #: crates/helix-agent/src/cli.rs:80
 msgid "Into this window, focusing it first (default: the focused window)"
-msgstr "Dans cette fenêtre, en lui donnant d’abord le focus (par défaut : la fenêtre active)"
+msgstr ""
+"Dans cette fenêtre, en lui donnant d’abord le focus (par défaut : la fenêtre "
+"active)"
 
 #: crates/helix-agent/src/cli.rs:81
 msgid "Across the window from its left edge, in logical pixels"
-msgstr "Horizontalement depuis le bord gauche de la fenêtre, en pixels logiques"
+msgstr ""
+"Horizontalement depuis le bord gauche de la fenêtre, en pixels logiques"
 
 #: crates/helix-agent/src/cli.rs:82
 msgid "Down the window from its top edge, in logical pixels"
-msgstr "Verticalement depuis le bord supérieur de la fenêtre, en pixels logiques"
+msgstr ""
+"Verticalement depuis le bord supérieur de la fenêtre, en pixels logiques"
 
 #: crates/helix-agent/src/cli.rs:85
 msgid "Only controls in this state, e.g. focused, checked (repeat for more)"
@@ -515,7 +519,8 @@ msgstr "Écran et saisie (Écran et saisie) :"
 
 #: crates/helix-agent/src/cli.rs:264
 msgid "Only this window (it may be on another workspace)"
-msgstr "Seulement cette fenêtre (elle peut être sur un autre espace de travail)"
+msgstr ""
+"Seulement cette fenêtre (elle peut être sur un autre espace de travail)"
 
 #: crates/helix-agent/src/cli.rs:265
 msgid "Only this monitor, e.g. eDP-1 (see “helix-agent monitors”)"
@@ -524,7 +529,9 @@ msgstr "Seulement cet écran, par ex. eDP-1 (voir « helix-agent monitors »)"
 #: crates/helix-agent/src/cli.rs:266
 msgid ""
 "Only this area: in the window, the monitor or the screen, in logical pixels"
-msgstr "Seulement cette zone : dans la fenêtre, l’écran ou l’affichage entier, en pixels logiques"
+msgstr ""
+"Seulement cette zone : dans la fenêtre, l’écran ou l’affichage entier, en "
+"pixels logiques"
 
 #: crates/helix-agent/src/cli.rs:267
 msgid "Write the PNG to FILE"
@@ -536,7 +543,8 @@ msgstr "Faire une capture d'écran"
 
 #: crates/helix-agent/src/cli.rs:274
 msgid "Key combinations such as ctrl+s, alt+F4 or Return, pressed in turn"
-msgstr "Combinaisons de touches comme ctrl+s, alt+F4 ou Return, appuyées tour à tour"
+msgstr ""
+"Combinaisons de touches comme ctrl+s, alt+F4 ou Return, appuyées tour à tour"
 
 #: crates/helix-agent/src/cli.rs:274
 msgid "Press keys"
@@ -576,7 +584,8 @@ msgstr "Crans de molette verticaux (négatif : vers le haut)"
 
 #: crates/helix-agent/src/cli.rs:286
 msgid "Scroll at this point in the window (default: where the pointer is)"
-msgstr "Faire défiler en ce point de la fenêtre (par défaut : là où est le pointeur)"
+msgstr ""
+"Faire défiler en ce point de la fenêtre (par défaut : là où est le pointeur)"
 
 #: crates/helix-agent/src/cli.rs:287
 msgid "Scroll"
@@ -607,12 +616,17 @@ msgid ""
 "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
 "scroll DX DY, type TEXT, wait MS"
-msgstr "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS"
+msgstr ""
+"move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
+"[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
+"scroll DX DY, type TEXT, wait MS"
 
 #: crates/helix-agent/src/cli.rs:299
 msgid ""
 "Several steps in one go (keys and buttons held down are let go at the end)"
-msgstr "Plusieurs étapes d’un coup (les touches et boutons maintenus sont relâchés à la fin)"
+msgstr ""
+"Plusieurs étapes d’un coup (les touches et boutons maintenus sont relâchés à "
+"la fin)"
 
 #: crates/helix-agent/src/cli.rs:302
 msgid "Send keys, text, clicks and scrolling"
@@ -891,7 +905,8 @@ msgstr ""
 #: crates/helix-agent/src/errors.rs:101
 msgid ""
 "The user said no, cancelled the question, or stopped the agent or its input"
-msgstr "L’utilisateur a dit non, annulé la question, ou arrêté l’agent ou sa saisie"
+msgstr ""
+"L’utilisateur a dit non, annulé la question, ou arrêté l’agent ou sa saisie"
 
 #: crates/helix-agent/src/errors.rs:103
 msgid "No such window, app or item"
@@ -916,7 +931,8 @@ msgstr "Arrêté : l’utilisateur a repris le clavier ou le pointeur"
 
 #: crates/helix-agent/src/errors.rs:136
 msgid "The user is using the keyboard or pointer; try again in a moment"
-msgstr "L’utilisateur se sert du clavier ou du pointeur ; réessayez dans un instant"
+msgstr ""
+"L’utilisateur se sert du clavier ou du pointeur ; réessayez dans un instant"
 
 #: crates/helix-agent/src/errors.rs:137
 msgid "The user stopped the agent"
@@ -1284,7 +1300,9 @@ msgstr "Masqué en noir : {count}"
 #: crates/helix-agent/src/screen.rs:261
 msgid ""
 "A screenshot is binary data; use --output FILE or redirect standard output"
-msgstr "Une capture d’écran est binaire ; utilisez --output FICHIER ou redirigez la sortie standard"
+msgstr ""
+"Une capture d’écran est binaire ; utilisez --output FICHIER ou redirigez la "
+"sortie standard"
 
 #: crates/helix-agent/src/talk.rs:59
 msgid "Reminder {id} set for {time}"
@@ -4687,6 +4705,23 @@ msgstr "Limite de temps d’écran atteinte"
 #: crates/helix-shell/src/windows.rs:266
 msgid "Untitled window"
 msgstr "Fenêtre sans titre"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Authentication is required to change the login screen settings"
+msgstr "Une authentification est nécessaire pour modifier les paramètres de l’écran de connexion"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Change the login screen settings"
+msgstr "Modifier les paramètres de l’écran de connexion"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid ""
+"Authentication is required to use this monitor layout for the login screen"
+msgstr "Une authentification est nécessaire pour utiliser cette disposition des écrans pour l’écran de connexion"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid "Set the login screen's monitor layout"
+msgstr "Définir la disposition des écrans de l’écran de connexion"
 
 #: session/helix.desktop
 msgid "Helix"

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Helix: changing the login screen's configuration, /etc/helix/greeter.toml
+     (helixdesktop/spec components/greeter.md, "Changing the configuration").
+     The description and message are translated at staging time
+     (packaging/stage.sh, tools/i18n/its). -->
+<policyconfig>
+  <vendor>Helix</vendor>
+  <vendor_url>https://helixdesktop.org</vendor_url>
+
+  <action id="org.helixdesktop.login-screen-config">
+    <description>Change the login screen settings</description>
+    <message>Authentication is required to change the login screen settings</message>
+    <icon_name>preferences-system</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/helix/helix-login-config</annotate>
+  </action>
+</policyconfig>

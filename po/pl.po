@@ -519,7 +519,8 @@ msgstr "Tylko ten monitor, np. eDP-1 (zob. „helix-agent monitors”)"
 #: crates/helix-agent/src/cli.rs:266
 msgid ""
 "Only this area: in the window, the monitor or the screen, in logical pixels"
-msgstr "Tylko ten obszar: w oknie, na monitorze lub ekranie, w pikselach logicznych"
+msgstr ""
+"Tylko ten obszar: w oknie, na monitorze lub ekranie, w pikselach logicznych"
 
 #: crates/helix-agent/src/cli.rs:267
 msgid "Write the PNG to FILE"
@@ -602,12 +603,16 @@ msgid ""
 "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
 "scroll DX DY, type TEXT, wait MS"
-msgstr "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS"
+msgstr ""
+"move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
+"[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
+"scroll DX DY, type TEXT, wait MS"
 
 #: crates/helix-agent/src/cli.rs:299
 msgid ""
 "Several steps in one go (keys and buttons held down are let go at the end)"
-msgstr "Kilka kroków naraz (przytrzymane klawisze i przyciski są puszczane na końcu)"
+msgstr ""
+"Kilka kroków naraz (przytrzymane klawisze i przyciski są puszczane na końcu)"
 
 #: crates/helix-agent/src/cli.rs:302
 msgid "Send keys, text, clicks and scrolling"
@@ -885,7 +890,9 @@ msgstr ""
 #: crates/helix-agent/src/errors.rs:101
 msgid ""
 "The user said no, cancelled the question, or stopped the agent or its input"
-msgstr "Użytkownik odmówił, anulował pytanie albo zatrzymał agenta lub jego wprowadzanie"
+msgstr ""
+"Użytkownik odmówił, anulował pytanie albo zatrzymał agenta lub jego "
+"wprowadzanie"
 
 #: crates/helix-agent/src/errors.rs:103
 msgid "No such window, app or item"
@@ -1274,7 +1281,9 @@ msgstr "Zaczernione: {count}"
 #: crates/helix-agent/src/screen.rs:261
 msgid ""
 "A screenshot is binary data; use --output FILE or redirect standard output"
-msgstr "Zrzut ekranu to dane binarne; użyj --output PLIK lub przekieruj standardowe wyjście"
+msgstr ""
+"Zrzut ekranu to dane binarne; użyj --output PLIK lub przekieruj standardowe "
+"wyjście"
 
 #: crates/helix-agent/src/talk.rs:59
 msgid "Reminder {id} set for {time}"
@@ -4669,6 +4678,23 @@ msgstr "Osiągnięto limit czasu przed ekranem"
 #: crates/helix-shell/src/windows.rs:266
 msgid "Untitled window"
 msgstr "Okno bez tytułu"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Authentication is required to change the login screen settings"
+msgstr "Wymagane jest uwierzytelnienie, aby zmienić ustawienia ekranu logowania"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Change the login screen settings"
+msgstr "Zmiana ustawień ekranu logowania"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid ""
+"Authentication is required to use this monitor layout for the login screen"
+msgstr "Wymagane jest uwierzytelnienie, aby użyć tego układu monitorów na ekranie logowania"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid "Set the login screen's monitor layout"
+msgstr "Ustawienie układu monitorów ekranu logowania"
 
 #: session/helix.desktop
 msgid "Helix"

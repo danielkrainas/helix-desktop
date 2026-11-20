@@ -16,7 +16,9 @@ mod atspi;
 #[cfg(test)]
 mod atspi_bus;
 mod clock;
-mod config;
+// Shared with helix-login-config (src/lib.rs); `crate::config` still
+// names it.
+use helix_greeter::config;
 mod greetd;
 mod login;
 mod monitors;

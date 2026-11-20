@@ -87,3 +87,5 @@ crates/helix-shell/src/welcome.rs
 crates/helix-shell/src/wellbeing.rs
 crates/helix-shell/src/windows.rs
 session/helix.desktop
+data/org.helixdesktop.login-screen-config.policy
+data/org.helixdesktop.login-screen-monitors.policy

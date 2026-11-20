@@ -3,7 +3,9 @@
  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <!-- Helix: setting the login screen's monitor layout
-     (helixdesktop/spec components/greeter.md, "The monitor"). -->
+     (helixdesktop/spec components/greeter.md, "The monitor").
+     The description and message are translated at staging time
+     (packaging/stage.sh, tools/i18n/its). -->
 <policyconfig>
   <vendor>Helix</vendor>
   <vendor_url>https://helixdesktop.org</vendor_url>

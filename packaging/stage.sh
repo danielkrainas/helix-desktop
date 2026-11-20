@@ -21,6 +21,14 @@ case $pam in
     *) echo "unknown PAM variant: $pam" >&2; exit 2 ;;
 esac
 
+# Install polkit policy $1 as $2, its descriptions and messages translated
+# into every language of po/LINGUAS (tools/i18n/its says which elements).
+policy() {
+    install -d "$(dirname "$2")"
+    GETTEXTDATADIRS="$root/tools/i18n" msgfmt --xml --template="$1" -d "$root/po" -o "$2"
+    chmod 644 "$2"
+}
+
 for b in helix-comp helix-shell helix-session helix-portals helix-bluetooth-sendto helix-extensions helix-agent; do
     install -Dm755 "$bin/$b" "$dest/usr/bin/$b"
 done
@@ -39,7 +47,7 @@ install -Dm644 "$root/packaging/apparmor/helix-extension-sandbox" "$dest/etc/app
 # The login screen's monitor layout: the helper pkexec runs, and its polkit
 # action (org.helixdesktop.login-screen-monitors).
 install -Dm755 "$bin/helix-login-monitors" "$dest/usr/libexec/helix/helix-login-monitors"
-install -Dm644 "$root/data/org.helixdesktop.login-screen-monitors.policy" "$dest/usr/share/polkit-1/actions/org.helixdesktop.login-screen-monitors.policy"
+policy "$root/data/org.helixdesktop.login-screen-monitors.policy" "$dest/usr/share/polkit-1/actions/org.helixdesktop.login-screen-monitors.policy"
 # Helix's mark as the org.helixdesktop.Helix icon.
 install -Dm644 "$root/data/icons/hicolor/scalable/apps/org.helixdesktop.Helix.svg" "$dest/usr/share/icons/hicolor/scalable/apps/org.helixdesktop.Helix.svg"
 # The session's name and comment in every language of po/LINGUAS
@@ -71,6 +79,10 @@ done
 # The greeter (packaged separately as helix-greeter).
 install -Dm755 "$bin/helix-greeter" "$dest/usr/bin/helix-greeter"
 install -Dm755 "$root/greeter/helix-greeter-session" "$dest/usr/libexec/helix/helix-greeter-session"
+# Changing the login screen's configuration: the helper pkexec runs, and
+# its polkit action (org.helixdesktop.login-screen-config).
+install -Dm755 "$bin/helix-login-config" "$dest/usr/libexec/helix/helix-login-config"
+policy "$root/data/org.helixdesktop.login-screen-config.policy" "$dest/usr/share/polkit-1/actions/org.helixdesktop.login-screen-config.policy"
 install -Dm644 "$root/greeter/greetd-helix-greeter.toml" "$dest/etc/greetd/helix-greeter.toml"
 install -Dm644 "$root/greeter/greetd.service-helix-greeter.conf" "$dest/usr/lib/systemd/system/greetd.service.d/helix-greeter.conf"
 install -Dm644 "$root/greeter/README" "$dest/usr/share/doc/helix-greeter/README"

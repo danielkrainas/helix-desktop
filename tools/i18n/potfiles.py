@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """List the files with translatable text, one per line, as po/POTFILES
 holds them: Rust sources that call the i18n functions with a literal,
-then the session's desktop file.
+then the session's desktop file and the polkit policies.
 
     python3 tools/i18n/potfiles.py > po/POTFILES
 
@@ -33,7 +33,8 @@ def rust_files():
 
 
 def data_files():
-    return ["session/helix.desktop"]
+    policies = sorted(f for f in os.listdir(os.path.join(ROOT, "data")) if f.endswith(".policy"))
+    return ["session/helix.desktop"] + ["data/" + f for f in policies]
 
 
 def main():

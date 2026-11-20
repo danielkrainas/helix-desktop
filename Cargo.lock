@@ -1447,11 +1447,13 @@ dependencies = [
  "libc",
  "png",
  "resvg",
+ "roxmltree",
  "serde",
  "serde_json",
  "smithay-client-toolkit 0.21.1",
  "tokio",
  "toml",
+ "toml_edit",
  "tracing",
  "tracing-subscriber",
  "zbus",
@@ -3765,6 +3767,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 

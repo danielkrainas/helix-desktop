@@ -109,11 +109,13 @@ msgstr "Solo controles cuyo nombre contiene TEXT"
 
 #: crates/helix-agent/src/cli.rs:80
 msgid "Into this window, focusing it first (default: the focused window)"
-msgstr "En esta ventana, enfocándola primero (predeterminado: la ventana enfocada)"
+msgstr ""
+"En esta ventana, enfocándola primero (predeterminado: la ventana enfocada)"
 
 #: crates/helix-agent/src/cli.rs:81
 msgid "Across the window from its left edge, in logical pixels"
-msgstr "En horizontal desde el borde izquierdo de la ventana, en píxeles lógicos"
+msgstr ""
+"En horizontal desde el borde izquierdo de la ventana, en píxeles lógicos"
 
 #: crates/helix-agent/src/cli.rs:82
 msgid "Down the window from its top edge, in logical pixels"
@@ -521,7 +523,8 @@ msgstr "Solo este monitor, p. ej. eDP-1 (vea «helix-agent monitors»)"
 #: crates/helix-agent/src/cli.rs:266
 msgid ""
 "Only this area: in the window, the monitor or the screen, in logical pixels"
-msgstr "Solo esta área: en la ventana, el monitor o la pantalla, en píxeles lógicos"
+msgstr ""
+"Solo esta área: en la ventana, el monitor o la pantalla, en píxeles lógicos"
 
 #: crates/helix-agent/src/cli.rs:267
 msgid "Write the PNG to FILE"
@@ -533,7 +536,8 @@ msgstr "Hacer una captura de pantalla"
 
 #: crates/helix-agent/src/cli.rs:274
 msgid "Key combinations such as ctrl+s, alt+F4 or Return, pressed in turn"
-msgstr "Combinaciones de teclas como ctrl+s, alt+F4 o Return, pulsadas por turno"
+msgstr ""
+"Combinaciones de teclas como ctrl+s, alt+F4 o Return, pulsadas por turno"
 
 #: crates/helix-agent/src/cli.rs:274
 msgid "Press keys"
@@ -573,7 +577,8 @@ msgstr "Pasos de rueda en vertical (negativo: hacia arriba)"
 
 #: crates/helix-agent/src/cli.rs:286
 msgid "Scroll at this point in the window (default: where the pointer is)"
-msgstr "Desplazar en este punto de la ventana (predeterminado: donde está el puntero)"
+msgstr ""
+"Desplazar en este punto de la ventana (predeterminado: donde está el puntero)"
 
 #: crates/helix-agent/src/cli.rs:287
 msgid "Scroll"
@@ -604,12 +609,16 @@ msgid ""
 "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
 "scroll DX DY, type TEXT, wait MS"
-msgstr "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS"
+msgstr ""
+"move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
+"[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
+"scroll DX DY, type TEXT, wait MS"
 
 #: crates/helix-agent/src/cli.rs:299
 msgid ""
 "Several steps in one go (keys and buttons held down are let go at the end)"
-msgstr "Varios pasos de una vez (las teclas y botones mantenidos se sueltan al final)"
+msgstr ""
+"Varios pasos de una vez (las teclas y botones mantenidos se sueltan al final)"
 
 #: crates/helix-agent/src/cli.rs:302
 msgid "Send keys, text, clicks and scrolling"
@@ -890,7 +899,8 @@ msgstr ""
 #: crates/helix-agent/src/errors.rs:101
 msgid ""
 "The user said no, cancelled the question, or stopped the agent or its input"
-msgstr "El usuario dijo que no, canceló la pregunta o detuvo al agente o su entrada"
+msgstr ""
+"El usuario dijo que no, canceló la pregunta o detuvo al agente o su entrada"
 
 #: crates/helix-agent/src/errors.rs:103
 msgid "No such window, app or item"
@@ -914,7 +924,9 @@ msgstr "Detenido: el usuario tomó el control del teclado o el puntero"
 
 #: crates/helix-agent/src/errors.rs:136
 msgid "The user is using the keyboard or pointer; try again in a moment"
-msgstr "El usuario está usando el teclado o el puntero; inténtelo de nuevo en un momento"
+msgstr ""
+"El usuario está usando el teclado o el puntero; inténtelo de nuevo en un "
+"momento"
 
 #: crates/helix-agent/src/errors.rs:137
 msgid "The user stopped the agent"
@@ -1282,7 +1294,9 @@ msgstr "Tapado en negro: {count}"
 #: crates/helix-agent/src/screen.rs:261
 msgid ""
 "A screenshot is binary data; use --output FILE or redirect standard output"
-msgstr "Una captura de pantalla son datos binarios; use --output ARCHIVO o redirija la salida estándar"
+msgstr ""
+"Una captura de pantalla son datos binarios; use --output ARCHIVO o redirija "
+"la salida estándar"
 
 #: crates/helix-agent/src/talk.rs:59
 msgid "Reminder {id} set for {time}"
@@ -4667,6 +4681,23 @@ msgstr "Límite de tiempo de uso alcanzado"
 #: crates/helix-shell/src/windows.rs:266
 msgid "Untitled window"
 msgstr "Ventana sin título"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Authentication is required to change the login screen settings"
+msgstr "Se requiere autenticación para cambiar la configuración de la pantalla de inicio de sesión"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Change the login screen settings"
+msgstr "Cambiar la configuración de la pantalla de inicio de sesión"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid ""
+"Authentication is required to use this monitor layout for the login screen"
+msgstr "Se requiere autenticación para usar esta disposición de monitores en la pantalla de inicio de sesión"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid "Set the login screen's monitor layout"
+msgstr "Establecer la disposición de monitores de la pantalla de inicio de sesión"
 
 #: session/helix.desktop
 msgid "Helix"

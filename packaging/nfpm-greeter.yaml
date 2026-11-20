@@ -26,6 +26,11 @@ depends:
   - helix-desktop (= @VERSION@-1)
   - dbus-bin
 
+recommends:
+  # Settings changes the login screen's configuration through pkexec
+  # (helix-login-config).
+  - pkexec
+
 contents:
   - src: ./stage/usr/bin/helix-greeter
     dst: /usr/bin/helix-greeter
@@ -33,6 +38,14 @@ contents:
     dst: /usr/libexec/helix/helix-greeter-session
     file_info:
       mode: 0755
+  # Changing the login screen's configuration (run through pkexec by
+  # Settings) and its polkit action.
+  - src: ./stage/usr/libexec/helix/helix-login-config
+    dst: /usr/libexec/helix/helix-login-config
+    file_info:
+      mode: 0755
+  - src: ./stage/usr/share/polkit-1/actions/org.helixdesktop.login-screen-config.policy
+    dst: /usr/share/polkit-1/actions/org.helixdesktop.login-screen-config.policy
   - src: ./stage/etc/greetd/helix-greeter.toml
     dst: /etc/greetd/helix-greeter.toml
     type: config|noreplace

@@ -1,9 +1,21 @@
 //! `/etc/helix/greeter.toml` (helixdesktop/spec `components/greeter.md`,
 //! "Configuration"). `HELIX_GREETER_CONFIG` names another file (tests).
+//!
+//! The key names and values here are also what `helix-login-config`
+//! ([`crate::login_config`]) accepts, so the two cannot disagree.
 
 use serde::Deserialize;
 
 pub const CONFIG_PATH: &str = "/etc/helix/greeter.toml";
+
+/// The keys of the file, as [`Config`] reads them.
+pub const USER_LIST: &str = "user-list";
+pub const BANNER: &str = "banner";
+pub const ACCENT: &str = "accent";
+pub const CLOCK_FORMAT: &str = "clock-format";
+pub const KEYS: [&str; 4] = [USER_LIST, BANNER, ACCENT, CLOCK_FORMAT];
+/// The values `clock-format` takes.
+pub const CLOCK_FORMATS: [&str; 2] = ["12h", "24h"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case", default)]
@@ -72,6 +84,18 @@ mod tests {
         assert_eq!(Config::parse("clock-format = \"12h\"").unwrap().clock_format.as_deref(), Some("12h"));
         // Unknown keys are allowed (newer configuration, older greeter).
         assert!(Config::parse("theme = \"x\"").is_ok());
+    }
+
+    #[test]
+    fn keys_are_the_ones_read() {
+        // Each key is one Config reads: a value of the wrong type is an error.
+        for key in KEYS {
+            let wrong = if key == USER_LIST { "\"x\"" } else { "1" };
+            assert!(Config::parse(&format!("{key} = {wrong}")).is_err(), "{key}");
+        }
+        for format in CLOCK_FORMATS {
+            assert_eq!(Config::parse(&format!("{CLOCK_FORMAT} = \"{format}\"")).unwrap().clock_format.as_deref(), Some(format));
+        }
     }
 
     #[test]

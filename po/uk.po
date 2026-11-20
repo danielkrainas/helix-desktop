@@ -523,7 +523,8 @@ msgstr "Лише цей монітор, наприклад eDP-1 (див. «heli
 #: crates/helix-agent/src/cli.rs:266
 msgid ""
 "Only this area: in the window, the monitor or the screen, in logical pixels"
-msgstr "Лише ця область: у вікні, на моніторі або на екрані, у логічних пікселях"
+msgstr ""
+"Лише ця область: у вікні, на моніторі або на екрані, у логічних пікселях"
 
 #: crates/helix-agent/src/cli.rs:267
 msgid "Write the PNG to FILE"
@@ -535,7 +536,8 @@ msgstr "Зробити знімок екрана"
 
 #: crates/helix-agent/src/cli.rs:274
 msgid "Key combinations such as ctrl+s, alt+F4 or Return, pressed in turn"
-msgstr "Поєднання клавіш, як-от ctrl+s, alt+F4 або Return, що натискаються по черзі"
+msgstr ""
+"Поєднання клавіш, як-от ctrl+s, alt+F4 або Return, що натискаються по черзі"
 
 #: crates/helix-agent/src/cli.rs:274
 msgid "Press keys"
@@ -606,12 +608,16 @@ msgid ""
 "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
 "scroll DX DY, type TEXT, wait MS"
-msgstr "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS"
+msgstr ""
+"move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
+"[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
+"scroll DX DY, type TEXT, wait MS"
 
 #: crates/helix-agent/src/cli.rs:299
 msgid ""
 "Several steps in one go (keys and buttons held down are let go at the end)"
-msgstr "Кілька кроків одразу (утримувані клавіші й кнопки відпускаються наприкінці)"
+msgstr ""
+"Кілька кроків одразу (утримувані клавіші й кнопки відпускаються наприкінці)"
 
 #: crates/helix-agent/src/cli.rs:302
 msgid "Send keys, text, clicks and scrolling"
@@ -886,7 +892,8 @@ msgstr ""
 #: crates/helix-agent/src/errors.rs:101
 msgid ""
 "The user said no, cancelled the question, or stopped the agent or its input"
-msgstr "Користувач відмовив, скасував питання або зупинив агента чи його введення"
+msgstr ""
+"Користувач відмовив, скасував питання або зупинив агента чи його введення"
 
 #: crates/helix-agent/src/errors.rs:103
 msgid "No such window, app or item"
@@ -910,7 +917,8 @@ msgstr "Зупинено: користувач узяв клавіатуру а�
 
 #: crates/helix-agent/src/errors.rs:136
 msgid "The user is using the keyboard or pointer; try again in a moment"
-msgstr "Користувач працює з клавіатурою або вказівником; спробуйте трохи згодом"
+msgstr ""
+"Користувач працює з клавіатурою або вказівником; спробуйте трохи згодом"
 
 #: crates/helix-agent/src/errors.rs:137
 msgid "The user stopped the agent"
@@ -1275,7 +1283,9 @@ msgstr "Зафарбовано чорним: {count}"
 #: crates/helix-agent/src/screen.rs:261
 msgid ""
 "A screenshot is binary data; use --output FILE or redirect standard output"
-msgstr "Знімок екрана — це двійкові дані; вкажіть --output ФАЙЛ або перенаправте стандартний вивід"
+msgstr ""
+"Знімок екрана — це двійкові дані; вкажіть --output ФАЙЛ або перенаправте "
+"стандартний вивід"
 
 #: crates/helix-agent/src/talk.rs:59
 msgid "Reminder {id} set for {time}"
@@ -4675,6 +4685,23 @@ msgstr "Досягнуто ліміту екранного часу"
 #: crates/helix-shell/src/windows.rs:266
 msgid "Untitled window"
 msgstr "Вікно без назви"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Authentication is required to change the login screen settings"
+msgstr "Для зміни параметрів екрана входу потрібна автентифікація"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Change the login screen settings"
+msgstr "Змінити параметри екрана входу"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid ""
+"Authentication is required to use this monitor layout for the login screen"
+msgstr "Для використання цього розташування моніторів на екрані входу потрібна автентифікація"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid "Set the login screen's monitor layout"
+msgstr "Задати розташування моніторів екрана входу"
 
 #: session/helix.desktop
 msgid "Helix"

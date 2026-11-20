@@ -6,7 +6,8 @@
 #
 # Rust sources go through tools/i18n/extract_rs.py (GNU xgettext before
 # 0.24 cannot parse Rust); the session's desktop file through xgettext,
-# which knows its translatable keys. Needs python3 and the GNU gettext
+# which knows its translatable keys; polkit policies through xgettext with
+# the ITS rules in tools/i18n/its. Needs python3 and the GNU gettext
 # tools. The same scheme as helix-apps' tools/i18n.
 set -eu
 
@@ -22,16 +23,19 @@ python3 tools/i18n/potfiles.py > "$tmp/POTFILES"
 grep -v '^#' "$tmp/POTFILES" > "$tmp/list"
 grep '\.rs$' "$tmp/list" > "$tmp/rs" || true
 grep '\.desktop$' "$tmp/list" > "$tmp/desktop" || true
+grep '\.policy$' "$tmp/list" > "$tmp/policy" || true
 
 # shellcheck disable=SC2046
 python3 tools/i18n/extract_rs.py "$tmp/rs.pot" $(cat "$tmp/rs")
 xgettext --language=Desktop --from-code=UTF-8 --add-location=file \
     -k -kName -kGenericName -kComment -kKeywords \
     -o "$tmp/desktop.pot" -f "$tmp/desktop"
+GETTEXTDATADIRS="$root/tools/i18n" xgettext --from-code=UTF-8 --add-location=file \
+    -o "$tmp/policy.pot" -f "$tmp/policy"
 # Rust messages keep line numbers (they help find the context); desktop
-# ones are file-only, so regenerating them after an unrelated edit does
-# not churn.
-msgcat --use-first --sort-by-file "$tmp/rs.pot" "$tmp/desktop.pot" \
+# and policy ones are file-only, so regenerating them after an unrelated
+# edit does not churn.
+msgcat --use-first --sort-by-file "$tmp/rs.pot" "$tmp/desktop.pot" "$tmp/policy.pot" \
     | sed '/^"POT-Creation-Date:/d' > "$tmp/helix-desktop.pot"
 
 if $check; then

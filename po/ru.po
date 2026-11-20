@@ -522,7 +522,8 @@ msgstr "Только этот монитор, например eDP-1 (см. «he
 #: crates/helix-agent/src/cli.rs:266
 msgid ""
 "Only this area: in the window, the monitor or the screen, in logical pixels"
-msgstr "Только эта область: в окне, на мониторе или на экране, в логических пикселях"
+msgstr ""
+"Только эта область: в окне, на мониторе или на экране, в логических пикселях"
 
 #: crates/helix-agent/src/cli.rs:267
 msgid "Write the PNG to FILE"
@@ -534,7 +535,8 @@ msgstr "Сделать снимок экрана"
 
 #: crates/helix-agent/src/cli.rs:274
 msgid "Key combinations such as ctrl+s, alt+F4 or Return, pressed in turn"
-msgstr "Сочетания клавиш, например ctrl+s, alt+F4 или Return, нажимаемые по очереди"
+msgstr ""
+"Сочетания клавиш, например ctrl+s, alt+F4 или Return, нажимаемые по очереди"
 
 #: crates/helix-agent/src/cli.rs:274
 msgid "Press keys"
@@ -605,12 +607,16 @@ msgid ""
 "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
 "scroll DX DY, type TEXT, wait MS"
-msgstr "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down [BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, scroll DX DY, type TEXT, wait MS"
+msgstr ""
+"move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
+"[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
+"scroll DX DY, type TEXT, wait MS"
 
 #: crates/helix-agent/src/cli.rs:299
 msgid ""
 "Several steps in one go (keys and buttons held down are let go at the end)"
-msgstr "Несколько шагов сразу (удерживаемые клавиши и кнопки отпускаются в конце)"
+msgstr ""
+"Несколько шагов сразу (удерживаемые клавиши и кнопки отпускаются в конце)"
 
 #: crates/helix-agent/src/cli.rs:302
 msgid "Send keys, text, clicks and scrolling"
@@ -887,7 +893,8 @@ msgstr ""
 #: crates/helix-agent/src/errors.rs:101
 msgid ""
 "The user said no, cancelled the question, or stopped the agent or its input"
-msgstr "Пользователь отказал, отменил вопрос или остановил агента либо его ввод"
+msgstr ""
+"Пользователь отказал, отменил вопрос или остановил агента либо его ввод"
 
 #: crates/helix-agent/src/errors.rs:103
 msgid "No such window, app or item"
@@ -911,7 +918,8 @@ msgstr "Остановлено: пользователь взял клавиат
 
 #: crates/helix-agent/src/errors.rs:136
 msgid "The user is using the keyboard or pointer; try again in a moment"
-msgstr "Пользователь работает с клавиатурой или указателем; повторите чуть позже"
+msgstr ""
+"Пользователь работает с клавиатурой или указателем; повторите чуть позже"
 
 #: crates/helix-agent/src/errors.rs:137
 msgid "The user stopped the agent"
@@ -1276,7 +1284,9 @@ msgstr "Закрашено чёрным: {count}"
 #: crates/helix-agent/src/screen.rs:261
 msgid ""
 "A screenshot is binary data; use --output FILE or redirect standard output"
-msgstr "Снимок экрана — это двоичные данные; укажите --output ФАЙЛ или перенаправьте стандартный вывод"
+msgstr ""
+"Снимок экрана — это двоичные данные; укажите --output ФАЙЛ или перенаправьте "
+"стандартный вывод"
 
 #: crates/helix-agent/src/talk.rs:59
 msgid "Reminder {id} set for {time}"
@@ -4689,6 +4699,23 @@ msgstr "Достигнут предел экранного времени"
 #: crates/helix-shell/src/windows.rs:266
 msgid "Untitled window"
 msgstr "Окно без названия"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Authentication is required to change the login screen settings"
+msgstr "Для изменения параметров экрана входа требуется аутентификация"
+
+#: data/org.helixdesktop.login-screen-config.policy
+msgid "Change the login screen settings"
+msgstr "Изменить параметры экрана входа"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid ""
+"Authentication is required to use this monitor layout for the login screen"
+msgstr "Для использования этой раскладки мониторов на экране входа требуется аутентификация"
+
+#: data/org.helixdesktop.login-screen-monitors.policy
+msgid "Set the login screen's monitor layout"
+msgstr "Задать раскладку мониторов экрана входа"
 
 #: session/helix.desktop
 msgid "Helix"

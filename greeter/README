@@ -24,8 +24,12 @@ If the greeter does not come up, press Ctrl+Alt+F3 for a text login and
 switch back as above. Its log is in `journalctl -u greetd`
 (`journalctl -u greetd -b -1` for the previous boot).
 
-Settings: copy /usr/share/doc/helix-greeter/greeter.toml.example to
-/etc/helix/greeter.toml.
+Settings: in your Helix session, Settings > Login Screen (an
+administrator's password is asked; it runs
+/usr/libexec/helix/helix-login-config through pkexec), or by hand: copy
+/usr/share/doc/helix-greeter/greeter.toml.example to
+/etc/helix/greeter.toml. Changes apply the next time the login screen
+starts.
 
 Monitors: the login screen goes on the primary monitor of the layout in
 /etc/xdg/helix/monitors.toml (else the first monitor). To use your own
