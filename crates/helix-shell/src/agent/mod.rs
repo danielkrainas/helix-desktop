@@ -36,7 +36,10 @@
 //! (helixdesktop/desktop#150) take screenshots the compositor draws with
 //! protected windows and shell surfaces filled, and send synthetic input
 //! the compositor checks before every event and stops when the user takes
-//! over ([`screen`]).
+//! over ([`screen`]). The scoped actions' first batch
+//! (helixdesktop/desktop#156) reads the media players and controls them
+//! ([`players`]), reads the battery and power mode ([`power`]), and lists
+//! the files starred in the store GNOME Files shares ([`files`]).
 
 pub mod a11y;
 pub mod actions;
@@ -47,7 +50,9 @@ pub mod document;
 pub mod files;
 pub mod grants;
 pub mod identity;
+pub mod players;
 pub mod policy;
+pub mod power;
 pub mod prompt;
 pub mod screen;
 pub mod talk;
@@ -1152,6 +1157,36 @@ impl AgentAccess {
         (done, Ok(()))
     }
 
+    /// The media players `caller` may see: not Settings' nor an excluded
+    /// app's (README.md, "Media, power and stars").
+    async fn players_for(&self, conn: &Connection, caller: &Caller) -> Result<Vec<players::Player>, AgentError> {
+        let all = players::read(conn).await;
+        Ok(self.players_visible(caller, all).await)
+    }
+
+    /// Of `all`, the players `caller` may see.
+    async fn players_visible(&self, caller: &Caller, all: Vec<players::Player>) -> Vec<players::Player> {
+        if all.is_empty() {
+            return all;
+        }
+        let snapshot = self.snapshot().await.unwrap_or_default();
+        let (config, proc_root) = (caller.config.clone(), self.inner.proc_root.clone());
+        blocking(move || {
+            let installed = desktop::installed();
+            Ok(all.into_iter().filter(|p| players::check(p, &snapshot, &config, &installed, &proc_root).is_ok()).collect())
+        })
+        .await
+        .unwrap_or_default()
+    }
+
+    /// Step 9 for media player `p`: refused when it is Settings' or an
+    /// excluded app's.
+    async fn player_check(&self, caller: &Caller, p: &players::Player) -> Result<(), AgentError> {
+        let snapshot = self.snapshot().await.unwrap_or_default();
+        let (config, proc_root, p) = (caller.config.clone(), self.inner.proc_root.clone(), p.clone());
+        blocking(move || players::check(&p, &snapshot, &config, &desktop::installed(), &proc_root)).await
+    }
+
     /// Wait (at most [`SETTLE`]) until the windows show `done`.
     async fn settle(&self, done: impl Fn(&desktop::Snapshot) -> bool) {
         let until = Instant::now() + SETTLE;
@@ -1713,6 +1748,40 @@ impl Agent1 {
         caller.finish(Ok(found))
     }
 
+    async fn starred_files(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        let caller = self.access.check(conn, &header, "StarredFiles", READ, CallOptions::from_dict(&options)).await?;
+        let result = async {
+            let limit = files::limit(&options)?;
+            let mime = actions::text_option(&options, "type")?.filter(|m| !m.is_empty());
+            tokio::task::spawn_blocking(move || {
+                let home = gio::glib::home_dir();
+                let found = files::starred(&home, &helix_settings::stars::data_home(), mime.as_deref(), limit);
+                found.iter().map(files::FileInfo::record).collect()
+            })
+            .await
+            .map_err(|e| AgentError::Failed(e.to_string()))
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn get_media(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        let caller = self.access.check(conn, &header, "GetMedia", READ, CallOptions::from_dict(&options)).await?;
+        let result = async {
+            let shown = self.access.players_for(conn, &caller).await?;
+            Ok(players::records(&shown.iter().collect::<Vec<_>>()))
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn get_power(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<HashMap<String, OwnedValue>, AgentError> {
+        let caller = self.access.check(conn, &header, "GetPower", READ, CallOptions::from_dict(&options)).await?;
+        let system = self.access.system_bus().await;
+        let record = power::read(system.as_ref()).await;
+        caller.finish(Ok(record))
+    }
+
     async fn wait_for_window(
         &self,
         wanted_match: HashMap<String, OwnedValue>,
@@ -1913,6 +1982,46 @@ impl Agent1 {
             }
             self.access.refresh_quick(conn).await;
             Ok(())
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn media_control(
+        &self,
+        player: &str,
+        action: &str,
+        options: HashMap<String, OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "MediaControl", DESKTOP, call).await?;
+        if !player.is_empty() {
+            caller.target(format!("player:{player}"));
+        }
+        let result = async {
+            let action = players::Action::parse(action, &options)?;
+            caller.detail("action", activity::Detail::Kind(action.name()));
+            let all = players::read(conn).await;
+            // The player named, or the active one of those the agent may
+            // see (an excluded app's is never the active one).
+            let target = if player.is_empty() {
+                let shown = self.access.players_visible(&caller, all).await;
+                let active = players::active(&shown.iter().collect::<Vec<_>>()).map(str::to_owned);
+                let found = shown.into_iter().find(|p| Some(&p.bus_name) == active.as_ref());
+                found.ok_or_else(|| AgentError::NotFound("no media player".into()))?
+            } else {
+                let found = all.into_iter().find(|p| p.id() == player);
+                let found = found.ok_or_else(|| AgentError::NotFound(format!("player {player}")))?;
+                caller.target(found.log_target());
+                self.access.player_check(&caller, &found).await?;
+                found
+            };
+            caller.target(target.log_target());
+            action.supported(&target)?;
+            self.access.confirm(&caller, "MediaControl", DESKTOP, call).await?;
+            action.send(conn, &target).await
         }
         .await;
         caller.finish(result)

@@ -1,7 +1,8 @@
 //! The *Read only* commands (helixdesktop/spec
 //! `contracts/agent-access/cli.md`; helixdesktop/desktop#146): `state`,
 //! `windows`, `apps`, `workspaces`, `monitors`, `notifications`, `files
-//! recent`, `files search`, `wait window` and `wait closed`. Each is one
+//! recent`, `files search`, `files starred` (helixdesktop/desktop#156),
+//! `wait window` and `wait closed`. Each is one
 //! `Agent1` call; JSON output is the shell's records, text output a table
 //! or a few lines for people.
 
@@ -60,7 +61,7 @@ pub fn run(p: &cli::Parsed, path: &str) -> Result<Done, Failure> {
             let (notes,): (Vec<Record>,) = crate::call_for(p, "ListNotifications", &(options,), timeout)?;
             Ok(list("notifications", &notes, notifications_text(&notes)))
         }
-        "files recent" | "files search" => {
+        "files recent" | "files search" | "files starred" => {
             if let Some(n) = limit(p)? {
                 options.insert("limit", Value::from(n));
             }
@@ -69,6 +70,8 @@ pub fn run(p: &cli::Parsed, path: &str) -> Result<Done, Failure> {
             }
             let (files,): (Vec<Record>,) = if path == "files recent" {
                 crate::call_for(p, "RecentFiles", &(options,), timeout)?
+            } else if path == "files starred" {
+                crate::call_for(p, "StarredFiles", &(options,), timeout)?
             } else {
                 let now = crate::now();
                 for key in ["since", "until"] {
@@ -163,15 +166,15 @@ pub(crate) fn absolute(folder: &str) -> Result<String, Failure> {
     Ok(path.to_string_lossy().into_owned())
 }
 
-fn get_str(r: &Record, key: &str) -> String {
+pub(crate) fn get_str(r: &Record, key: &str) -> String {
     r.get(key).and_then(|v| String::try_from(v.clone()).ok()).unwrap_or_default()
 }
 
-fn get_bool(r: &Record, key: &str) -> Option<bool> {
+pub(crate) fn get_bool(r: &Record, key: &str) -> Option<bool> {
     r.get(key).and_then(|v| bool::try_from(v.clone()).ok())
 }
 
-fn get_num(r: &Record, key: &str) -> Option<f64> {
+pub(crate) fn get_num(r: &Record, key: &str) -> Option<f64> {
     match &**r.get(key)? {
         Value::U32(n) => Some(f64::from(*n)),
         Value::I32(n) => Some(f64::from(*n)),
@@ -331,7 +334,7 @@ fn notifications_text(notes: &[Record]) -> String {
     out
 }
 
-fn files_text(files: &[Record]) -> String {
+pub(crate) fn files_text(files: &[Record]) -> String {
     if files.is_empty() {
         return tr("No files.").to_owned();
     }

@@ -9,9 +9,12 @@
 //!   over it.
 
 pub mod a11y;
+pub mod agent;
 pub mod conformance;
 pub mod headless;
 pub mod logind;
+pub mod mpris;
+pub mod upower;
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};

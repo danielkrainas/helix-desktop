@@ -1,6 +1,6 @@
 # fish completion for helix-agent (made by `helix-agent completions fish`)
 function __helix_agent_at
-    set -l known status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/types clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll input/drag input/sequence log help completions
+    set -l known status request state windows apps workspaces monitors notifications files files/recent files/search files/starred media media/list media/play media/pause media/play-pause media/next media/previous media/stop media/seek power power/status wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/types clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll input/drag input/sequence log help completions
     set -l at
     for w in (commandline -opc)[2..-1]
         string match -q -- '-*' $w; and continue
@@ -19,7 +19,9 @@ complete -c helix-agent -n '__helix_agent_at top' -a apps -d 'Installed and runn
 complete -c helix-agent -n '__helix_agent_at top' -a workspaces -d 'Workspaces'
 complete -c helix-agent -n '__helix_agent_at top' -a monitors -d 'Monitors'
 complete -c helix-agent -n '__helix_agent_at top' -a notifications -d 'Recent notifications'
-complete -c helix-agent -n '__helix_agent_at top' -a files -d 'Recent files and file search'
+complete -c helix-agent -n '__helix_agent_at top' -a files -d 'Recent, starred and found files'
+complete -c helix-agent -n '__helix_agent_at top' -a media -d 'Media players: what plays; play, pause and skip'
+complete -c helix-agent -n '__helix_agent_at top' -a power -d 'Battery and power mode'
 complete -c helix-agent -n '__helix_agent_at top' -a wait -d 'Wait for a window to appear or close'
 complete -c helix-agent -n '__helix_agent_at top' -a ask -d 'Ask the user a question'
 complete -c helix-agent -n '__helix_agent_at top' -a confirm -d 'Ask the user yes or no'
@@ -45,6 +47,7 @@ complete -c helix-agent -n '__helix_agent_at apps' -l running -d 'Only running a
 complete -c helix-agent -n '__helix_agent_at notifications' -l limit -x -d 'Show at most N'
 complete -c helix-agent -n '__helix_agent_at files' -a recent -d 'Recently used files'
 complete -c helix-agent -n '__helix_agent_at files' -a search -d 'Search for files'
+complete -c helix-agent -n '__helix_agent_at files' -a starred -d 'Starred files (as in Files)'
 complete -c helix-agent -n '__helix_agent_at files/recent' -l limit -x -d 'Show at most N'
 complete -c helix-agent -n '__helix_agent_at files/recent' -l type -x -d 'Only this type, e.g. application/pdf'
 complete -c helix-agent -n '__helix_agent_at files/search' -l since -x -d 'Changed at or after WHEN'
@@ -52,6 +55,24 @@ complete -c helix-agent -n '__helix_agent_at files/search' -l until -x -d 'Chang
 complete -c helix-agent -n '__helix_agent_at files/search' -l type -x -d 'Only this type, e.g. application/pdf'
 complete -c helix-agent -n '__helix_agent_at files/search' -l in -r -F -d 'Only in this folder'
 complete -c helix-agent -n '__helix_agent_at files/search' -l limit -x -d 'Show at most N'
+complete -c helix-agent -n '__helix_agent_at files/starred' -l limit -x -d 'Show at most N'
+complete -c helix-agent -n '__helix_agent_at files/starred' -l type -x -d 'Only this type, e.g. application/pdf'
+complete -c helix-agent -n '__helix_agent_at media' -a list -d 'Media players and what they play (also “media” alone)'
+complete -c helix-agent -n '__helix_agent_at media' -a play -d 'Play'
+complete -c helix-agent -n '__helix_agent_at media' -a pause -d 'Pause'
+complete -c helix-agent -n '__helix_agent_at media' -a play-pause -d 'Play or pause'
+complete -c helix-agent -n '__helix_agent_at media' -a next -d 'Skip to the next track'
+complete -c helix-agent -n '__helix_agent_at media' -a previous -d 'Go back to the previous track'
+complete -c helix-agent -n '__helix_agent_at media' -a stop -d 'Stop playing'
+complete -c helix-agent -n '__helix_agent_at media' -a seek -d 'Move in the track'
+complete -c helix-agent -n '__helix_agent_at media/play' -l player -x -d 'This player (an id from “helix-agent media”; default: the active one)'
+complete -c helix-agent -n '__helix_agent_at media/pause' -l player -x -d 'This player (an id from “helix-agent media”; default: the active one)'
+complete -c helix-agent -n '__helix_agent_at media/play-pause' -l player -x -d 'This player (an id from “helix-agent media”; default: the active one)'
+complete -c helix-agent -n '__helix_agent_at media/next' -l player -x -d 'This player (an id from “helix-agent media”; default: the active one)'
+complete -c helix-agent -n '__helix_agent_at media/previous' -l player -x -d 'This player (an id from “helix-agent media”; default: the active one)'
+complete -c helix-agent -n '__helix_agent_at media/stop' -l player -x -d 'This player (an id from “helix-agent media”; default: the active one)'
+complete -c helix-agent -n '__helix_agent_at media/seek' -l player -x -d 'This player (an id from “helix-agent media”; default: the active one)'
+complete -c helix-agent -n '__helix_agent_at power' -a status -d 'Battery and power mode (also “power” alone)'
 complete -c helix-agent -n '__helix_agent_at wait' -a window -d 'Wait until a matching window is open'
 complete -c helix-agent -n '__helix_agent_at wait' -a closed -d 'Wait until a window is closed'
 complete -c helix-agent -n '__helix_agent_at wait/window' -l app -x -d 'A window of this app'

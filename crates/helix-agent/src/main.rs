@@ -10,6 +10,7 @@ mod clipboard;
 mod complete;
 mod errors;
 mod json;
+mod media;
 mod read;
 mod screen;
 mod talk;
@@ -117,9 +118,10 @@ fn run(p: &cli::Parsed) -> Result<Option<Done>, Failure> {
             let level = p.opt("level").unwrap_or("");
             status(p, call(p, "RequestAccess", &(level, options(p)))).map(Some)
         }
-        "state" | "windows" | "apps" | "workspaces" | "monitors" | "notifications" | "files recent" | "files search" | "wait window" | "wait closed" => {
+        "state" | "windows" | "apps" | "workspaces" | "monitors" | "notifications" | "files recent" | "files search" | "files starred" | "wait window" | "wait closed" => {
             read::run(p, &path).map(Some)
         }
+        "media list" | "media play" | "media pause" | "media play-pause" | "media next" | "media previous" | "media stop" | "media seek" | "power status" => media::run(p, &path).map(Some),
         "open" | "launch" | "window" | "workspace switch" | "toggle" | "set" | "notify" => act::run(p, &path).map(Some),
         "ask" | "confirm" | "remind add" | "remind list" | "remind cancel" => talk::run(p, &path).map(Some),
         "clipboard get" | "clipboard types" | "clipboard set" => {

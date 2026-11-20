@@ -22,5 +22,6 @@ gio.workspace = true
 
 [dev-dependencies]
 helix-test-support.workspace = true
+helix-settings.workspace = true
 smithay-client-toolkit.workspace = true
 png.workspace = true

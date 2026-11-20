@@ -174,7 +174,7 @@ async fn read_only_over_the_bus() {
 
     // The read methods are there now, as the contract has them.
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
-    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &[]));
+    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, helix_test_support::agent::AGENT1_LATER));
 
     // Off: refused, and arguments are not looked at.
     let none = || opts(&[]);

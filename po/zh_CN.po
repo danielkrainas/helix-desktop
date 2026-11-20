@@ -18,7 +18,7 @@ msgstr ""
 msgid "“{value}” is not a number for --{option}"
 msgstr "“{value}”不是 --{option} 的数字"
 
-#: crates/helix-agent/src/a11y.rs:59 crates/helix-agent/src/read.rs:120
+#: crates/helix-agent/src/a11y.rs:59 crates/helix-agent/src/read.rs:123
 msgid "“{value}” is not a number from 1"
 msgstr "“{value}”不是从 1 开始的数字"
 
@@ -59,13 +59,13 @@ msgstr "“{value}”不是 {name} 的数字"
 msgid "“{value}” is not a workspace number"
 msgstr "“{value}”不是工作区编号"
 
-#: crates/helix-agent/src/act.rs:78 crates/helix-agent/src/main.rs:204
-#: crates/helix-agent/src/read.rs:190
+#: crates/helix-agent/src/act.rs:78 crates/helix-agent/src/main.rs:206
+#: crates/helix-agent/src/read.rs:193
 msgid "off"
 msgstr "关"
 
-#: crates/helix-agent/src/act.rs:78 crates/helix-agent/src/main.rs:204
-#: crates/helix-agent/src/read.rs:190
+#: crates/helix-agent/src/act.rs:78 crates/helix-agent/src/main.rs:206
+#: crates/helix-agent/src/read.rs:193
 msgid "on"
 msgstr "开"
 
@@ -73,63 +73,67 @@ msgstr "开"
 msgid "“{value}” is not a percentage"
 msgstr "“{value}”不是百分比"
 
-#: crates/helix-agent/src/cli.rs:72
+#: crates/helix-agent/src/cli.rs:75
 msgid "Show at most N"
 msgstr "最多显示 N 项"
 
-#: crates/helix-agent/src/cli.rs:73
+#: crates/helix-agent/src/cli.rs:76
 msgid "Only this type, e.g. application/pdf"
 msgstr "仅此类型，例如 application/pdf"
 
-#: crates/helix-agent/src/cli.rs:74
+#: crates/helix-agent/src/cli.rs:77
 msgid "Give up after this long [default: 60; 0: never]"
 msgstr "超过此时间则放弃 [默认：60；0：永不]"
 
-#: crates/helix-agent/src/cli.rs:75
+#: crates/helix-agent/src/cli.rs:78
 msgid "Give up waiting for the answer after this long [default: 300; 0: never]"
 msgstr "超过此时间后不再等待回答 [默认：300；0：一直等待]"
 
-#: crates/helix-agent/src/cli.rs:76
+#: crates/helix-agent/src/cli.rs:79
 msgid "A window id from “helix-agent windows”"
 msgstr "来自“helix-agent windows”的窗口 ID"
 
-#: crates/helix-agent/src/cli.rs:77
+#: crates/helix-agent/src/cli.rs:80
 msgid "A node id from “helix-agent a11y tree” or “find”"
 msgstr "来自“helix-agent a11y tree”或“find”的节点 ID"
 
-#: crates/helix-agent/src/cli.rs:78
+#: crates/helix-agent/src/cli.rs:81
 msgid "Only controls of this role, e.g. button, text, check box"
 msgstr "只要此角色的控件，例如 button、text、check box"
 
-#: crates/helix-agent/src/cli.rs:79
+#: crates/helix-agent/src/cli.rs:82
 msgid "Only controls whose name contains TEXT"
 msgstr "只要名称包含 TEXT 的控件"
 
-#: crates/helix-agent/src/cli.rs:80
+#: crates/helix-agent/src/cli.rs:83
 msgid "Into this window, focusing it first (default: the focused window)"
 msgstr "输入到此窗口，先使其获得焦点（默认：有焦点的窗口）"
 
-#: crates/helix-agent/src/cli.rs:81
+#: crates/helix-agent/src/cli.rs:84
 msgid "Across the window from its left edge, in logical pixels"
 msgstr "从窗口左边缘起的横向位置，以逻辑像素计"
 
-#: crates/helix-agent/src/cli.rs:82
+#: crates/helix-agent/src/cli.rs:85
 msgid "Down the window from its top edge, in logical pixels"
 msgstr "从窗口上边缘起的纵向位置，以逻辑像素计"
 
-#: crates/helix-agent/src/cli.rs:85
+#: crates/helix-agent/src/cli.rs:88
 msgid "Only controls in this state, e.g. focused, checked (repeat for more)"
 msgstr "只要处于此状态的控件，例如 focused、checked(多个时重复)"
 
 #: crates/helix-agent/src/cli.rs:89
+msgid "This player (an id from “helix-agent media”; default: the active one)"
+msgstr "此播放器（来自“helix-agent media”的 ID；默认：活动的播放器）"
+
+#: crates/helix-agent/src/cli.rs:98
 msgid "Status:"
 msgstr "状态："
 
-#: crates/helix-agent/src/cli.rs:90
+#: crates/helix-agent/src/cli.rs:99
 msgid "Show whether agent access is on and what this agent may do"
 msgstr "显示代理访问是否开启以及此代理可以做什么"
 
-#: crates/helix-agent/src/cli.rs:93
+#: crates/helix-agent/src/cli.rs:102
 msgid ""
 "The level to ask for: read-only, desktop, apps or screen-and-input (default: "
 "the level set in Settings)"
@@ -137,194 +141,247 @@ msgstr ""
 "要请求的级别：read-only、desktop、apps 或 screen-and-input（默认：设置中选择"
 "的级别）"
 
-#: crates/helix-agent/src/cli.rs:94
+#: crates/helix-agent/src/cli.rs:103
 msgid "Ask the user for access now"
 msgstr "现在向用户请求访问"
 
-#: crates/helix-agent/src/cli.rs:97
+#: crates/helix-agent/src/cli.rs:106
 msgid "Read (Read only):"
 msgstr "读取（只读）："
 
-#: crates/helix-agent/src/cli.rs:98
+#: crates/helix-agent/src/cli.rs:107
 msgid "Focused window, workspace and quick settings"
 msgstr "焦点窗口、工作区和快速设置"
 
-#: crates/helix-agent/src/cli.rs:102
+#: crates/helix-agent/src/cli.rs:111
 msgid "Only the focused window"
 msgstr "仅焦点窗口"
 
-#: crates/helix-agent/src/cli.rs:102
+#: crates/helix-agent/src/cli.rs:111
 msgid "Only this app's windows"
 msgstr "仅此应用的窗口"
 
-#: crates/helix-agent/src/cli.rs:103
+#: crates/helix-agent/src/cli.rs:112
 msgid "Open windows"
 msgstr "打开的窗口"
 
-#: crates/helix-agent/src/cli.rs:105
+#: crates/helix-agent/src/cli.rs:114
 msgid "Installed and running apps"
 msgstr "已安装和正在运行的应用"
 
-#: crates/helix-agent/src/cli.rs:105
+#: crates/helix-agent/src/cli.rs:114
 msgid "Only running apps"
 msgstr "仅正在运行的应用"
 
-#: crates/helix-agent/src/cli.rs:106 crates/helix-shell/src/panel_layout.rs:49
+#: crates/helix-agent/src/cli.rs:115 crates/helix-shell/src/panel_layout.rs:49
 #: crates/helix-shell/src/ui/atspi.rs:562
 #: crates/helix-shell/src/ui/overview.rs:1201
 #: crates/helix-shell/src/ui/workspace_popup.rs:171
 msgid "Workspaces"
 msgstr "工作区"
 
-#: crates/helix-agent/src/cli.rs:107
+#: crates/helix-agent/src/cli.rs:116
 msgid "Monitors"
 msgstr "显示器"
 
-#: crates/helix-agent/src/cli.rs:108
+#: crates/helix-agent/src/cli.rs:117
 msgid "Recent notifications"
 msgstr "最近的通知"
 
-#: crates/helix-agent/src/cli.rs:111
+#: crates/helix-agent/src/cli.rs:120
 msgid "Recently used files"
 msgstr "最近使用的文件"
 
-#: crates/helix-agent/src/cli.rs:115
+#: crates/helix-agent/src/cli.rs:124
 msgid "Words in the file's name or contents"
 msgstr "文件名或内容中的词语"
 
-#: crates/helix-agent/src/cli.rs:117
+#: crates/helix-agent/src/cli.rs:126
 msgid "Changed at or after WHEN"
 msgstr "在 WHEN 或之后修改"
 
-#: crates/helix-agent/src/cli.rs:118
+#: crates/helix-agent/src/cli.rs:127
 msgid "Changed before WHEN"
 msgstr "在 WHEN 之前修改"
 
-#: crates/helix-agent/src/cli.rs:120
+#: crates/helix-agent/src/cli.rs:129
 msgid "Only in this folder"
 msgstr "仅在此文件夹中"
 
-#: crates/helix-agent/src/cli.rs:123
+#: crates/helix-agent/src/cli.rs:132
 msgid "Search for files"
 msgstr "搜索文件"
 
-#: crates/helix-agent/src/cli.rs:127
-msgid "Recent files and file search"
-msgstr "最近的文件和文件搜索"
-
 #: crates/helix-agent/src/cli.rs:134
+msgid "Starred files (as in Files)"
+msgstr "已加星标的文件（与“文件”中相同）"
+
+#: crates/helix-agent/src/cli.rs:137
+msgid "Recent, starred and found files"
+msgstr "最近使用、已加星标和找到的文件"
+
+#: crates/helix-agent/src/cli.rs:141
+msgid "Media players and what they play (also “media” alone)"
+msgstr "媒体播放器及其正在播放的内容（也可单独使用“media”）"
+
+#: crates/helix-agent/src/cli.rs:142 crates/helix-shell/src/ui/atspi.rs:1003
+msgid "Play"
+msgstr "播放"
+
+#: crates/helix-agent/src/cli.rs:143 crates/helix-shell/src/ui/atspi.rs:1002
+#: crates/helix-shell/src/ui/atspi.rs:1004
+msgid "Pause"
+msgstr "暂停"
+
+#: crates/helix-agent/src/cli.rs:144
+msgid "Play or pause"
+msgstr "播放或暂停"
+
+#: crates/helix-agent/src/cli.rs:145
+msgid "Skip to the next track"
+msgstr "跳到下一曲"
+
+#: crates/helix-agent/src/cli.rs:146
+msgid "Go back to the previous track"
+msgstr "回到上一曲"
+
+#: crates/helix-agent/src/cli.rs:147
+msgid "Stop playing"
+msgstr "停止播放"
+
+#: crates/helix-agent/src/cli.rs:150
+msgid "With a sign (+30, -10): from where it is; without: from the start"
+msgstr "带符号（+30、-10）：从当前位置；不带符号：从开头"
+
+#: crates/helix-agent/src/cli.rs:152
+msgid "Move in the track"
+msgstr "在曲目中移动"
+
+#: crates/helix-agent/src/cli.rs:157
+msgid "Media players: what plays; play, pause and skip"
+msgstr "媒体播放器：正在播放的内容；播放、暂停和跳过"
+
+#: crates/helix-agent/src/cli.rs:160
+msgid "Battery and power mode (also “power” alone)"
+msgstr "电池和电源模式（也可单独使用“power”）"
+
+#: crates/helix-agent/src/cli.rs:163
+msgid "Battery and power mode"
+msgstr "电池和电源模式"
+
+#: crates/helix-agent/src/cli.rs:170
 msgid "A window of this app"
 msgstr "此应用的窗口"
 
-#: crates/helix-agent/src/cli.rs:134
+#: crates/helix-agent/src/cli.rs:170
 msgid "A window whose title contains TEXT"
 msgstr "标题包含 TEXT 的窗口"
 
-#: crates/helix-agent/src/cli.rs:134
+#: crates/helix-agent/src/cli.rs:170
 msgid "Only once it has the focus"
 msgstr "仅当它获得焦点时"
 
-#: crates/helix-agent/src/cli.rs:135
+#: crates/helix-agent/src/cli.rs:171
 msgid "Wait until a matching window is open"
 msgstr "等待匹配的窗口打开"
 
-#: crates/helix-agent/src/cli.rs:137
+#: crates/helix-agent/src/cli.rs:173
 msgid "Wait until a window is closed"
 msgstr "等待窗口关闭"
 
-#: crates/helix-agent/src/cli.rs:140
+#: crates/helix-agent/src/cli.rs:176
 msgid "Wait for a window to appear or close"
 msgstr "等待窗口出现或关闭"
 
-#: crates/helix-agent/src/cli.rs:143
+#: crates/helix-agent/src/cli.rs:179
 msgid "Talk to the user (Read only):"
 msgstr "与用户交流（只读）："
 
-#: crates/helix-agent/src/cli.rs:146 crates/helix-agent/src/cli.rs:156
+#: crates/helix-agent/src/cli.rs:182 crates/helix-agent/src/cli.rs:192
 msgid "What to ask (plain text, at most 500 characters)"
 msgstr "要问的问题（纯文本，最多 500 个字符）"
 
-#: crates/helix-agent/src/cli.rs:148
+#: crates/helix-agent/src/cli.rs:184
 msgid "An answer to offer (2 to 8; repeat for more)"
 msgstr "提供的答案（2 到 8 个；重复以添加更多）"
 
-#: crates/helix-agent/src/cli.rs:149
+#: crates/helix-agent/src/cli.rs:185
 msgid "The answer filled in at first, or the choice picked at first"
 msgstr "开始时填入的答案，或开始时选中的选项"
 
-#: crates/helix-agent/src/cli.rs:152
+#: crates/helix-agent/src/cli.rs:188
 msgid "Ask the user a question"
 msgstr "向用户提问"
 
-#: crates/helix-agent/src/cli.rs:157
+#: crates/helix-agent/src/cli.rs:193
 msgid "The no button's label (at most 24 characters)"
 msgstr "“否”按钮的标签（最多 24 个字符）"
 
-#: crates/helix-agent/src/cli.rs:157
+#: crates/helix-agent/src/cli.rs:193
 msgid "The yes button's label (at most 24 characters)"
 msgstr "“是”按钮的标签（最多 24 个字符）"
 
-#: crates/helix-agent/src/cli.rs:158
+#: crates/helix-agent/src/cli.rs:194
 msgid "Ask the user yes or no"
 msgstr "向用户询问是或否"
 
-#: crates/helix-agent/src/cli.rs:163
+#: crates/helix-agent/src/cli.rs:199
 msgid "Add a reminder"
 msgstr "添加提醒"
 
-#: crates/helix-agent/src/cli.rs:163
+#: crates/helix-agent/src/cli.rs:199
 msgid "What to say (at most 500 characters)"
 msgstr "要说的内容（最多 500 个字符）"
 
-#: crates/helix-agent/src/cli.rs:163
+#: crates/helix-agent/src/cli.rs:199
 msgid "When to remind: a date and time, or +10m, +2h…"
 msgstr "提醒时间：日期和时间，或 +10m、+2h 等"
 
-#: crates/helix-agent/src/cli.rs:164
+#: crates/helix-agent/src/cli.rs:200
 msgid "This agent's reminders"
 msgstr "此代理的提醒"
 
-#: crates/helix-agent/src/cli.rs:165
+#: crates/helix-agent/src/cli.rs:201
 msgid "A reminder id from “helix-agent remind list”"
 msgstr "来自“helix-agent remind list”的提醒 ID"
 
-#: crates/helix-agent/src/cli.rs:165
+#: crates/helix-agent/src/cli.rs:201
 msgid "Cancel a reminder"
 msgstr "取消提醒"
 
-#: crates/helix-agent/src/cli.rs:167
+#: crates/helix-agent/src/cli.rs:203
 msgid "Reminders for the user"
 msgstr "给用户的提醒"
 
-#: crates/helix-agent/src/cli.rs:170
+#: crates/helix-agent/src/cli.rs:206
 msgid "Act (Control the desktop):"
 msgstr "操作（控制桌面）："
 
-#: crates/helix-agent/src/cli.rs:171
+#: crates/helix-agent/src/cli.rs:207
 msgid "A file, folder or URL"
 msgstr "文件、文件夹或 URL"
 
-#: crates/helix-agent/src/cli.rs:171
+#: crates/helix-agent/src/cli.rs:207
 msgid "Open a file or URL in its app"
 msgstr "在对应应用中打开文件或 URL"
 
-#: crates/helix-agent/src/cli.rs:171
+#: crates/helix-agent/src/cli.rs:207
 msgid "Open it with this app"
 msgstr "用此应用打开"
 
-#: crates/helix-agent/src/cli.rs:174
+#: crates/helix-agent/src/cli.rs:210
 msgid "Files or URLs to open in it"
 msgstr "要在其中打开的文件或 URL"
 
-#: crates/helix-agent/src/cli.rs:174
+#: crates/helix-agent/src/cli.rs:210
 msgid "The app's id, e.g. org.gnome.TextEditor"
 msgstr "应用 ID，例如 org.gnome.TextEditor"
 
-#: crates/helix-agent/src/cli.rs:175
+#: crates/helix-agent/src/cli.rs:211
 msgid "Start an app"
 msgstr "启动应用"
 
-#: crates/helix-agent/src/cli.rs:180
+#: crates/helix-agent/src/cli.rs:216
 msgid ""
 "focus, close, minimize, maximize, unmaximize, restore, fullscreen, "
 "unfullscreen, tile-left, tile-right, move X Y, resize WIDTH HEIGHT or to-"
@@ -334,267 +391,267 @@ msgstr ""
 "unfullscreen、tile-left、tile-right、move X Y、resize WIDTH HEIGHT 或 to-"
 "workspace INDEX"
 
-#: crates/helix-agent/src/cli.rs:182
+#: crates/helix-agent/src/cli.rs:218
 msgid "The action's numbers"
 msgstr "操作所用的数字"
 
-#: crates/helix-agent/src/cli.rs:184
+#: crates/helix-agent/src/cli.rs:220
 msgid "Focus, move, tile or close a window"
 msgstr "聚焦、移动、平铺或关闭窗口"
 
-#: crates/helix-agent/src/cli.rs:188
+#: crates/helix-agent/src/cli.rs:224
 msgid "Switch to a workspace"
 msgstr "切换到某个工作区"
 
-#: crates/helix-agent/src/cli.rs:188
+#: crates/helix-agent/src/cli.rs:224
 msgid "The workspace's number, from 0"
 msgstr "工作区编号，从 0 开始"
 
-#: crates/helix-agent/src/cli.rs:189
+#: crates/helix-agent/src/cli.rs:225
 msgid "Switch workspaces"
 msgstr "切换工作区"
 
-#: crates/helix-agent/src/cli.rs:193
+#: crates/helix-agent/src/cli.rs:229
 msgid "dark-style, do-not-disturb, night-light, wifi, airplane-mode or mute"
 msgstr "dark-style、do-not-disturb、night-light、wifi、airplane-mode 或 mute"
 
-#: crates/helix-agent/src/cli.rs:193
+#: crates/helix-agent/src/cli.rs:229
 msgid "on or off (default: flip it)"
 msgstr "on 或 off（默认：切换）"
 
-#: crates/helix-agent/src/cli.rs:194
+#: crates/helix-agent/src/cli.rs:230
 msgid "Turn a quick setting on or off"
 msgstr "开启或关闭快速设置"
 
-#: crates/helix-agent/src/cli.rs:196
+#: crates/helix-agent/src/cli.rs:232
 msgid "A percentage"
 msgstr "百分比"
 
-#: crates/helix-agent/src/cli.rs:196
+#: crates/helix-agent/src/cli.rs:232
 msgid "Set volume or brightness"
 msgstr "设置音量或亮度"
 
-#: crates/helix-agent/src/cli.rs:196
+#: crates/helix-agent/src/cli.rs:232
 msgid "volume or brightness"
 msgstr "volume 或 brightness"
 
-#: crates/helix-agent/src/cli.rs:199
+#: crates/helix-agent/src/cli.rs:235
 msgid "More text below it"
 msgstr "下方的更多文字"
 
-#: crates/helix-agent/src/cli.rs:199
+#: crates/helix-agent/src/cli.rs:235
 msgid "The notification's title"
 msgstr "通知的标题"
 
-#: crates/helix-agent/src/cli.rs:200
+#: crates/helix-agent/src/cli.rs:236
 msgid "An icon name"
 msgstr "图标名称"
 
-#: crates/helix-agent/src/cli.rs:200
+#: crates/helix-agent/src/cli.rs:236
 msgid "low or normal"
 msgstr "low 或 normal"
 
-#: crates/helix-agent/src/cli.rs:201
+#: crates/helix-agent/src/cli.rs:237
 msgid "Show the user a notification"
 msgstr "向用户显示通知"
 
-#: crates/helix-agent/src/cli.rs:212
+#: crates/helix-agent/src/cli.rs:248
 msgid ""
 "The type to read, e.g. text/plain, text/html or image/* (default: text, else "
 "an image)"
 msgstr ""
 "要读取的类型，例如 text/plain、text/html 或 image/*（默认：文本，否则为图像）"
 
-#: crates/helix-agent/src/cli.rs:213
+#: crates/helix-agent/src/cli.rs:249
 msgid "Write the content to FILE"
 msgstr "将内容写入 FILE"
 
-#: crates/helix-agent/src/cli.rs:215
+#: crates/helix-agent/src/cli.rs:251
 msgid "Read the clipboard"
 msgstr "读取剪贴板"
 
-#: crates/helix-agent/src/cli.rs:217
+#: crates/helix-agent/src/cli.rs:253
 msgid "The types the clipboard offers"
 msgstr "剪贴板提供的类型"
 
-#: crates/helix-agent/src/cli.rs:221
+#: crates/helix-agent/src/cli.rs:257
 msgid "The text (default: read from standard input)"
 msgstr "文本（默认：从标准输入读取）"
 
-#: crates/helix-agent/src/cli.rs:222
+#: crates/helix-agent/src/cli.rs:258
 msgid "text/plain (default), text/html, text/uri-list or image/png"
 msgstr "text/plain（默认）、text/html、text/uri-list 或 image/png"
 
-#: crates/helix-agent/src/cli.rs:223
+#: crates/helix-agent/src/cli.rs:259
 msgid "Set the clipboard"
 msgstr "设置剪贴板"
 
-#: crates/helix-agent/src/cli.rs:226
+#: crates/helix-agent/src/cli.rs:262
 msgid "Read or set the clipboard (needs Clipboard access)"
 msgstr "读取或设置剪贴板（需要剪贴板访问）"
 
-#: crates/helix-agent/src/cli.rs:229
+#: crates/helix-agent/src/cli.rs:265
 msgid "Apps (Control apps):"
 msgstr "应用（控制应用）："
 
-#: crates/helix-agent/src/cli.rs:237
+#: crates/helix-agent/src/cli.rs:273
 msgid "How many levels down to go (0: the node alone)"
 msgstr "向下读取多少层(0：只有该节点)"
 
-#: crates/helix-agent/src/cli.rs:238
+#: crates/helix-agent/src/cli.rs:274
 msgid "Start at this node"
 msgstr "从此节点开始"
 
-#: crates/helix-agent/src/cli.rs:239
+#: crates/helix-agent/src/cli.rs:275
 msgid "Read at most N nodes [default: 1000]"
 msgstr "最多读取 N 个节点 [默认：1000]"
 
-#: crates/helix-agent/src/cli.rs:240
+#: crates/helix-agent/src/cli.rs:276
 msgid "Where each control is in its window"
 msgstr "每个控件在其窗口中的位置"
 
-#: crates/helix-agent/src/cli.rs:242
+#: crates/helix-agent/src/cli.rs:278
 msgid "An app window's controls"
 msgstr "应用窗口的控件"
 
-#: crates/helix-agent/src/cli.rs:244
+#: crates/helix-agent/src/cli.rs:280
 msgid "Find controls by role, name or state"
 msgstr "按角色、名称或状态查找控件"
 
-#: crates/helix-agent/src/cli.rs:245
+#: crates/helix-agent/src/cli.rs:281
 msgid "Wait until a matching control is there"
 msgstr "等待出现匹配的控件"
 
-#: crates/helix-agent/src/cli.rs:246
+#: crates/helix-agent/src/cli.rs:282
 msgid "One of the node's actions, e.g. click"
 msgstr "节点的某个操作，例如 click"
 
-#: crates/helix-agent/src/cli.rs:246
+#: crates/helix-agent/src/cli.rs:282
 msgid "Use a control"
 msgstr "使用控件"
 
-#: crates/helix-agent/src/cli.rs:247
+#: crates/helix-agent/src/cli.rs:283
 msgid "Press a control (its first action)"
 msgstr "按下控件(其第一个操作)"
 
-#: crates/helix-agent/src/cli.rs:248
+#: crates/helix-agent/src/cli.rs:284
 msgid "Give a control the keyboard focus"
 msgstr "让控件获得键盘焦点"
 
-#: crates/helix-agent/src/cli.rs:249
+#: crates/helix-agent/src/cli.rs:285
 msgid "Select an item in its list or tabs"
 msgstr "在其列表或标签页中选择一项"
 
-#: crates/helix-agent/src/cli.rs:252
+#: crates/helix-agent/src/cli.rs:288
 msgid "The new text, or number with --number"
 msgstr "新文本，或使用 --number 时的数字"
 
-#: crates/helix-agent/src/cli.rs:253
+#: crates/helix-agent/src/cli.rs:289
 msgid "VALUE is a number (sliders, spin buttons)"
 msgstr "VALUE 是数字(滑块、数值框)"
 
-#: crates/helix-agent/src/cli.rs:254
+#: crates/helix-agent/src/cli.rs:290
 msgid "Change a control's text or value"
 msgstr "更改控件的文本或值"
 
-#: crates/helix-agent/src/cli.rs:257
+#: crates/helix-agent/src/cli.rs:293
 msgid "Read and use an app's controls"
 msgstr "读取并使用应用的控件"
 
-#: crates/helix-agent/src/cli.rs:259
+#: crates/helix-agent/src/cli.rs:295
 msgid "Screen and input (Screen and input):"
 msgstr "屏幕和输入（屏幕和输入）："
 
-#: crates/helix-agent/src/cli.rs:264
+#: crates/helix-agent/src/cli.rs:300
 msgid "Only this window (it may be on another workspace)"
 msgstr "仅此窗口（可以在另一个工作区上）"
 
-#: crates/helix-agent/src/cli.rs:265
+#: crates/helix-agent/src/cli.rs:301
 msgid "Only this monitor, e.g. eDP-1 (see “helix-agent monitors”)"
 msgstr "仅此显示器，例如 eDP-1（见“helix-agent monitors”）"
 
-#: crates/helix-agent/src/cli.rs:266
+#: crates/helix-agent/src/cli.rs:302
 msgid ""
 "Only this area: in the window, the monitor or the screen, in logical pixels"
 msgstr "仅此区域：在窗口、显示器或屏幕中，以逻辑像素计"
 
-#: crates/helix-agent/src/cli.rs:267
+#: crates/helix-agent/src/cli.rs:303
 msgid "Write the PNG to FILE"
 msgstr "将 PNG 写入 FILE"
 
-#: crates/helix-agent/src/cli.rs:269
+#: crates/helix-agent/src/cli.rs:305
 msgid "Take a screenshot"
 msgstr "截取屏幕"
 
-#: crates/helix-agent/src/cli.rs:274
+#: crates/helix-agent/src/cli.rs:310
 msgid "Key combinations such as ctrl+s, alt+F4 or Return, pressed in turn"
 msgstr "按键组合，如 ctrl+s、alt+F4 或 Return，依次按下"
 
-#: crates/helix-agent/src/cli.rs:274
+#: crates/helix-agent/src/cli.rs:310
 msgid "Press keys"
 msgstr "按键"
 
-#: crates/helix-agent/src/cli.rs:275
+#: crates/helix-agent/src/cli.rs:311
 msgid "The text (any characters; a line break is Return)"
 msgstr "文本（任意字符；换行为 Return）"
 
-#: crates/helix-agent/src/cli.rs:275
+#: crates/helix-agent/src/cli.rs:311
 msgid "Type text"
 msgstr "输入文本"
 
-#: crates/helix-agent/src/cli.rs:279
+#: crates/helix-agent/src/cli.rs:315
 msgid "Click N times (2: a double click; at most 3)"
 msgstr "点击 N 次（2：双击；最多 3 次）"
 
-#: crates/helix-agent/src/cli.rs:279 crates/helix-agent/src/cli.rs:292
+#: crates/helix-agent/src/cli.rs:315 crates/helix-agent/src/cli.rs:328
 msgid "left (default), middle, right, back or forward"
 msgstr "left（默认）、middle、right、back 或 forward"
 
-#: crates/helix-agent/src/cli.rs:280
+#: crates/helix-agent/src/cli.rs:316
 msgid "Click at a point in the window"
 msgstr "点击窗口中的某一点"
 
-#: crates/helix-agent/src/cli.rs:282
+#: crates/helix-agent/src/cli.rs:318
 msgid "Move the pointer to a point in the window"
 msgstr "将指针移到窗口中的某一点"
 
-#: crates/helix-agent/src/cli.rs:285
+#: crates/helix-agent/src/cli.rs:321
 msgid "Wheel steps across (negative: left)"
 msgstr "横向滚轮格数（负数：向左）"
 
-#: crates/helix-agent/src/cli.rs:285
+#: crates/helix-agent/src/cli.rs:321
 msgid "Wheel steps down (negative: up)"
 msgstr "纵向滚轮格数（负数：向上）"
 
-#: crates/helix-agent/src/cli.rs:286
+#: crates/helix-agent/src/cli.rs:322
 msgid "Scroll at this point in the window (default: where the pointer is)"
 msgstr "在窗口中的此点滚动（默认：指针所在处）"
 
-#: crates/helix-agent/src/cli.rs:287
+#: crates/helix-agent/src/cli.rs:323
 msgid "Scroll"
 msgstr "滚动"
 
-#: crates/helix-agent/src/cli.rs:291
+#: crates/helix-agent/src/cli.rs:327
 msgid "From, across"
 msgstr "起点，横向"
 
-#: crates/helix-agent/src/cli.rs:291
+#: crates/helix-agent/src/cli.rs:327
 msgid "From, down"
 msgstr "起点，纵向"
 
-#: crates/helix-agent/src/cli.rs:291
+#: crates/helix-agent/src/cli.rs:327
 msgid "To, across"
 msgstr "终点，横向"
 
-#: crates/helix-agent/src/cli.rs:291
+#: crates/helix-agent/src/cli.rs:327
 msgid "To, down"
 msgstr "终点，纵向"
 
-#: crates/helix-agent/src/cli.rs:293
+#: crates/helix-agent/src/cli.rs:329
 msgid "Drag from one point to another"
 msgstr "从一点拖动到另一点"
 
-#: crates/helix-agent/src/cli.rs:297
+#: crates/helix-agent/src/cli.rs:333
 msgid ""
 "move X Y, click [BUTTON] [X Y], double-click [BUTTON] [X Y], mouse-down "
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
@@ -604,182 +661,182 @@ msgstr ""
 "[BUTTON] [X Y], mouse-up [BUTTON], key KEYS, key-down KEY, key-up KEY, "
 "scroll DX DY, type TEXT, wait MS"
 
-#: crates/helix-agent/src/cli.rs:299
+#: crates/helix-agent/src/cli.rs:335
 msgid ""
 "Several steps in one go (keys and buttons held down are let go at the end)"
 msgstr "一次执行多个步骤（按住的键和按钮在结束时松开）"
 
-#: crates/helix-agent/src/cli.rs:302
+#: crates/helix-agent/src/cli.rs:338
 msgid "Send keys, text, clicks and scrolling"
 msgstr "发送按键、文本、单击和滚动"
 
-#: crates/helix-agent/src/cli.rs:305
+#: crates/helix-agent/src/cli.rs:341
 msgid "Other:"
 msgstr "其他："
 
-#: crates/helix-agent/src/cli.rs:306
+#: crates/helix-agent/src/cli.rs:342
 msgid "Only entries at or after WHEN"
 msgstr "仅 WHEN 或之后的条目"
 
-#: crates/helix-agent/src/cli.rs:306
+#: crates/helix-agent/src/cli.rs:342
 msgid "Only this agent"
 msgstr "仅此代理"
 
-#: crates/helix-agent/src/cli.rs:306
+#: crates/helix-agent/src/cli.rs:342
 msgid "Show what agents did"
 msgstr "显示代理做过的事"
 
-#: crates/helix-agent/src/cli.rs:307
+#: crates/helix-agent/src/cli.rs:343
 msgid "A command, or “exit-codes”"
 msgstr "命令，或“exit-codes”"
 
-#: crates/helix-agent/src/cli.rs:307
+#: crates/helix-agent/src/cli.rs:343
 msgid "Help for a command, or \"help exit-codes\""
 msgstr "命令的帮助，或“help exit-codes”"
 
-#: crates/helix-agent/src/cli.rs:308
+#: crates/helix-agent/src/cli.rs:344
 msgid "Shell completions"
 msgstr "Shell 补全"
 
-#: crates/helix-agent/src/cli.rs:308
+#: crates/helix-agent/src/cli.rs:344
 msgid "bash, zsh or fish"
 msgstr "bash、zsh 或 fish"
 
-#: crates/helix-agent/src/cli.rs:314
+#: crates/helix-agent/src/cli.rs:350
 msgid "JSON output (default when not on a terminal)"
 msgstr "JSON 输出（不在终端时为默认）"
 
-#: crates/helix-agent/src/cli.rs:315
+#: crates/helix-agent/src/cli.rs:351
 msgid "Readable text (default on a terminal)"
 msgstr "易读文本（在终端时为默认）"
 
-#: crates/helix-agent/src/cli.rs:316
+#: crates/helix-agent/src/cli.rs:352
 msgid "Never ask the user; fail instead"
 msgstr "从不询问用户；改为失败"
 
-#: crates/helix-agent/src/cli.rs:317
+#: crates/helix-agent/src/cli.rs:353
 msgid "Mark this action sensitive"
 msgstr "将此操作标记为敏感"
 
-#: crates/helix-agent/src/cli.rs:318
+#: crates/helix-agent/src/cli.rs:354
 msgid "How long to wait for the shell [default: 30]"
 msgstr "等待 Shell 的时长 [默认：30]"
 
-#: crates/helix-agent/src/cli.rs:338
+#: crates/helix-agent/src/cli.rs:374
 #: crates/helix-shell/src/ui/agent_prompt.rs:93
 msgid "Read only"
 msgstr "只读"
 
-#: crates/helix-agent/src/cli.rs:339
+#: crates/helix-agent/src/cli.rs:375
 #: crates/helix-shell/src/ui/agent_prompt.rs:94
 msgid "Control the desktop"
 msgstr "控制桌面"
 
-#: crates/helix-agent/src/cli.rs:340
+#: crates/helix-agent/src/cli.rs:376
 #: crates/helix-shell/src/ui/agent_prompt.rs:95
 msgid "Control apps"
 msgstr "控制应用"
 
-#: crates/helix-agent/src/cli.rs:341
+#: crates/helix-agent/src/cli.rs:377
 #: crates/helix-shell/src/ui/agent_prompt.rs:96
 msgid "Screen and input"
 msgstr "屏幕和输入"
 
-#: crates/helix-agent/src/cli.rs:407
+#: crates/helix-agent/src/cli.rs:443
 msgid "unknown option “{option}”"
 msgstr "未知选项“{option}”"
 
-#: crates/helix-agent/src/cli.rs:424
+#: crates/helix-agent/src/cli.rs:460
 msgid "unknown option “--{option}”"
 msgstr "未知选项“--{option}”"
 
-#: crates/helix-agent/src/cli.rs:428
+#: crates/helix-agent/src/cli.rs:464
 msgid "“--{option}” takes no value"
 msgstr "“--{option}”不接受值"
 
-#: crates/helix-agent/src/cli.rs:435
+#: crates/helix-agent/src/cli.rs:471
 msgid "“--{option}” needs a value"
 msgstr "“--{option}”需要一个值"
 
-#: crates/helix-agent/src/cli.rs:439 crates/helix-agent/src/cli.rs:508
+#: crates/helix-agent/src/cli.rs:475 crates/helix-agent/src/cli.rs:551
 #: crates/helix-agent/src/screen.rs:63
 msgid "“{value}” is not one of: {choices}"
 msgstr "“{value}”不是以下之一：{choices}"
 
-#: crates/helix-agent/src/cli.rs:465 crates/helix-agent/src/main.rs:147
+#: crates/helix-agent/src/cli.rs:501 crates/helix-agent/src/main.rs:149
 msgid "unknown command “{command}”"
 msgstr "未知命令“{command}”"
 
-#: crates/helix-agent/src/cli.rs:467
+#: crates/helix-agent/src/cli.rs:503
 msgid "unknown command “{command}” for “{parent}”"
 msgstr "“{parent}”的未知命令“{command}”"
 
-#: crates/helix-agent/src/cli.rs:478
+#: crates/helix-agent/src/cli.rs:521
 msgid "“{command}” needs a subcommand: {subs}"
 msgstr "“{command}”需要子命令：{subs}"
 
-#: crates/helix-agent/src/cli.rs:492
+#: crates/helix-agent/src/cli.rs:535 crates/helix-agent/src/media.rs:50
 msgid "“{value}” is not a number of seconds"
 msgstr "“{value}”不是秒数"
 
-#: crates/helix-agent/src/cli.rs:501
+#: crates/helix-agent/src/cli.rs:544
 msgid "missing argument: {names}"
 msgstr "缺少参数：{names}"
 
-#: crates/helix-agent/src/cli.rs:504
+#: crates/helix-agent/src/cli.rs:547
 msgid "unexpected argument “{argument}”"
 msgstr "意外的参数“{argument}”"
 
-#: crates/helix-agent/src/cli.rs:537
+#: crates/helix-agent/src/cli.rs:580
 msgid "Print help"
 msgstr "显示帮助"
 
-#: crates/helix-agent/src/cli.rs:538
+#: crates/helix-agent/src/cli.rs:581
 msgid "Print version"
 msgstr "显示版本"
 
-#: crates/helix-agent/src/cli.rs:544
+#: crates/helix-agent/src/cli.rs:587
 msgid "Let an agent read and act on your Helix session."
 msgstr "让代理读取您的 Helix 会话并在其中操作。"
 
-#: crates/helix-agent/src/cli.rs:544 crates/helix-agent/src/cli.rs:568
+#: crates/helix-agent/src/cli.rs:587 crates/helix-agent/src/cli.rs:611
 msgid "Usage:"
 msgstr "用法："
 
-#: crates/helix-agent/src/cli.rs:554 crates/helix-agent/src/cli.rs:602
+#: crates/helix-agent/src/cli.rs:597 crates/helix-agent/src/cli.rs:645
 msgid "Options:"
 msgstr "选项："
 
-#: crates/helix-agent/src/cli.rs:558 crates/helix-agent/src/main.rs:239
+#: crates/helix-agent/src/cli.rs:601 crates/helix-agent/src/main.rs:241
 msgid ""
 "Agent access is controlled in Settings › Privacy & Security › Agent Access."
 msgstr "代理访问在“设置 › 隐私与安全 › 代理访问”中控制。"
 
-#: crates/helix-agent/src/cli.rs:583
+#: crates/helix-agent/src/cli.rs:626
 msgid "Needs: the “{level}” access level and Clipboard access"
 msgstr "需要：“{level}”访问级别和剪贴板访问"
 
-#: crates/helix-agent/src/cli.rs:584
+#: crates/helix-agent/src/cli.rs:627
 msgid "Needs: the “{level}” access level"
 msgstr "需要：“{level}”访问级别"
 
-#: crates/helix-agent/src/cli.rs:591
+#: crates/helix-agent/src/cli.rs:634
 msgid "Commands:"
 msgstr "命令："
 
-#: crates/helix-agent/src/cli.rs:597
+#: crates/helix-agent/src/cli.rs:640
 msgid "Arguments:"
 msgstr "参数："
 
-#: crates/helix-agent/src/cli.rs:610
+#: crates/helix-agent/src/cli.rs:653
 msgid "JSON output: {record} records (helix-agent(1), “RECORDS”)."
 msgstr "JSON 输出：{record} 记录（helix-agent(1)，“RECORDS”）。"
 
-#: crates/helix-agent/src/cli.rs:615
+#: crates/helix-agent/src/cli.rs:658
 msgid "This Helix session does not support this command yet."
 msgstr "此 Helix 会话尚不支持此命令。"
 
-#: crates/helix-agent/src/cli.rs:623
+#: crates/helix-agent/src/cli.rs:666
 msgid "Exit codes:"
 msgstr "退出码："
 
@@ -936,205 +993,289 @@ msgstr "代理无法操作 Shell 本身"
 msgid "{app} is excluded from agent access"
 msgstr "{app} 已被排除在代理访问之外"
 
-#: crates/helix-agent/src/main.rs:81
+#: crates/helix-agent/src/main.rs:82
 msgid "Run “helix-agent --help” for help."
 msgstr "运行“helix-agent --help”查看帮助。"
 
-#: crates/helix-agent/src/main.rs:206
+#: crates/helix-agent/src/main.rs:208
 msgid "Agent access: {state}"
 msgstr "代理访问：{state}"
 
-#: crates/helix-agent/src/main.rs:207
+#: crates/helix-agent/src/main.rs:209
 msgid "Access level: {level}"
 msgstr "访问级别：{level}"
 
-#: crates/helix-agent/src/main.rs:211
+#: crates/helix-agent/src/main.rs:213
 msgid "This agent: {agent}"
 msgstr "此代理：{agent}"
 
-#: crates/helix-agent/src/main.rs:211
+#: crates/helix-agent/src/main.rs:213
 msgid "This agent: {name} ({agent})"
 msgstr "此代理：{name}（{agent}）"
 
-#: crates/helix-agent/src/main.rs:214
+#: crates/helix-agent/src/main.rs:216
 msgid "Allowed for this session: {level}"
 msgstr "本次会话允许：{level}"
 
-#: crates/helix-agent/src/main.rs:215
+#: crates/helix-agent/src/main.rs:217
 msgid "Always allowed: {level}"
 msgstr "始终允许：{level}"
 
-#: crates/helix-agent/src/main.rs:216
+#: crates/helix-agent/src/main.rs:218
 msgid "Denied by the user for this session"
 msgstr "本次会话中用户已拒绝"
 
-#: crates/helix-agent/src/main.rs:217
+#: crates/helix-agent/src/main.rs:219
 msgid "Not allowed yet: the user is asked on first use"
 msgstr "尚未允许：首次使用时会询问用户"
 
-#: crates/helix-agent/src/main.rs:220
+#: crates/helix-agent/src/main.rs:222
 msgid ""
 "This agent could not be told apart from the program that started it, so it "
 "can only be allowed for this session."
 msgstr "无法将此代理与启动它的程序区分开，因此只能在本次会话中允许。"
 
-#: crates/helix-agent/src/main.rs:223
+#: crates/helix-agent/src/main.rs:225
 msgid "Running in a remote session (allowed)"
 msgstr "在远程会话中运行（已允许）"
 
-#: crates/helix-agent/src/main.rs:223
+#: crates/helix-agent/src/main.rs:225
 msgid ""
 "Running in a remote session; agent access from remote sessions is turned off"
 msgstr "在远程会话中运行；来自远程会话的代理访问已关闭"
 
-#: crates/helix-agent/src/main.rs:226
+#: crates/helix-agent/src/main.rs:228
 msgid "The screen is locked"
 msgstr "屏幕已锁定"
 
-#: crates/helix-agent/src/main.rs:228
+#: crates/helix-agent/src/main.rs:230
 msgid ""
 "Notifications access: {notifications}, Clipboard access: {clipboard}, "
 "Confirm sensitive actions: {confirm}"
 msgstr ""
 "通知访问：{notifications}，剪贴板访问：{clipboard}，确认敏感操作：{confirm}"
 
-#: crates/helix-agent/src/main.rs:236
+#: crates/helix-agent/src/main.rs:238
 msgid "Reading text fields: {state}"
 msgstr "读取文本栏：{state}"
 
-#: crates/helix-agent/src/main.rs:249
+#: crates/helix-agent/src/main.rs:251
 msgid "Agent Access version {version}"
 msgstr "代理访问版本 {version}"
 
-#: crates/helix-agent/src/main.rs:250
+#: crates/helix-agent/src/main.rs:252
 msgid "Agent Access version unknown (cannot reach the Helix shell)"
 msgstr "代理访问版本未知（无法连接到 Helix Shell）"
 
-#: crates/helix-agent/src/main.rs:283
+#: crates/helix-agent/src/main.rs:285
 msgid "Cannot read the activity log: {error}"
 msgstr "无法读取活动日志：{error}"
 
-#: crates/helix-agent/src/main.rs:302
+#: crates/helix-agent/src/main.rs:304
 msgid "No agent activity recorded."
 msgstr "没有记录到代理活动。"
 
-#: crates/helix-agent/src/read.rs:126
+#: crates/helix-agent/src/media.rs:59
+msgid "playing"
+msgstr "正在播放"
+
+#: crates/helix-agent/src/media.rs:60
+msgid "paused"
+msgstr "已暂停"
+
+#: crates/helix-agent/src/media.rs:61
+msgid "stopped"
+msgstr "已停止"
+
+#: crates/helix-agent/src/media.rs:69
+msgid "No media players."
+msgstr "没有媒体播放器。"
+
+#: crates/helix-agent/src/media.rs:91
+msgid "charging"
+msgstr "正在充电"
+
+#: crates/helix-agent/src/media.rs:92
+msgid "discharging"
+msgstr "正在放电"
+
+#: crates/helix-agent/src/media.rs:93
+msgid "empty"
+msgstr "空"
+
+#: crates/helix-agent/src/media.rs:94
+msgid "fully charged"
+msgstr "已充满"
+
+#: crates/helix-agent/src/media.rs:95
+msgid "waiting to charge"
+msgstr "等待充电"
+
+#: crates/helix-agent/src/media.rs:96
+msgid "waiting to discharge"
+msgstr "等待放电"
+
+#: crates/helix-agent/src/media.rs:106 crates/helix-shell/src/ui/quick.rs:21
+msgid "Power Saver"
+msgstr "节能"
+
+#: crates/helix-agent/src/media.rs:107 crates/helix-shell/src/ui/quick.rs:22
+msgid "Balanced"
+msgstr "平衡"
+
+#: crates/helix-agent/src/media.rs:108 crates/helix-shell/src/ui/quick.rs:23
+msgid "Performance"
+msgstr "性能"
+
+#: crates/helix-agent/src/media.rs:117
+msgid "{hours} h {minutes} min"
+msgstr "{hours} 小时 {minutes} 分钟"
+
+#: crates/helix-agent/src/media.rs:119
+msgid "{minutes} min"
+msgstr "{minutes} 分钟"
+
+#: crates/helix-agent/src/media.rs:133
+msgid "{time} left"
+msgstr "剩余 {time}"
+
+#: crates/helix-agent/src/media.rs:135
+msgid "{time} until full"
+msgstr "{time} 后充满"
+
+#: crates/helix-agent/src/media.rs:137
+msgid "Battery: {state}"
+msgstr "电池：{state}"
+
+#: crates/helix-agent/src/media.rs:150
+msgid "Power mode: {mode}"
+msgstr "电源模式：{mode}"
+
+#: crates/helix-agent/src/media.rs:152
+msgid "Power mode: {mode} (also: {others})"
+msgstr "电源模式：{mode}（另有：{others}）"
+
+#: crates/helix-agent/src/media.rs:156
+msgid "No battery or power modes."
+msgstr "没有电池或电源模式。"
+
+#: crates/helix-agent/src/read.rs:129
 msgid "“{value}” is not a window id"
 msgstr "“{value}”不是窗口 ID"
 
-#: crates/helix-agent/src/read.rs:222
+#: crates/helix-agent/src/read.rs:225
 msgid "Focused window: {id}"
 msgstr "焦点窗口：{id}"
 
-#: crates/helix-agent/src/read.rs:223
+#: crates/helix-agent/src/read.rs:226
 msgid "Focused window: none"
 msgstr "焦点窗口：无"
 
-#: crates/helix-agent/src/read.rs:225
+#: crates/helix-agent/src/read.rs:228
 msgid "Active workspace: {index}"
 msgstr "活动工作区：{index}"
 
-#: crates/helix-agent/src/read.rs:227
+#: crates/helix-agent/src/read.rs:230
 msgid "Dark style"
 msgstr "深色模式"
 
-#: crates/helix-agent/src/read.rs:228
+#: crates/helix-agent/src/read.rs:231
 msgid "Do not disturb"
 msgstr "请勿打扰"
 
-#: crates/helix-agent/src/read.rs:229
+#: crates/helix-agent/src/read.rs:232
 #: crates/helix-shell/src/panel_layout.rs:224
 #: crates/helix-shell/src/ui/quick.rs:413
 msgid "Night Light"
 msgstr "夜灯"
 
-#: crates/helix-agent/src/read.rs:230
+#: crates/helix-agent/src/read.rs:233
 #: crates/helix-shell/src/panel_layout.rs:220
 #: crates/helix-shell/src/ui/quick.rs:402
 msgid "Wi-Fi"
 msgstr "Wi-Fi"
 
-#: crates/helix-agent/src/read.rs:231
+#: crates/helix-agent/src/read.rs:234
 msgid "Airplane mode"
 msgstr "飞行模式"
 
-#: crates/helix-agent/src/read.rs:239
+#: crates/helix-agent/src/read.rs:242
 msgid "Volume: {percent}"
 msgstr "音量：{percent}"
 
-#: crates/helix-agent/src/read.rs:239
+#: crates/helix-agent/src/read.rs:242
 msgid "Volume: {percent} (muted)"
 msgstr "音量：{percent}（已静音）"
 
-#: crates/helix-agent/src/read.rs:242
+#: crates/helix-agent/src/read.rs:245
 msgid "Brightness: {percent}"
 msgstr "亮度：{percent}"
 
-#: crates/helix-agent/src/read.rs:250
+#: crates/helix-agent/src/read.rs:253
 msgid "maximized"
 msgstr "最大化"
 
-#: crates/helix-agent/src/read.rs:251
+#: crates/helix-agent/src/read.rs:254
 msgid "full screen"
 msgstr "全屏"
 
-#: crates/helix-agent/src/read.rs:252
+#: crates/helix-agent/src/read.rs:255
 msgid "minimized"
 msgstr "最小化"
 
-#: crates/helix-agent/src/read.rs:253
+#: crates/helix-agent/src/read.rs:256
 msgid "left half"
 msgstr "左半边"
 
-#: crates/helix-agent/src/read.rs:254
+#: crates/helix-agent/src/read.rs:257
 msgid "right half"
 msgstr "右半边"
 
-#: crates/helix-agent/src/read.rs:255
+#: crates/helix-agent/src/read.rs:258
 msgid "normal"
 msgstr "普通"
 
-#: crates/helix-agent/src/read.rs:261
+#: crates/helix-agent/src/read.rs:264
 msgid "No windows."
 msgstr "没有窗口。"
 
-#: crates/helix-agent/src/read.rs:263
+#: crates/helix-agent/src/read.rs:266
 msgid "App"
 msgstr "应用"
 
-#: crates/helix-agent/src/read.rs:263 crates/helix-agent/src/read.rs:284
+#: crates/helix-agent/src/read.rs:266 crates/helix-agent/src/read.rs:287
 msgid "ID"
 msgstr "ID"
 
-#: crates/helix-agent/src/read.rs:263
+#: crates/helix-agent/src/read.rs:266
 msgid "State"
 msgstr "状态"
 
-#: crates/helix-agent/src/read.rs:263
+#: crates/helix-agent/src/read.rs:266
 msgid "Title"
 msgstr "标题"
 
-#: crates/helix-agent/src/read.rs:263 crates/helix-agent/src/read.rs:290
+#: crates/helix-agent/src/read.rs:266 crates/helix-agent/src/read.rs:293
 msgid "Workspace"
 msgstr "工作区"
 
-#: crates/helix-agent/src/read.rs:267
+#: crates/helix-agent/src/read.rs:270
 msgid "{title} (focused)"
 msgstr "{title}（焦点）"
 
-#: crates/helix-agent/src/read.rs:269
+#: crates/helix-agent/src/read.rs:272
 msgid "all"
 msgstr "全部"
 
-#: crates/helix-agent/src/read.rs:274
+#: crates/helix-agent/src/read.rs:277
 msgid "Window {id} shows {document}"
 msgstr "窗口 {id} 显示 {document}"
 
-#: crates/helix-agent/src/read.rs:282
+#: crates/helix-agent/src/read.rs:285
 msgid "No apps."
 msgstr "没有应用。"
 
-#: crates/helix-agent/src/read.rs:284 crates/helix-agent/src/read.rs:299
+#: crates/helix-agent/src/read.rs:287 crates/helix-agent/src/read.rs:302
 #: crates/helix-portals/src/dynamic_launcher.rs:154
 #: crates/helix-shell/src/ui/file_chooser.rs:1256
 #: crates/helix-shell/src/ui/file_chooser.rs:1331
@@ -1142,64 +1283,64 @@ msgstr "没有应用。"
 msgid "Name"
 msgstr "名称"
 
-#: crates/helix-agent/src/read.rs:284 crates/helix-agent/src/read.rs:290
+#: crates/helix-agent/src/read.rs:287 crates/helix-agent/src/read.rs:293
 #: crates/helix-shell/src/ui/atspi.rs:676
 #: crates/helix-shell/src/ui/atspi.rs:688
 #: crates/helix-shell/src/ui/overview.rs:1210
 msgid "Windows"
 msgstr "窗口"
 
-#: crates/helix-agent/src/read.rs:291
+#: crates/helix-agent/src/read.rs:294
 msgid "active"
 msgstr "活动"
 
-#: crates/helix-agent/src/read.rs:297
+#: crates/helix-agent/src/read.rs:300
 msgid "No monitors."
 msgstr "没有显示器。"
 
-#: crates/helix-agent/src/read.rs:299 crates/helix-shell/src/ui/capture.rs:383
+#: crates/helix-agent/src/read.rs:302 crates/helix-shell/src/ui/capture.rs:383
 msgid "Area"
 msgstr "区域"
 
-#: crates/helix-agent/src/read.rs:299
+#: crates/helix-agent/src/read.rs:302
 msgid "Monitor"
 msgstr "显示器"
 
-#: crates/helix-agent/src/read.rs:299
+#: crates/helix-agent/src/read.rs:302
 msgid "Scale"
 msgstr "缩放"
 
-#: crates/helix-agent/src/read.rs:303
+#: crates/helix-agent/src/read.rs:306
 msgid "primary"
 msgstr "主显示器"
 
-#: crates/helix-agent/src/read.rs:311
+#: crates/helix-agent/src/read.rs:314
 msgid "No notifications."
 msgstr "没有通知。"
 
-#: crates/helix-agent/src/read.rs:328
+#: crates/helix-agent/src/read.rs:331
 msgid ""
 "Notification contents are hidden: Notifications access is turned off "
 "(Settings › Privacy & Security › Agent Access)."
 msgstr "通知内容已隐藏：通知访问已关闭（设置 › 隐私与安全 › 代理访问）。"
 
-#: crates/helix-agent/src/read.rs:336
+#: crates/helix-agent/src/read.rs:339
 msgid "No files."
 msgstr "没有文件。"
 
-#: crates/helix-agent/src/read.rs:338
+#: crates/helix-agent/src/read.rs:341
 #: crates/helix-shell/src/ui/file_chooser.rs:1334
 #: crates/helix-shell/src/ui/file_chooser.rs:1706
 #: crates/helix-shell/src/ui/file_chooser.rs:1711
 msgid "Location"
 msgstr "位置"
 
-#: crates/helix-agent/src/read.rs:338
+#: crates/helix-agent/src/read.rs:341
 #: crates/helix-shell/src/ui/file_chooser.rs:1333
 msgid "Modified"
 msgstr "修改时间"
 
-#: crates/helix-agent/src/read.rs:338
+#: crates/helix-agent/src/read.rs:341
 #: crates/helix-shell/src/ui/file_chooser.rs:1335
 msgid "Type"
 msgstr "类型"
@@ -3548,15 +3689,6 @@ msgstr "位置正在使用"
 msgid "Microphone in use"
 msgstr "麦克风正在使用"
 
-#: crates/helix-shell/src/ui/atspi.rs:1002
-#: crates/helix-shell/src/ui/atspi.rs:1004
-msgid "Pause"
-msgstr "暂停"
-
-#: crates/helix-shell/src/ui/atspi.rs:1003
-msgid "Play"
-msgstr "播放"
-
 #: crates/helix-shell/src/ui/atspi.rs:1005
 msgid "Stop"
 msgstr "停止"
@@ -4282,18 +4414,6 @@ msgstr "正在认证…"
 #: crates/helix-shell/src/ui/prompt.rs:696
 msgid "Show Password"
 msgstr "显示密码"
-
-#: crates/helix-shell/src/ui/quick.rs:21
-msgid "Power Saver"
-msgstr "节能"
-
-#: crates/helix-shell/src/ui/quick.rs:22
-msgid "Balanced"
-msgstr "平衡"
-
-#: crates/helix-shell/src/ui/quick.rs:23
-msgid "Performance"
-msgstr "性能"
 
 #: crates/helix-shell/src/ui/quick.rs:424
 #: crates/helix-shell/src/ui/quick.rs:1319

@@ -172,8 +172,8 @@ async fn policy_over_the_bus() {
     // The interfaces match their contracts (the read methods, without a
     // desktop to read, fail).
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
-    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &[]));
-    assert_conformant(SETTINGS_IFACE, &check(SETTINGS_IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.AgentAccess1.xml"), &actual, &[]));
+    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, helix_test_support::agent::AGENT1_LATER));
+    assert_conformant(SETTINGS_IFACE, &check(SETTINGS_IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.AgentAccess1.xml"), &actual, helix_test_support::agent::AGENT_ACCESS1_LATER));
 
     let mut signals = zbus::MessageStream::for_match_rule(
         zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(IFACE).unwrap().member("AccessChanged").unwrap().build(),

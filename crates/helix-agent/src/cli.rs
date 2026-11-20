@@ -51,6 +51,9 @@ pub struct Cmd {
     /// The shell has the method behind it (helixdesktop/desktop#146–#151
     /// add the rest).
     pub ready: bool,
+    /// A group that also runs alone: the subcommand it then is (`media`
+    /// is `media list`).
+    pub alone: Option<&'static str>,
 }
 
 const fn arg(name: &'static str, help: &'static str) -> Arg {
@@ -66,7 +69,7 @@ const fn valued(name: &'static str, value: &'static str, help: &'static str) -> 
     Opt { name, value: Some(value), help, many: false, choices: &[] }
 }
 const fn cmd(name: &'static str, summary: &'static str, level: Option<&'static str>) -> Cmd {
-    Cmd { name, summary, level, switch: None, args: &[], opts: &[], subs: &[], records: None, ready: false }
+    Cmd { name, summary, level, switch: None, args: &[], opts: &[], subs: &[], records: None, ready: false, alone: None }
 }
 
 const LIMIT: Opt = valued("limit", "N", n_("Show at most N"));
@@ -83,6 +86,12 @@ const Y: Arg = arg("Y", n_("Down the window from its top edge, in logical pixels
 /// Pointer buttons by name.
 pub const BUTTONS: &[&str] = &["left", "middle", "right", "back", "forward"];
 const STATE: Opt = Opt { many: true, ..valued("state", "STATE", n_("Only controls in this state, e.g. focused, checked (repeat for more)")) };
+const PLAYER: Opt = valued("player", "ID", n_("This player (an id from “helix-agent media”; default: the active one)"));
+
+/// A `media` command that controls a player.
+const fn playback(name: &'static str, summary: &'static str) -> Cmd {
+    Cmd { ready: true, opts: &[PLAYER], ..cmd(name, summary, Some("desktop")) }
+}
 
 /// The top-level commands, in `--help`'s groups.
 pub const GROUPS: &[(&str, &[Cmd])] = &[
@@ -122,9 +131,36 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
                     ],
                     ..cmd("search", n_("Search for files"), Some("read-only"))
                 },
+                Cmd { ready: true, records: Some("File"), opts: &[LIMIT, MIME], ..cmd("starred", n_("Starred files (as in Files)"), Some("read-only")) },
             ],
             ready: true,
-            ..cmd("files", n_("Recent files and file search"), Some("read-only"))
+            ..cmd("files", n_("Recent, starred and found files"), Some("read-only"))
+        },
+        Cmd {
+            subs: &[
+                Cmd { ready: true, records: Some("Media player"), ..cmd("list", n_("Media players and what they play (also “media” alone)"), Some("read-only")) },
+                playback("play", n_("Play")),
+                playback("pause", n_("Pause")),
+                playback("play-pause", n_("Play or pause")),
+                playback("next", n_("Skip to the next track")),
+                playback("previous", n_("Go back to the previous track")),
+                playback("stop", n_("Stop playing")),
+                Cmd {
+                    ready: true,
+                    args: &[arg("SECONDS", n_("With a sign (+30, -10): from where it is; without: from the start"))],
+                    opts: &[PLAYER],
+                    ..cmd("seek", n_("Move in the track"), Some("desktop"))
+                },
+            ],
+            ready: true,
+            alone: Some("list"),
+            ..cmd("media", n_("Media players: what plays; play, pause and skip"), Some("read-only"))
+        },
+        Cmd {
+            subs: &[Cmd { ready: true, records: Some("Power"), ..cmd("status", n_("Battery and power mode (also “power” alone)"), Some("read-only")) }],
+            ready: true,
+            alone: Some("status"),
+            ..cmd("power", n_("Battery and power mode"), Some("read-only"))
         },
         Cmd {
             subs: &[
@@ -473,7 +509,14 @@ pub fn parse(argv: &[String]) -> Result<Parsed, UsageError> {
     if out.help || out.version {
         return Ok(out);
     }
-    let Some(c) = at else { return Ok(out) };
+    let Some(mut c) = at else { return Ok(out) };
+    if let (false, Some(sub)) = (c.subs.is_empty(), c.alone) {
+        // A group that runs alone (`media`: `media list`).
+        if let Some(s) = c.subs.iter().find(|s| s.name == sub) {
+            out.path.push(s.name);
+            c = s;
+        }
+    }
     if !c.subs.is_empty() {
         return Err(trf!("“{command}” needs a subcommand: {subs}", command = out.path.join(" "), subs = c.subs.iter().map(|s| s.name).collect::<Vec<_>>().join(", ")));
     }
@@ -567,7 +610,7 @@ pub fn command_help(path: &[&str]) -> Option<String> {
     let mut out = format!("{}\n\n", tr_dyn(c.summary));
     let mut usage = format!("{} helix-agent {full}", tr("Usage:"));
     if !c.subs.is_empty() {
-        usage.push_str(" <COMMAND>");
+        usage.push_str(if c.alone.is_some() { " [<COMMAND>]" } else { " <COMMAND>" });
     }
     if !c.opts.is_empty() {
         usage.push_str(" [OPTIONS]");
@@ -667,6 +710,26 @@ mod tests {
         assert!(p("toggle wifi maybe").is_err());
         assert!(p("status --bogus").is_err());
         assert!(p("completions tcsh").is_err());
+        assert!(p("media rewind").is_err());
+        assert!(p("media seek").is_err(), "SECONDS is missing");
+        assert!(p("media --player vlc").is_err(), "--player is the controls'");
+        assert!(p("power mode").is_err(), "not in this session's commands");
+    }
+
+    #[test]
+    fn groups_that_run_alone() {
+        assert_eq!(p("media").unwrap().path, ["media", "list"]);
+        assert_eq!(p("media list").unwrap().path, ["media", "list"]);
+        assert_eq!(p("power").unwrap().path, ["power", "status"]);
+        let parsed = p("media play-pause --player vlc").unwrap();
+        assert_eq!((parsed.path.clone(), parsed.opt("player")), (vec!["media", "play-pause"], Some("vlc")));
+        // Signed numbers are arguments.
+        assert_eq!(p("media seek -10").unwrap().args, ["-10"]);
+        assert_eq!(p("media seek +30").unwrap().args, ["+30"]);
+        assert!(p("media --help").unwrap().help);
+        assert!(command_help(&["media"]).unwrap().contains("Usage: helix-agent media [<COMMAND>]"));
+        assert!(command_help(&["media", "next"]).unwrap().contains("Needs: the “Control the desktop” access level"));
+        assert!(command_help(&["media", "list"]).unwrap().contains("Media player records"));
     }
 
     #[test]

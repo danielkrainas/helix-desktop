@@ -2,7 +2,9 @@
 //! `contracts/agent-access/README.md`, "Files"; helixdesktop/desktop#146):
 //! recently used files from `recently-used.xbel`, and a file search
 //! through LocalSearch (Tracker) when it runs, else a bounded scan of the
-//! folder (`helix_settings::files::find`, as the file chooser searches).
+//! folder (`helix_settings::files::find`, as the file chooser searches);
+//! and (helixdesktop/desktop#156) the files starred in the store GNOME
+//! Files and Helix Files share (`helix_settings::stars`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -190,6 +192,40 @@ pub fn recent(items: Vec<Recent>, installed: &[Installed], config: &Config, cuto
         }
         out.push(FileInfo { used: Some(item.used), ..info });
     }
+    out
+}
+
+/// Starred files (README.md, "Media, power and stars"): those of the
+/// shared store (`helix_settings::stars`, under `data_home`, opened
+/// read-only as the file chooser opens it) inside `home` that still
+/// exist, folders too, most recently modified first, of type `mime` when
+/// given, at most `limit`. None when the store is missing, off or cannot
+/// be read. It blocks (TinySPARQL may wait for a lock).
+pub fn starred(home: &Path, data_home: &Path, mime: Option<&str>, limit: usize) -> Vec<FileInfo> {
+    let paths = match helix_settings::stars::starred_paths(data_home, home) {
+        Ok(paths) => paths,
+        Err(err) => {
+            tracing::debug!(%err, "no starred files for agents");
+            return Vec::new();
+        }
+    };
+    let mut out: Vec<FileInfo> = paths
+        .into_iter()
+        .filter_map(|path| {
+            let entry = helix_settings::files::Entry::at(path.clone())?;
+            Some(FileInfo {
+                uri: gio::File::for_path(&path).uri().to_string(),
+                name: entry.name,
+                mime_type: entry.content_type,
+                modified: entry.modified,
+                size: (!entry.dir).then_some(entry.size),
+                used: None,
+            })
+        })
+        .filter(|f| mime.is_none_or(|m| mime_matches(&f.mime_type, m)))
+        .collect();
+    out.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.uri.cmp(&b.uri)));
+    out.truncate(limit);
     out
 }
 

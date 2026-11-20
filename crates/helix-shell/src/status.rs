@@ -19,7 +19,7 @@ const NM_PATH: &str = "/org/freedesktop/NetworkManager";
 const UPOWER: &str = "org.freedesktop.UPower";
 const BLUEZ: &str = "org.bluez";
 const PROFILES: [(&str, &str); 2] = [("org.freedesktop.UPower.PowerProfiles", "org.freedesktop.UPower.PowerProfiles"), ("net.hadess.PowerProfiles", "net.hadess.PowerProfiles")];
-const PROFILES_PATH: &str = "/org/freedesktop/UPower/PowerProfiles";
+pub(crate) const PROFILES_PATH: &str = "/org/freedesktop/UPower/PowerProfiles";
 const REFRESH: Duration = Duration::from_secs(5);
 
 /// What the panel and quick settings show.
@@ -154,7 +154,7 @@ pub fn airplane(wifi_on: Option<bool>, bluetooth_on: Option<bool>) -> bool {
     (wifi_on.is_some() || bluetooth_on.is_some()) && wifi_on != Some(true) && bluetooth_on != Some(true)
 }
 
-async fn prop<T: TryFrom<OwnedValue>>(conn: &Connection, dest: &str, path: &str, iface: &str, name: &str) -> Option<T>
+pub(crate) async fn prop<T: TryFrom<OwnedValue>>(conn: &Connection, dest: &str, path: &str, iface: &str, name: &str) -> Option<T>
 where
     T::Error: Into<zbus::Error>,
 {
@@ -304,7 +304,7 @@ async fn adapters(conn: &Connection) -> Vec<(OwnedObjectPath, bool)> {
 }
 
 /// The power-profiles service: (bus name and interface).
-async fn profiles_service(conn: &Connection) -> Option<(&'static str, &'static str)> {
+pub(crate) async fn profiles_service(conn: &Connection) -> Option<(&'static str, &'static str)> {
     for (name, iface) in PROFILES {
         if prop::<String>(conn, name, PROFILES_PATH, iface, "ActiveProfile").await.is_some() {
             return Some((name, iface));

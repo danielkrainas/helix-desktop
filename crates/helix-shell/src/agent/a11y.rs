@@ -573,19 +573,31 @@ pub fn check_process(pid: u32, snapshot: &Snapshot, config: &Config, installed: 
     if pid == std::process::id() || (snapshot.shell_pid != 0 && pid == snapshot.shell_pid) {
         return excluded("shell");
     }
+    let exe = exe_name(proc_root, pid).unwrap_or_default();
+    if SHELL_PROGRAMS.contains(&exe.as_str()) {
+        return excluded("shell");
+    }
+    if PROMPT_PROGRAMS.contains(&exe.as_str()) || PROMPT_PREFIXES.iter().any(|p| exe.starts_with(p)) {
+        return excluded("system-prompt");
+    }
+    check_app_process(pid, snapshot, config, installed, proc_root)
+}
+
+/// Refuse process `pid` when it is Settings' or an excluded app's: by its
+/// other windows, its program, or the systemd unit it runs in (README.md,
+/// "Control apps methods"; also a media player's process, "Media, power
+/// and stars").
+pub fn check_app_process(pid: u32, snapshot: &Snapshot, config: &Config, installed: &[Installed], proc_root: &Path) -> Result<(), AgentError> {
+    if pid == 0 {
+        return Ok(());
+    }
     // Every window of the process: one excluded is enough.
     for w in snapshot.windows.iter().filter(|w| w.pid == pid) {
         policy::check_target(config, Target::App(&w.app_id))?;
     }
     let exe = exe_name(proc_root, pid).unwrap_or_default();
     if exe == "helix-settings-app" {
-        return excluded("settings");
-    }
-    if SHELL_PROGRAMS.contains(&exe.as_str()) {
-        return excluded("shell");
-    }
-    if PROMPT_PROGRAMS.contains(&exe.as_str()) || PROMPT_PREFIXES.iter().any(|p| exe.starts_with(p)) {
-        return excluded("system-prompt");
+        return Err(AgentError::Excluded("settings".to_owned()));
     }
     let mut protected: Vec<&str> = config.excluded_apps.iter().map(|a| a.strip_suffix(".desktop").unwrap_or(a)).collect();
     protected.push(policy::SETTINGS_APP_ID);
@@ -1217,6 +1229,13 @@ mod tests {
         assert_eq!(token(check_process(100, &s2, &config, &installed, &proc_root)), "settings");
         let s3 = Snapshot { shell_pid: 100, ..s.clone() };
         assert_eq!(token(check_process(100, &s3, &config, &installed, &proc_root)), "shell");
+        // A media player's process: only Settings and excluded apps.
+        assert_eq!(token(check_app_process(104, &s, &config, &installed, &proc_root)), "ok");
+        assert_eq!(token(check_app_process(102, &s, &config, &installed, &proc_root)), "ok");
+        assert_eq!(token(check_app_process(101, &s, &config, &installed, &proc_root)), "settings");
+        assert_eq!(token(check_app_process(103, &s, &config, &installed, &proc_root)), "app:org.keepassxc.KeePassXC");
+        assert_eq!(token(check_app_process(105, &s, &config, &installed, &proc_root)), "app:com.example.Bank");
+        assert_eq!(token(check_app_process(100, &s2, &config, &installed, &proc_root)), "settings");
         let _ = std::fs::remove_dir_all(&proc_root);
     }
 

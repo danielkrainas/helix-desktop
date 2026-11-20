@@ -5,6 +5,7 @@ crates/helix-agent/src/cli.rs
 crates/helix-agent/src/clipboard.rs
 crates/helix-agent/src/errors.rs
 crates/helix-agent/src/main.rs
+crates/helix-agent/src/media.rs
 crates/helix-agent/src/read.rs
 crates/helix-agent/src/screen.rs
 crates/helix-agent/src/talk.rs

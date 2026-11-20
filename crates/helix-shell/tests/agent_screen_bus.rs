@@ -307,7 +307,7 @@ async fn screen_and_input_over_the_bus() {
 
     // Every method of the contract is there now.
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
-    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &[]));
+    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, helix_test_support::agent::AGENT1_LATER));
 
     let quiet = || opts(&[("interactive", Value::from(false))]);
     let typing = || vec![ev("text", &[("text", Value::from("Dear diary"))])];

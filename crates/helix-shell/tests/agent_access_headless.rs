@@ -117,7 +117,7 @@ fn agent_access_in_a_session() {
         let conn = session.bus().connect().await;
         // As the contract says.
         let actual = introspect(&conn, "org.gnome.Shell", PATH).await;
-        assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &[]));
+        assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, helix_test_support::agent::AGENT1_LATER));
 
         // On, but without logind the caller counts as remote.
         let s = status(&conn).await;

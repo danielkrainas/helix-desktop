@@ -399,7 +399,7 @@ async fn desktop_actions_over_the_bus() {
 
     // The desktop methods are there now, as the contract has them.
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
-    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &[]));
+    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, helix_test_support::agent::AGENT1_LATER));
 
     let notes_uri = gio::File::for_path(&notes).uri().to_string();
     // Every method, refused while access is off (arguments not looked at).

@@ -101,7 +101,23 @@ or contents have words starting with those of \fIQUERY\fR: through
 LocalSearch when it runs, else by looking through the folder (names, and
 small text files' contents). \fB\-\-since\fR and \fB\-\-until\fR are
 compared with the time each file was last changed. \fB\-\-limit\fR: at
-most 200 (default 50) for both \fBfiles\fR commands.
+most 200 (default 50) for the \fBfiles\fR commands.
+.TP
+.B files starred \fR[\fB\-\-limit \fIN\fR] [\fB\-\-type \fIMIME\fR]
+Files and folders starred in Files (the store GNOME Files and Helix Files
+share) inside the home folder that are still there, most recently changed
+first. None when there is no such store or it cannot be read.
+.TP
+.BR media " [" list ]
+The media players (MPRIS) and what they play: name, status, title,
+artist, album, length and position where the player tells them. The
+active one, which the playback keys control, comes first (marked \fB*\fR
+in text output). Players of excluded apps and of Settings are left out.
+.TP
+.BR power " [" status ]
+The battery's charge, state and time left (UPower), and the power mode
+with the modes there are (power-profiles-daemon). What the computer does
+not have is left out.
 .TP
 .B wait window \fR[\fB\-\-app \fIAPP_ID\fR] [\fB\-\-title \fITEXT\fR] [\fB\-\-focused\fR] [\fB\-\-timeout \fISECONDS\fR]
 Wait until a matching window is open (at once if one is), and print it.
@@ -168,6 +184,16 @@ Switch to a workspace (from 0).
 \fBdark-style\fR, \fBdo-not-disturb\fR, \fBnight-light\fR, \fBwifi\fR
 (sensitive), \fBairplane-mode\fR (sensitive), \fBmute\fR; without on or
 off it flips. Exit 23 for what this computer does not have.
+.TP
+.B media play\fR|\fBpause\fR|\fBplay\-pause\fR|\fBnext\fR|\fBprevious\fR|\fBstop\fR [\fB\-\-player \fIID\fR]
+Ask a media player to play, pause, skip or stop: \fIID\fR is a player's
+id from \fBmedia\fR (default: the active player). Exit 22 when there is no
+such player, 23 when the player cannot do it, 14 for a player of an
+excluded app or of Settings.
+.TP
+.B media seek \fISECONDS\fR [\fB\-\-player \fIID\fR]
+Move in the track: with a sign (\fB+30\fR, \fB\-10\fR) from where it is,
+without one from the start; decimals are allowed.
 .TP
 .B set \fINAME VALUE\fR
 \fBvolume\fR or \fBbrightness\fR, as a percentage (volume up to 150 with
@@ -367,8 +393,21 @@ id, app-id, app-name, time, and summary and body, or redacted (true)
 without \fINotifications access\fR.
 .TP
 .B File
-uri, name, mime-type, modified, size (local files), used (recent files:
-when last used).
+uri, name, mime-type, modified, size (local files; not folders), used
+(recent files: when last used).
+.TP
+.B Media player
+id (its bus name without org.mpris.MediaPlayer2.), app-id (when it tells
+its desktop file), name, status (playing, paused, stopped), active, and
+when the player tells them title, artist (a list), album, length and
+position (seconds), can-play, can-pause, can-go-next, can-go-previous,
+can-seek, can-control. \fBmedia\fR prints {"players": [...]}.
+.TP
+.B Power
+Each only when the computer has it: on-battery, percentage, battery-state
+(charging, discharging, empty, fully-charged, pending-charge,
+pending-discharge), time-to-empty, time-to-full (seconds), warning-level
+(none, low, critical, action), power-profile and power-profiles.
 .TP
 .B Reminder
 id, time, text.

@@ -289,7 +289,7 @@ async fn apps_over_the_accessibility_bus() {
 
     // The interface is the contract's, with the Control apps methods.
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
-    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, &[]));
+    assert_conformant(IFACE, &check(IFACE, &load_dbus_contract("../agent-access/org.helixdesktop.Agent1.xml"), &actual, helix_test_support::agent::AGENT1_LATER));
 
     let every = |o: Opts| {
         let conn = conn.clone();

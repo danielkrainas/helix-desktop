@@ -1353,6 +1353,7 @@ version = "0.1.0"
 dependencies = [
  "gio",
  "helix-i18n",
+ "helix-settings",
  "helix-test-support",
  "libc",
  "png",
