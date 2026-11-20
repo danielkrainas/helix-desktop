@@ -14,13 +14,16 @@
 //! (helixdesktop/desktop#143) nobody can be asked, so calls without a grant
 //! fail with `NotGranted`. The shell's UI fills them in ([`prompt`]) and
 //! shows the indicator ([`AgentAccess::set_indicator`]). The activity log
-//! is [`record`] (helixdesktop/desktop#144).
+//! ([`activity`], helixdesktop/desktop#144) is written from the check: a
+//! refusal at once, an allowed call when its [`Caller`] is finished or
+//! dropped, so every method is recorded without doing anything itself.
 //!
 //! The *Read only* methods (helixdesktop/desktop#146) read the UI's
 //! windows, workspaces and monitors ([`desktop`]), the notification list,
 //! the quick settings' state, recent files and file search ([`files`]),
 //! and what document a window shows ([`document`]).
 
+pub mod activity;
 pub mod desktop;
 pub mod document;
 pub mod files;
@@ -98,6 +101,8 @@ pub struct Setup {
     pub proc_root: PathBuf,
     /// Executables accepted as the Settings app.
     pub settings_exes: Vec<PathBuf>,
+    /// Where the activity log goes (`None`: nowhere).
+    pub log_dir: Option<PathBuf>,
 }
 
 impl Default for Setup {
@@ -108,6 +113,7 @@ impl Default for Setup {
             confirm: no_confirm(),
             proc_root: PathBuf::from("/proc"),
             settings_exes: settings_executables(),
+            log_dir: Some(log_dir()),
         }
     }
 }
@@ -148,12 +154,70 @@ impl Default for CallOptions {
     }
 }
 
-/// A caller that passed the check.
-#[derive(Debug, Clone)]
+/// A caller that passed the check. Its call's line in the activity log
+/// is written when it is [finished](Caller::finish), or dropped (then as
+/// allowed, or as the exclusion [`Caller::check_target`] refused).
+#[derive(Debug)]
 pub struct Caller {
     pub agent: Agent,
     /// The settings the check used.
     pub config: Config,
+    entry: Mutex<Option<activity::Entry>>,
+    log: Arc<activity::Log>,
+}
+
+impl Caller {
+    fn entry(&self) -> MutexGuard<'_, Option<activity::Entry>> {
+        self.entry.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Record what the call acts on: an app id, `window:<id> (<app id>)`,
+    /// a file URI; never contents.
+    pub fn target(&self, target: impl Into<String>) {
+        if let Some(e) = self.entry().as_mut() {
+            e.target = target.into();
+        }
+    }
+
+    /// Record a kind or length of what the agent sent (`text-length`, …).
+    pub fn detail(&self, key: &'static str, value: activity::Detail) {
+        if let Some(e) = self.entry().as_mut() {
+            e.detail.push((key, value));
+        }
+    }
+
+    /// Step 9: check `target` against the exclusions, recording it (and
+    /// the refusal).
+    pub fn check_target(&self, target: Target<'_>) -> Result<(), AgentError> {
+        if let (Target::App(app), Some(e)) = (target, self.entry().as_mut()) {
+            if e.target.is_empty() {
+                e.target = app.to_owned();
+            }
+        }
+        let result = policy::check_target(&self.config, target);
+        if let (Err(err), Some(e)) = (&result, self.entry().as_mut()) {
+            (e.outcome, _) = activity::outcome_of(err);
+        }
+        result
+    }
+
+    /// The call's result, recorded.
+    pub fn finish<T>(self, result: Result<T, AgentError>) -> Result<T, AgentError> {
+        if let (Err(err), Some(e)) = (&result, self.entry().as_mut()) {
+            let (outcome, error) = activity::outcome_of(err);
+            e.outcome = outcome;
+            e.error = error.map(str::to_owned);
+        }
+        result
+    }
+}
+
+impl Drop for Caller {
+    fn drop(&mut self) {
+        if let Some(entry) = self.entry().take() {
+            self.log.record(entry);
+        }
+    }
 }
 
 struct Inner {
@@ -174,6 +238,7 @@ struct Inner {
     shown: Mutex<Vec<prompt::Active>>,
     /// Calls running now (waits, questions, input), by agent id.
     running: Mutex<HashMap<String, usize>>,
+    log: Arc<activity::Log>,
     /// Where the desktop's state comes from (the UI, the notifications).
     desktop: OnceLock<Desktop>,
 }
@@ -195,7 +260,7 @@ pub struct AgentAccess {
     inner: Arc<Inner>,
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
@@ -244,13 +309,11 @@ async fn session_remote(system: &Connection, pid: u32) -> Option<bool> {
     tokio::time::timeout(Duration::from_secs(3), ask).await.ok().flatten()
 }
 
-/// The activity log (helixdesktop/desktop#144 stores it; until then it
-/// goes to the shell's own log).
-pub fn record(agent: Option<&Agent>, method: &str, outcome: &str) {
-    match agent {
-        Some(a) => tracing::info!(target: "helix_shell::agent::activity", agent = %a.id, name = %a.name, method, outcome, "agent call"),
-        None => tracing::info!(target: "helix_shell::agent::activity", method, outcome, "agent call from an unidentified caller"),
-    }
+/// The executable of the caller of `header` when it is of our user, for
+/// the log of a caller that was not identified.
+async fn caller_exe(conn: &Connection, header: &Header<'_>, proc_root: &Path) -> String {
+    let Some(pid) = caller_pid(conn, header).await else { return String::new() };
+    std::fs::read_link(proc_root.join(pid.to_string()).join("exe")).map(|e| e.to_string_lossy().trim_end_matches(" (deleted)").to_owned()).unwrap_or_default()
 }
 
 /// `$XDG_STATE_HOME/helix/agent-activity`.
@@ -277,6 +340,7 @@ impl AgentAccess {
                 shown: Mutex::new(Vec::new()),
                 running: Mutex::new(HashMap::new()),
                 desktop: OnceLock::new(),
+                log: Arc::new(activity::Log::new(setup.log_dir)),
             }),
         }
     }
@@ -289,6 +353,19 @@ impl AgentAccess {
     /// settings: turning access off ends every session grant at once.
     pub fn attach(&self, conn: &Connection) {
         let _ = self.inner.conn.set(conn.clone());
+        // Prune at start, then each minute write coalesced refusals and
+        // prune when the day changes.
+        self.inner.log.set_retention(Config::read().log_retention_days, now());
+        let log = Arc::downgrade(&self.inner.log);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(60));
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                let Some(log) = log.upgrade() else { return };
+                tokio::task::spawn_blocking(move || log.tick(now()));
+            }
+        });
         let access = self.clone();
         tokio::spawn(async move {
             if !helix_settings::has_schema(policy::SCHEMA) {
@@ -305,6 +382,7 @@ impl AgentAccess {
 
     /// Apply changed settings.
     pub fn settings_changed(&self, config: &Config) {
+        self.inner.log.set_retention(config.log_retention_days, now());
         if !config.enabled && self.grants().revoke_all() {
             tracing::info!("agent access turned off; session grants ended");
         }
@@ -361,29 +439,46 @@ impl AgentAccess {
         policy::gate(config, need, Facts { remote, locked: self.locked() })
     }
 
-    /// The policy check every `Agent1` method runs first (README.md, "The
-    /// policy check"), recorded in the activity log.
-    pub async fn check(&self, conn: &Connection, header: &Header<'_>, method: &'static str, need: Need, options: CallOptions) -> Result<Caller, AgentError> {
-        let mut agent = None;
-        let result = self.check_steps(conn, header, method, need, options, &mut agent).await;
-        if need.level.is_some() {
-            let outcome = match &result {
-                Ok(_) => "allowed".to_owned(),
-                Err(err) => format!("refused:{}", err.kind()),
-            };
-            record(agent.as_ref(), method, &outcome);
-        }
-        result
+    /// The activity log.
+    pub fn log(&self) -> &activity::Log {
+        &self.inner.log
     }
 
-    async fn check_steps(&self, conn: &Connection, header: &Header<'_>, method: &'static str, need: Need, options: CallOptions, who: &mut Option<Agent>) -> Result<Caller, AgentError> {
+    /// A line about `agent` for the activity log.
+    fn entry(agent: &Agent, method: &str, level: Option<Level>, outcome: activity::Outcome) -> activity::Entry {
+        activity::Entry { time: now(), agent: agent.id.clone(), name: agent.name.clone(), method: method.to_owned(), level, outcome, ..activity::Entry::default() }
+    }
+
+    /// The policy check every `Agent1` method runs first (README.md, "The
+    /// policy check"). A refusal is recorded in the activity log at once;
+    /// an allowed call when the returned [`Caller`] is finished or dropped.
+    pub async fn check(&self, conn: &Connection, header: &Header<'_>, method: &'static str, need: Need, options: CallOptions) -> Result<Caller, AgentError> {
+        let time = now();
+        let mut agent = None;
+        let result = self.check_steps(conn, header, method, need, options, &mut agent).await;
+        let mut entry = match &agent {
+            Some(a) => Self::entry(a, method, need.level, activity::Outcome::Allowed),
+            None => activity::Entry { agent: caller_exe(conn, header, &self.inner.proc_root).await, method: method.to_owned(), level: need.level, ..activity::Entry::default() },
+        };
+        entry.time = time;
+        match result {
+            Ok((agent, config)) => Ok(Caller { agent, config, entry: Mutex::new(Some(entry)), log: self.inner.log.clone() }),
+            Err(err) => {
+                (entry.outcome, _) = activity::outcome_of(&err);
+                self.inner.log.record(entry);
+                Err(err)
+            }
+        }
+    }
+
+    async fn check_steps(&self, conn: &Connection, header: &Header<'_>, method: &'static str, need: Need, options: CallOptions, who: &mut Option<Agent>) -> Result<(Agent, Config), AgentError> {
         let sandboxed = || AgentError::Sandboxed("not available to sandboxed apps".into());
         caller::require_unsandboxed(conn, header).await.map_err(|_| sandboxed())?;
         let pid = caller_pid(conn, header).await.ok_or_else(sandboxed)?;
         let agent = identity::identify(&self.inner.proc_root, pid, my_uid()).ok_or_else(sandboxed)?;
         *who = Some(agent.clone());
         let mut config = Config::read();
-        let Some(level) = need.level else { return Ok(Caller { agent, config }) };
+        let Some(level) = need.level else { return Ok((agent, config)) };
         self.gate(&agent, &config, need).await?;
         let decision = self.grants().decide(&agent.id, level, &config);
         match decision {
@@ -393,7 +488,12 @@ impl AgentAccess {
         }
         if policy::sensitive_step(&config, need, options.sensitive, options.interactive)? {
             let _turn = self.inner.prompt.lock().await;
-            match (self.inner.confirm)(ConfirmRequest { agent: agent.clone(), method }).await {
+            let answer = (self.inner.confirm)(ConfirmRequest { agent: agent.clone(), method }).await;
+            if let Some(yes) = answer {
+                let outcome = if yes { activity::Outcome::Allowed } else { activity::Outcome::Refused("DeniedByUser".into()) };
+                self.inner.log.record(activity::Entry { target: method.to_owned(), ..Self::entry(&agent, activity::SENSITIVE_PROMPT, need.level, outcome) });
+            }
+            match answer {
                 Some(true) => {}
                 Some(false) => return Err(AgentError::DeniedByUser("the user declined this action".into())),
                 None => return Err(AgentError::NeedsConfirmation("the user could not be asked to confirm".into())),
@@ -403,7 +503,7 @@ impl AgentAccess {
         }
         self.grants().touch(&agent, now());
         self.publish();
-        Ok(Caller { agent, config })
+        Ok((agent, config))
     }
 
     /// Step 8 without a grant: ask the user (one prompt at a time), record
@@ -431,6 +531,14 @@ impl AgentAccess {
             answer = Answer::Session;
         }
         self.grants().answer(agent, ask, answer, now());
+        let (outcome, grant) = match answer {
+            Answer::Session => (activity::Outcome::Allowed, Some("session")),
+            Answer::Always => (activity::Outcome::Allowed, Some("always")),
+            Answer::Deny => (activity::Outcome::Refused("DeniedByUser".into()), None),
+            Answer::Unanswered => (activity::Outcome::Cancelled, None),
+        };
+        let detail = grant.map(|g| ("grant", activity::Detail::Kind(g))).into_iter().collect();
+        self.inner.log.record(activity::Entry { detail, ..Self::entry(agent, activity::CONSENT_PROMPT, Some(ask), outcome) });
         match answer {
             Answer::Unanswered => return Err(not_granted()),
             Answer::Deny => {
@@ -448,12 +556,6 @@ impl AgentAccess {
             Decision::Denied => Err(AgentError::DeniedByUser("the user denied this agent access".into())),
             Decision::Ask => Err(not_granted()),
         }
-    }
-
-    /// Check a target against the exclusions (step 9), for the methods
-    /// that read or act on one.
-    pub fn check_target(&self, config: &Config, target: Target<'_>) -> Result<(), AgentError> {
-        policy::check_target(config, target)
     }
 
     /// Read the desktop's state from `desktop` from now on.
@@ -586,7 +688,15 @@ impl AgentAccess {
     /// *Stop* in the indicator: end `agent`'s session grant, and ask again
     /// even if it is always allowed (README.md, "Indicator").
     pub fn stop(&self, agent: &str) {
+        let held = {
+            let grants = self.grants();
+            let config = Config::read();
+            let name = grants.list().find(|(id, _)| id.as_str() == agent).map(|(_, e)| e.name.clone());
+            name.map(|name| (name, grants.effective(agent, &config)))
+        };
         if self.grants().stop(agent) {
+            let (name, level) = held.unwrap_or_default();
+            self.inner.log.record(activity::Entry { time: now(), agent: agent.to_owned(), name, method: activity::STOP.to_owned(), level, outcome: activity::Outcome::Cancelled, ..activity::Entry::default() });
             tracing::info!(agent, "agent stopped from the indicator");
             self.changed();
         }
@@ -641,8 +751,19 @@ impl AgentAccess {
     }
 
     /// Refuse callers other than the Settings app (README.md, "Who may
-    /// manage grants").
-    async fn require_settings(&self, conn: &Connection, header: &Header<'_>) -> fdo::Result<()> {
+    /// manage grants"), recording the refusal; Settings' executable.
+    async fn require_settings(&self, conn: &Connection, header: &Header<'_>, method: &str) -> fdo::Result<PathBuf> {
+        let result = self.settings_exe(conn, header).await;
+        if let Err(err) = &result {
+            let exe = caller_exe(conn, header, &self.inner.proc_root).await;
+            tracing::warn!(%err, exe, "refused agent access management from a program other than Settings");
+            let refused = activity::Outcome::Refused("AccessDenied".into());
+            self.inner.log.record(activity::Entry { time: now(), agent: exe, method: method.to_owned(), outcome: refused, ..activity::Entry::default() });
+        }
+        result
+    }
+
+    async fn settings_exe(&self, conn: &Connection, header: &Header<'_>) -> fdo::Result<PathBuf> {
         let denied = || fdo::Error::AccessDenied("only Settings may manage agent access".into());
         caller::require_unsandboxed(conn, header).await?;
         let pid = caller_pid(conn, header).await.ok_or_else(denied)?;
@@ -651,12 +772,7 @@ impl AgentAccess {
             Some(trimmed) => PathBuf::from(trimmed),
             None => exe,
         };
-        if self.inner.settings_exes.contains(&exe) {
-            Ok(())
-        } else {
-            tracing::warn!(exe = %exe.display(), "refused agent access management from a program other than Settings");
-            Err(denied())
-        }
+        if self.inner.settings_exes.contains(&exe) { Ok(exe) } else { Err(denied()) }
     }
 }
 
@@ -777,72 +893,86 @@ impl Agent1 {
             // Learn nothing about arguments without access.
             let caller = self.access.check(conn, &header, "RequestAccess", Need::STATUS, options).await?;
             if !caller.config.enabled {
-                return Err(AgentError::AccessOff("agent access is turned off".into()));
+                return caller.finish(Err(AgentError::AccessOff("agent access is turned off".into())));
             }
-            return Err(AgentError::invalid_args("unknown access level"));
+            return caller.finish(Err(AgentError::invalid_args("unknown access level")));
         };
         let need = Need { exact: true, ..Need::level(level) };
         let caller = self.access.check(conn, &header, "RequestAccess", need, options).await?;
-        Ok(self.access.status(&caller.agent, &caller.config).await)
+        let status = self.access.status(&caller.agent, &caller.config).await;
+        caller.finish(Ok(status))
     }
 
     async fn get_state(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<HashMap<String, OwnedValue>, AgentError> {
         let caller = self.access.check(conn, &header, "GetState", READ, CallOptions::from_dict(&options)).await?;
-        let snapshot = self.access.snapshot().await?;
-        let shown = desktop::visible(&snapshot, &caller.config);
-        let focused = if shown.iter().any(|w| w.id == snapshot.focused) { snapshot.focused } else { 0 };
-        let system = self.access.system_bus().await;
-        let mut state = quick_state(conn, system.as_ref()).await;
-        state.insert("focused-window".to_owned(), value(focused));
-        state.insert("active-workspace".to_owned(), value(snapshot.active));
-        Ok(state)
+        let result = async {
+            let snapshot = self.access.snapshot().await?;
+            let shown = desktop::visible(&snapshot, &caller.config);
+            let focused = if shown.iter().any(|w| w.id == snapshot.focused) { snapshot.focused } else { 0 };
+            let system = self.access.system_bus().await;
+            let mut state = quick_state(conn, system.as_ref()).await;
+            state.insert("focused-window".to_owned(), value(focused));
+            state.insert("active-workspace".to_owned(), value(snapshot.active));
+            Ok(state)
+        }
+        .await;
+        caller.finish(result)
     }
 
     async fn list_windows(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
         let caller = self.access.check(conn, &header, "ListWindows", READ, CallOptions::from_dict(&options)).await?;
-        let wanted = desktop::Match::from_dict(&options)?;
-        if let Some(app) = &wanted.app {
-            self.access.check_target(&caller.config, Target::App(app))?;
+        let result = async {
+            let wanted = desktop::Match::from_dict(&options)?;
+            wanted.record(&caller)?;
+            let snapshot = self.access.snapshot().await?;
+            let shown: Vec<&desktop::WindowInfo> = desktop::visible(&snapshot, &caller.config).into_iter().filter(|w| wanted.matches(&snapshot, w)).collect();
+            Ok(Self::window_records(conn, &snapshot, &shown).await)
         }
-        let snapshot = self.access.snapshot().await?;
-        let shown: Vec<&desktop::WindowInfo> = desktop::visible(&snapshot, &caller.config).into_iter().filter(|w| wanted.matches(&snapshot, w)).collect();
-        Ok(Self::window_records(conn, &snapshot, &shown).await)
+        .await;
+        caller.finish(result)
     }
 
     async fn list_apps(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
         let caller = self.access.check(conn, &header, "ListApps", READ, CallOptions::from_dict(&options)).await?;
-        let running = match options.get("running") {
-            None => false,
-            Some(v) => bool::try_from(v.clone()).map_err(|_| AgentError::invalid_args("“running” must be a boolean"))?,
-        };
-        let snapshot = self.access.snapshot().await?;
-        let windows: Vec<desktop::WindowInfo> = desktop::visible(&snapshot, &caller.config).into_iter().cloned().collect();
-        let config = caller.config.clone();
-        tokio::task::spawn_blocking(move || {
-            let refs: Vec<&desktop::WindowInfo> = windows.iter().collect();
-            desktop::app_records(&desktop::installed(), &refs, &config, running)
-        })
-        .await
-        .map_err(|e| AgentError::Failed(e.to_string()))
+        let result = async {
+            let running = match options.get("running") {
+                None => false,
+                Some(v) => bool::try_from(v.clone()).map_err(|_| AgentError::invalid_args("“running” must be a boolean"))?,
+            };
+            let snapshot = self.access.snapshot().await?;
+            let windows: Vec<desktop::WindowInfo> = desktop::visible(&snapshot, &caller.config).into_iter().cloned().collect();
+            let config = caller.config.clone();
+            tokio::task::spawn_blocking(move || {
+                let refs: Vec<&desktop::WindowInfo> = windows.iter().collect();
+                desktop::app_records(&desktop::installed(), &refs, &config, running)
+            })
+            .await
+            .map_err(|e| AgentError::Failed(e.to_string()))
+        }
+        .await;
+        caller.finish(result)
     }
 
     async fn list_workspaces(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
         let caller = self.access.check(conn, &header, "ListWorkspaces", READ, CallOptions::from_dict(&options)).await?;
-        let snapshot = self.access.snapshot().await?;
-        Ok(desktop::workspace_records(&snapshot, &desktop::visible(&snapshot, &caller.config)))
+        let result = self.access.snapshot().await.map(|snapshot| desktop::workspace_records(&snapshot, &desktop::visible(&snapshot, &caller.config)));
+        caller.finish(result)
     }
 
     async fn list_monitors(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
-        self.access.check(conn, &header, "ListMonitors", READ, CallOptions::from_dict(&options)).await?;
-        let snapshot = self.access.snapshot().await?;
-        Ok(desktop::monitor_records(&snapshot))
+        let caller = self.access.check(conn, &header, "ListMonitors", READ, CallOptions::from_dict(&options)).await?;
+        let result = self.access.snapshot().await.map(|snapshot| desktop::monitor_records(&snapshot));
+        caller.finish(result)
     }
 
     async fn list_notifications(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
         let caller = self.access.check(conn, &header, "ListNotifications", READ, CallOptions::from_dict(&options)).await?;
         let limit = match options.get("limit") {
             None => crate::notify_store::LIST_LIMIT,
-            Some(v) => u32::try_from(v.clone()).map_err(|_| AgentError::invalid_args("“limit” must be a number (u)"))?.max(1) as usize,
+            Some(v) => match u32::try_from(v.clone()) {
+                Ok(n) => n.max(1) as usize,
+                Err(_) => return caller.finish(Err(AgentError::invalid_args("“limit” must be a number (u)"))),
+            },
         };
         let snapshot = self.access.snapshot().await.unwrap_or_default();
         let notes: Vec<desktop::NoteInfo> = self
@@ -864,37 +994,50 @@ impl Agent1 {
             .collect();
         let config = caller.config.clone();
         let contents = config.notifications;
-        tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             let installed = desktop::installed();
             notes.iter().filter(|n| !desktop::note_hidden(n, &snapshot, &installed, &config)).take(limit).map(|n| desktop::note_record(n, contents)).collect()
         })
         .await
-        .map_err(|e| AgentError::Failed(e.to_string()))
+        .map_err(|e| AgentError::Failed(e.to_string()));
+        caller.finish(result)
     }
 
     async fn recent_files(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
         let caller = self.access.check(conn, &header, "RecentFiles", READ, CallOptions::from_dict(&options)).await?;
-        let limit = files::limit(&options)?;
-        let mime = match options.get("type") {
-            None => None,
-            Some(v) => Some(String::try_from(v.clone()).map_err(|_| AgentError::invalid_args("“type” must be a string"))?).filter(|m| !m.is_empty()),
-        };
-        let config = caller.config.clone();
-        tokio::task::spawn_blocking(move || {
-            // Nothing when the user turned recent files off.
-            let Some(cutoff) = helix_settings::files::privacy_cutoff() else { return Vec::new() };
-            let found = files::recent(files::read_xbel(&files::xbel_path()), &desktop::installed(), &config, cutoff, mime.as_deref(), limit);
-            found.iter().map(files::FileInfo::record).collect()
-        })
-        .await
-        .map_err(|e| AgentError::Failed(e.to_string()))
+        let result = async {
+            let limit = files::limit(&options)?;
+            let mime = match options.get("type") {
+                None => None,
+                Some(v) => Some(String::try_from(v.clone()).map_err(|_| AgentError::invalid_args("“type” must be a string"))?).filter(|m| !m.is_empty()),
+            };
+            let config = caller.config.clone();
+            tokio::task::spawn_blocking(move || {
+                // Nothing when the user turned recent files off.
+                let Some(cutoff) = helix_settings::files::privacy_cutoff() else { return Vec::new() };
+                let found = files::recent(files::read_xbel(&files::xbel_path()), &desktop::installed(), &config, cutoff, mime.as_deref(), limit);
+                found.iter().map(files::FileInfo::record).collect()
+            })
+            .await
+            .map_err(|e| AgentError::Failed(e.to_string()))
+        }
+        .await;
+        caller.finish(result)
     }
 
     async fn search_files(&self, query: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
         let caller = self.access.check(conn, &header, "SearchFiles", READ, CallOptions::from_dict(&options)).await?;
-        let search = files::search_options(query, &options)?;
+        // The query can be private ("letter to my lawyer"): only its
+        // length is recorded.
+        caller.detail("query-length", activity::Detail::Count(query.chars().count() as u64));
+        let search = match files::search_options(query, &options) {
+            Ok(search) => search,
+            Err(err) => return caller.finish(Err(err)),
+        };
+        caller.target(gio::prelude::FileExt::uri(&gio::File::for_path(&search.folder)).to_string());
         let _busy = self.access.busy(&caller.agent);
-        Ok(files::search(conn, &search).await.iter().map(files::FileInfo::record).collect())
+        let found = files::search(conn, &search).await.iter().map(files::FileInfo::record).collect();
+        caller.finish(Ok(found))
     }
 
     async fn wait_for_window(
@@ -905,45 +1048,53 @@ impl Agent1 {
         #[zbus(connection)] conn: &Connection,
     ) -> Result<HashMap<String, OwnedValue>, AgentError> {
         let caller = self.access.check(conn, &header, "WaitForWindow", READ, CallOptions::from_dict(&wanted_match)).await?;
-        let wanted = desktop::Match::from_dict(&wanted_match)?;
-        if let Some(app) = &wanted.app {
-            self.access.check_target(&caller.config, Target::App(app))?;
-        }
-        let _busy = self.access.busy(&caller.agent);
-        let until = deadline(timeout_ms);
-        let mut config = caller.config;
-        loop {
-            let snapshot = self.access.snapshot().await?;
-            if let Some(w) = desktop::visible(&snapshot, &config).into_iter().find(|w| wanted.matches(&snapshot, w)) {
-                let mut records = Self::window_records(conn, &snapshot, &[w]).await;
-                return Ok(records.remove(0));
+        let result = async {
+            let wanted = desktop::Match::from_dict(&wanted_match)?;
+            wanted.record(&caller)?;
+            let _busy = self.access.busy(&caller.agent);
+            let until = deadline(timeout_ms);
+            let mut config = caller.config.clone();
+            loop {
+                let snapshot = self.access.snapshot().await?;
+                if let Some(w) = desktop::visible(&snapshot, &config).into_iter().find(|w| wanted.matches(&snapshot, w)) {
+                    let mut records = Self::window_records(conn, &snapshot, &[w]).await;
+                    return Ok(records.remove(0));
+                }
+                if until.is_some_and(|u| Instant::now() >= u) {
+                    return Err(AgentError::TimedOut("no such window appeared".into()));
+                }
+                tokio::time::sleep(WAIT_POLL).await;
+                config = self.access.recheck(&caller.agent, READ).await?;
             }
-            if until.is_some_and(|u| Instant::now() >= u) {
-                return Err(AgentError::TimedOut("no such window appeared".into()));
-            }
-            tokio::time::sleep(WAIT_POLL).await;
-            config = self.access.recheck(&caller.agent, READ).await?;
         }
+        .await;
+        caller.finish(result)
     }
 
     async fn wait_for_window_closed(&self, window: u32, timeout_ms: u32, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), AgentError> {
         let caller = self.access.check(conn, &header, "WaitForWindowClosed", READ, CallOptions::default()).await?;
-        let snapshot = self.access.snapshot().await?;
-        let Some(w) = snapshot.windows.iter().find(|w| w.id == window) else { return Err(AgentError::NotFound(format!("window {window}"))) };
-        self.access.check_target(&caller.config, Target::App(&w.app_id))?;
-        let _busy = self.access.busy(&caller.agent);
-        let until = deadline(timeout_ms);
-        loop {
+        caller.target(format!("window:{window}"));
+        let result = async {
             let snapshot = self.access.snapshot().await?;
-            if !snapshot.windows.iter().any(|w| w.id == window) {
-                return Ok(());
+            let Some(w) = snapshot.windows.iter().find(|w| w.id == window) else { return Err(AgentError::NotFound(format!("window {window}"))) };
+            caller.target(format!("window:{window} ({})", w.app_id));
+            caller.check_target(Target::App(&w.app_id))?;
+            let _busy = self.access.busy(&caller.agent);
+            let until = deadline(timeout_ms);
+            loop {
+                let snapshot = self.access.snapshot().await?;
+                if !snapshot.windows.iter().any(|w| w.id == window) {
+                    return Ok(());
+                }
+                if until.is_some_and(|u| Instant::now() >= u) {
+                    return Err(AgentError::TimedOut("the window is still open".into()));
+                }
+                tokio::time::sleep(WAIT_POLL).await;
+                self.access.recheck(&caller.agent, READ).await?;
             }
-            if until.is_some_and(|u| Instant::now() >= u) {
-                return Err(AgentError::TimedOut("the window is still open".into()));
-            }
-            tokio::time::sleep(WAIT_POLL).await;
-            self.access.recheck(&caller.agent, READ).await?;
         }
+        .await;
+        caller.finish(result)
     }
 
     #[zbus(signal)]
@@ -958,36 +1109,39 @@ pub struct AgentAccessSettings {
 #[interface(name = "org.helixdesktop.AgentAccess1")]
 impl AgentAccessSettings {
     async fn list_agents(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<Vec<HashMap<String, OwnedValue>>> {
-        self.access.require_settings(conn, &header).await?;
+        self.access.require_settings(conn, &header, "ListAgents").await?;
         Ok(self.access.list())
     }
 
     async fn revoke(&self, agent: &str, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<()> {
-        self.access.require_settings(conn, &header).await?;
+        self.access.require_settings(conn, &header, "Revoke").await?;
         self.access.revoke(agent);
         Ok(())
     }
 
     async fn forget(&self, agent: &str, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<()> {
-        self.access.require_settings(conn, &header).await?;
+        self.access.require_settings(conn, &header, "Forget").await?;
         self.access.forget(agent);
         Ok(())
     }
 
     async fn stop_all(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<()> {
-        self.access.require_settings(conn, &header).await?;
+        self.access.require_settings(conn, &header, "StopAll").await?;
         self.access.stop_all();
         Ok(())
     }
 
     async fn clear_log(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<()> {
-        self.access.require_settings(conn, &header).await?;
-        let dir = log_dir();
-        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-            if entry.path().extension().is_some_and(|e| e == "jsonl") {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
+        let exe = self.access.require_settings(conn, &header, "ClearLog").await?;
+        let log = self.access.inner.log.clone();
+        // The one Settings call recorded: that the log was cleared, and
+        // by whom.
+        let entry = activity::Entry { time: now(), agent: exe.to_string_lossy().into_owned(), method: "ClearLog".to_owned(), ..activity::Entry::default() };
+        let _ = tokio::task::spawn_blocking(move || {
+            log.clear();
+            log.record(entry);
+        })
+        .await;
         tracing::info!("agent activity log cleared");
         Ok(())
     }

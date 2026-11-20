@@ -183,6 +183,18 @@ impl Match {
         Ok(Match { app: text("app")?.filter(|a| !a.is_empty()), title: text("title")?.filter(|t| !t.is_empty()), focused })
     }
 
+    /// Check the app asked for against the exclusions, and record it (the
+    /// title only by its length) in the activity log.
+    pub fn record(&self, caller: &super::Caller) -> Result<(), super::AgentError> {
+        if let Some(title) = &self.title {
+            caller.detail("title-length", super::activity::Detail::Count(title.chars().count() as u64));
+        }
+        match &self.app {
+            Some(app) => caller.check_target(super::Target::App(app)),
+            None => Ok(()),
+        }
+    }
+
     pub fn matches(&self, snapshot: &Snapshot, w: &WindowInfo) -> bool {
         self.app.as_deref().is_none_or(|a| same_app(&w.app_id, a))
             && self.title.as_deref().is_none_or(|t| w.title.to_lowercase().contains(&t.to_lowercase()))

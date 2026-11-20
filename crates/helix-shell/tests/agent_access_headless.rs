@@ -153,6 +153,32 @@ fn agent_access_in_a_session() {
         let before = session.fresh_snapshot();
         assert_eq!(indicator_x(&before), None, "no indicator before any call");
         assert_eq!(short(&request_level(&conn, "read-only", true).await), "ok", "the remembered grant covers reading");
+
+        // The CLI's call is in the activity log, which the CLI shows (this
+        // test, its parent, is the agent).
+        if let Some(cli) = sibling_binary("helix-agent") {
+            let run = |args: &[&str]| {
+                let out = std::process::Command::new(&cli)
+                    .args(args)
+                    .env("DBUS_SESSION_BUS_ADDRESS", session.bus().address())
+                    .env("XDG_STATE_HOME", session.home().join(".local/state"))
+                    .env("HOME", session.home())
+                    .output()
+                    .unwrap();
+                assert!(out.status.success(), "helix-agent {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+                serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
+            };
+            run(&["windows", "--no-ask", "--json"]);
+            let log = run(&["log", "--json", "--agent", &me]);
+            let entries = log["entries"].as_array().unwrap();
+            assert!(
+                entries.iter().any(|e| e["method"] == "ListWindows" && e["outcome"] == "allowed" && e["level"] == "read-only" && e["time"].is_i64()),
+                "{log:#}"
+            );
+            assert!(entries.iter().any(|e| e["method"] == "RequestAccess" && e["outcome"] == "refused:Remote"), "{log:#}");
+        } else {
+            eprintln!("helix-agent not built; its log not tested");
+        }
         let deadline = Instant::now() + Duration::from_secs(10);
         let x = loop {
             if let Some(x) = indicator_x(&session.fresh_snapshot()) {
@@ -218,7 +244,16 @@ fn agent_access_in_a_session() {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     });
-    let log = session.log();
-    assert!(log.contains("agent call"), "calls are recorded:\n{log}");
+    // The activity log: calls, Stop from the indicator, and a program
+    // other than Settings knocking on Settings' interface.
+    let dir = session.home().join(".local/state/helix/agent-activity");
+    let mut days: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).collect();
+    days.sort();
+    let lines: Vec<serde_json::Value> = days.iter().flat_map(|d| std::fs::read_to_string(d).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect::<Vec<_>>()).collect();
+    let has = |method: &str, outcome: &str| lines.iter().any(|l| l["method"] == method && l["outcome"] == outcome && l["agent"] == me.as_str());
+    assert!(has("RequestAccess", "refused:Remote") && has("RequestAccess", "allowed") && has("RequestAccess", "refused:AccessOff"), "{lines:#?}");
+    assert!(has("Stop", "cancelled"), "Stop from the indicator: {lines:#?}");
+    assert!(has("ListAgents", "refused:AccessDenied"), "{lines:#?}");
+    assert!(!lines.iter().any(|l| l["method"] == "GetStatus"));
     let _ = std::fs::remove_dir_all(&schemas);
 }

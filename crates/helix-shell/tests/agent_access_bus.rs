@@ -98,6 +98,13 @@ async fn agents(conn: &Connection) -> Vec<Status> {
     settings_call(conn, "ListAgents", &()).await.unwrap().body().deserialize().unwrap()
 }
 
+/// Every line of the activity log in `dir`, oldest day first.
+fn activity(dir: &std::path::Path) -> Vec<serde_json::Value> {
+    let mut days: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "jsonl")).collect();
+    days.sort();
+    days.iter().flat_map(|d| std::fs::read_to_string(d).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect::<Vec<_>>()).collect()
+}
+
 async fn eventually<F: std::future::Future<Output = bool>>(mut check: impl FnMut() -> F) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !check().await {
@@ -144,6 +151,7 @@ async fn policy_over_the_bus() {
             proc_root: "/proc".into(),
             // This test acts as Settings too.
             settings_exes: vec![me.clone()],
+            log_dir: Some(tmp.join("state/helix/agent-activity")),
         },
     );
     let server = bus
@@ -304,13 +312,44 @@ async fn policy_over_the_bus() {
     assert!(!std::fs::read_to_string(&grants_path).unwrap().contains("desktop"));
     settings_call(&conn, "StopAll", &()).await.unwrap();
     settings_call(&conn, "Forget", &("/no/such/agent",)).await.unwrap();
-    // ClearLog removes the log's day files only.
+    // The calls are in the activity log (refusals, the prompts' answers,
+    // failures after the check), with nothing of Settings' calls but
+    // ClearLog's and nothing of GetStatus.
     let log = tmp.join("state/helix/agent-activity");
-    std::fs::create_dir_all(&log).unwrap();
-    std::fs::write(log.join("2026-11-19.jsonl"), "{}\n").unwrap();
+    let lines = activity(&log);
+    let has = |method: &str, outcome: &str, extra: &dyn Fn(&serde_json::Value) -> bool| {
+        lines.iter().any(|l| l["method"] == method && l["outcome"] == outcome && l["agent"] == me.to_string_lossy().as_ref() && extra(l))
+    };
+    let any = |_: &serde_json::Value| true;
+    for refusal in ["AccessOff", "Remote", "Locked", "LevelTooLow", "NotGranted", "DeniedByUser"] {
+        assert!(has("RequestAccess", &format!("refused:{refusal}"), &any), "{refusal}: {lines:#?}");
+    }
+    assert!(has("RequestAccess", "allowed", &|l| l["level"] == "read-only" && l.get("error").is_none()));
+    assert!(has("RequestAccess", "allowed", &|l| l["error"] == "InvalidArgs"), "bad arguments fail after the check");
+    assert!(has("ConsentPrompt", "refused:DeniedByUser", &any));
+    assert!(has("ConsentPrompt", "allowed", &|l| l["grant"] == "session" && l["level"] == "read-only"));
+    assert!(has("ConsentPrompt", "allowed", &|l| l["grant"] == "always" && l["level"] == "desktop"));
+    assert!(has("ConsentPrompt", "cancelled", &any), "the prompt went away unanswered");
+    for quiet in ["GetStatus", "ListAgents", "Revoke", "Forget", "StopAll"] {
+        assert!(!lines.iter().any(|l| l["method"] == quiet), "{quiet} is not recorded");
+    }
+    for l in &lines {
+        assert!(l["time"].is_i64() && l["outcome"].is_string(), "{l}");
+    }
+    let mode = |p: &std::path::Path| std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(p).unwrap().permissions()) & 0o777;
+    assert_eq!(mode(&log), 0o700);
+    for day in std::fs::read_dir(&log).unwrap().flatten() {
+        assert_eq!(mode(&day.path()), 0o600);
+    }
+
+    // ClearLog removes the log's day files only, and records itself.
+    std::fs::write(log.join("2001-01-01.jsonl"), "{}\n").unwrap();
     std::fs::write(log.join("keep.txt"), "").unwrap();
     settings_call(&conn, "ClearLog", &()).await.unwrap();
-    assert!(!log.join("2026-11-19.jsonl").exists() && log.join("keep.txt").exists());
+    assert!(!log.join("2001-01-01.jsonl").exists() && log.join("keep.txt").exists());
+    let lines = activity(&log);
+    assert_eq!(lines.len(), 1, "{lines:#?}");
+    assert_eq!((lines[0]["method"].as_str(), lines[0]["agent"].as_str(), lines[0]["outcome"].as_str()), (Some("ClearLog"), Some(me.to_str().unwrap()), Some("allowed")));
 
     // Settings' interface refuses programs that are not Settings.
     let other = AgentAccess::new(lock.clone(), Setup { grants_path: None, settings_exes: vec!["/usr/bin/helix-settings-app".into()], ..Setup::default() });
@@ -329,6 +368,11 @@ async fn policy_over_the_bus() {
             None => conn.call_method(Some("org.helixdesktop.TestOther"), OBJECT_PATH, Some(SETTINGS_IFACE), method, &()).await,
         };
         assert_eq!(error_name(&reply), "org.freedesktop.DBus.Error.AccessDenied", "{method}");
+    }
+    // Those refusals are recorded (it writes to the same place).
+    let lines = activity(&log);
+    for method in ["ListAgents", "Revoke", "Forget", "StopAll", "ClearLog"] {
+        assert!(lines.iter().any(|l| l["method"] == method && l["outcome"] == "refused:AccessDenied" && l["agent"] == me.to_string_lossy().as_ref()), "{method}: {lines:#?}");
     }
 
     // Without logind, callers count as remote.

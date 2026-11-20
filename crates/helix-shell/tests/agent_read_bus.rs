@@ -156,7 +156,7 @@ async fn read_only_over_the_bus() {
     let lock: SharedStatus = Default::default();
     let center = Center::new(ui.clone(), lock.clone());
     let consent: agent::Consent = Arc::new(|_| Box::pin(async { Answer::Session }));
-    let access = AgentAccess::new(lock.clone(), Setup { grants_path: None, consent, confirm: agent::no_confirm(), proc_root: "/proc".into(), settings_exes: Vec::new() });
+    let access = AgentAccess::new(lock.clone(), Setup { grants_path: None, consent, confirm: agent::no_confirm(), proc_root: "/proc".into(), settings_exes: Vec::new(), log_dir: Some(tmp.join("state/helix/agent-activity")) });
     access.set_desktop(Desktop { ui: ui.clone(), notifications: Some(center.clone()) });
     let server = bus.builder().serve_at(OBJECT_PATH, Agent1 { access: access.clone() }).unwrap().name("org.gnome.Shell").unwrap().build().await.unwrap();
     access.attach(&server);
@@ -421,6 +421,41 @@ async fn read_only_over_the_bus() {
     settings.set_boolean("enabled", false).unwrap();
     let ended = tokio::time::timeout(Duration::from_secs(5), waiting).await.expect("the wait ended").unwrap();
     assert_eq!(short(&ended), "AccessOff");
+
+    // The activity log has every call with its target, and none of what
+    // the agent sent or read: no query, title, notification or file name.
+    let log_dir = tmp.join("state/helix/agent-activity");
+    let mut days: Vec<_> = std::fs::read_dir(&log_dir).unwrap().flatten().map(|e| e.path()).collect();
+    days.sort();
+    let text: String = days.iter().map(|d| std::fs::read_to_string(d).unwrap()).collect();
+    for secret in ["budget", "quarter", "REPORT", "vault\"", "Result ready", "Password copied", "notes.txt", "passwords"] {
+        assert!(!text.contains(secret), "{secret} is in the log:\n{text}");
+    }
+    let lines: Vec<serde_json::Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let has = |method: &str, outcome: &str, extra: &dyn Fn(&serde_json::Value) -> bool| lines.iter().any(|l| l["method"] == method && l["outcome"] == outcome && extra(l));
+    let any = |_: &serde_json::Value| true;
+    for method in ["GetState", "ListWindows", "ListApps", "ListWorkspaces", "ListMonitors", "ListNotifications", "RecentFiles", "SearchFiles", "WaitForWindow", "WaitForWindowClosed"] {
+        assert!(has(method, "refused:AccessOff", &any), "{method}: {text}");
+        assert!(has(method, "allowed", &|l| l["level"] == "read-only"), "{method}: {text}");
+    }
+    assert!(has("ListWindows", "refused:NotGranted", &any));
+    assert!(has("ConsentPrompt", "allowed", &|l| l["grant"] == "session"));
+    assert!(has("ListWindows", "allowed", &|l| l["target"] == "org.gnome.Calculator.desktop"));
+    assert!(has("ListWindows", "refused:Excluded", &|l| l["target"] == "org.example.Vault"));
+    assert!(has("ListWindows", "refused:Excluded", &|l| l["target"] == "org.helixdesktop.Settings"));
+    assert!(has("ListWindows", "allowed", &|l| l["error"] == "InvalidArgs"));
+    assert!(has("RecentFiles", "allowed", &|l| l["error"] == "InvalidArgs"));
+    let home_uri = gio::File::for_path(&home).uri().to_string();
+    assert!(has("SearchFiles", "allowed", &|l| l["query-length"] == 6 && l["target"] == home_uri.as_str() && l.get("error").is_none()));
+    assert!(has("SearchFiles", "allowed", &|l| l["query-length"] == 1 && l["error"] == "InvalidArgs"));
+    assert!(has("SearchFiles", "allowed", &|l| l["error"] == "NotFound"));
+    assert!(has("WaitForWindow", "allowed", &|l| l["title-length"] == 6 && l.get("error").is_none()));
+    assert!(has("WaitForWindow", "allowed", &|l| l["title-length"] == 5 && l["error"] == "TimedOut"));
+    assert!(has("WaitForWindow", "refused:Excluded", &|l| l["target"] == "org.example.Vault"));
+    assert!(has("WaitForWindow", "refused:Locked", &|l| l["target"] == "org.gnome.Maps"), "the end of a wait: {text}");
+    assert!(has("WaitForWindowClosed", "allowed", &|l| l["target"] == "window:999" && l["error"] == "NotFound"));
+    assert!(has("WaitForWindowClosed", "refused:Excluded", &|l| l["target"] == "window:21 (org.example.Vault)"));
+    assert!(has("WaitForWindowClosed", "allowed", &|l| l["target"] == "window:20 (org.gnome.Papers)" && l.get("error").is_none()));
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
