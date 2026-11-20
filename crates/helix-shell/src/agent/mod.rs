@@ -237,6 +237,7 @@ impl Caller {
         let result = policy::check_target(&self.config, target);
         if let (Err(err), Some(e)) = (&result, self.entry().as_mut()) {
             (e.outcome, _) = activity::outcome_of(err);
+            e.reason = activity::reason_of(err);
         }
         result
     }
@@ -246,6 +247,7 @@ impl Caller {
         if let (Err(err), Some(e)) = (&result, self.entry().as_mut()) {
             let (outcome, error) = activity::outcome_of(err);
             e.outcome = outcome;
+            e.reason = activity::reason_of(err);
             e.error = error.map(str::to_owned);
         }
         result
@@ -565,6 +567,7 @@ impl AgentAccess {
             Ok((agent, config)) => Ok(Caller { agent, config, entry: Mutex::new(Some(entry)), log: self.inner.log.clone() }),
             Err(err) => {
                 (entry.outcome, _) = activity::outcome_of(&err);
+                entry.reason = activity::reason_of(&err);
                 self.inner.log.record(entry);
                 Err(err)
             }

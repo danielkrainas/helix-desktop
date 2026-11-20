@@ -413,10 +413,13 @@ async fn clipboard_over_the_bus() {
     // never the content.
     let lines = activity(&log);
     let has = |method: &str, outcome: &str, extra: &dyn Fn(&serde_json::Value) -> bool| lines.iter().any(|l| l["method"] == method && l["outcome"] == outcome && extra(l));
-    assert!(has("GetClipboard", "refused:FeatureOff", &|l| l["level"] == "read-only"), "{lines:#?}");
+    assert!(has("GetClipboard", "refused:FeatureOff", &|l| l["level"] == "read-only" && l["reason"] == "clipboard"), "{lines:#?}");
     assert!(has("GetClipboard", "allowed", &|l| l["target"] == "org.gnome.TextEditor" && l["mime-type"] == "text/plain" && l["data-length"] == 10), "{lines:#?}");
     assert!(has("GetClipboard", "allowed", &|l| l["mime-type"] == "image/png" && l["data-length"] == PNG.len()), "{lines:#?}");
-    assert!(has("GetClipboard", "refused:Excluded", &|l| l["target"] == "org.example.Vault"), "{lines:#?}");
+    assert!(has("GetClipboard", "refused:Excluded", &|l| l["target"] == "org.example.Vault" && l["reason"] == "app"), "{lines:#?}");
+    assert!(has("GetClipboard", "refused:Excluded", &|l| l["reason"] == "password-field"), "a password manager's secret: {lines:#?}");
+    assert!(has("GetClipboard", "refused:Excluded", &|l| l["reason"] == "system-prompt"), "{lines:#?}");
+    assert!(has("SetClipboard", "refused:Excluded", &|l| l["reason"] == "system-prompt"), "{lines:#?}");
     assert!(has("GetClipboard", "refused:Excluded", &|l| l["target"] == "org.example.Passwords"), "{lines:#?}");
     assert!(has("GetClipboard", "allowed", &|l| l["error"] == "Failed"), "{lines:#?}");
     assert!(has("SetClipboard", "allowed", &|l| l["level"] == "desktop" && l["mime-type"] == "text/plain" && l["data-length"] == 14 && l.get("error").is_none()), "{lines:#?}");

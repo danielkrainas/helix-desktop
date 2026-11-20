@@ -630,11 +630,14 @@ async fn apps_over_the_accessibility_bus() {
     assert!(pressed.get("error").is_none());
     let set = lines.iter().find(|l| l["method"] == "A11ySetValue" && l["text-length"] == 5).expect("the text set, by length");
     assert_eq!((set["action"].as_str(), set["role"].as_str()), (Some("set-text"), Some("text")));
-    assert!(lines.iter().any(|l| l["method"] == "A11ySetValue" && l["outcome"] == "refused:Excluded" && l["role"] == "password text"));
-    assert!(lines.iter().any(|l| l["method"] == "A11yAction" && l["outcome"] == "refused:FeatureOff") || labels.is_empty());
+    assert!(lines.iter().any(|l| l["method"] == "A11ySetValue" && l["outcome"] == "refused:Excluded" && l["role"] == "password text" && l["reason"] == "password-field"));
+    assert!(lines.iter().any(|l| l["method"] == "A11yAction" && l["outcome"] == "refused:FeatureOff" && l["reason"] == "clipboard") || labels.is_empty());
     assert!(lines.iter().any(|l| l["method"] == "SensitivePrompt" && l["target"] == "A11yAction" && l["outcome"] == "refused:DeniedByUser"));
     assert!(lines.iter().any(|l| l["method"] == "A11yFind" && l["error"] == "TimedOut" && l["name-length"] == 15));
-    assert!(lines.iter().any(|l| l["method"] == "A11yTree" && l["outcome"] == "refused:Excluded" && l["target"] == "window:22 (org.example.Vault)"));
+    assert!(lines.iter().any(|l| l["method"] == "A11yTree" && l["outcome"] == "refused:Excluded" && l["target"] == "window:22 (org.example.Vault)" && l["reason"] == "app"));
+    for reason in ["system-prompt", "settings", "shell"] {
+        assert!(lines.iter().any(|l| l["outcome"] == "refused:Excluded" && l["reason"] == reason), "{reason}: {lines:#?}");
+    }
     let raw: String = std::fs::read_dir(&log).unwrap().flatten().map(|e| std::fs::read_to_string(e.path()).unwrap()).collect();
     for word in ["hello", "world", "planet", "again", "hunter2", "secret", "guess", "Press me", "Delete All", "Clicks", "Name field", "A11y Test", "typed", &press_id, &name_id, "/org/"] {
         assert!(!raw.contains(word), "the log holds {word:?}:\n{raw}");

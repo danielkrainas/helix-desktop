@@ -434,8 +434,8 @@ async fn read_only_over_the_bus() {
     assert!(has("ListWindows", "refused:NotGranted", &any));
     assert!(has("ConsentPrompt", "allowed", &|l| l["grant"] == "session"));
     assert!(has("ListWindows", "allowed", &|l| l["target"] == "org.gnome.Calculator.desktop"));
-    assert!(has("ListWindows", "refused:Excluded", &|l| l["target"] == "org.example.Vault"));
-    assert!(has("ListWindows", "refused:Excluded", &|l| l["target"] == "org.helixdesktop.Settings"));
+    assert!(has("ListWindows", "refused:Excluded", &|l| l["target"] == "org.example.Vault" && l["reason"] == "app"));
+    assert!(has("ListWindows", "refused:Excluded", &|l| l["target"] == "org.helixdesktop.Settings" && l["reason"] == "settings"));
     assert!(has("ListWindows", "allowed", &|l| l["error"] == "InvalidArgs"));
     assert!(has("RecentFiles", "allowed", &|l| l["error"] == "InvalidArgs"));
     let home_uri = gio::File::for_path(&home).uri().to_string();
@@ -445,7 +445,7 @@ async fn read_only_over_the_bus() {
     assert!(has("WaitForWindow", "allowed", &|l| l["title-length"] == 6 && l.get("error").is_none()));
     assert!(has("WaitForWindow", "allowed", &|l| l["title-length"] == 5 && l["error"] == "TimedOut"));
     assert!(has("WaitForWindow", "refused:Excluded", &|l| l["target"] == "org.example.Vault"));
-    assert!(has("WaitForWindow", "refused:Locked", &|l| l["target"] == "org.gnome.Maps"), "the end of a wait: {text}");
+    assert!(has("WaitForWindow", "refused:Locked", &|l| l["target"] == "org.gnome.Maps" && l.get("reason").is_none()), "the end of a wait: {text}");
     assert!(has("WaitForWindowClosed", "allowed", &|l| l["target"] == "window:999" && l["error"] == "NotFound"));
     assert!(has("WaitForWindowClosed", "refused:Excluded", &|l| l["target"] == "window:21 (org.example.Vault)"));
     assert!(has("WaitForWindowClosed", "allowed", &|l| l["target"] == "window:20 (org.gnome.Papers)" && l.get("error").is_none()));

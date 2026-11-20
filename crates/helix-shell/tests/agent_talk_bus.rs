@@ -418,7 +418,7 @@ async fn talking_to_the_user_over_the_bus() {
     }
     assert!(has("Ask", "allowed", &|l| l["question-length"] == 30 && l.get("choice-count").is_none() && l.get("error").is_none()), "{lines:#?}");
     assert!(has("Ask", "allowed", &|l| l["choice-count"] == 2 && l["question-length"] == 9));
-    assert!(has("Ask", "cancelled", &|l| l["question-length"] == 14));
+    assert!(has("Ask", "cancelled", &|l| l["question-length"] == 14 && l.get("reason").is_none()), "a dismissed question has no reason");
     assert!(has("Ask", "allowed", &|l| l["error"] == "TimedOut"));
     assert!(has("Ask", "allowed", &|l| l["error"] == "InvalidArgs"));
     // (The one closed on lock is counted with that one: identical

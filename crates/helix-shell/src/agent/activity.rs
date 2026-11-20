@@ -95,12 +95,46 @@ pub fn outcome_of(err: &AgentError) -> (Outcome, Option<&'static str>) {
     }
 }
 
+/// Why a call was cancelled or refused, as a token of a fixed vocabulary
+/// (README.md, "Activity log", `reason`), when the shell knows more than
+/// the error's name: which exclusion (`Excluded`; an app the user
+/// excluded is just `app`, never its id), what stopped an input
+/// (`Cancelled`: `user-input`, `cooldown`, `stopped`), which switch was
+/// off (`FeatureOff`). Never anything else of the error's message.
+pub fn reason_of(err: &AgentError) -> Option<&'static str> {
+    match err {
+        AgentError::Excluded(token) => match token.as_str() {
+            "password-field" => Some("password-field"),
+            "system-prompt" => Some("system-prompt"),
+            "shell" => Some("shell"),
+            "settings" => Some("settings"),
+            t if t.starts_with("app:") => Some("app"),
+            _ => None,
+        },
+        AgentError::Cancelled(why) => match why.as_str() {
+            "user-input" => Some("user-input"),
+            "cooldown" => Some("cooldown"),
+            "stopped" => Some("stopped"),
+            _ => None,
+        },
+        AgentError::FeatureOff(switch) => match switch.as_str() {
+            "clipboard" => Some("clipboard"),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// A detail's value: a kind (a short token) or a length.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Detail {
     Kind(&'static str),
     Count(u64),
 }
+
+/// What makes refusals identical: `agent`, `method`, `target`,
+/// `outcome` and `reason`.
+type Key = (String, String, String, String, Option<&'static str>);
 
 /// One line of the log.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -118,6 +152,8 @@ pub struct Entry {
     /// The level the call needed.
     pub level: Option<Level>,
     pub outcome: Outcome,
+    /// For a cancelled or refused call: why, as a token ([`reason_of`]).
+    pub reason: Option<&'static str>,
     /// For an allowed call that failed: the error's short name.
     pub error: Option<String>,
     /// Kinds and lengths of what the agent sent (`query-length`, …) or
@@ -149,7 +185,7 @@ pub fn clean_target(text: &str) -> String {
 impl Entry {
     /// The line (without its newline): `time`, `agent`, `name`, `method`,
     /// then `target`, `level` when there are some, `outcome`, then
-    /// `error`, the details, `count` and `until` when there are some.
+    /// `reason`, `error`, the details, `count` and `until` when there are some.
     pub fn line(&self) -> String {
         let mut out = format!("{{\"time\":{},\"agent\":{},\"name\":{},\"method\":{}", self.time, quote(&self.agent), quote(&self.name), quote(&self.method));
         if !self.target.is_empty() {
@@ -159,6 +195,9 @@ impl Entry {
             out += &format!(",\"level\":{}", quote(level.id()));
         }
         out += &format!(",\"outcome\":{}", quote(&self.outcome.text()));
+        if let Some(reason) = self.reason.filter(|_| self.outcome != Outcome::Allowed) {
+            out += &format!(",\"reason\":{}", quote(reason));
+        }
         if let Some(error) = &self.error {
             out += &format!(",\"error\":{}", quote(error));
         }
@@ -176,8 +215,8 @@ impl Entry {
     }
 
     /// What makes refusals "identical" for coalescing.
-    fn key(&self) -> (String, String, String, String) {
-        (self.agent.clone(), self.method.clone(), self.target.clone(), self.outcome.text())
+    fn key(&self) -> Key {
+        (self.agent.clone(), self.method.clone(), self.target.clone(), self.outcome.text(), self.reason)
     }
 }
 
@@ -294,7 +333,7 @@ struct State {
     retention: u32,
     /// The day pruning last ran for.
     pruned: String,
-    pending: HashMap<(String, String, String, String), Pending>,
+    pending: HashMap<Key, Pending>,
     /// Days whose file got its marker this run: (day, which cap).
     marked: HashSet<(String, &'static str)>,
     /// A refusal to write was reported to the shell's log.
@@ -534,6 +573,31 @@ mod tests {
         assert_eq!(outcome_of(&AgentError::Cancelled(String::new())), (Outcome::Cancelled, None));
         assert_eq!(outcome_of(&AgentError::TimedOut(String::new())), (Outcome::Allowed, Some("TimedOut")));
         assert_eq!(outcome_of(&AgentError::invalid_args("x")), (Outcome::Allowed, Some("InvalidArgs")));
+    }
+
+    #[test]
+    fn reasons_of_errors() {
+        for token in ["password-field", "system-prompt", "shell", "settings"] {
+            assert_eq!(reason_of(&AgentError::Excluded(token.into())), Some(token));
+        }
+        // An excluded app's id stays out of the reason.
+        assert_eq!(reason_of(&AgentError::Excluded("app:org.keepassxc.KeePassXC".into())), Some("app"));
+        assert_eq!(reason_of(&AgentError::Excluded("something new".into())), None);
+        for token in ["user-input", "cooldown", "stopped"] {
+            assert_eq!(reason_of(&AgentError::Cancelled(token.into())), Some(token));
+        }
+        assert_eq!(reason_of(&AgentError::Cancelled("the user cancelled the question".into())), None);
+        assert_eq!(reason_of(&AgentError::FeatureOff("clipboard".into())), Some("clipboard"));
+        for err in [AgentError::AccessOff("agent access is turned off".into()), AgentError::Locked("the screen is locked".into()), AgentError::LevelTooLow("apps".into()), AgentError::Failed("user-input".into()), AgentError::NotFound("stopped".into())] {
+            assert_eq!(reason_of(&err), None, "{err:?}");
+        }
+        // Written after the outcome; only for a call not allowed.
+        let e = Entry { time: 5, method: "Input".into(), outcome: Outcome::Cancelled, reason: Some("user-input"), detail: vec![("done-count", Detail::Count(2))], ..Entry::default() };
+        assert_eq!(e.line(), r#"{"time":5,"agent":"","name":"","method":"Input","outcome":"cancelled","reason":"user-input","done-count":2}"#);
+        let e = Entry { outcome: Outcome::Refused("Excluded".into()), reason: Some("app"), ..refused(5, "Excluded") };
+        assert!(e.line().ends_with(r#""outcome":"refused:Excluded","reason":"app"}"#), "{}", e.line());
+        let e = Entry { outcome: Outcome::Allowed, reason: Some("app"), ..refused(5, "Excluded") };
+        assert!(!e.line().contains("reason"));
     }
 
     #[test]

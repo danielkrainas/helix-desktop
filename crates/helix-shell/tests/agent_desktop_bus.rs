@@ -650,14 +650,14 @@ async fn desktop_actions_over_the_bus() {
     }
     assert!(has("Open", "allowed", &|l| l["target"] == notes_uri.as_str() && l.get("error").is_none()));
     assert!(has("Open", "allowed", &|l| l["target"] == "https://example.org"), "only the scheme and host: {lines:#?}");
-    assert!(has("Open", "refused:Excluded", &|l| l["target"] == "mailto:"));
+    assert!(has("Open", "refused:Excluded", &|l| l["target"] == "mailto:" && l["reason"] == "settings"));
     assert!(has("Open", "allowed", &|l| l["error"] == "NotSupported"));
     assert!(has("Launch", "allowed", &|l| l["target"] == "org.gnome.TextEditor.desktop" && l["uri-count"] == 2));
-    assert!(has("Launch", "refused:Excluded", &|l| l["target"] == "org.example.SettingsAlias"));
+    assert!(has("Launch", "refused:Excluded", &|l| l["target"] == "org.example.SettingsAlias" && l["reason"] == "settings"));
     assert!(has("WindowAction", "allowed", &|l| l["target"] == "window:11 (org.gnome.TextEditor)" && l["action"] == "tile-left"));
     // (The refused close of Settings' window is counted with the refused
     // minimize: identical refusals within a minute are coalesced.)
-    assert!(has("WindowAction", "refused:Excluded", &|l| l["target"] == "window:13 (org.helixdesktop.Settings)" && l["action"] == "minimize"));
+    assert!(has("WindowAction", "refused:Excluded", &|l| l["target"] == "window:13 (org.helixdesktop.Settings)" && l["action"] == "minimize" && l["reason"] == "settings"));
     assert!(has("WindowAction", "refused:NeedsConfirmation", &|l| l["target"] == "window:15 (org.gnome.Calculator)"));
     assert!(has("WindowAction", "refused:DeniedByUser", &|l| l["action"] == "close"));
     assert!(has("WindowAction", "allowed", &|l| l["error"] == "NotFound"));

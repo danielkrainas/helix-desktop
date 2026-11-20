@@ -89,17 +89,19 @@ fn without_a_shell() {
     std::fs::write(
         log.join("2026-11-19.jsonl"),
         "{\"time\":1795082400,\"agent\":\"/usr/bin/a\",\"name\":\"A\",\"method\":\"GetState\",\"outcome\":\"allowed\"}\n\
-         {\"time\":1795082500,\"agent\":\"/usr/bin/b\",\"name\":\"\",\"method\":\"Open\",\"target\":\"file:///tmp/x\",\"outcome\":\"refused:LevelTooLow\"}\n",
+         {\"time\":1795082500,\"agent\":\"/usr/bin/b\",\"name\":\"\",\"method\":\"Open\",\"target\":\"file:///tmp/x\",\"outcome\":\"refused:LevelTooLow\"}\n\
+         {\"time\":1795082600,\"agent\":\"/usr/bin/b\",\"name\":\"\",\"method\":\"Input\",\"target\":\"window:3 (org.example.App)\",\"level\":\"screen-and-input\",\"outcome\":\"cancelled\",\"reason\":\"user-input\",\"done-count\":2}\n",
     )
     .unwrap();
     let all = json(&run(bus.address(), &home, &["log"], &[]));
-    assert_eq!(all["entries"].as_array().unwrap().len(), 2);
+    assert_eq!(all["entries"].as_array().unwrap().len(), 3);
     let b = json(&run(bus.address(), &home, &["log", "--agent", "/usr/bin/b"], &[]));
     assert_eq!(b["entries"][0]["method"], "Open");
     let later = json(&run(bus.address(), &home, &["log", "--since", "2026-11-19T10:01:00Z"], &[]));
-    assert_eq!(later["entries"].as_array().unwrap().len(), 1);
+    assert_eq!(later["entries"].as_array().unwrap().len(), 2);
     let text = run(bus.address(), &home, &["--text", "log"], &[]);
     assert!(String::from_utf8_lossy(&text.stdout).contains("refused:LevelTooLow"));
+    assert!(String::from_utf8_lossy(&text.stdout).contains("cancelled  user-input"), "the reason after the outcome");
     let _ = std::fs::remove_dir_all(&home);
 }
 

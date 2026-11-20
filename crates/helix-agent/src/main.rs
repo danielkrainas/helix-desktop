@@ -307,7 +307,7 @@ fn log(p: &cli::Parsed) -> Result<Done, Failure> {
                 let time = entry_time(e).and_then(|t| gio::glib::DateTime::from_unix_local(t).ok()).and_then(|d| d.format("%Y-%m-%d %H:%M:%S").ok()).map(|s| s.to_string()).unwrap_or_default();
                 let name = field(e, "name");
                 let who = if name.is_empty() { field(e, "agent") } else { name };
-                [time, who, field(e, "method"), field(e, "target"), field(e, "outcome")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("  ")
+                [time, who, field(e, "method"), field(e, "target"), field(e, "outcome"), field(e, "reason")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("  ")
             })
             .collect::<Vec<_>>()
             .join("\n")

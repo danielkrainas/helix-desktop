@@ -481,10 +481,19 @@ async fn screen_and_input_over_the_bus() {
     assert!(has("Screenshot", "allowed", &|l| l["level"] == "screen-and-input" && l["scope"] == "screen" && l["width"] == 2560 && l["height"] == 720 && l["filled-count"] == 3), "{lines:#?}");
     assert!(has("Screenshot", "allowed", &|l| l["scope"] == "monitor" && l["target"] == "monitor:HEADLESS-2"), "{lines:#?}");
     assert!(has("Screenshot", "allowed", &|l| l["scope"] == "window" && l["target"] == "window:16 (org.gnome.Calculator)"), "{lines:#?}");
-    assert!(has("Screenshot", "refused:Excluded", &|l| l["target"] == "window:13 (org.example.Vault)"), "{lines:#?}");
+    assert!(has("Screenshot", "refused:Excluded", &|l| l["target"] == "window:13 (org.example.Vault)" && l["reason"] == "app"), "the reason, never the excluded app's id: {lines:#?}");
+    assert!(has("Screenshot", "refused:Excluded", &|l| l["reason"] == "system-prompt"), "{lines:#?}");
     assert!(has("Input", "allowed", &|l| l["target"] == "window:11 (org.gnome.TextEditor)" && l["event-count"] == 5 && l["click-count"] == 1 && l["shortcut-count"] == 1 && l["text-length"] == 10 && l["scroll-count"] == 1 && l["done-count"] == 10), "{lines:#?}");
-    assert!(has("Input", "cancelled", &|l| l["done-count"] == 2), "{lines:#?}");
-    assert!(has("Input", "refused:Excluded", &|l| l["target"] == "window:14 (org.helixdesktop.Settings)"), "{lines:#?}");
+    // Why a run stopped, as a token.
+    for reason in ["user-input", "cooldown", "stopped"] {
+        assert!(has("Input", "cancelled", &|l| l["done-count"] == 2 && l["reason"] == reason), "{reason}: {lines:#?}");
+    }
+    for reason in ["password-field", "system-prompt", "app"] {
+        assert!(has("Input", "refused:Excluded", &|l| l["reason"] == reason), "{reason}: {lines:#?}");
+    }
+    assert!(has("Input", "refused:Excluded", &|l| l["target"] == "window:14 (org.helixdesktop.Settings)" && l["reason"] == "settings"), "{lines:#?}");
+    assert!(!lines.iter().any(|l| l["outcome"] == "allowed" && l.get("reason").is_some()), "{lines:#?}");
+    assert!(!lines.iter().any(|l| l["outcome"] == "refused:Locked" && l.get("reason").is_some()), "{lines:#?}");
     assert!(has("Input", "refused:DeniedByUser", &|_| true), "{lines:#?}");
     let all = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n");
     for secret in ["diary", "ctrl", "slow", "Dear", "hyper"] {
