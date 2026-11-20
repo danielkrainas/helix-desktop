@@ -114,13 +114,32 @@ Wait until a window is closed (exit 22 if there is no such window).
 .SS "Talk to the user (Read only)"
 .TP
 .B ask \fIQUESTION\fR [\fB\-\-choice \fITEXT\fR]... [\fB\-\-default \fITEXT\fR] [\fB\-\-timeout \fISECONDS\fR]
-Ask the user a question.
+Ask the user a question in a dialog that names the agent and its program,
+and print the answer: the text typed, or with \fB\-\-choice\fR (2 to 8,
+each at most 64 characters) the choice picked. \fB\-\-default\fR fills in
+the answer, or picks a choice first. The question is plain text of at most
+500 characters. Exits 20 when the user cancels, 21 when \fB\-\-timeout\fR
+(default 300 seconds, \fB0\fR: no limit) runs out. Only the user at the
+machine can answer: input from remote desktop sessions and synthetic input
+do not reach the dialog. One question of an agent's is shown at a time;
+others wait. Locking the screen cancels it.
 .TP
 .B confirm \fIQUESTION\fR [\fB\-\-yes \fILABEL\fR] [\fB\-\-no \fILABEL\fR] [\fB\-\-timeout \fISECONDS\fR]
-Ask the user yes or no; exits 0 for yes and 20 for no.
+Ask the user yes or no, as \fBask\fR does; the buttons' labels are at
+most 24 characters. Exits 0 for yes and 20 for no (with
+\fB{"yes": false}\fR) or when cancelled.
 .TP
-.B remind add \fIWHEN TEXT\fR; \fBremind list\fR; \fBremind cancel \fIID\fR
-Reminders for the user.
+.B remind add \fIWHEN TEXT\fR
+Remind the user at \fIWHEN\fR (up to 366 days ahead) with a notification
+under the agent's name; \fITEXT\fR is plain text of at most 500
+characters. The user sees that it was set and can cancel it there.
+Reminders are kept when the session ends; an agent may have 20 waiting.
+.TP
+.B remind list
+This agent's reminders not yet shown.
+.TP
+.B remind cancel \fIID\fR
+Cancel one of this agent's reminders (exit 22 if it has no such reminder).
 .SS "Act (Control the desktop)"
 .TP
 .B open \fIURI-OR-PATH\fR [\fB\-\-app \fIAPP_ID\fR]
@@ -197,7 +216,10 @@ Commands whose shell support is still to come answer exit 23
 With \fB\-\-json\fR, success prints one JSON object: the status dictionary
 for \fBstatus\fR and \fBrequest\fR, \fB{"windows": [...]}\fR and similar for
 lists, the record itself for single records, \fB{"id": N}\fR for
-\fBnotify\fR, \fB{"name": "...", "on": true}\fR for \fBtoggle\fR, and
+\fBnotify\fR, \fB{"name": "...", "on": true}\fR for \fBtoggle\fR,
+\fB{"answer": "...", "choice": N}\fR for \fBask\fR (\fIN\fR is the choice's
+index from 0, \-1 for a typed answer), \fB{"yes": true}\fR for
+\fBconfirm\fR, \fB{"id": "..."}\fR for \fBremind add\fR, and
 \fB{}\fR for commands without output. Failures print
 .PP
 .nf
@@ -282,6 +304,9 @@ The activity log.
 .TP
 .I $XDG_CONFIG_HOME/helix/agent-grants.toml
 Agents the user allowed always.
+.TP
+.I $XDG_STATE_HOME/helix/agent-reminders.json
+Agents' reminders not yet shown.
 .SH EXAMPLES
 .nf
 $ helix-agent status
@@ -296,6 +321,9 @@ $ helix-agent workspace switch 1
 $ helix-agent toggle dark-style on
 $ helix-agent set volume 40
 $ helix-agent notify "Build finished" "All 212 tests passed"
+$ helix-agent ask "Which branch should I deploy?" \-\-choice main \-\-choice staging
+$ helix-agent confirm "Delete the 3 old backups?" \-\-yes Delete \-\-no Keep
+$ helix-agent remind add +30m "Check the deploy"
 .fi
 .SH SEE ALSO
 .BR gsettings (1),

@@ -327,6 +327,11 @@ pub enum UiEvent {
     /// Window and workspace requests of agents, for the compositor's
     /// window list (helixdesktop/desktop#147).
     AgentWindow(agent::actions::WindowSlot),
+    /// An agent's question for the user (helixdesktop/desktop#148).
+    AgentQuestion(agent::talk::QuestionSlot),
+    /// Close an agent's question (by its id) unanswered: its time ran
+    /// out, its agent lost access, or it was answered.
+    AgentQuestionClose(u64),
 }
 
 /// What the quick settings menu changes.

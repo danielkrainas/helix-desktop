@@ -69,8 +69,8 @@ const fn cmd(name: &'static str, summary: &'static str, level: Option<&'static s
 
 const LIMIT: Opt = valued("limit", "N", n_("Show at most N"));
 const MIME: Opt = valued("type", "MIME", n_("Only this type, e.g. application/pdf"));
-const WAIT_TIMEOUT: Opt = valued("timeout", "SECONDS", n_("Give up after this long"));
 const WAIT_FOR: Opt = valued("timeout", "SECONDS", n_("Give up after this long [default: 60; 0: never]"));
+const ASK_FOR: Opt = valued("timeout", "SECONDS", n_("Give up waiting for the answer after this long [default: 300; 0: never]"));
 const WINDOW: Arg = arg("WINDOW", n_("A window id from “helix-agent windows”"));
 
 /// The top-level commands, in `--help`'s groups.
@@ -131,24 +131,27 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
     ]),
     (n_("Talk to the user (Read only):"), &[
         Cmd {
-            args: &[arg("QUESTION", n_("What to ask"))],
+            ready: true,
+            args: &[arg("QUESTION", n_("What to ask (plain text, at most 500 characters)"))],
             opts: &[
-                Opt { many: true, ..valued("choice", "TEXT", n_("An answer to offer (repeat for more)")) },
-                valued("default", "TEXT", n_("The answer filled in at first")),
-                WAIT_TIMEOUT,
+                Opt { many: true, ..valued("choice", "TEXT", n_("An answer to offer (2 to 8; repeat for more)")) },
+                valued("default", "TEXT", n_("The answer filled in at first, or the choice picked at first")),
+                ASK_FOR,
             ],
             ..cmd("ask", n_("Ask the user a question"), Some("read-only"))
         },
         Cmd {
-            args: &[arg("QUESTION", n_("What to ask"))],
-            opts: &[valued("yes", "LABEL", n_("The yes button's label")), valued("no", "LABEL", n_("The no button's label")), WAIT_TIMEOUT],
+            ready: true,
+            args: &[arg("QUESTION", n_("What to ask (plain text, at most 500 characters)"))],
+            opts: &[valued("yes", "LABEL", n_("The yes button's label (at most 24 characters)")), valued("no", "LABEL", n_("The no button's label (at most 24 characters)")), ASK_FOR],
             ..cmd("confirm", n_("Ask the user yes or no"), Some("read-only"))
         },
         Cmd {
+            ready: true,
             subs: &[
-                Cmd { args: &[arg("WHEN", n_("When to remind")), arg("TEXT", n_("What to say"))], ..cmd("add", n_("Add a reminder"), Some("read-only")) },
-                Cmd { records: Some("Reminder"), ..cmd("list", n_("This agent's reminders"), Some("read-only")) },
-                Cmd { args: &[arg("ID", n_("A reminder id from “helix-agent remind list”"))], ..cmd("cancel", n_("Cancel a reminder"), Some("read-only")) },
+                Cmd { ready: true, args: &[arg("WHEN", n_("When to remind: a date and time, or +10m, +2h…")), arg("TEXT", n_("What to say (at most 500 characters)"))], ..cmd("add", n_("Add a reminder"), Some("read-only")) },
+                Cmd { ready: true, records: Some("Reminder"), ..cmd("list", n_("This agent's reminders"), Some("read-only")) },
+                Cmd { ready: true, args: &[arg("ID", n_("A reminder id from “helix-agent remind list”"))], ..cmd("cancel", n_("Cancel a reminder"), Some("read-only")) },
             ],
             ..cmd("remind", n_("Reminders for the user"), Some("read-only"))
         },
@@ -283,8 +286,7 @@ impl Parsed {
         self.opts.iter().rev().find(|(n, _)| *n == name).map(|(_, v)| v.as_str())
     }
 
-    /// Every value of a repeated option (`ask --choice`, helixdesktop/desktop#148).
-    #[allow(dead_code)]
+    /// Every value of a repeated option (`ask --choice`).
     pub fn opts_all(&self, name: &str) -> Vec<&str> {
         self.opts.iter().filter(|(n, _)| *n == name).map(|(_, v)| v.as_str()).collect()
     }

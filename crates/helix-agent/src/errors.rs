@@ -34,11 +34,19 @@ pub struct Failure {
     pub code: &'static str,
     pub message: String,
     pub dbus_error: Option<String>,
+    /// What standard output says instead of the error (`confirm`
+    /// answered no: `{"yes": false}`, and nothing in text).
+    pub output: Option<serde_json::Value>,
 }
 
 impl Failure {
     pub fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), dbus_error: None }
+        Self { code, message: message.into(), dbus_error: None, output: None }
+    }
+
+    /// `confirm` answered no: exit 20 with `{"yes": false}`.
+    pub fn said_no() -> Self {
+        Self { output: Some(serde_json::json!({ "yes": false })), ..Self::new("no", tr("The user said no")) }
     }
 
     pub fn usage(message: impl Into<String>) -> Self {
@@ -136,7 +144,7 @@ pub fn from_dbus(name: &str, message: &str) -> Failure {
             _ => ("failed", if message.is_empty() { name.to_owned() } else { message.to_owned() }),
         },
     };
-    Failure { code, message: text, dbus_error: Some(name.to_owned()) }
+    Failure { code, message: text, dbus_error: Some(name.to_owned()), output: None }
 }
 
 /// `Excluded`'s message by its token.

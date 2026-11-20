@@ -128,16 +128,21 @@ pub(crate) fn window_id(text: &str) -> Result<u32, Failure> {
 
 /// `wait`'s own `--timeout` (seconds; 0: no limit).
 fn wait_timeout(p: &cli::Parsed) -> Result<f64, Failure> {
-    p.opt("timeout").map(cli::seconds).transpose().map_err(Failure::usage).map(|t| t.unwrap_or(WAIT_TIMEOUT))
+    own_timeout(p, WAIT_TIMEOUT)
 }
 
-fn millis(seconds: f64) -> u32 {
+/// A command's own `--timeout` (seconds; 0: no limit), `default` without it.
+pub(crate) fn own_timeout(p: &cli::Parsed, default: f64) -> Result<f64, Failure> {
+    p.opt("timeout").map(cli::seconds).transpose().map_err(Failure::usage).map(|t| t.unwrap_or(default))
+}
+
+pub(crate) fn millis(seconds: f64) -> u32 {
     (seconds * 1000.0).round().min(f64::from(u32::MAX)) as u32
 }
 
 /// How long to wait for the shell's answer to a wait: the wait, and the
 /// global `--timeout` on top (no limit when either has none).
-fn call_timeout(p: &cli::Parsed, wait: f64) -> f64 {
+pub(crate) fn call_timeout(p: &cli::Parsed, wait: f64) -> f64 {
     let answer = p.timeout.unwrap_or(crate::DEFAULT_TIMEOUT);
     if wait == 0.0 || answer == 0.0 { 0.0 } else { wait + answer }
 }

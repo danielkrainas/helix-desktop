@@ -25,6 +25,9 @@
 //! desktop* methods (helixdesktop/desktop#147) open and launch through the
 //! shell's launcher, act on windows and workspaces through the UI's window
 //! list, change quick settings and show notifications ([`actions`]).
+//! The *talk to the user* methods (helixdesktop/desktop#148) ask in a
+//! dialog only the user at the machine can answer, and keep reminders
+//! that come due as notifications ([`talk`]).
 
 pub mod actions;
 pub mod activity;
@@ -35,6 +38,7 @@ pub mod grants;
 pub mod identity;
 pub mod policy;
 pub mod prompt;
+pub mod talk;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -109,6 +113,8 @@ pub struct Setup {
     pub settings_exes: Vec<PathBuf>,
     /// Where the activity log goes (`None`: nowhere).
     pub log_dir: Option<PathBuf>,
+    /// Where agents' reminders are kept (`None`: memory only).
+    pub reminders_path: Option<PathBuf>,
 }
 
 impl Default for Setup {
@@ -120,6 +126,7 @@ impl Default for Setup {
             proc_root: PathBuf::from("/proc"),
             settings_exes: settings_executables(),
             log_dir: Some(log_dir()),
+            reminders_path: Some(talk::default_path()),
         }
     }
 }
@@ -252,6 +259,17 @@ struct Inner {
     desktop: OnceLock<Desktop>,
     /// Agents' notifications, for the rate limit.
     notify_limit: Mutex<actions::NotifyLimit>,
+    /// Each agent's questions, one at a time.
+    turns: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// The id of the next question.
+    next_question: std::sync::atomic::AtomicU64,
+    /// Reminders waiting to be shown, and what wakes their timer.
+    reminders: Mutex<talk::Reminders>,
+    reminders_changed: Arc<tokio::sync::Notify>,
+    /// Reminders added, for their rate limit.
+    reminder_limit: Mutex<actions::NotifyLimit>,
+    /// The "Reminder set" notification of each waiting reminder.
+    reminder_notes: Mutex<HashMap<String, u32>>,
 }
 
 /// Where the *Read only* methods read the desktop's state.
@@ -260,6 +278,28 @@ pub struct Desktop {
     /// The UI, which answers [`UiEvent::AgentSnapshot`](crate::UiEvent::AgentSnapshot).
     pub ui: tokio::sync::mpsc::UnboundedSender<crate::UiEvent>,
     pub notifications: Option<crate::notifications::Center>,
+}
+
+/// How often an open question checks that its agent still has access.
+const QUESTION_POLL: Duration = Duration::from_millis(500);
+/// The longest the reminders' timer sleeps.
+const REMINDER_POLL: Duration = Duration::from_secs(30);
+
+/// Whether the bus still has `name` (a caller that went away has not).
+async fn name_has_owner(conn: &Connection, name: &zbus::names::UniqueName<'_>) -> bool {
+    let Ok(dbus) = fdo::DBusProxy::new(conn).await else { return true };
+    dbus.name_has_owner(zbus::names::BusName::Unique(name.to_owned())).await.unwrap_or(true)
+}
+
+/// A Reminder record (README.md, "Records"); for Settings, with whose it is.
+fn reminder_record(r: &talk::Reminder, whose: bool) -> HashMap<String, OwnedValue> {
+    let mut out = HashMap::from([("id".to_owned(), value(r.id.as_str())), ("time".to_owned(), value(r.time)), ("text".to_owned(), value(r.text.as_str()))]);
+    if whose {
+        out.insert("agent".to_owned(), value(r.agent.as_str()));
+        out.insert("executable".to_owned(), value(r.executable.as_str()));
+        out.insert("name".to_owned(), value(r.name.as_str()));
+    }
+    out
 }
 
 /// How often waits look at the windows again.
@@ -354,6 +394,12 @@ impl AgentAccess {
                 running: Mutex::new(HashMap::new()),
                 desktop: OnceLock::new(),
                 notify_limit: Mutex::new(actions::NotifyLimit::default()),
+                turns: Mutex::new(HashMap::new()),
+                next_question: std::sync::atomic::AtomicU64::new(1),
+                reminders: Mutex::new(talk::Reminders::load(setup.reminders_path)),
+                reminders_changed: Default::default(),
+                reminder_limit: Mutex::new(actions::NotifyLimit::default()),
+                reminder_notes: Mutex::new(HashMap::new()),
                 log: Arc::new(activity::Log::new(setup.log_dir)),
             }),
         }
@@ -380,6 +426,7 @@ impl AgentAccess {
                 tokio::task::spawn_blocking(move || log.tick(now()));
             }
         });
+        self.start_reminders();
         let access = self.clone();
         tokio::spawn(async move {
             if !helix_settings::has_schema(policy::SCHEMA) {
@@ -599,7 +646,173 @@ impl AgentAccess {
 
     /// Read the desktop's state from `desktop` from now on.
     pub fn set_desktop(&self, desktop: Desktop) {
+        if let Some(center) = &desktop.notifications {
+            // The "Reminder set" notification's button.
+            let weak = Arc::downgrade(&self.inner);
+            center.on_reminder_cancel(Arc::new(move |id: &str| {
+                if let Some(inner) = weak.upgrade() {
+                    AgentAccess { inner }.cancel_reminder_by_user(id);
+                }
+            }));
+        }
         let _ = self.inner.desktop.set(desktop);
+        self.inner.reminders_changed.notify_one();
+    }
+
+    /// Ask the user `dialog` for `caller` until `timeout`, one question of
+    /// an agent's at a time (README.md, "Talk to the user methods"). Ends
+    /// with the answer; [`talk::Reply::Cancelled`] when the screen locks;
+    /// the error a new call would get when the agent loses access
+    /// meanwhile; `TimedOut`; `Failed` when the caller goes away. Whatever
+    /// ends it, the dialog goes.
+    pub async fn question(&self, conn: &Connection, header: &Header<'_>, caller: &Caller, dialog: talk::Dialog, timeout: Option<Duration>) -> Result<talk::Reply, AgentError> {
+        let unavailable = || AgentError::Failed("the shell cannot show questions".into());
+        let ui = self.inner.desktop.get().ok_or_else(unavailable)?.ui.clone();
+        let sender = header.sender().map(|s| s.to_owned());
+        // The indicator shows the agent while its question is open or waits.
+        let _busy = self.busy(&caller.agent);
+        let turn = self.inner.turns.lock().unwrap_or_else(|e| e.into_inner()).entry(caller.agent.id.clone()).or_default().clone();
+        let id = self.inner.next_question.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let asking = async {
+            let _turn = turn.lock().await;
+            let (reply, mut answer) = tokio::sync::oneshot::channel();
+            let request = talk::QuestionRequest { id, name: caller.agent.name.clone(), agent: caller.agent.id.clone(), dialog, reply };
+            ui.send(crate::UiEvent::AgentQuestion(talk::QuestionSlot::new(request))).map_err(|_| unavailable())?;
+            let mut poll = tokio::time::interval(QUESTION_POLL);
+            loop {
+                tokio::select! {
+                    got = &mut answer => return Ok(got.unwrap_or(talk::Reply::Cancelled)),
+                    _ = poll.tick() => {
+                        match self.recheck(&caller.agent, READ).await {
+                            Ok(_) => {}
+                            // Locking closes the question unanswered.
+                            Err(AgentError::Locked(_)) => return Ok(talk::Reply::Cancelled),
+                            Err(err) => return Err(err),
+                        }
+                        if let Some(sender) = &sender {
+                            if !name_has_owner(conn, sender).await {
+                                return Err(AgentError::Failed("the caller went away".into()));
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        let result = match timeout {
+            Some(t) => tokio::time::timeout(t, asking).await.unwrap_or_else(|_| Err(AgentError::TimedOut("the user did not answer in time".into()))),
+            None => asking.await,
+        };
+        let _ = ui.send(crate::UiEvent::AgentQuestionClose(id));
+        result
+    }
+
+    fn reminders(&self) -> MutexGuard<'_, talk::Reminders> {
+        self.inner.reminders.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Show reminders when they come due: now (those due while the shell
+    /// was not running), then at their times, looking again at least
+    /// every [`REMINDER_POLL`] (the clock may jump, the machine sleep).
+    fn start_reminders(&self) {
+        let weak = Arc::downgrade(&self.inner);
+        tokio::spawn(async move {
+            loop {
+                let wait = {
+                    let Some(inner) = weak.upgrade() else { return };
+                    let access = AgentAccess { inner };
+                    access.reminders_due(now());
+                    let next = access.reminders().next();
+                    let secs = next.map_or(REMINDER_POLL.as_secs() as i64, |t| t - now()).clamp(1, REMINDER_POLL.as_secs() as i64);
+                    let changed = access.inner.reminders_changed.clone();
+                    // (Not holding the shell's state while waiting.)
+                    drop(access);
+                    async move {
+                        tokio::select! {
+                            _ = changed.notified() => {}
+                            _ = tokio::time::sleep(Duration::from_secs(secs as u64)) => {}
+                        }
+                    }
+                };
+                wait.await;
+            }
+        });
+    }
+
+    /// How a reminder's notification names its agent, as the indicator.
+    fn reminder_label(r: &talk::Reminder) -> String {
+        prompt::Active { agent: r.agent.clone(), executable: r.executable.clone(), name: r.name.clone(), level: Level::ReadOnly }.label()
+    }
+
+    /// A line about reminder `r` (the event `Reminder`).
+    fn reminder_entry(r: &talk::Reminder, outcome: activity::Outcome) -> activity::Entry {
+        activity::Entry { time: now(), agent: r.agent.clone(), name: r.name.clone(), method: activity::REMINDER.to_owned(), target: talk::log_target(&r.id), outcome, ..activity::Entry::default() }
+    }
+
+    /// Show the reminders due at `now` as notifications (dropped unshown
+    /// with access off), once notifications can be shown.
+    pub fn reminders_due(&self, now: i64) {
+        let Some(center) = self.inner.desktop.get().and_then(|d| d.notifications.clone()) else { return };
+        let due = self.reminders().take_due(now);
+        if due.is_empty() {
+            return;
+        }
+        let enabled = Config::read().enabled;
+        for r in &due {
+            if let Some(note) = self.inner.reminder_notes.lock().unwrap_or_else(|e| e.into_inner()).remove(&r.id) {
+                center.withdraw(note);
+            }
+            let outcome = if enabled {
+                center.reminder_due(&Self::reminder_label(r), &r.text);
+                tracing::info!(agent = %r.agent, id = %r.id, "agent reminder shown");
+                activity::Outcome::Allowed
+            } else {
+                tracing::info!(agent = %r.agent, id = %r.id, "agent reminder dropped: agent access is off");
+                activity::Outcome::Refused("AccessOff".into())
+            };
+            self.inner.log.record(Self::reminder_entry(r, outcome));
+        }
+        self.reminders_changed();
+    }
+
+    /// A reminder was added: say so in a notification the user can cancel
+    /// it from, and wake the timer.
+    fn reminder_added(&self, r: &talk::Reminder) {
+        if let Some(center) = self.inner.desktop.get().and_then(|d| d.notifications.as_ref()) {
+            let note = center.reminder_set(&Self::reminder_label(r), &r.id, r.time, &r.text);
+            self.inner.reminder_notes.lock().unwrap_or_else(|e| e.into_inner()).insert(r.id.clone(), note);
+        }
+        self.reminders_changed();
+    }
+
+    /// Cancel reminder `id` of `agent` (anyone's for `None`); whether there
+    /// was one.
+    pub fn cancel_reminder(&self, agent: Option<&str>, id: &str) -> Option<talk::Reminder> {
+        let gone = self.reminders().cancel(agent, id)?;
+        let note = self.inner.reminder_notes.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        if let (Some(note), Some(center)) = (note, self.inner.desktop.get().and_then(|d| d.notifications.as_ref())) {
+            center.withdraw(note);
+        }
+        self.reminders_changed();
+        Some(gone)
+    }
+
+    /// The user cancelled reminder `id` (the notification's button).
+    pub fn cancel_reminder_by_user(&self, id: &str) {
+        if let Some(r) = self.cancel_reminder(None, id) {
+            tracing::info!(agent = %r.agent, id, "agent reminder cancelled by the user");
+            self.inner.log.record(Self::reminder_entry(&r, activity::Outcome::Cancelled));
+        }
+    }
+
+    /// Wake the reminders' timer and tell Settings.
+    fn reminders_changed(&self) {
+        self.inner.reminders_changed.notify_one();
+        let Some(conn) = self.inner.conn.get().cloned() else { return };
+        tokio::spawn(async move {
+            if let Ok(emitter) = SignalEmitter::new(&conn, OBJECT_PATH) {
+                let _ = AgentAccessSettings::reminders_changed(&emitter).await;
+            }
+        });
     }
 
     /// The windows, workspaces and monitors as the UI knows them now.
@@ -1397,6 +1610,93 @@ impl Agent1 {
         caller.finish(result)
     }
 
+    async fn ask(&self, question: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<HashMap<String, OwnedValue>, AgentError> {
+        // `interactive` false spares the consent prompt only: the question
+        // is what the call asks for.
+        let caller = self.access.check(conn, &header, "Ask", READ, CallOptions::from_dict(&options)).await?;
+        // Never the question, the choices or the answer: lengths, counts.
+        caller.detail("question-length", activity::Detail::Count(question.chars().count() as u64));
+        let result = async {
+            let dialog = talk::ask_dialog(question, &options)?;
+            let timeout = talk::timeout(&options)?;
+            let choices = match &dialog {
+                talk::Dialog::Ask { choices, .. } => choices.clone(),
+                talk::Dialog::Confirm { .. } => Vec::new(),
+            };
+            if !choices.is_empty() {
+                caller.detail("choice-count", activity::Detail::Count(choices.len() as u64));
+            }
+            let answer = |text: &str, index: i32| HashMap::from([("answer".to_owned(), value(text)), ("choice".to_owned(), value(index))]);
+            match self.access.question(conn, &header, &caller, dialog, timeout).await? {
+                talk::Reply::Text(text) => Ok(answer(&text, -1)),
+                talk::Reply::Choice(i) if i < choices.len() => Ok(answer(&choices[i], i as i32)),
+                _ => Err(AgentError::Cancelled("the user cancelled the question".into())),
+            }
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn confirm(&self, question: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<bool, AgentError> {
+        let caller = self.access.check(conn, &header, "Confirm", READ, CallOptions::from_dict(&options)).await?;
+        caller.detail("question-length", activity::Detail::Count(question.chars().count() as u64));
+        let result = async {
+            let dialog = talk::confirm_dialog(question, &options)?;
+            let timeout = talk::timeout(&options)?;
+            match self.access.question(conn, &header, &caller, dialog, timeout).await? {
+                talk::Reply::Yes(yes) => Ok(yes),
+                _ => Err(AgentError::Cancelled("the user cancelled the question".into())),
+            }
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn add_reminder(&self, time: i64, text: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<String, AgentError> {
+        let caller = self.access.check(conn, &header, "AddReminder", READ, CallOptions::from_dict(&options)).await?;
+        caller.detail("text-length", activity::Detail::Count(text.chars().count() as u64));
+        let result = async {
+            let text = talk::bounded(text, "the text", talk::QUESTION_MAX)?;
+            let at = now();
+            if time < at - talk::REMINDER_BEHIND || time > at + talk::REMINDER_AHEAD {
+                return Err(AgentError::invalid_args("the time must be from a minute ago to 366 days ahead"));
+            }
+            let allowed = self.access.inner.reminder_limit.lock().unwrap_or_else(|e| e.into_inner()).allow(&caller.agent.id, Instant::now());
+            if !allowed {
+                return Err(AgentError::Failed(format!("too many reminders: at most {} a minute", actions::NOTIFY_MAX)));
+            }
+            let added = self.access.reminders().add(&caller.agent, time, text, at);
+            let reminder = added.map_err(|e| match e {
+                talk::AddError::Time => AgentError::invalid_args("the time must be from a minute ago to 366 days ahead"),
+                talk::AddError::Full => AgentError::Failed(format!("this agent already has {} reminders waiting", talk::REMINDERS_MAX)),
+            })?;
+            caller.target(talk::log_target(&reminder.id));
+            tracing::info!(agent = %caller.agent.id, id = %reminder.id, "agent reminder added");
+            self.access.reminder_added(&reminder);
+            Ok(reminder.id)
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn list_reminders(&self, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        let caller = self.access.check(conn, &header, "ListReminders", READ, CallOptions::from_dict(&options)).await?;
+        // Its own only.
+        let mine = self.access.reminders().of(Some(&caller.agent.id));
+        caller.finish(Ok(mine.iter().map(|r| reminder_record(r, false)).collect()))
+    }
+
+    async fn cancel_reminder(&self, id: &str, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<(), AgentError> {
+        let caller = self.access.check(conn, &header, "CancelReminder", READ, CallOptions::from_dict(&options)).await?;
+        caller.target(talk::log_target(id));
+        // Another agent's reminder is not there for it.
+        let result = match self.access.cancel_reminder(Some(&caller.agent.id), id) {
+            Some(_) => Ok(()),
+            None => Err(AgentError::NotFound(format!("reminder {id}"))),
+        };
+        caller.finish(result)
+    }
+
     #[zbus(signal)]
     pub async fn access_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 }
@@ -1449,6 +1749,25 @@ impl AgentAccessSettings {
         Ok(())
     }
 
+    /// Every agent's waiting reminders (Reminder records with `agent`,
+    /// `executable` and `name`), by time.
+    async fn list_reminders(&self, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<Vec<HashMap<String, OwnedValue>>> {
+        self.access.require_settings(conn, &header, "ListReminders").await?;
+        Ok(self.access.reminders().of(None).iter().map(|r| reminder_record(r, true)).collect())
+    }
+
+    /// Cancel any agent's reminder (unknown ids are not an error).
+    async fn cancel_reminder(&self, id: &str, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> fdo::Result<()> {
+        let exe = self.access.require_settings(conn, &header, "CancelReminder").await?;
+        self.access.cancel_reminder(None, id);
+        self.access.record_settings(&exe, "CancelReminder", &talk::log_target(id));
+        Ok(())
+    }
+
     #[zbus(signal)]
     pub async fn agents_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+
+    /// The waiting reminders changed.
+    #[zbus(signal)]
+    pub async fn reminders_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
 }

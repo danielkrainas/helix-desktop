@@ -123,6 +123,20 @@ pub fn arrival(arrived: i64, now: &gio::glib::DateTime, long: bool) -> String {
     then.format(format).map(|s| s.to_string()).unwrap_or_default()
 }
 
+/// When a reminder is due, as "Reminder set for …" says it: the time of
+/// day today, else the day and the time.
+pub fn reminder_time(at: &gio::glib::DateTime, now: &Option<gio::glib::DateTime>) -> String {
+    let clock = crate::clock::time_of_day(crate::clock::current(), at);
+    let today = now.as_ref().is_some_and(|n| (n.year(), n.day_of_year()) == (at.year(), at.day_of_year()));
+    if today {
+        return clock;
+    }
+    // Translators: a GLib date format (strftime-like): the day of a reminder.
+    let day = at.format(tr("%a %-d %b")).map(|s| s.to_string()).unwrap_or_default();
+    // Translators: a reminder's day and time of day ("Thu 20 Nov 14:00").
+    trf!("{day} {time}", day = day, time = clock)
+}
+
 /// What the notification list shows.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct List {
@@ -149,7 +163,13 @@ pub struct Center {
     /// The banner the pointer is over or the keyboard is in: its timer
     /// waits.
     held: Arc<Mutex<Option<u32>>>,
+    /// Cancels an agent's reminder (Agent Access), for the button of the
+    /// notification that says it was set.
+    reminder_cancel: Arc<Mutex<Option<ReminderCancel>>>,
 }
+
+/// What cancels a reminder by its id.
+pub type ReminderCancel = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl Center {
     pub fn new(ui: mpsc::UnboundedSender<UiEvent>, lock: SharedStatus) -> Self {
@@ -163,7 +183,41 @@ impl Center {
             listed: Default::default(),
             overflowed: Default::default(),
             held: Default::default(),
+            reminder_cancel: Default::default(),
         }
+    }
+
+    /// Cancel reminders with `cancel` when the user asks in a
+    /// notification ([`Center::reminder_set`]).
+    pub fn on_reminder_cancel(&self, cancel: ReminderCancel) {
+        *self.reminder_cancel.lock().unwrap_or_else(|e| e.into_inner()) = Some(cancel);
+    }
+
+    /// An agent (`agent`, the label the indicator gives it) set reminder
+    /// `id` for `time` (Unix seconds): said under "Agent: <agent>", with
+    /// the text and a button that cancels it.
+    pub fn reminder_set(&self, agent: &str, id: &str, time: i64, text: &str) -> u32 {
+        let when = gio::glib::DateTime::from_unix_local(time).ok().map(|d| reminder_time(&d, &gio::glib::DateTime::now_local().ok())).unwrap_or_default();
+        self.post(Notification {
+            id: 0,
+            app_name: trf!("Agent: {agent}", agent = agent),
+            summary: trf!("Reminder set for {time}", time = when),
+            body: crate::agent::talk::clean(text),
+            actions: vec![("cancel-reminder".into(), tr("Cancel Reminder").into())],
+            has_default: false,
+            urgency: Urgency::Normal,
+            timeout: Notification::timeout_from(-1, Urgency::Normal),
+            icon: Some(IconSource::Names(vec!["alarm-symbolic".into(), "dialog-information-symbolic".into()])),
+            origin: Origin::Reminder { id: id.to_owned() },
+            markup: false,
+            transient: false,
+            app_id: String::new(),
+        }, None)
+    }
+
+    /// An agent's reminder came due: its text under "Agent: <agent>".
+    pub fn reminder_due(&self, agent: &str, text: &str) -> u32 {
+        self.agent_notice(agent, tr("Reminder"), &crate::agent::talk::clean(text), Some("alarm-symbolic"), false)
     }
 
     /// The pointer entered or left banner `id`, or keyboard focus moved
@@ -579,6 +633,15 @@ impl Center {
             }
             Origin::Window { id: window } => {
                 let _ = self.ui.send(UiEvent::ActivateWindow(*window));
+                self.remove(id);
+            }
+            Origin::Reminder { id: reminder } => {
+                if key == "cancel-reminder" {
+                    let cancel = self.reminder_cancel.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    if let Some(cancel) = cancel {
+                        cancel(reminder);
+                    }
+                }
                 self.remove(id);
             }
             Origin::Screenshot { path } => {

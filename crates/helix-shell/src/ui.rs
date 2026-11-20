@@ -58,6 +58,7 @@ use helix_i18n::tr;
 use helix_i18n::trf;
 
 mod agent_prompt;
+mod agent_question;
 mod app_grid;
 mod atspi;
 #[cfg(test)]
@@ -383,6 +384,8 @@ struct Ui {
     agent_menu: Vec<String>,
     /// An agent prompt waiting for the dialog shown to go.
     agent_waiting: Option<agent_prompt::AgentPromptView>,
+    /// Agents' questions waiting for their turn, in order.
+    agent_questions: std::collections::VecDeque<agent_question::AgentQuestionView>,
     /// The screen is being recorded (panel indicator): since when.
     recording: Option<std::time::Instant>,
     /// The recording time the panel shows.
@@ -655,6 +658,8 @@ enum DialogKind {
     Files(Box<file_chooser::ChooserView>),
     /// Agent Access's consent or sensitive-action prompt.
     Agent(Box<agent_prompt::AgentPromptView>),
+    /// An agent's question (`Ask`, `Confirm`).
+    AgentQuestion(Box<agent_question::AgentQuestionView>),
 }
 
 impl DialogKind {
@@ -666,7 +671,7 @@ impl DialogKind {
             // Wait; Force Quit must be chosen.
             DialogKind::NotResponding { .. } => Choice::Canceled,
             // Deny, Cancel.
-            DialogKind::ShortcutsInhibit { .. } | DialogKind::RemoteControl { .. } | DialogKind::ApproveExtension { .. } | DialogKind::Agent(_) => Choice::Canceled,
+            DialogKind::ShortcutsInhibit { .. } | DialogKind::RemoteControl { .. } | DialogKind::ApproveExtension { .. } | DialogKind::Agent(_) | DialogKind::AgentQuestion(_) => Choice::Canceled,
         }
     }
 
@@ -1351,7 +1356,7 @@ fn paint_question_with(canvas: &mut Canvas, (text, bold): (Option<&Text>, Option
             };
             (title.to_owned(), message, tr("Cancel"), confirm, &d.blockers)
         }
-        DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) | DialogKind::Files(_) | DialogKind::Agent(_) => return None,
+        DialogKind::ShareScreen { .. } | DialogKind::Prompt(_) | DialogKind::Files(_) | DialogKind::Agent(_) | DialogKind::AgentQuestion(_) => return None,
         DialogKind::ApproveExtension { name, .. } => (trf!("Turn on {name}?", name = name), String::new(), tr("Cancel"), tr("Turn On").to_owned(), &approval_rows),
         DialogKind::RemoteControl { app, devices, .. } => (
             tr("Allow remote control?").to_owned(),
@@ -3059,8 +3064,11 @@ impl Ui {
                 }
                 // An agent prompt comes back once this dialog is gone.
                 let old = std::mem::replace(&mut open.state, state);
-                if let DialogKind::Agent(view) = old.kind {
-                    self.agent_waiting = Some(*view);
+                match old.kind {
+                    DialogKind::Agent(view) => self.agent_waiting = Some(*view),
+                    // A question too, first in its line.
+                    DialogKind::AgentQuestion(view) => self.agent_questions.push_front(*view),
+                    _ => {}
                 }
                 self.draw_dialog();
             }
@@ -3104,7 +3112,7 @@ impl Ui {
             }
             DialogKind::Prompt(_) => return,
             // (Its own buttons answer it; dropped, it goes unanswered.)
-            DialogKind::Agent(_) => return,
+            DialogKind::Agent(_) | DialogKind::AgentQuestion(_) => return,
             // (The chooser's buttons answer it themselves.)
             DialogKind::Files(mut view) => {
                 view.cancel();
@@ -3150,11 +3158,13 @@ impl Ui {
 
     fn dialog_key(&mut self, event: &KeyEvent) {
         let Some(dialog) = self.dialog.as_mut() else { return };
-        if matches!(dialog.state.kind, DialogKind::Agent(_)) {
-            if agent_prompt::armed(dialog.state.shown, Instant::now()) {
-                self.agent_prompt_key(event);
-            } else {
+        if matches!(dialog.state.kind, DialogKind::Agent(_) | DialogKind::AgentQuestion(_)) {
+            if !agent_prompt::armed(dialog.state.shown, Instant::now()) {
                 tracing::debug!("key too soon after the agent prompt appeared; ignored");
+            } else if matches!(dialog.state.kind, DialogKind::AgentQuestion(_)) {
+                self.agent_question_key(event);
+            } else {
+                self.agent_prompt_key(event);
             }
             return;
         }
@@ -3214,7 +3224,8 @@ impl Ui {
             | DialogKind::ShortcutsInhibit { .. }
             | DialogKind::Prompt(_)
             | DialogKind::Files(_)
-            | DialogKind::Agent(_) => return,
+            | DialogKind::Agent(_)
+            | DialogKind::AgentQuestion(_) => return,
             DialogKind::End(data) if !data.blockers.is_empty() => return,
             DialogKind::End(_) => Choice::Confirmed,
             DialogKind::DisplayChange => Choice::Canceled,
@@ -3253,6 +3264,10 @@ impl Ui {
         }
         if matches!(overlay.state.kind, DialogKind::Agent(_)) {
             self.paint_agent_prompt(overlay);
+            return;
+        }
+        if matches!(overlay.state.kind, DialogKind::AgentQuestion(_)) {
+            self.paint_agent_question(overlay);
             return;
         }
         let (w, h) = (overlay.width as usize, overlay.height as usize);
@@ -3680,6 +3695,12 @@ impl Ui {
                     self.show_agent_prompt(request);
                 }
             }
+            UiEvent::AgentQuestion(slot) => {
+                if let Some(request) = slot.take() {
+                    self.show_agent_question(request);
+                }
+            }
+            UiEvent::AgentQuestionClose(id) => self.close_agent_question(id),
             UiEvent::AgentsActive(agents) => {
                 self.agents_active = agents;
                 // A stale menu would stop the wrong agents.
@@ -4241,6 +4262,7 @@ pub fn run(
         agents_active: Vec::new(),
         agent_menu: Vec::new(),
         agent_waiting: None,
+        agent_questions: Default::default(),
         recording: None,
         shown_elapsed: None,
         heap_trim: Default::default(),

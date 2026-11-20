@@ -152,6 +152,7 @@ async fn policy_over_the_bus() {
             // This test acts as Settings too.
             settings_exes: vec![me.clone()],
             log_dir: Some(tmp.join("state/helix/agent-activity")),
+            reminders_path: None,
         },
     );
     let server = bus
@@ -172,7 +173,7 @@ async fn policy_over_the_bus() {
     // not there yet; the read methods, without a desktop to read, fail).
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
     let later: Vec<String> = [
-        "Ask", "Confirm", "AddReminder", "ListReminders", "CancelReminder", "GetClipboard", "SetClipboard", "A11yTree", "A11yAction", "A11ySetValue",
+        "GetClipboard", "SetClipboard", "A11yTree", "A11yAction", "A11ySetValue",
         "Screenshot", "Input",
     ]
     .iter()

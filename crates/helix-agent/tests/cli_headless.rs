@@ -163,8 +163,11 @@ fn against_a_session() {
     let out = cli(&["wait", "window", "--app", "org.gnome.TextEditor", "--timeout", "1"]);
     assert_eq!(code(&out), 10);
     // Commands whose shell methods come later.
-    let out = cli(&["ask", "Ready?"]);
+    let out = cli(&["a11y", "tree", "1"]);
     assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (23, Json::from("not-supported")));
+    // Questions are refused like any call, without showing anything.
+    let out = cli(&["ask", "Ready?"]);
+    assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (10, Json::from("access-off")));
     // -V asks the shell for its version.
     let version = json(&cli(&["--version"]));
     assert_eq!(version["agent-access"], 1);

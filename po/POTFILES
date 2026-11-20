@@ -4,6 +4,7 @@ crates/helix-agent/src/cli.rs
 crates/helix-agent/src/errors.rs
 crates/helix-agent/src/main.rs
 crates/helix-agent/src/read.rs
+crates/helix-agent/src/talk.rs
 crates/helix-agent/src/when.rs
 crates/helix-comp/src/display_switch.rs
 crates/helix-greeter/src/app.rs
@@ -52,6 +53,7 @@ crates/helix-shell/src/screencast_chooser.rs
 crates/helix-shell/src/screenshot.rs
 crates/helix-shell/src/ui.rs
 crates/helix-shell/src/ui/agent_prompt.rs
+crates/helix-shell/src/ui/agent_question.rs
 crates/helix-shell/src/ui/app_grid.rs
 crates/helix-shell/src/ui/atspi.rs
 crates/helix-shell/src/ui/background_menu.rs

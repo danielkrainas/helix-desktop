@@ -9,6 +9,7 @@ mod complete;
 mod errors;
 mod json;
 mod read;
+mod talk;
 mod when;
 
 use std::collections::HashMap;
@@ -62,6 +63,12 @@ fn main() {
             }
             0
         }
+        Err(failure) if failure.output.is_some() => {
+            if json {
+                println!("{}", failure.output.as_ref().unwrap_or(&Json::Null));
+            }
+            failure.exit_code()
+        }
         Err(failure) => {
             if json {
                 println!("{}", failure.to_json());
@@ -111,6 +118,7 @@ fn run(p: &cli::Parsed) -> Result<Option<Done>, Failure> {
             read::run(p, &path).map(Some)
         }
         "open" | "launch" | "window" | "workspace switch" | "toggle" | "set" | "notify" => act::run(p, &path).map(Some),
+        "ask" | "confirm" | "remind add" | "remind list" | "remind cancel" => talk::run(p, &path).map(Some),
         // The shell's methods for the rest come with helixdesktop/desktop
         // #146–#151 (`Cmd::ready`); until then this session cannot do them.
         _ => Err(Failure::not_supported()),

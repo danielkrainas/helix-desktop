@@ -49,6 +49,9 @@ pub const UNLOGGED: &[&str] = &["GetStatus"];
 pub const CONSENT_PROMPT: &str = "ConsentPrompt";
 pub const SENSITIVE_PROMPT: &str = "SensitivePrompt";
 pub const STOP: &str = "Stop";
+/// An agent's reminder came due and was shown (or dropped, access being
+/// off), or the user cancelled it.
+pub const REMINDER: &str = "Reminder";
 /// Written once when a day file reaches a cap.
 pub const LOG_FULL: &str = "LogFull";
 

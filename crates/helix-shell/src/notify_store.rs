@@ -90,6 +90,9 @@ pub enum Origin {
     Media { root: Option<String> },
     /// The shell's own: window `id` wants attention; clicking activates it.
     Window { id: u32 },
+    /// The shell's own: an agent set reminder `id`; the `cancel-reminder`
+    /// button cancels it (helixdesktop/desktop#148).
+    Reminder { id: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -260,7 +260,8 @@ impl Ui {
         self.dialog = Some(self.new_overlay(NAMESPACE, KeyboardInteractivity::Exclusive, state));
     }
 
-    /// A prompt that waited for another dialog, once that is gone.
+    /// A prompt that waited for another dialog, once that is gone; then
+    /// agents' questions waiting for their turn.
     pub(super) fn agent_prompt_next(&mut self) {
         if self.dialog.is_some() || self.lock.session.is_some() {
             return;
@@ -270,23 +271,29 @@ impl Ui {
                 self.show_agent_prompt(request);
             }
         }
+        self.agent_question_next();
     }
 
-    /// Whether `surface` is an agent prompt's.
+    /// Whether `surface` is an agent prompt's or an agent's question's.
     pub(super) fn is_agent_prompt(&self, surface: &smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface) -> bool {
-        self.dialog.as_ref().is_some_and(|d| d.layer.wl_surface() == surface && matches!(d.state.kind, DialogKind::Agent(_)))
+        self.dialog.as_ref().is_some_and(|d| d.layer.wl_surface() == surface && matches!(d.state.kind, DialogKind::Agent(_) | DialogKind::AgentQuestion(_)))
     }
 
-    /// Dismiss the agent prompt unanswered (the screen locks).
+    /// Dismiss the agent prompt unanswered and cancel agents' questions
+    /// (the screen locks).
     pub(super) fn dismiss_agent_prompt(&mut self) {
         self.agent_waiting = None;
-        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::Agent(_))) {
+        self.agent_questions.clear();
+        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::Agent(_) | DialogKind::AgentQuestion(_))) {
             self.dialog = None;
         }
     }
 
     /// Press button `index`, if the prompt is armed.
     pub(super) fn agent_prompt_press(&mut self, index: usize) {
+        if self.dialog.as_ref().is_some_and(|d| matches!(d.state.kind, DialogKind::AgentQuestion(_))) {
+            return self.agent_question_press(index);
+        }
         let Some(dialog) = self.dialog.as_mut() else { return };
         if !armed(dialog.state.shown, Instant::now()) {
             tracing::debug!("agent prompt not armed yet; input ignored");
