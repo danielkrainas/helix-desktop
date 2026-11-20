@@ -10,7 +10,7 @@
     separate. The global is only advertised to privileged clients (the
     shell the compositor launched itself).
   </description>
-  <interface name="helix_window_list_v1" version="12">
+  <interface name="helix_window_list_v1" version="13">
     <description summary="open windows and focus">
       Right after binding, the compositor sends a window event for every
       open window, topmost first, then a focused event (and, since version
@@ -249,6 +249,20 @@
       <arg name="x" type="int"/>
       <arg name="y" type="int"/>
       <arg name="state" type="uint" enum="menu_state"/>
+    </event>
+    <event name="client" since="13">
+      <description summary="the process showing a window">
+        Who shows window id: its process (0: unknown; an X11 window's is
+        the process the window names, which the compositor cannot check)
+        and, when its app told the compositor (gtk_surface1
+        set_a11y_properties), its app's name on the accessibility bus and
+        the window's accessible object path (empty: not told). Sent when
+        it changes, and for every window when the list is first sent.
+      </description>
+      <arg name="id" type="uint"/>
+      <arg name="pid" type="uint"/>
+      <arg name="a11y_name" type="string"/>
+      <arg name="a11y_path" type="string"/>
     </event>
   </interface>
 </protocol>

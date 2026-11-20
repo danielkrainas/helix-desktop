@@ -365,6 +365,9 @@ struct Ui {
     window_geometry: HashMap<u32, overview::Geometry>,
     /// How windows are placed (window list v11 `window_state` bits).
     window_state: HashMap<u32, u32>,
+    /// Who shows each window (window list v13 `client`): its process and
+    /// accessibility bus name and object path.
+    window_client: HashMap<u32, (u32, String, String)>,
     /// The primary monitor's area (x, y, w, h).
     primary_area: (i32, i32, i32, i32),
     /// Numbers identifying monitors (`ShowMonitorLabels`), one per output.
@@ -3404,6 +3407,7 @@ impl Ui {
             .iter()
             .map(|w| {
                 let g = self.window_geometry.get(&w.id).copied();
+                let (pid, a11y_name, a11y_path) = self.window_client.get(&w.id).cloned().unwrap_or_default();
                 WindowInfo {
                     id: w.id,
                     app_id: w.app_id.clone(),
@@ -3412,6 +3416,9 @@ impl Ui {
                     geometry: g.map_or((0, 0, 0, 0), |g| (g.0, g.1, g.2, g.3)),
                     minimized: g.is_some_and(|g| g.4),
                     state: self.window_state.get(&w.id).copied().unwrap_or(0),
+                    pid,
+                    a11y_name,
+                    a11y_path,
                 }
             })
             .collect();
@@ -3434,7 +3441,16 @@ impl Ui {
                 Some(MonitorInfo { connector: info.name.clone().unwrap_or_default(), name, area: (x, y, lw, lh), scale })
             })
             .collect();
-        Snapshot { windows, focused: self.windows.focused(), workspaces: self.windows.count, active: self.windows.active, monitors, primary: self.primary_area }
+        // A password or permission prompt (polkit, keyring, network
+        // secrets, Agent Access's own…) is shown: agents may not read or
+        // use apps meanwhile (README.md, "Hard exclusions").
+        let system_prompt = self.dialog.as_ref().is_some_and(|d| {
+            matches!(
+                d.state.kind,
+                DialogKind::Prompt(_) | DialogKind::Agent(_) | DialogKind::AgentQuestion(_) | DialogKind::RemoteControl { .. } | DialogKind::ApproveExtension { .. } | DialogKind::ShareScreen { .. } | DialogKind::ShortcutsInhibit { .. }
+            )
+        });
+        Snapshot { windows, focused: self.windows.focused(), workspaces: self.windows.count, active: self.windows.active, monitors, primary: self.primary_area, system_prompt, shell_pid: std::process::id() }
     }
 
     /// Make agents' window and workspace requests of the window list, all
@@ -4129,7 +4145,7 @@ pub fn run(
     let primary_selections = smithay_client_toolkit::primary_selection::PrimarySelectionManagerState::bind(&globals, &qh).ok();
     // Only advertised to the shell the compositor launched itself.
     let keybindings = globals.bind::<HelixKeybindingsManagerV1, _, _>(&qh, 1..=2, ()).ok();
-    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=12, ()).ok();
+    let window_list = globals.bind::<HelixWindowListV1, _, _>(&qh, 1..=13, ()).ok();
     let screenshots = globals.bind::<HelixScreenshotManagerV1, _, _>(&qh, 1..=6, ()).ok();
     let im_manager = globals
         .bind::<wayland_protocols_misc::zwp_input_method_v2::client::zwp_input_method_manager_v2::ZwpInputMethodManagerV2, _, _>(&qh, 1..=1, ())
@@ -4253,6 +4269,7 @@ pub fn run(
         lock_background_serial: 0,
         window_geometry: HashMap::new(),
         window_state: HashMap::new(),
+        window_client: HashMap::new(),
         primary_area: (0, 0, 1920, 1080),
         monitor_labels: Vec::new(),
         power: Default::default(),
@@ -5625,6 +5642,7 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                 ui.window_icons.remove(&id);
                 ui.window_geometry.remove(&id);
                 ui.window_state.remove(&id);
+                ui.window_client.remove(&id);
                 if let Some(overview) = ui.overview.as_mut() {
                     if overview.state.selected == Some(id) {
                         overview.state.selected = None;
@@ -5705,6 +5723,9 @@ impl Dispatch<HelixWindowListV1, ()> for Ui {
                     WEnum::Unknown(bits) => bits,
                 };
                 ui.window_state.insert(id, bits);
+            }
+            helix_window_list_v1::Event::Client { id, pid, a11y_name, a11y_path } => {
+                ui.window_client.insert(id, (pid, a11y_name, a11y_path));
             }
             helix_window_list_v1::Event::Primary { x, y, width, height } => {
                 ui.primary_area = (x, y, width, height);

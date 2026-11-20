@@ -139,6 +139,7 @@ async fn read_only_over_the_bus() {
         active: 0,
         monitors: vec![MonitorInfo { connector: "HEADLESS-1".into(), name: "Virtual".into(), area: (0, 0, 1280, 800), scale: 1.25 }],
         primary: (0, 0, 1280, 800),
+        ..Default::default()
     }));
     let (ui, mut ui_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
     let shown = snapshot.clone();
@@ -174,7 +175,7 @@ async fn read_only_over_the_bus() {
     // The read methods are there now, as the contract has them.
     let actual = introspect(&conn, "org.gnome.Shell", OBJECT_PATH).await;
     let later: Vec<String> = [
-        "GetClipboard", "SetClipboard", "A11yTree", "A11yAction", "A11ySetValue", "Screenshot", "Input",
+        "GetClipboard", "SetClipboard", "Screenshot", "Input",
     ]
     .iter()
     .map(|m| format!("method {m}"))

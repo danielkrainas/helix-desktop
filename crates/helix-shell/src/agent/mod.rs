@@ -27,8 +27,11 @@
 //! list, change quick settings and show notifications ([`actions`]).
 //! The *talk to the user* methods (helixdesktop/desktop#148) ask in a
 //! dialog only the user at the machine can answer, and keep reminders
-//! that come due as notifications ([`talk`]).
+//! that come due as notifications ([`talk`]). The *Control apps* methods
+//! (helixdesktop/desktop#149) read and use apps' controls over AT-SPI,
+//! with the shell as the only client agents reach ([`a11y`]).
 
+pub mod a11y;
 pub mod actions;
 pub mod activity;
 pub mod desktop;
@@ -84,6 +87,18 @@ pub struct ConfirmRequest {
     pub method: &'static str,
     /// What it does, when the prompt can say more (`wifi-off`, `close`).
     pub action: Option<&'static str>,
+    /// The app control it uses (*Control apps*), for the prompt to name.
+    pub control: Option<Control>,
+}
+
+/// An app's control a sensitive call uses, as the prompt names it: the
+/// control's accessible name (plain text, at most 64 characters), its
+/// role, and the app's id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Control {
+    pub name: String,
+    pub role: &'static str,
+    pub app: String,
 }
 
 /// The sensitive-action prompt: `Some(yes)`, or `None` when the user could
@@ -270,6 +285,8 @@ struct Inner {
     reminder_limit: Mutex<actions::NotifyLimit>,
     /// The "Reminder set" notification of each waiting reminder.
     reminder_notes: Mutex<HashMap<String, u32>>,
+    /// The accessibility bus, for the *Control apps* methods.
+    a11y: a11y::Bus,
 }
 
 /// Where the *Read only* methods read the desktop's state.
@@ -400,6 +417,7 @@ impl AgentAccess {
                 reminders_changed: Default::default(),
                 reminder_limit: Mutex::new(actions::NotifyLimit::default()),
                 reminder_notes: Mutex::new(HashMap::new()),
+                a11y: a11y::Bus::default(),
                 log: Arc::new(activity::Log::new(setup.log_dir)),
             }),
         }
@@ -547,7 +565,7 @@ impl AgentAccess {
             Decision::Denied => return Err(AgentError::DeniedByUser("the user denied this agent access".into())),
             Decision::Ask => config = self.ask_consent(&agent, need, options).await?,
         }
-        if let Some(after) = self.sensitive_step(&agent, &config, method, need, options).await? {
+        if let Some(after) = self.sensitive_step(&agent, &config, method, need, options, None).await? {
             config = after;
         }
         self.grants().touch(&agent, now());
@@ -558,12 +576,12 @@ impl AgentAccess {
     /// Step 10: a sensitive call (with `confirm-sensitive` on) asks the
     /// user first, and is checked again after the answer; the settings in
     /// force then, or `None` when nobody had to be asked.
-    async fn sensitive_step(&self, agent: &Agent, config: &Config, method: &'static str, need: Need, options: CallOptions) -> Result<Option<Config>, AgentError> {
+    async fn sensitive_step(&self, agent: &Agent, config: &Config, method: &'static str, need: Need, options: CallOptions, control: Option<Control>) -> Result<Option<Config>, AgentError> {
         if !policy::sensitive_step(config, need, options.sensitive, options.interactive)? {
             return Ok(None);
         }
         let _turn = self.inner.prompt.lock().await;
-        let answer = (self.inner.confirm)(ConfirmRequest { agent: agent.clone(), method, action: options.action }).await;
+        let answer = (self.inner.confirm)(ConfirmRequest { agent: agent.clone(), method, action: options.action, control }).await;
         if let Some(yes) = answer {
             let outcome = if yes { activity::Outcome::Allowed } else { activity::Outcome::Refused("DeniedByUser".into()) };
             let detail = options.action.map(|a| ("action", activity::Detail::Kind(a))).into_iter().collect();
@@ -589,7 +607,13 @@ impl AgentAccess {
 
     /// Step 10 for a caller of [`Self::check_targeted`].
     pub async fn confirm(&self, caller: &Caller, method: &'static str, need: Need, options: CallOptions) -> Result<(), AgentError> {
-        self.sensitive_step(&caller.agent, &caller.config, method, need, options).await.map(drop)
+        self.sensitive_step(&caller.agent, &caller.config, method, need, options, None).await.map(drop)
+    }
+
+    /// [`Self::confirm`] for using an app's `control`, which the prompt
+    /// names.
+    pub async fn confirm_control(&self, caller: &Caller, method: &'static str, need: Need, options: CallOptions, control: Control) -> Result<(), AgentError> {
+        self.sensitive_step(&caller.agent, &caller.config, method, need, options, Some(control)).await.map(drop)
     }
 
     /// Step 8 without a grant: ask the user (one prompt at a time), record
@@ -822,6 +846,42 @@ impl AgentAccess {
         let (reply, answer) = tokio::sync::oneshot::channel();
         ui.send(crate::UiEvent::AgentSnapshot(desktop::SnapshotSlot::new(reply))).map_err(|_| unavailable())?;
         tokio::time::timeout(Duration::from_secs(5), answer).await.map_err(|_| unavailable())?.map_err(|_| unavailable())
+    }
+
+    /// Window `window`'s controls for `caller` (README.md, "Control apps
+    /// methods"): the window's app checked against the exclusions
+    /// (recorded in the log), nothing while a system prompt is shown, the
+    /// window's process checked, then its tree found on the accessibility
+    /// bus.
+    pub async fn a11y_scope(&self, conn: &Connection, caller: &Caller, window: u32) -> Result<(desktop::WindowInfo, a11y::Scope), AgentError> {
+        let snapshot = self.snapshot().await?;
+        let Some(w) = snapshot.windows.iter().find(|w| w.id == window).cloned() else { return Err(AgentError::NotFound(format!("window {window}"))) };
+        caller.target(format!("window:{window} ({})", w.app_id));
+        caller.check_target(Target::App(&w.app_id))?;
+        if snapshot.system_prompt {
+            caller.check_target(Target::SystemPrompt)?;
+        }
+        let (config, proc_root, shown, pid) = (caller.config.clone(), self.inner.proc_root.clone(), snapshot.clone(), w.pid);
+        blocking(move || a11y::check_process(pid, &shown, &config, &desktop::installed(), &proc_root)).await?;
+        let bus = self.inner.a11y.get(conn).await?;
+        let scope = a11y::resolve(&bus, &w, &snapshot).await?;
+        Ok((w, scope))
+    }
+
+    /// Just before using an app's control: still unlocked, no system prompt
+    /// came meanwhile, and the window is still there.
+    async fn a11y_still_clear(&self, caller: &Caller, window: u32) -> Result<(), AgentError> {
+        if self.locked() {
+            return Err(AgentError::Locked("the screen is locked".into()));
+        }
+        let snapshot = self.snapshot().await?;
+        if snapshot.system_prompt {
+            caller.check_target(Target::SystemPrompt)?;
+        }
+        if !snapshot.windows.iter().any(|w| w.id == window) {
+            return Err(AgentError::NotFound(format!("window {window}")));
+        }
+        Ok(())
     }
 
     /// Have the UI make `ops` of the compositor's window list.
@@ -1095,6 +1155,8 @@ impl Drop for Busy {
 const READ: Need = Need::level(Level::ReadOnly);
 /// A *Control the desktop* method's.
 const DESKTOP: Need = Need::level(Level::Desktop);
+/// A *Control apps* method's.
+const APPS: Need = Need::level(Level::Apps);
 
 /// Run `f` where it may block (GIO looking up and starting apps).
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, AgentError> + Send + 'static) -> Result<T, AgentError> {
@@ -1697,8 +1759,138 @@ impl Agent1 {
         caller.finish(result)
     }
 
+    async fn a11y_tree(&self, window: u32, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<HashMap<String, OwnedValue>, AgentError> {
+        let caller = self.access.check(conn, &header, "A11yTree", APPS, CallOptions::from_dict(&options)).await?;
+        caller.target(format!("window:{window}"));
+        let result = async {
+            let read = a11y::ReadOptions::from_dict(&options)?;
+            let (w, scope) = self.access.a11y_scope(conn, &caller, window).await?;
+            let tree = scope.read(&read).await?;
+            caller.detail("node-count", activity::Detail::Count(tree.nodes.len() as u64));
+            Ok(HashMap::from([
+                ("window".to_owned(), value(window)),
+                ("app-id".to_owned(), value(w.app_id.as_str())),
+                ("nodes".to_owned(), value(scope.records(&tree))),
+                ("truncated".to_owned(), value(tree.truncated)),
+            ]))
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn a11y_find(&self, window: u32, options: HashMap<String, OwnedValue>, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<Records, AgentError> {
+        let caller = self.access.check(conn, &header, "A11yFind", APPS, CallOptions::from_dict(&options)).await?;
+        caller.target(format!("window:{window}"));
+        let result = async {
+            let wanted = a11y::Match::from_dict(&options)?;
+            let timeout_ms = match options.get("timeout-ms") {
+                None => 0,
+                Some(v) => u32::try_from(v.clone()).map_err(|_| AgentError::invalid_args("“timeout-ms” must be a number (u)"))?,
+            };
+            // What it looks for, by kind and length only.
+            if let Some(role) = wanted.role {
+                caller.detail("role", activity::Detail::Kind(a11y::role_name(role)));
+            }
+            if let Some(name) = &wanted.name {
+                caller.detail("name-length", activity::Detail::Count(name.chars().count() as u64));
+            }
+            let (_, scope) = self.access.a11y_scope(conn, &caller, window).await?;
+            let _busy = (timeout_ms > 0).then(|| self.access.busy(&caller.agent));
+            let until = deadline(timeout_ms);
+            let everything = a11y::ReadOptions { max_nodes: a11y::NODES_MAX, ..a11y::ReadOptions::default() };
+            loop {
+                let tree = scope.read(&everything).await?;
+                let records = scope.records(&tree);
+                let found: Records = tree.nodes.iter().zip(records).filter(|((info, _, _), _)| wanted.matches(info)).map(|(_, r)| r).take(wanted.limit as usize).collect();
+                if !found.is_empty() || timeout_ms == 0 {
+                    caller.detail("node-count", activity::Detail::Count(found.len() as u64));
+                    return Ok(found);
+                }
+                if until.is_some_and(|u| Instant::now() >= u) {
+                    return Err(AgentError::TimedOut("no such node appeared".into()));
+                }
+                tokio::time::sleep(a11y::WAIT_POLL).await;
+                self.access.recheck(&caller.agent, APPS).await?;
+                self.access.a11y_still_clear(&caller, window).await?;
+            }
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn a11y_action(
+        &self,
+        window: u32,
+        node: &str,
+        action: &str,
+        options: HashMap<String, OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "A11yAction", APPS, call).await?;
+        caller.target(format!("window:{window}"));
+        let result = async {
+            if action.is_empty() {
+                return Err(AgentError::invalid_args("no action"));
+            }
+            // The action's name only when it is a known one: an app names
+            // its actions.
+            caller.detail("action", activity::Detail::Kind(a11y::log_action(action)));
+            let (w, scope) = self.access.a11y_scope(conn, &caller, window).await?;
+            let target = scope.node(node, |n| caller.detail("role", activity::Detail::Kind(a11y::role_name(n.role)))).await?;
+            // Pasting into a field and reading it would read the clipboard.
+            if a11y::clipboard_action(action) && !caller.config.clipboard {
+                return Err(AgentError::FeatureOff("clipboard".into()));
+            }
+            let sensitive = action != "focus" && a11y::sensitive_control(&target.name, &target.description, action);
+            let need = Need { sensitive, ..APPS };
+            self.access.confirm_control(&caller, "A11yAction", need, call, control(&target, &w)).await?;
+            self.access.a11y_still_clear(&caller, window).await?;
+            scope.act(&target, action).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
+    async fn a11y_set_value(
+        &self,
+        window: u32,
+        node: &str,
+        value: OwnedValue,
+        options: HashMap<String, OwnedValue>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<(), AgentError> {
+        let call = CallOptions::from_dict(&options);
+        let caller = self.access.check_targeted(conn, &header, "A11ySetValue", APPS, call).await?;
+        caller.target(format!("window:{window}"));
+        // Never the value: a text by its length.
+        if let Value::Str(text) = &*value {
+            caller.detail("text-length", activity::Detail::Count(text.chars().count() as u64));
+        }
+        let result = async {
+            let (w, scope) = self.access.a11y_scope(conn, &caller, window).await?;
+            let target = scope.node(node, |n| caller.detail("role", activity::Detail::Kind(a11y::role_name(n.role)))).await?;
+            let to = a11y::SetTo::of(&value, &target)?;
+            caller.detail("action", activity::Detail::Kind(if matches!(to, a11y::SetTo::Text(_)) { "set-text" } else { "set-value" }));
+            self.access.confirm_control(&caller, "A11ySetValue", APPS, call, control(&target, &w)).await?;
+            self.access.a11y_still_clear(&caller, window).await?;
+            scope.set(&target, &to).await
+        }
+        .await;
+        caller.finish(result)
+    }
+
     #[zbus(signal)]
     pub async fn access_changed(emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+}
+
+/// How the sensitive-action prompt names an app's control: by its name
+/// (as plain text, at most 64 characters), role and app.
+fn control(node: &a11y::Info, w: &desktop::WindowInfo) -> Control {
+    let name: String = talk::clean(&node.name).chars().take(64).collect();
+    Control { name, role: a11y::role_name(node.role), app: w.app_id.clone() }
 }
 
 /// `org.helixdesktop.AgentAccess1`, for the Settings app.

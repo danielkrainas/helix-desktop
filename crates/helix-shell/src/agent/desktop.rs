@@ -38,6 +38,12 @@ pub struct WindowInfo {
     pub minimized: bool,
     /// `window_state` bits.
     pub state: u32,
+    /// Its process (0: unknown; an X11 window's is the one it names).
+    pub pid: u32,
+    /// Its app's name on the accessibility bus and the window's accessible
+    /// object path, as the app told the compositor (empty: not told).
+    pub a11y_name: String,
+    pub a11y_path: String,
 }
 
 /// A monitor.
@@ -63,6 +69,12 @@ pub struct Snapshot {
     pub monitors: Vec<MonitorInfo>,
     /// The primary monitor's area.
     pub primary: (i32, i32, i32, i32),
+    /// A password or permission prompt of the shell's is shown (polkit,
+    /// keyring, network secrets, Bluetooth pairing, Agent Access's consent,
+    /// sensitive-action and question dialogs, other permission prompts).
+    pub system_prompt: bool,
+    /// The shell's own process (0: unknown).
+    pub shell_pid: u32,
 }
 
 /// A request for a [`Snapshot`] that can travel in a `UiEvent`.
@@ -374,6 +386,7 @@ mod tests {
                 MonitorInfo { connector: "HDMI-A-1".into(), name: "Dell".into(), area: (1280, 0, 1920, 1080), scale: 1.0 },
             ],
             primary: (0, 0, 1280, 800),
+            ..Default::default()
         }
     }
 

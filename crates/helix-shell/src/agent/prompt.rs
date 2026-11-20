@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 
 use super::grants::Answer;
-use super::{Confirm, ConfirmRequest, Consent, ConsentRequest, Level};
+use super::{Confirm, ConfirmRequest, Consent, ConsentRequest, Control, Level};
 use crate::UiEvent;
 
 /// What a prompt asks.
@@ -22,8 +22,9 @@ pub enum Question {
     /// May the agent have `level`? *Always allow* offered or not.
     Consent { level: Level, offer_always: bool },
     /// May the agent do this sensitive action (an `Agent1` method, and
-    /// what it does when the prompt can say more: `wifi-off`, `close`)?
-    Confirm { method: &'static str, action: Option<&'static str> },
+    /// what it does when the prompt can say more: `wifi-off`, `close`; the
+    /// app control it uses)?
+    Confirm { method: &'static str, action: Option<&'static str>, control: Option<Control> },
 }
 
 /// A prompt for the UI.
@@ -86,7 +87,7 @@ pub fn confirm(ui: mpsc::UnboundedSender<UiEvent>) -> Confirm {
     Arc::new(move |request: ConfirmRequest| {
         let ui = ui.clone();
         Box::pin(async move {
-            match ask(&ui, request.agent.name, request.agent.id, Question::Confirm { method: request.method, action: request.action }).await {
+            match ask(&ui, request.agent.name, request.agent.id, Question::Confirm { method: request.method, action: request.action, control: request.control }).await {
                 Answer::Session | Answer::Always => Some(true),
                 Answer::Deny => Some(false),
                 Answer::Unanswered => None,
@@ -140,12 +141,12 @@ mod tests {
         let (ui, mut events) = mpsc::unbounded_channel();
         let hook = confirm(ui);
         for (answer, expected) in [(Some(Answer::Session), Some(true)), (Some(Answer::Deny), Some(false)), (None, None)] {
-            let asked = hook(ConfirmRequest { agent: agent(), method: "SetToggle", action: Some("wifi-off") });
+            let asked = hook(ConfirmRequest { agent: agent(), method: "SetToggle", action: Some("wifi-off"), control: None });
             let answering = async {
                 let Some(UiEvent::AgentPrompt(slot)) = events.recv().await else { panic!("no prompt") };
                 let request = slot.take().unwrap();
                 assert_eq!((request.name.as_str(), request.agent.as_str()), ("Bot", "/usr/bin/bot"));
-                assert_eq!(request.question, Question::Confirm { method: "SetToggle", action: Some("wifi-off") });
+                assert_eq!(request.question, Question::Confirm { method: "SetToggle", action: Some("wifi-off"), control: None });
                 match answer {
                     Some(a) => {
                         let _ = request.reply.send(a);
@@ -159,7 +160,7 @@ mod tests {
         }
         // Nobody to ask: the UI is gone.
         drop(events);
-        assert_eq!(hook(ConfirmRequest { agent: agent(), method: "WindowAction", action: Some("close") }).await, None);
+        assert_eq!(hook(ConfirmRequest { agent: agent(), method: "WindowAction", action: Some("close"), control: None }).await, None);
     }
 
     #[test]

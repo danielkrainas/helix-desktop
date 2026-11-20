@@ -72,6 +72,10 @@ const MIME: Opt = valued("type", "MIME", n_("Only this type, e.g. application/pd
 const WAIT_FOR: Opt = valued("timeout", "SECONDS", n_("Give up after this long [default: 60; 0: never]"));
 const ASK_FOR: Opt = valued("timeout", "SECONDS", n_("Give up waiting for the answer after this long [default: 300; 0: never]"));
 const WINDOW: Arg = arg("WINDOW", n_("A window id from “helix-agent windows”"));
+const NODE: Arg = arg("NODE", n_("A node id from “helix-agent a11y tree” or “find”"));
+const ROLE: Opt = valued("role", "ROLE", n_("Only controls of this role, e.g. button, text, check box"));
+const NAME: Opt = valued("name", "TEXT", n_("Only controls whose name contains TEXT"));
+const STATE: Opt = Opt { many: true, ..valued("state", "STATE", n_("Only controls in this state, e.g. focused, checked (repeat for more)")) };
 
 /// The top-level commands, in `--help`'s groups.
 pub const GROUPS: &[(&str, &[Cmd])] = &[
@@ -199,10 +203,32 @@ pub const GROUPS: &[(&str, &[Cmd])] = &[
         },
     ]),
     (n_("Apps (Control apps):"), &[Cmd {
+        ready: true,
         subs: &[
-            Cmd { records: Some("Accessible node"), args: &[WINDOW], opts: &[valued("depth", "N", n_("How many levels down to go")), valued("node", "NODE", n_("Start at this node"))], ..cmd("tree", n_("An app window's controls"), Some("apps")) },
-            Cmd { args: &[WINDOW, arg("NODE", n_("A node id from “helix-agent a11y tree”")), arg("ACTION", n_("One of the node's actions, e.g. click"))], ..cmd("do", n_("Use a control"), Some("apps")) },
-            Cmd { args: &[WINDOW, arg("NODE", n_("A node id from “helix-agent a11y tree”")), arg("VALUE", n_("The new text or number"))], ..cmd("set", n_("Change a control's value"), Some("apps")) },
+            Cmd {
+                ready: true,
+                records: Some("Accessible node"),
+                args: &[WINDOW],
+                opts: &[
+                    valued("depth", "N", n_("How many levels down to go (0: the node alone)")),
+                    valued("node", "NODE", n_("Start at this node")),
+                    valued("max-nodes", "N", n_("Read at most N nodes [default: 1000]")),
+                    flag("bounds", n_("Where each control is in its window")),
+                ],
+                ..cmd("tree", n_("An app window's controls"), Some("apps"))
+            },
+            Cmd { ready: true, records: Some("Accessible node"), args: &[WINDOW], opts: &[ROLE, NAME, STATE, LIMIT], ..cmd("find", n_("Find controls by role, name or state"), Some("apps")) },
+            Cmd { ready: true, records: Some("Accessible node"), args: &[WINDOW], opts: &[ROLE, NAME, STATE, WAIT_FOR], ..cmd("wait", n_("Wait until a matching control is there"), Some("apps")) },
+            Cmd { ready: true, args: &[WINDOW, NODE, arg("ACTION", n_("One of the node's actions, e.g. click"))], ..cmd("do", n_("Use a control"), Some("apps")) },
+            Cmd { ready: true, args: &[WINDOW, NODE], ..cmd("press", n_("Press a control (its first action)"), Some("apps")) },
+            Cmd { ready: true, args: &[WINDOW, NODE], ..cmd("focus", n_("Give a control the keyboard focus"), Some("apps")) },
+            Cmd { ready: true, args: &[WINDOW, NODE], ..cmd("select", n_("Select an item in its list or tabs"), Some("apps")) },
+            Cmd {
+                ready: true,
+                args: &[WINDOW, NODE, arg("VALUE", n_("The new text, or number with --number"))],
+                opts: &[flag("number", n_("VALUE is a number (sliders, spin buttons)"))],
+                ..cmd("set", n_("Change a control's text or value"), Some("apps"))
+            },
         ],
         ..cmd("a11y", n_("Read and use an app's controls"), Some("apps"))
     }]),

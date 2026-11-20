@@ -257,6 +257,8 @@ helix-agent request --level read-only
 helix-agent windows                # open windows (and the file each shows)
 helix-agent wait window --app org.gnome.TextEditor
 helix-agent files search report --since yesterday
+helix-agent a11y find 21 --role button --name save   # an app's controls (Control apps)
+helix-agent a11y press 21 <NODE>
 helix-agent --help                 # every command; JSON when piped
 man helix-agent
 ```

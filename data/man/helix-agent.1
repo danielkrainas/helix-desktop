@@ -181,9 +181,38 @@ plain text, at most 5 a minute. Prints its id.
 Read or set the clipboard (needs \fIClipboard access\fR; \fBset\fR reads
 standard input without \fITEXT\fR).
 .SS "Apps (Control apps)"
+The shell reads and uses the window's controls through its accessibility
+tree; \fBhelix-agent\fR never talks to the accessibility bus.
+Password fields have no value and cannot be used (exit 14); neither can
+windows of excluded apps, Settings, the shell's own prompts, or any window
+while a system prompt (a password or permission prompt) is shown.
 .TP
-.B a11y tree \fIWINDOW\fR [\fB\-\-depth \fIN\fR] [\fB\-\-node \fINODE\fR]; \fBa11y do \fIWINDOW NODE ACTION\fR; \fBa11y set \fIWINDOW NODE VALUE\fR
-Read and use an app's controls through its accessibility tree.
+.B a11y tree \fIWINDOW\fR [\fB\-\-depth \fIN\fR] [\fB\-\-node \fINODE\fR] [\fB\-\-max\-nodes \fIN\fR] [\fB\-\-bounds\fR]
+The window's controls as a tree (at most 1000 nodes unless
+\fB\-\-max\-nodes\fR says more, up to 5000). Each node has an id for
+the commands below; ids name the same control as long as the app keeps it.
+\fB\-\-bounds\fR adds where each control is in its window.
+.TP
+.B a11y find \fIWINDOW\fR [\fB\-\-role \fIROLE\fR] [\fB\-\-name \fITEXT\fR] [\fB\-\-state \fISTATE\fR]... [\fB\-\-limit \fIN\fR]
+Controls of a role (\fBbutton\fR, \fBtext\fR, \fBcheck box\fR…), whose
+name contains \fITEXT\fR (ignoring case), in every \fISTATE\fR given.
+.TP
+.B a11y wait \fIWINDOW\fR [\fB\-\-role \fIROLE\fR] [\fB\-\-name \fITEXT\fR] [\fB\-\-state \fISTATE\fR]... [\fB\-\-timeout \fISECONDS\fR]
+Wait until such a control is there (default 60 seconds; 0: no limit);
+prints it.
+.TP
+.B a11y do \fIWINDOW NODE ACTION\fR; \fBa11y press\fR|\fBfocus\fR|\fBselect \fIWINDOW NODE\fR
+Use a control: one of its actions (as \fBa11y tree\fR lists them),
+its first (\fBpress\fR), the keyboard focus (\fBfocus\fR; GTK 4 apps
+cannot be given it this way, exit 23), or selecting it in its list or
+tabs (\fBselect\fR). Actions that use the clipboard need \fIClipboard
+access\fR (exit 19). Using a control whose name says it deletes, sends,
+pays, removes or the like, and closing the window, is sensitive.
+.TP
+.B a11y set \fIWINDOW NODE VALUE\fR [\fB\-\-number\fR]
+Replace an editable field's text, or set a slider's or spin button's
+number (\fB\-\-number\fR, or text that is one). The log records the
+text's length only.
 .SS "Screen and input (Screen and input)"
 .TP
 .B screenshot \fR[\fB\-\-window \fIWINDOW\fR | \fB\-\-monitor \fICONNECTOR\fR] [\fB\-\-output \fIFILE\fR]
@@ -210,8 +239,9 @@ time: \fB+10m\fR, \fB+2h\fR, \fB\-1d\fR, \fByesterday\fR, \fBtoday\fR.
 confirmed by the user first when \fIConfirm sensitive actions\fR is on; with
 \fB\-\-no\-ask\fR they fail (exit 18), and a declined one exits 13.
 .PP
-Commands whose shell support is still to come answer exit 23
-(\fBnot-supported\fR) in this version.
+Commands whose shell support is still to come (\fBclipboard\fR,
+\fBscreenshot\fR, \fBinput\fR) answer exit 23 (\fBnot-supported\fR) in
+this version.
 .SH OUTPUT
 With \fB\-\-json\fR, success prints one JSON object: the status dictionary
 for \fBstatus\fR and \fBrequest\fR, \fB{"windows": [...]}\fR and similar for
@@ -264,7 +294,12 @@ when last used).
 id, time, text.
 .TP
 .B Accessible node
-id, role, name, description, states, value, actions, children.
+id, role, name, description, states, value (text, or a number with min and
+max; never for password fields, which have password: true instead),
+value-truncated, actions, child-count, truncated (some children left out),
+x, y, width, height (with \fB\-\-bounds\fR), children (\fBa11y tree\fR).
+\fBa11y tree\fR prints {"window", "app-id", "truncated", "root"};
+\fBa11y find\fR {"nodes": [...]}; \fBa11y wait\fR the node.
 .TP
 .B Image
 png (base64) or path, width, height, scale.
@@ -324,6 +359,9 @@ $ helix-agent notify "Build finished" "All 212 tests passed"
 $ helix-agent ask "Which branch should I deploy?" \-\-choice main \-\-choice staging
 $ helix-agent confirm "Delete the 3 old backups?" \-\-yes Delete \-\-no Keep
 $ helix-agent remind add +30m "Check the deploy"
+$ helix-agent a11y find 21 \-\-role button \-\-name save
+$ helix-agent a11y press 21 3f2a9c1e_4b7d_4c1a_9e2f_0a6b5d8c7e31
+$ helix-agent a11y set 21 8e1d4a6b_2c3f_4d5e_8a9b_1c2d3e4f5a6b "Quarterly report"
 .fi
 .SH SEE ALSO
 .BR gsettings (1),

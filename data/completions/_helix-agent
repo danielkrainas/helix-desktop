@@ -2,7 +2,7 @@
 # zsh completion for helix-agent (made by `helix-agent completions zsh`)
 _helix_agent() {
     local at= w i prev=${words[CURRENT-1]}
-    local known=" status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/set a11y a11y/tree a11y/do a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions "
+    local known=" status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions "
     for ((i = 2; i < CURRENT; i++)); do
         w=${words[i]}
         [[ $w == -* ]] && continue
@@ -26,6 +26,10 @@ _helix_agent() {
         --urgency) compadd -- low normal; return ;;
         --depth) _message 'depth'; return ;;
         --node) _message 'node'; return ;;
+        --max-nodes) _message 'max-nodes'; return ;;
+        --role) _message 'role'; return ;;
+        --name) _message 'name'; return ;;
+        --state) _message 'state'; return ;;
         --window) _message 'window'; return ;;
         --monitor) _message 'monitor'; return ;;
         --output) _files; return ;;
@@ -40,7 +44,7 @@ _helix_agent() {
         remind) commands=('add:Add a reminder' 'list:This agent'\''s reminders' 'cancel:Cancel a reminder') ;;
         workspace) commands=('switch:Switch to a workspace') ;;
         clipboard) commands=('get:Read the clipboard' 'set:Set the clipboard') ;;
-        a11y) commands=('tree:An app window'\''s controls' 'do:Use a control' 'set:Change a control'\''s value') ;;
+        a11y) commands=('tree:An app window'\''s controls' 'find:Find controls by role, name or state' 'wait:Wait until a matching control is there' 'do:Use a control' 'press:Press a control (its first action)' 'focus:Give a control the keyboard focus' 'select:Select an item in its list or tabs' 'set:Change a control'\''s text or value') ;;
         input) commands=('key:Press keys' 'type:Type text' 'click:Click at a point' 'move:Move the pointer' 'scroll:Scroll') ;;
     esac
     if (( ${#commands} )) && [[ ${words[CURRENT]} != -* ]]; then
@@ -75,9 +79,14 @@ _helix_agent() {
         notify) compadd -- --icon --urgency --json --text --no-ask --sensitive --timeout --help ;;
         clipboard/get) compadd -- --type --json --text --no-ask --sensitive --timeout --help ;;
         clipboard/set) compadd -- --type --json --text --no-ask --sensitive --timeout --help ;;
-        a11y/tree) compadd -- --depth --node --json --text --no-ask --sensitive --timeout --help ;;
+        a11y/tree) compadd -- --depth --node --max-nodes --bounds --json --text --no-ask --sensitive --timeout --help ;;
+        a11y/find) compadd -- --role --name --state --limit --json --text --no-ask --sensitive --timeout --help ;;
+        a11y/wait) compadd -- --role --name --state --timeout --json --text --no-ask --sensitive --timeout --help ;;
         a11y/do) compadd -- --json --text --no-ask --sensitive --timeout --help ;;
-        a11y/set) compadd -- --json --text --no-ask --sensitive --timeout --help ;;
+        a11y/press) compadd -- --json --text --no-ask --sensitive --timeout --help ;;
+        a11y/focus) compadd -- --json --text --no-ask --sensitive --timeout --help ;;
+        a11y/select) compadd -- --json --text --no-ask --sensitive --timeout --help ;;
+        a11y/set) compadd -- --number --json --text --no-ask --sensitive --timeout --help ;;
         screenshot) compadd -- --window --monitor --output --json --text --no-ask --sensitive --timeout --help ;;
         input/key) compadd -- --json --text --no-ask --sensitive --timeout --help ;;
         input/type) compadd -- --json --text --no-ask --sensitive --timeout --help ;;

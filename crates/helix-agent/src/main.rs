@@ -3,6 +3,7 @@
 //! the shell's `org.helixdesktop.Agent1` with no policy of its own: every
 //! refusal comes from the shell, and becomes an exit code and a message.
 
+mod a11y;
 mod act;
 mod cli;
 mod complete;
@@ -119,6 +120,7 @@ fn run(p: &cli::Parsed) -> Result<Option<Done>, Failure> {
         }
         "open" | "launch" | "window" | "workspace switch" | "toggle" | "set" | "notify" => act::run(p, &path).map(Some),
         "ask" | "confirm" | "remind add" | "remind list" | "remind cancel" => talk::run(p, &path).map(Some),
+        "a11y tree" | "a11y find" | "a11y wait" | "a11y do" | "a11y press" | "a11y focus" | "a11y select" | "a11y set" => a11y::run(p, &path).map(Some),
         // The shell's methods for the rest come with helixdesktop/desktop
         // #146–#151 (`Cmd::ready`); until then this session cannot do them.
         _ => Err(Failure::not_supported()),

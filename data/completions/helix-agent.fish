@@ -1,6 +1,6 @@
 # fish completion for helix-agent (made by `helix-agent completions fish`)
 function __helix_agent_at
-    set -l known status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/set a11y a11y/tree a11y/do a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions
+    set -l known status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions
     set -l at
     for w in (commandline -opc)[2..-1]
         string match -q -- '-*' $w; and continue
@@ -80,10 +80,26 @@ complete -c helix-agent -n '__helix_agent_at clipboard' -a set -d 'Set the clipb
 complete -c helix-agent -n '__helix_agent_at clipboard/get' -l type -x -d 'Only this type, e.g. application/pdf'
 complete -c helix-agent -n '__helix_agent_at clipboard/set' -l type -x -d 'Only this type, e.g. application/pdf'
 complete -c helix-agent -n '__helix_agent_at a11y' -a tree -d 'An app window\'s controls'
+complete -c helix-agent -n '__helix_agent_at a11y' -a find -d 'Find controls by role, name or state'
+complete -c helix-agent -n '__helix_agent_at a11y' -a wait -d 'Wait until a matching control is there'
 complete -c helix-agent -n '__helix_agent_at a11y' -a do -d 'Use a control'
-complete -c helix-agent -n '__helix_agent_at a11y' -a set -d 'Change a control\'s value'
-complete -c helix-agent -n '__helix_agent_at a11y/tree' -l depth -x -d 'How many levels down to go'
+complete -c helix-agent -n '__helix_agent_at a11y' -a press -d 'Press a control (its first action)'
+complete -c helix-agent -n '__helix_agent_at a11y' -a focus -d 'Give a control the keyboard focus'
+complete -c helix-agent -n '__helix_agent_at a11y' -a select -d 'Select an item in its list or tabs'
+complete -c helix-agent -n '__helix_agent_at a11y' -a set -d 'Change a control\'s text or value'
+complete -c helix-agent -n '__helix_agent_at a11y/tree' -l depth -x -d 'How many levels down to go (0: the node alone)'
 complete -c helix-agent -n '__helix_agent_at a11y/tree' -l node -x -d 'Start at this node'
+complete -c helix-agent -n '__helix_agent_at a11y/tree' -l max-nodes -x -d 'Read at most N nodes [default: 1000]'
+complete -c helix-agent -n '__helix_agent_at a11y/tree' -l bounds -d 'Where each control is in its window'
+complete -c helix-agent -n '__helix_agent_at a11y/find' -l role -x -d 'Only controls of this role, e.g. button, text, check box'
+complete -c helix-agent -n '__helix_agent_at a11y/find' -l name -x -d 'Only controls whose name contains TEXT'
+complete -c helix-agent -n '__helix_agent_at a11y/find' -l state -x -d 'Only controls in this state, e.g. focused, checked (repeat for more)'
+complete -c helix-agent -n '__helix_agent_at a11y/find' -l limit -x -d 'Show at most N'
+complete -c helix-agent -n '__helix_agent_at a11y/wait' -l role -x -d 'Only controls of this role, e.g. button, text, check box'
+complete -c helix-agent -n '__helix_agent_at a11y/wait' -l name -x -d 'Only controls whose name contains TEXT'
+complete -c helix-agent -n '__helix_agent_at a11y/wait' -l state -x -d 'Only controls in this state, e.g. focused, checked (repeat for more)'
+complete -c helix-agent -n '__helix_agent_at a11y/wait' -l timeout -x -d 'Give up after this long [default: 60; 0: never]'
+complete -c helix-agent -n '__helix_agent_at a11y/set' -l number -d 'VALUE is a number (sliders, spin buttons)'
 complete -c helix-agent -n '__helix_agent_at screenshot' -l window -x -d 'Only this window'
 complete -c helix-agent -n '__helix_agent_at screenshot' -l monitor -x -d 'Only this monitor'
 complete -c helix-agent -n '__helix_agent_at screenshot' -l output -r -F -d 'Write the PNG to FILE'

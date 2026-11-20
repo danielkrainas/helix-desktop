@@ -1,7 +1,7 @@
 # bash completion for helix-agent (made by `helix-agent completions bash`)
 _helix_agent() {
     local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD-1]} at= w i
-    local known=" status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/set a11y a11y/tree a11y/do a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions "
+    local known=" status request state windows apps workspaces monitors notifications files files/recent files/search wait wait/window wait/closed ask confirm remind remind/add remind/list remind/cancel open launch window workspace workspace/switch toggle set notify clipboard clipboard/get clipboard/set a11y a11y/tree a11y/find a11y/wait a11y/do a11y/press a11y/focus a11y/select a11y/set screenshot input input/key input/type input/click input/move input/scroll log help completions "
     for ((i = 1; i < COMP_CWORD; i++)); do
         w=${COMP_WORDS[i]}
         [[ $w == -* ]] && continue
@@ -25,6 +25,10 @@ _helix_agent() {
         --urgency) COMPREPLY=($(compgen -W "low normal" -- "$cur")); return ;;
         --depth) return ;;
         --node) return ;;
+        --max-nodes) return ;;
+        --role) return ;;
+        --name) return ;;
+        --state) return ;;
         --window) return ;;
         --monitor) return ;;
         --output) COMPREPLY=($(compgen -f -- "$cur")); return ;;
@@ -65,10 +69,15 @@ _helix_agent() {
         clipboard) words="get set --help" ;;
         clipboard/get) words="--type --json --text --no-ask --sensitive --timeout --help" ;;
         clipboard/set) words="--type --json --text --no-ask --sensitive --timeout --help" ;;
-        a11y) words="tree do set --help" ;;
-        a11y/tree) words="--depth --node --json --text --no-ask --sensitive --timeout --help" ;;
+        a11y) words="tree find wait do press focus select set --help" ;;
+        a11y/tree) words="--depth --node --max-nodes --bounds --json --text --no-ask --sensitive --timeout --help" ;;
+        a11y/find) words="--role --name --state --limit --json --text --no-ask --sensitive --timeout --help" ;;
+        a11y/wait) words="--role --name --state --timeout --json --text --no-ask --sensitive --timeout --help" ;;
         a11y/do) words="--json --text --no-ask --sensitive --timeout --help" ;;
-        a11y/set) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        a11y/press) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        a11y/focus) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        a11y/select) words="--json --text --no-ask --sensitive --timeout --help" ;;
+        a11y/set) words="--number --json --text --no-ask --sensitive --timeout --help" ;;
         screenshot) words="--window --monitor --output --json --text --no-ask --sensitive --timeout --help" ;;
         input) words="key type click move scroll --help" ;;
         input/key) words="--json --text --no-ask --sensitive --timeout --help" ;;

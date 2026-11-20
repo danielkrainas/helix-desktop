@@ -33,7 +33,13 @@ pub struct WindowList {
     sent_primary: Option<(i32, i32, i32, i32)>,
     /// Window placement (`window_state` bits), as last sent.
     sent_state: HashMap<u32, u32>,
+    /// Who shows each window (process, accessibility names), as last sent.
+    sent_client: HashMap<u32, ClientInfo>,
 }
+
+/// A window's process (0: unknown) and its accessibility bus name and
+/// object path (empty: not told).
+type ClientInfo = (u32, String, String);
 
 type Geometry = (i32, i32, i32, i32, u32);
 
@@ -143,6 +149,18 @@ impl Helix {
             .fold(0, |bits, (_, bit)| bits | bit)
     }
 
+    /// Who shows `window`: its process (an X11 window's claimed one) and
+    /// what its app said with `gtk_surface1.set_a11y_properties`.
+    fn client_info(&self, window: &Window) -> ClientInfo {
+        let surface = smithay::wayland::seat::WaylandFocus::wl_surface(window).map(|s| s.into_owned());
+        let pid = match window.x11_surface() {
+            Some(x11) => x11.pid().unwrap_or(0),
+            None => surface.as_ref().and_then(|s| s.client()).and_then(|c| c.get_credentials(&self.display_handle).ok()).map_or(0, |c| c.pid.max(0) as u32),
+        };
+        let (name, path) = surface.as_ref().and_then(super::gtk_shell::a11y_properties).unwrap_or_default();
+        (pid, name, path)
+    }
+
     fn layout_wire(&self) -> (u32, u32) {
         let layout = self.workspaces.layout;
         (layout.count as u32, layout.active as u32)
@@ -230,6 +248,18 @@ impl Helix {
                 list.sent_state.insert(id, bits);
             }
         }
+        // Who shows windows (version 13).
+        let clients: Vec<(u32, ClientInfo)> = self.listed_windows().into_iter().map(|(id, w)| (id, self.client_info(&w))).collect();
+        let list = &mut self.window_list;
+        list.sent_client.retain(|id, _| list.sent.contains_key(id));
+        for (id, info) in clients {
+            if list.sent_client.get(&id) != Some(&info) {
+                for l in list.listeners.iter().filter(|l| l.version() >= 13) {
+                    l.client(id, info.0, info.1.clone(), info.2.clone());
+                }
+                list.sent_client.insert(id, info);
+            }
+        }
         // Icons apps set (version 7).
         let listed = self.listed_windows();
         let x11_alive: Vec<u32> = listed.iter().filter_map(|(_, w)| w.x11_surface().map(|x| x.window_id())).collect();
@@ -310,6 +340,14 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
             }
             states.insert(*id, bits);
         }
+        let mut clients = HashMap::new();
+        for (id, window) in &windows {
+            let info = state.client_info(window);
+            if listener.version() >= 13 {
+                listener.client(*id, info.0, info.1.clone(), info.2.clone());
+            }
+            clients.insert(*id, info);
+        }
         if listener.version() >= 9 {
             for (id, window) in &windows {
                 if state.attention.contains(window) {
@@ -336,6 +374,7 @@ impl GlobalDispatch<HelixWindowListV1, ()> for Helix {
             state.window_list.sent_geometry = geometry;
             state.window_list.sent_primary = Some(primary);
             state.window_list.sent_state = states;
+            state.window_list.sent_client = clients;
         }
     }
 

@@ -163,8 +163,11 @@ fn against_a_session() {
     let out = cli(&["wait", "window", "--app", "org.gnome.TextEditor", "--timeout", "1"]);
     assert_eq!(code(&out), 10);
     // Commands whose shell methods come later.
-    let out = cli(&["a11y", "tree", "1"]);
+    let out = cli(&["screenshot"]);
     assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (23, Json::from("not-supported")));
+    // Driving apps is refused like any call.
+    let out = cli(&["a11y", "tree", "1"]);
+    assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (10, Json::from("access-off")));
     // Questions are refused like any call, without showing anything.
     let out = cli(&["ask", "Ready?"]);
     assert_eq!((code(&out), json(&out)["error"]["code"].clone()), (10, Json::from("access-off")));

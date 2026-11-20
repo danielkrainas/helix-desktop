@@ -5,7 +5,10 @@
 //! - [`headless`]: a whole headless Helix session (compositor and shell).
 //! - [`conformance`]: compare an exported D-Bus interface against the
 //!   contract XML in helixdesktop/spec.
+//! - [`a11y`]: a private accessibility bus and a GTK 4 window to read
+//!   over it.
 
+pub mod a11y;
 pub mod conformance;
 pub mod headless;
 pub mod logind;
