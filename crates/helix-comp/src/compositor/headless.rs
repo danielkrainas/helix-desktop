@@ -1,13 +1,21 @@
 //! Headless backend, for tests: one virtual monitor (two with
-//! `HELIX_HEADLESS_OUTPUTS=2`), no window, no GPU and no input devices. Clients get frame callbacks at 60 Hz and shared-memory
-//! buffers only.
+//! `HELIX_HEADLESS_OUTPUTS=2`), no window, no GPU (unless
+//! `HELIX_HEADLESS_GPU`, below) and no input devices. Clients get frame
+//! callbacks at 60 Hz and shared-memory buffers only.
 //!
 //! `HELIX_HEADLESS_SIZE` (`WIDTHxHEIGHT`, default 1280x720) sets the
 //! monitor's size. With `HELIX_HEADLESS_SNAPSHOT=file.png` the compositor
 //! writes what the monitor would show (shared-memory surfaces only) to that
-//! file every second, and logs every window's placement. With
+//! file every second (the second monitor's as `file-2.png`), and logs
+//! every window's placement. With
 //! `HELIX_HEADLESS_INPUT=socket` it takes test input on that socket
 //! (`headless_input`).
+//!
+//! With `HELIX_HEADLESS_GPU=/dev/dri/renderD…` it also draws every frame
+//! with that GPU (off-screen, like a monitor would show it), offers GPU
+//! buffers (`zwp_linux_dmabuf_v1`, explicit sync where the GPU has it) and
+//! takes captures and snapshots from what it drew, so apps that draw with
+//! the GPU (browsers) run as they would on hardware.
 
 use std::time::Duration;
 
@@ -108,6 +116,7 @@ pub fn init(event_loop: &mut EventLoop<'static, Helix>, state: &mut Helix) -> Re
         frames_outputs.push(add_output(state, CONNECTOR_2, "1", mode, size.w));
     }
     tracing::info!(width = size.w, height = size.h, count, "headless monitor");
+    let snap_outputs = frames_outputs.clone();
 
     let frame = Duration::from_micros(1_000_000_000 / REFRESH_MHZ as u64);
     event_loop.handle().insert_source(Timer::from_duration(frame), move |_, _, state| {
@@ -124,12 +133,26 @@ pub fn init(event_loop: &mut EventLoop<'static, Helix>, state: &mut Helix) -> Re
 
     if let Some(path) = std::env::var_os("HELIX_HEADLESS_SNAPSHOT") {
         let path = std::path::PathBuf::from(path);
+        // The second monitor's next to it, as `NAME-2.png`.
+        let second = snap_outputs.get(1).cloned().map(|o| (o, path.with_file_name(format!("{}-2.png", path.file_stem().unwrap_or_default().to_string_lossy()))));
         event_loop.handle().insert_source(Timer::from_duration(Duration::from_secs(1)), move |_, _, state| {
             state.headless_snapshot(&output, &path);
+            if let Some((output, path)) = &second {
+                state.headless_snapshot(output, path);
+            }
             TimeoutAction::ToDuration(Duration::from_secs(1))
         })?;
     }
     state.headless = true;
+    if let Some(path) = std::env::var_os("HELIX_HEADLESS_GPU") {
+        match HeadlessGpu::new(state, std::path::Path::new(&path)) {
+            Ok(gpu) => {
+                tracing::info!(gpu = %std::path::Path::new(&path).display(), "headless monitor drawn with the GPU");
+                state.headless_gpu = Some(Box::new(gpu));
+            }
+            Err(err) => tracing::warn!(%err, "cannot use the GPU for the headless monitor"),
+        }
+    }
     Ok(describe(size, count))
 }
 
@@ -166,6 +189,18 @@ impl Helix {
     /// A frame went by: what waited for it may go on.
     fn headless_frame(&mut self, output: &Output) {
         let now = self.start_time.elapsed();
+        if let Some(mut gpu) = self.headless_gpu.take() {
+            if gpu.draw(self, output) {
+                let mut feedback = super::timing::presentation_feedback(&self.space, output);
+                feedback.presented::<Duration, smithay::utils::Monotonic>(
+                    self.clock.now().into(),
+                    smithay::wayland::presentation::Refresh::fixed(super::timing::refresh_of(output)),
+                    0,
+                    smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback::Kind::Vsync,
+                );
+            }
+            self.headless_gpu = Some(gpu);
+        }
         self.frame_shown(output);
         self.send_cursor_frame(output, now);
         if self.lock.locked {
@@ -187,7 +222,10 @@ impl Helix {
     /// Write what `output` would show to `path` (shared-memory surfaces,
     /// at scale 1) and log where each window is.
     fn headless_snapshot(&mut self, output: &Output, path: &std::path::Path) {
-        let Some(image) = self.headless_image(output) else { return };
+        let Some(mut image) = self.headless_image(output) else { return };
+        if let Some(pixels) = self.headless_gpu.as_mut().and_then(|gpu| gpu.read(output, (image.width, image.height))) {
+            image.pixels = pixels;
+        }
         if let Err(err) = image.save(path) {
             tracing::warn!(%err, path = %path.display(), "cannot write the headless snapshot");
         }
@@ -375,5 +413,101 @@ impl Image {
         encoder.write_header()?.write_image_data(&rgba)?;
         std::fs::rename(tmp, path)?;
         Ok(())
+    }
+}
+
+
+/// The headless backend's GPU: what each monitor shows, drawn off-screen.
+pub struct HeadlessGpu {
+    pub renderer: smithay::backend::renderer::gles::GlesRenderer,
+    /// Per monitor (by name): the picture and its damage tracker.
+    targets: Vec<(String, smithay::backend::renderer::gles::GlesTexture, smithay::backend::renderer::damage::OutputDamageTracker, bool)>,
+    _gbm: smithay::backend::allocator::gbm::GbmDevice<smithay::backend::drm::DrmDeviceFd>,
+}
+
+impl HeadlessGpu {
+    fn new(state: &mut Helix, path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+        use smithay::backend::allocator::gbm::GbmDevice;
+        use smithay::backend::drm::{DrmDeviceFd, DrmNode};
+        use smithay::backend::egl::{EGLContext, EGLDisplay};
+        use smithay::backend::renderer::gles::GlesRenderer;
+        use smithay::backend::renderer::ImportDma;
+        use smithay::utils::DeviceFd;
+        let node = DrmNode::from_path(path)?;
+        let file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+        let fd = DrmDeviceFd::new(DeviceFd::from(std::os::fd::OwnedFd::from(file)));
+        state.enable_syncobj(fd.clone());
+        let gbm = GbmDevice::new(fd)?;
+        // SAFETY: the GBM device outlives the display (both kept here).
+        let display = unsafe { EGLDisplay::new(gbm.clone())? };
+        let context = EGLContext::new(&display)?;
+        // SAFETY: the context is current only on this thread.
+        let renderer = unsafe { GlesRenderer::new(context)? };
+        state.shm_state.update_formats(smithay::backend::renderer::ImportMemWl::shm_formats(&renderer));
+        let formats = renderer.dmabuf_formats();
+        let feedback = smithay::wayland::dmabuf::DmabufFeedbackBuilder::new(node.dev_id(), formats).build()?;
+        state.dmabuf_state.create_global_with_default_feedback::<Helix>(&state.display_handle, &feedback);
+        Ok(Self { renderer, targets: Vec::new(), _gbm: gbm })
+    }
+
+    /// Draw what `output` shows now; whether anything changed.
+    fn draw(&mut self, state: &mut Helix, output: &Output) -> bool {
+        use smithay::backend::allocator::Fourcc;
+        use smithay::backend::renderer::damage::OutputDamageTracker;
+        use smithay::backend::renderer::{Bind, Offscreen, Renderer};
+        let Some(mode) = output.current_mode() else { return false };
+        let renderer = &mut self.renderer;
+        state.animations.context = Some(renderer.context_id());
+        state.animations.prune();
+        let focused = state.focused_window();
+        let elements: Vec<super::frames::SceneElement> = if state.lock.locked {
+            Vec::new()
+        } else {
+            super::frames::scene(renderer, &state.space, &state.frames, output, focused.as_ref(), Some((&state.animations, state.wm_settings.motion)), state.in_fullscreen(output), None)
+        };
+        let name = output.name();
+        if !self.targets.iter().any(|(n, _, _, _)| *n == name) {
+            let Ok(texture) = Offscreen::<smithay::backend::renderer::gles::GlesTexture>::create_buffer(renderer, Fourcc::Abgr8888, (mode.size.w, mode.size.h).into()) else { return false };
+            self.targets.push((name.clone(), texture, OutputDamageTracker::from_output(output), false));
+        }
+        let Some((_, texture, tracker, drawn)) = self.targets.iter_mut().find(|(n, _, _, _)| *n == name) else { return false };
+        let Ok(mut framebuffer) = renderer.bind(texture) else { return false };
+        let age = if *drawn { 1 } else { 0 };
+        match tracker.render_output(renderer, &mut framebuffer, age, &elements, [0.12, 0.12, 0.14, 1.0]) {
+            Ok(result) => {
+                *drawn = true;
+                result.damage.is_some()
+            }
+            Err(err) => {
+                tracing::warn!(?err, "headless GPU drawing failed");
+                false
+            }
+        }
+    }
+
+    /// What was last drawn for `output`, as ARGB pixels of `size`.
+    fn read(&mut self, output: &Output, (w, h): (i32, i32)) -> Option<Vec<u32>> {
+        use smithay::backend::allocator::Fourcc;
+        use smithay::backend::renderer::{Bind, ExportMem, TextureMapping as _};
+        let name = output.name();
+        let renderer = &mut self.renderer;
+        let (_, texture, _, drawn) = self.targets.iter_mut().find(|(n, _, _, _)| *n == name)?;
+        if !*drawn {
+            return None;
+        }
+        let framebuffer = renderer.bind(texture).ok()?;
+        let mapping = renderer.copy_framebuffer(&framebuffer, smithay::utils::Rectangle::from_size((w, h).into()), Fourcc::Abgr8888).ok()?;
+        drop(framebuffer);
+        let bottom_up = !mapping.flipped();
+        let data = renderer.map_texture(&mapping).ok()?;
+        let (w, h) = (w as usize, h as usize);
+        let mut out = Vec::with_capacity(w * h);
+        for row in 0..h {
+            let src = if bottom_up { h - 1 - row } else { row };
+            for px in data[src * w * 4..(src + 1) * w * 4].chunks_exact(4) {
+                out.push(0xFF00_0000 | (u32::from(px[0]) << 16) | (u32::from(px[1]) << 8) | u32::from(px[2]));
+            }
+        }
+        Some(out)
     }
 }

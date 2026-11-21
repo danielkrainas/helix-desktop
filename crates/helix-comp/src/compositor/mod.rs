@@ -190,6 +190,8 @@ pub struct Helix {
     pub udev: Option<udev::UdevData>,
     /// Set by the headless backend (tests).
     pub headless: bool,
+    /// The headless backend's GPU (`HELIX_HEADLESS_GPU`), if any.
+    pub headless_gpu: Option<Box<headless::HeadlessGpu>>,
     /// The X11 window manager for Xwayland, once it is running.
     pub xwm: Option<X11Wm>,
     /// Xwayland's display number (`DISPLAY=:N`), once it is running.
@@ -363,6 +365,7 @@ impl Helix {
             pending_dmabufs: Vec::new(),
             udev: None,
             headless: false,
+            headless_gpu: None,
             xwm: None,
             xdisplay: None,
             xwayland_client: None,

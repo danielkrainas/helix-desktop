@@ -247,6 +247,7 @@ impl XdgShellHandler for Helix {
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
+        tracing::debug!("new popup");
         self.unconstrain_popup(&surface);
         let _ = self.popups.track_popup(PopupKind::Xdg(surface));
     }
@@ -265,6 +266,7 @@ impl XdgShellHandler for Helix {
             return;
         }
         let Some(seat) = Seat::<Self>::from_resource(&seat) else { return };
+        tracing::debug!("popup grab asked");
         let kind = PopupKind::Xdg(surface);
         let Ok(root) = find_popup_root_surface(&kind) else { return };
         if self.window_for_surface(&root).is_none() {
@@ -849,6 +851,14 @@ impl DmabufHandler for Helix {
         // Test the import against the renderer that will use it; nested,
         // that renderer lives with the host window, which answers on its
         // next frame.
+        if let Some(gpu) = self.headless_gpu.as_mut() {
+            if gpu.renderer.import_dmabuf(&dmabuf, None).is_ok() {
+                let _ = notifier.successful::<Helix>();
+            } else {
+                notifier.failed();
+            }
+            return;
+        }
         let Some(udev) = self.udev.as_mut() else {
             self.pending_dmabufs.push((dmabuf, notifier));
             return;

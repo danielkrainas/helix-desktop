@@ -22,6 +22,8 @@
 //!   middle) down or up.
 //! - `click X Y [CODE]`: move there, press and release (left by default).
 //! - `scroll DX DY`: smooth scrolling by (DX, DY) pixels.
+//! - `wheel STEPS`: a mouse wheel turned by `STEPS` notches (down is
+//!   positive), as a mouse sends it (`value120`).
 //! - `finger DX DY`: touchpad (finger) scrolling by (DX, DY) pixels, the
 //!   fingers still down; `finger stop`: they lift (the axis stop).
 //! - `touch down|move X Y` and `touch up`: one finger (slot 0) of the
@@ -103,6 +105,7 @@ pub fn parse(line: &str) -> Result<Command, String> {
             RemoteInput::Axis { dx: number(words.next())?, dy: number(words.next())?, finish: false, source: 1 },
             RemoteInput::Axis { dx: 0.0, dy: 0.0, finish: true, source: 1 },
         ]),
+        "wheel" => Command::Input(vec![RemoteInput::AxisDiscrete { axis: 0, steps: number(words.next())? }]),
         "finger" => match words.next() {
             Some("stop") => Command::Input(vec![RemoteInput::Axis { dx: 0.0, dy: 0.0, finish: true, source: 0 }]),
             dx => Command::Input(vec![RemoteInput::Axis { dx: number(dx)?, dy: number(words.next())?, finish: false, source: 0 }]),

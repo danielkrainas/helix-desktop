@@ -773,10 +773,11 @@ impl Ui {
             }
             state.tiles.push((r, *id));
         }
-        if primary && tracing::enabled!(tracing::Level::DEBUG) {
+        if tracing::enabled!(tracing::Level::DEBUG) {
             // Where each window's tile is on screen, for tests:
-            // `title@x,y,w,h` (titles' spaces as `_`).
-            let (ox, oy) = (self.primary_area.0, self.primary_area.1 + panel_height() as i32);
+            // `title@x,y,w,h` (titles' spaces as `_`); the other monitors'
+            // as "overview other tiles".
+            let (ox, oy) = if primary { (self.primary_area.0, self.primary_area.1 + panel_height() as i32) } else { (state.area.0, state.area.1) };
             let tiles: Vec<String> = state
                 .tiles
                 .iter()
@@ -785,7 +786,11 @@ impl Ui {
                     format!("{title}@{},{},{},{}", ox + r.x, oy + r.y, r.w, r.h)
                 })
                 .collect();
-            tracing::debug!(tiles = tiles.join(" "), "overview tiles");
+            if primary {
+                tracing::debug!(tiles = tiles.join(" "), "overview tiles");
+            } else {
+                tracing::debug!(tiles = tiles.join(" "), "overview other tiles");
+            }
         }
         // The dash, last: its feedback is repainted on the frame as it was
         // before the dash (`dash_base`), without drawing the rest again.

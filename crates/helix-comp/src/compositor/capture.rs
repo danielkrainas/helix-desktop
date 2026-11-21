@@ -335,6 +335,15 @@ impl Helix {
 
     fn queue_capture(&mut self, pending: Pending) {
         self.captures.pending.push(pending);
+        if self.headless_gpu.is_some() {
+            self.loop_handle.insert_idle(|state| {
+                if let Some(mut gpu) = state.headless_gpu.take() {
+                    state.run_captures(&mut gpu.renderer, true);
+                    state.headless_gpu = Some(gpu);
+                }
+            });
+            return;
+        }
         if self.headless {
             // Tests that need captures left unanswered say so.
             if std::env::var_os("HELIX_HEADLESS_NO_CAPTURE").is_none() {
