@@ -162,9 +162,11 @@ impl Helix {
         let serial = SERIAL_COUNTER.next_serial();
         self.focus_window(window);
         if button == BTN_LEFT {
-            self.restore_window(window);
+            // A maximized window: restored under the pointer once it
+            // really moves.
+            let unmaximize = self.is_any_taken_over(window);
             let initial_location = self.space.element_location(window).unwrap_or_default();
-            let grab = MoveGrab { start_data, window: window.clone(), initial_location, follow: false, unmaximize: false };
+            let grab = MoveGrab { start_data, window: window.clone(), initial_location, follow: false, unmaximize };
             pointer.set_grab(self, grab, serial, Focus::Clear);
         } else if button == resize_button {
             if self.is_taken_over(window, Takeover::Maximized) || self.is_taken_over(window, Takeover::Fullscreen) {

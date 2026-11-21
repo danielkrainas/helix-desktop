@@ -94,7 +94,9 @@ impl PointerGrab<Helix> for MoveGrab {
                 return;
             }
             self.unmaximize = false;
-            data.restore_under_pointer(&self.window, self.start_data.location);
+            // Under the pointer where it was grabbed (not back where it
+            // was before it was maximized).
+            data.restore_window_at(&self.window, Some(self.start_data.location));
             self.initial_location = data.space.element_location(&self.window).unwrap_or(self.initial_location);
             delta = event.location - self.start_data.location;
         }

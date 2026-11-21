@@ -319,7 +319,8 @@ impl XwmHandler for Helix {
         let Some(window) = self.x11_window(&surface) else { return };
         let pointer = self.seat.get_pointer().unwrap();
         let Some(start_data) = pointer.grab_start_data() else { return };
-        self.restore_window(&window);
+        // Restored under the pointer once it really moves.
+        let unmaximize = self.is_any_taken_over(&window);
         let initial_location = self.space.element_location(&window).unwrap_or_default();
         pointer.set_grab(
             self,
@@ -328,7 +329,7 @@ impl XwmHandler for Helix {
                 window,
                 initial_location,
                 follow: false,
-                unmaximize: false,
+                unmaximize,
             },
             SERIAL_COUNTER.next_serial(),
             Focus::Clear,

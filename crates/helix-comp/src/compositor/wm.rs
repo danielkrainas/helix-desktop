@@ -100,6 +100,26 @@ pub fn is_lost(rect: Rectangle<i32, Logical>, outputs: &[Rectangle<i32, Logical>
     !outputs.iter().any(|o| o.overlaps(rect))
 }
 
+/// Where a window taken over at `before` (its own area, without a title
+/// bar Helix draws) goes when a drag at `pointer` restores it to `size`:
+/// under the pointer, which keeps its fraction of the width, and its
+/// distance below the top (on a title bar, Helix's above the area or the
+/// client's own at its top) unless the restored window is not that tall,
+/// then its fraction of the height. Only the restored size counts (the
+/// one asked of the client, not the size it still has), so where the
+/// window was before it was maximized never does.
+pub fn anchored(before: Rectangle<i32, Logical>, size: smithay::utils::Size<i32, Logical>, pointer: Point<f64, Logical>) -> Point<i32, Logical> {
+    let fraction = |at: f64, start: i32, len: i32| ((at - f64::from(start)) / f64::from(len.max(1))).clamp(0.0, 1.0);
+    let x = pointer.x - fraction(pointer.x, before.loc.x, before.size.w) * f64::from(size.w);
+    let down = pointer.y - f64::from(before.loc.y);
+    let y = if down < f64::from(size.h) {
+        f64::from(before.loc.y)
+    } else {
+        pointer.y - fraction(pointer.y, before.loc.y, before.size.h) * f64::from(size.h)
+    };
+    (x.round() as i32, y.round() as i32).into()
+}
+
 impl Helix {
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
         self.space
@@ -293,10 +313,27 @@ impl Helix {
 
     /// Undo maximize/fullscreen, restoring the previous geometry.
     pub fn restore_window(&mut self, window: &Window) {
+        self.restore_window_at(window, None);
+    }
+
+    /// Whether `window`'s geometry is taken over (maximized, tiled or
+    /// full screen): dragging it restores it.
+    pub fn is_any_taken_over(&self, window: &Window) -> bool {
+        self.restore.iter().any(|(w, _, _)| w == window)
+    }
+
+    /// [`Self::restore_window`], with `grabbed` (a pointer position on the
+    /// window, dragging it): the restored window goes under the pointer
+    /// instead of back where it was ([`anchored`]).
+    pub fn restore_window_at(&mut self, window: &Window, grabbed: Option<Point<f64, Logical>>) {
         let Some(pos) = self.restore.iter().position(|(w, _, _)| w == window) else {
             return;
         };
-        let (_, geometry, _) = self.restore.remove(pos);
+        let (_, mut geometry, _) = self.restore.remove(pos);
+        if let (Some(pointer), Some(location)) = (grabbed, self.space.element_location(window)) {
+            let before = Rectangle::new(location, window.geometry().size);
+            geometry.loc = anchored(before, geometry.size, pointer);
+        }
         if let Some(toplevel) = window.toplevel() {
             toplevel.with_pending_state(|state| {
                 use xdg_toplevel::State;
@@ -588,5 +625,17 @@ mod tests {
         let rects = [r(0, 0, 1920, 1080)];
         assert!(is_lost(r(1950, 10, 300, 300), &rects), "on the monitor that went away");
         assert!(!is_lost(r(1900, 10, 300, 300), &rects), "still partly visible");
+    }
+
+    #[test]
+    fn restored_under_the_pointer() {
+        let maximized = r(1280, 32, 1280, 768);
+        let size = (400, 300).into();
+        // On the title bar: as far below the top, the same fraction across.
+        assert_eq!(anchored(maximized, size, (1280.0 + 960.0, 50.0).into()), (1280 + 960 - 300, 32).into());
+        // Helix's own title bar is above the window's area.
+        assert_eq!(anchored(maximized, size, (1280.0 + 640.0, 10.0).into()), (1280 + 640 - 200, 32).into());
+        // Lower than the restored window is tall: the fraction of the height.
+        assert_eq!(anchored(maximized, size, (1280.0 + 640.0, 32.0 + 384.0).into()), (1280 + 640 - 200, 32 + 384 - 150).into());
     }
 }

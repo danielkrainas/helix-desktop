@@ -300,8 +300,9 @@ impl XdgShellHandler for Helix {
         let Some(seat) = Seat::<Self>::from_resource(&seat) else { return };
         let Some(start_data) = check_grab(&seat, surface.wl_surface(), serial) else { return };
         let Some(window) = self.window_for_surface(surface.wl_surface()) else { return };
-        // Dragging a maximized window un-maximizes it first.
-        self.restore_window(&window);
+        // Dragging a maximized window restores it under the pointer once
+        // it really moves.
+        let unmaximize = self.is_any_taken_over(&window);
         let initial_location = self.space.element_location(&window).unwrap_or_default();
         let pointer = seat.get_pointer().unwrap();
         pointer.set_grab(
@@ -311,7 +312,7 @@ impl XdgShellHandler for Helix {
                 window,
                 initial_location,
                 follow: false,
-                unmaximize: false,
+                unmaximize,
             },
             serial,
             Focus::Clear,

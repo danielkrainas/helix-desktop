@@ -668,30 +668,11 @@ impl Helix {
         }
     }
 
-    /// Restore a maximized window being dragged so it comes back under
-    /// the pointer, keeping where along its top it was grabbed.
-    pub fn restore_under_pointer(&mut self, window: &Window, pos: Point<f64, Logical>) {
-        let before = client_rect(&self.space, window);
-        self.restore_window(window);
-        if let (Some(before), Some(after)) = (before, client_rect(&self.space, window)) {
-            if before != after {
-                let fraction = (pos.x - f64::from(before.loc.x)) / f64::from(before.size.w.max(1));
-                let x = (pos.x - fraction * f64::from(after.size.w)) as i32;
-                let loc: Point<i32, Logical> = (x, before.loc.y).into();
-                self.space.map_element(window.clone(), loc, true);
-                self.restack_above();
-                if let Some(x11) = window.x11_surface() {
-                    let _ = x11.configure(Rectangle::new(loc, after.size));
-                }
-            }
-        }
-    }
-
     fn start_frame_move(&mut self, window: Window, pos: Point<f64, Logical>) -> bool {
         let pointer = self.seat.get_pointer().unwrap();
         // A maximized window is restored once the pointer really drags
         // (so a double click can restore it instead).
-        let unmaximize = [Takeover::Maximized, Takeover::TiledLeft, Takeover::TiledRight].into_iter().any(|k| self.is_taken_over(&window, k));
+        let unmaximize = self.is_any_taken_over(&window);
         let initial_location = self.space.element_location(&window).unwrap_or_default();
         let start_data = GrabStartData { focus: None, button: super::input::BTN_LEFT, location: pos };
         pointer.set_grab(
