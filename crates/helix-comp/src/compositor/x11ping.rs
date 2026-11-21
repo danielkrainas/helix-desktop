@@ -17,6 +17,7 @@ use smithay::reexports::x11rb::rust_connection::RustConnection;
 pub struct X11Ping {
     conn: Arc<RustConnection>,
     wm_protocols: Atom,
+    net_wm_pid: Atom,
     net_wm_ping: Atom,
     net_wm_icon: Atom,
 }
@@ -90,6 +91,7 @@ impl X11Ping {
         };
         let (wm_protocols, net_wm_ping, net_wm_icon) = (atom("WM_PROTOCOLS")?, atom("_NET_WM_PING")?, atom("_NET_WM_ICON")?);
         let may_grab = atom("_XWAYLAND_MAY_GRAB_KEYBOARD")?;
+        let net_wm_pid = atom("_NET_WM_PID")?;
         let (net_wm_state, demands_attention) = (atom("_NET_WM_STATE")?, atom("_NET_WM_STATE_DEMANDS_ATTENTION")?);
         // Answers are sent to the root window with the substructure masks.
         conn.change_window_attributes(root, &ChangeWindowAttributesAux::new().event_mask(EventMask::SUBSTRUCTURE_NOTIFY))
@@ -146,7 +148,7 @@ impl X11Ping {
                 }
             })
             .map_err(|e| e.to_string())?;
-        Ok(Self { conn, wm_protocols, net_wm_ping, net_wm_icon })
+        Ok(Self { conn, wm_protocols, net_wm_pid, net_wm_ping, net_wm_icon })
     }
 
     /// Ping `window` if it takes part (`WM_PROTOCOLS` lists `_NET_WM_PING`).
@@ -165,6 +167,21 @@ impl X11Ping {
         let sent = self.conn.send_event(false, window, EventMask::NO_EVENT, event).is_ok();
         let _ = self.conn.flush();
         sent
+    }
+
+    /// Which app `window` belongs to: its X11 client (the resource id
+    /// base) and `_NET_WM_PID` (0 if unset), so a client slot reused by
+    /// another app is not mistaken for the old one.
+    pub fn client_of(&self, window: Window) -> (u32, u32) {
+        let base = window & !self.conn.setup().resource_id_mask;
+        let pid = self
+            .conn
+            .get_property(false, window, self.net_wm_pid, AtomEnum::CARDINAL, 0, 1)
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .and_then(|r| r.value32().and_then(|mut v| v.next()))
+            .unwrap_or(0);
+        (base, pid)
     }
 
     /// Follow `window`'s icon changes, and read its icon now.

@@ -3,7 +3,12 @@
 //! when its window gets focus,
 //! and have the shell ask whether to wait or force it to quit when it does
 //! not answer within `check-alive-timeout`.
+//!
+//! Some X11 apps list `_NET_WM_PING` but never answer it (Zoom), so an
+//! X11 app only counts as not responding once it has answered a ping
+//! before; one whose first ping goes unanswered is not pinged again.
 
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use smithay::desktop::Window;
@@ -23,6 +28,8 @@ enum Target {
 
 struct Ping {
     target: Target,
+    /// For an X11 window, its app ([`super::x11ping::X11Ping::client_of`]).
+    x11_client: Option<(u32, u32)>,
     window: Window,
     /// When the ping went out (or the user chose to wait).
     since: Instant,
@@ -33,6 +40,44 @@ struct Ping {
 #[derive(Default)]
 pub struct AliveState {
     pings: Vec<Ping>,
+    x11: X11Clients,
+}
+
+/// The most X11 apps remembered either way.
+const MAX_X11_CLIENTS: usize = 256;
+
+/// X11 apps seen answering pings, and ones that never did.
+#[derive(Default)]
+struct X11Clients {
+    answering: HashSet<(u32, u32)>,
+    silent: HashSet<(u32, u32)>,
+}
+
+impl X11Clients {
+    fn may_ping(&self, client: (u32, u32)) -> bool {
+        !self.silent.contains(&client)
+    }
+
+    fn answered(&mut self, client: (u32, u32)) {
+        self.silent.remove(&client);
+        if self.answering.len() >= MAX_X11_CLIENTS {
+            self.answering.clear();
+        }
+        self.answering.insert(client);
+    }
+
+    /// A ping went unanswered: whether that means the app is not
+    /// responding (it answered before); else it is one that never answers.
+    fn late(&mut self, client: (u32, u32)) -> bool {
+        if self.answering.contains(&client) {
+            return true;
+        }
+        if self.silent.len() >= MAX_X11_CLIENTS {
+            self.silent.clear();
+        }
+        self.silent.insert(client);
+        false
+    }
 }
 
 impl Helix {
@@ -49,17 +94,26 @@ impl Helix {
         if self.alive.pings.iter().any(|p| p.target == target) {
             return;
         }
+        let mut x11_client = None;
         let sent = match &target {
             Target::Wayland(client) => client.send_ping(SERIAL_COUNTER.next_serial()).is_ok(),
-            Target::X11(id) => self.x11ping.as_ref().is_some_and(|p| p.ping(*id)),
+            Target::X11(id) => self.x11ping.as_ref().is_some_and(|p| {
+                let client = p.client_of(*id);
+                x11_client = Some(client);
+                self.alive.x11.may_ping(client) && p.ping(*id)
+            }),
         };
         if sent {
-            self.alive.pings.push(Ping { target, window: window.clone(), since: Instant::now(), told: false });
+            self.alive.pings.push(Ping { target, x11_client, window: window.clone(), since: Instant::now(), told: false });
         }
     }
 
     /// An X11 window answered `_NET_WM_PING`.
     pub fn x11_pong(&mut self, id: u32) {
+        let client = self.alive.pings.iter().find(|p| p.target == Target::X11(id)).and_then(|p| p.x11_client);
+        if let Some(client) = client {
+            self.alive.x11.answered(client);
+        }
         self.answered(|t| *t == Target::X11(id));
     }
 
@@ -86,16 +140,22 @@ impl Helix {
             Target::Wayland(client) => client.alive(),
             Target::X11(_) => p.window.alive(),
         });
-        let late: Vec<Window> = self
-            .alive
-            .pings
-            .iter_mut()
-            .filter(|p| !p.told && !timeout.is_zero() && now.duration_since(p.since) >= timeout)
-            .map(|p| {
-                p.told = true;
-                p.window.clone()
-            })
-            .collect();
+        let x11 = &mut self.alive.x11;
+        let mut late: Vec<Window> = Vec::new();
+        self.alive.pings.retain_mut(|p| {
+            if p.told || timeout.is_zero() || now.duration_since(p.since) < timeout {
+                return true;
+            }
+            if let Some(client) = p.x11_client {
+                if !x11.late(client) {
+                    tracing::info!("an X11 app does not answer pings; not checking it");
+                    return false;
+                }
+            }
+            p.told = true;
+            late.push(p.window.clone());
+            true
+        });
         for window in late {
             tracing::info!("an app is not responding");
             self.tell_not_responding(&window, false);
@@ -148,5 +208,29 @@ impl Helix {
             }
         }
         self.alive.pings.retain(|p| p.window != *window);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn x11_apps_that_never_answer_are_not_flagged() {
+        let mut clients = X11Clients::default();
+        let (zoom, editor) = ((0x1c0_0000, 42), (0x220_0000, 43));
+        // Never answered: not "not responding", and not pinged again.
+        assert!(clients.may_ping(zoom));
+        assert!(!clients.late(zoom));
+        assert!(!clients.may_ping(zoom));
+        // The same client slot reused by another process is a new app.
+        assert!(clients.may_ping((0x1c0_0000, 99)));
+        // Answered before: a late answer means it is not responding.
+        clients.answered(editor);
+        assert!(clients.late(editor));
+        assert!(clients.may_ping(editor));
+        // An answer (from a ping already out) clears "never answers".
+        clients.answered(zoom);
+        assert!(clients.may_ping(zoom) && clients.late(zoom));
     }
 }
