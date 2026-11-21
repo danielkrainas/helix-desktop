@@ -62,9 +62,20 @@ pub enum Placement {
     Maximize,
 }
 
+/// mutter's `MAX_UNMAXIMIZED_WINDOW_AREA`: with `auto-maximize`, a new
+/// window covering more than this share of the work area opens maximized
+/// (mutter's `place.c`, `maybe_automaximize`).
+const AUTO_MAXIMIZE_SHARE: f64 = 0.8;
+
 /// Placement of a new window without a parent.
 pub fn place_toplevel(area: Rectangle<i32, Logical>, size: (i32, i32), top: i32, center: bool, auto_maximize: bool) -> Placement {
-    if auto_maximize && size.0 >= area.size.w && size.1 + top >= area.size.h {
+    // Nearly as large as the work area (an app restoring the size it had
+    // on a screen it could not see the panels of, e.g. Slack's 1920x1018
+    // below a 32 px panel): maximized, rather than placed with a band of
+    // the desktop above or below it.
+    let window_area = f64::from(size.0) * f64::from(size.1 + top);
+    let work_area = f64::from(area.size.w) * f64::from(area.size.h);
+    if auto_maximize && window_area > work_area * AUTO_MAXIMIZE_SHARE {
         return Placement::Maximize;
     }
     if center {
@@ -73,6 +84,20 @@ pub fn place_toplevel(area: Rectangle<i32, Logical>, size: (i32, i32), top: i32,
         return Placement::At((x, y).into());
     }
     Placement::Keep
+}
+
+/// Whether `window` cannot be resized: its minimum and maximum sizes are
+/// the same (mutter then gives it no maximize function).
+pub fn fixed_size(window: &Window) -> bool {
+    if let Some(toplevel) = window.toplevel() {
+        let (min, max) = smithay::wayland::compositor::with_states(toplevel.wl_surface(), |states| {
+            let mut cached = states.cached_state.get::<smithay::wayland::shell::xdg::SurfaceCachedState>();
+            let current = cached.current();
+            (current.min_size, current.max_size)
+        });
+        return min.w > 0 && min.h > 0 && min == max;
+    }
+    window.x11_surface().is_some_and(|x| matches!((x.min_size(), x.max_size()), (Some(min), Some(max)) if min == max))
 }
 
 /// Placement of a dialog over `parent` (its own area): centered, or at the
@@ -290,7 +315,9 @@ impl Helix {
             return;
         }
         let Some(area) = self.pointer_output().and_then(|o| self.usable_area_of(&o)) else { return };
-        match place_toplevel(area, (size.w, size.h), top, self.wm_settings.center_new_windows, self.wm_settings.auto_maximize) {
+        // mutter does not auto-maximize a window that cannot be resized.
+        let auto_maximize = self.wm_settings.auto_maximize && !fixed_size(window);
+        match place_toplevel(area, (size.w, size.h), top, self.wm_settings.center_new_windows, auto_maximize) {
             Placement::Keep => {}
             Placement::At(at) => self.place_at(window, at),
             Placement::Maximize => self.maximize(window),
@@ -425,6 +452,12 @@ mod tests {
         assert_eq!(place_toplevel(area, (400, 300), 34, true, true), Placement::At((300, 32 + 217 + 34).into()));
         assert_eq!(place_toplevel(area, (1000, 768), 0, true, true), Placement::Maximize);
         assert_eq!(place_toplevel(area, (1000, 768), 0, true, false), Placement::At((0, 32).into()));
+        // More than 80% of the work area's area (mutter's rule).
+        assert_eq!(place_toplevel(area, (1000, 615), 0, true, true), Placement::Maximize);
+        assert_eq!(place_toplevel(area, (1000, 614), 0, false, true), Placement::Keep);
+        assert_eq!(place_toplevel(area, (1000, 590), 25, false, true), Placement::Maximize, "title bar included");
+        // Slack restoring 1920x1018 below a 32 px panel on 1920x1080.
+        assert_eq!(place_toplevel(r(0, 32, 1920, 1048), (1920, 1018), 0, true, true), Placement::Maximize);
         let parent = r(100, 100, 600, 400);
         assert_eq!(place_dialog(parent, (200, 100), 0, false), (300, 250).into());
         assert_eq!(place_dialog(parent, (200, 100), 0, true), (300, 100).into());

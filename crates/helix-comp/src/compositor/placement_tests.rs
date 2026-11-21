@@ -353,6 +353,61 @@ fn filling_the_work_area_maximizes() {
     assert_eq!(inset, Point::from((0, 0)));
 }
 
+/// Slack restoring the size it saved on a screen whose panel it cannot
+/// see (1920x1018 below a 32 px panel on 1920x1080, not maximized): a
+/// window nearly as large as the work area. With `auto-maximize` it is
+/// maximized as in mutter (more than 80% of the work area), so nothing
+/// of the desktop shows between the panel and its menu bar; before, it
+/// was centered with a band above it. A window that cannot be resized
+/// (minimum and maximum sizes equal) is left alone, as mutter does.
+#[test]
+fn nearly_filling_the_work_area_maximizes() {
+    const WINDOW: u32 = 0xFF4A_154B;
+    let restored = (SIZE.0, SIZE.1 - 30);
+    for fixed in [false, true] {
+        let (mut event_loop, mut state) = start();
+        state.wm_settings.center_new_windows = true;
+        state.wm_settings.auto_maximize = true;
+        let rx = connect(&mut state, move |stream, tx| {
+            let mut app = App::new(stream);
+            if fixed {
+                app.toplevel.set_min_size(restored.0, restored.1);
+                app.toplevel.set_max_size(restored.0, restored.1);
+            }
+            app.surface.commit();
+            app.roundtrip();
+            // Chromium: no margin, its saved size until told otherwise.
+            for _ in 0..2 {
+                if let Some(serial) = app.state.serial.take() {
+                    app.xdg.ack_configure(serial);
+                }
+                let (w, h) = if app.state.size.0 > 0 { app.state.size } else { restored };
+                app.xdg.set_window_geometry(0, 0, w, h);
+                app.surface.attach(Some(&app.filled(w, h, WINDOW)), 0, 0);
+                app.surface.commit();
+                app.roundtrip();
+            }
+            tx.send(Step::Drawn(app.state.clone())).unwrap();
+            std::thread::sleep(Duration::from_secs(1));
+        });
+        let Step::Drawn(drawn) = serve(&mut event_loop, &mut state, &rx) else { panic!() };
+        let (area, _, maximized) = window(&state);
+        if fixed {
+            assert!(!maximized && !drawn.maximized, "a fixed-size window is not maximized");
+            assert_eq!(area.size, Size::from(restored));
+            continue;
+        }
+        assert!(drawn.maximized, "{drawn:?}");
+        assert!(maximized);
+        assert_eq!(area, work_area(), "flush with the work area's top");
+        let output = state.space.outputs().next().unwrap().clone();
+        let image = state.headless_image(&output).expect("a snapshot");
+        for y in [0, 5, 14, SIZE.1 - 1] {
+            assert_eq!(image.at(SIZE.0 / 2, y), WINDOW, "the window at row {y}, no band of the desktop");
+        }
+    }
+}
+
 /// Maximizing a mapped window puts its geometry on the work area.
 #[test]
 fn maximized_after_mapping() {
