@@ -114,6 +114,30 @@ pub fn clean_name(name: &str) -> String {
     kept.trim().to_owned()
 }
 
+/// The launcher an agent was started through: its command (`args[0]`),
+/// looked up like a shell would (against `cwd` when it holds a `/`, else
+/// in the agent's `PATH`), when that is a symlink to `exe` or to another
+/// file in `exe`'s directory (a launcher already pointing at a newer
+/// version, e.g. `~/.local/bin/claude` -> `~/.local/share/claude/versions/<v>`).
+/// The launcher's path stays the same across updates; `exe`'s does not.
+fn launcher(exe: &Path, args: &[String], cwd: Option<&Path>, env: &[String]) -> Option<PathBuf> {
+    let command = args.first()?;
+    let candidates: Vec<PathBuf> = if command.contains('/') {
+        let path = Path::new(command);
+        vec![if path.is_relative() { cwd?.join(path) } else { path.to_path_buf() }]
+    } else {
+        env_value(env, "PATH")?.split(':').filter(|d| d.starts_with('/')).map(|d| Path::new(d).join(command)).collect()
+    };
+    // The first one that exists is what the shell ran (or would run now).
+    let found = candidates.into_iter().find(|c| std::fs::symlink_metadata(c).is_ok())?;
+    if !std::fs::symlink_metadata(&found).ok()?.file_type().is_symlink() {
+        return None;
+    }
+    let target = std::fs::canonicalize(&found).ok()?;
+    let same_dir = |a: &Path, b: &Path| a.parent().is_some() && a.parent() == b.parent();
+    (target == exe || same_dir(&target, exe)).then_some(found)
+}
+
 /// The agent behind the D-Bus caller `caller_pid`, whose processes must be
 /// user `uid`'s, looked up under `proc_root` (`/proc`). `None` when the
 /// caller itself cannot be read or is another user's.
@@ -150,19 +174,24 @@ pub fn identify(proc_root: &Path, caller_pid: u32, uid: u32) -> Option<Agent> {
             (caller_pid, exe, false)
         }
     };
-    let executable = exe.to_string_lossy().into_owned();
+    let agent_env = if agent_pid == caller_pid { caller_env.clone() } else { environment(proc_root, agent_pid) };
+    let mut executable = exe.to_string_lossy().into_owned();
     let mut id = executable.clone();
     let mut identified = identified;
-    if identified && is_interpreter(file_name(&exe)) {
+    if identified {
         let dir = proc_root.join(agent_pid.to_string());
         let args = std::fs::read(dir.join("cmdline")).map(|d| nul_split(&d)).unwrap_or_default();
         let cwd = std::fs::read_link(dir.join("cwd")).ok();
-        match script_of(&args, cwd.as_deref()) {
-            Some(script) => id = format!("{executable} {script}"),
-            None => identified = false,
+        if is_interpreter(file_name(&exe)) {
+            match script_of(&args, cwd.as_deref()) {
+                Some(script) => id = format!("{executable} {script}"),
+                None => identified = false,
+            }
+        } else if let Some(launcher) = launcher(&exe, &args, cwd.as_deref(), &agent_env) {
+            executable = launcher.to_string_lossy().into_owned();
+            id = executable.clone();
         }
     }
-    let agent_env = if agent_pid == caller_pid { Vec::new() } else { environment(proc_root, agent_pid) };
     let name = env_value(&caller_env, "HELIX_AGENT_NAME").or_else(|| env_value(&agent_env, "HELIX_AGENT_NAME")).map(clean_name).unwrap_or_default();
     let ssh = [&caller_env, &agent_env].iter().any(|env| env_value(env, "SSH_CONNECTION").is_some() || env_value(env, "SSH_CLIENT").is_some());
     Some(Agent { id, executable, name, identified, pid: agent_pid, caller_pid, ssh })
@@ -245,6 +274,46 @@ mod tests {
         p.add(60, 50, 1000, "/usr/bin/bash", &[], &[]);
         p.add(70, 60, 1000, "/usr/bin/helix-agent", &[], &[]);
         assert!(!identify(&p.0, 70, 1000).unwrap().identified);
+    }
+
+    #[test]
+    fn launchers_keep_the_id_across_updates() {
+        let p = FakeProc::new("launcher");
+        let root = std::fs::canonicalize(&p.0).unwrap().join("home");
+        let (versions, bin, other) = (root.join("versions"), root.join("bin"), root.join("other"));
+        for d in [&versions, &bin, &other] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        for v in ["1.0", "1.1"] {
+            std::fs::write(versions.join(v), "").unwrap();
+        }
+        std::fs::write(other.join("tool"), "").unwrap();
+        std::os::unix::fs::symlink(versions.join("1.1"), bin.join("claude")).unwrap();
+        std::os::unix::fs::symlink(other.join("tool"), bin.join("tool")).unwrap();
+        std::fs::write(bin.join("plain"), "").unwrap();
+        let path = format!("PATH=/nowhere:{}", bin.display());
+        let (v10, v11) = (versions.join("1.0").display().to_string(), versions.join("1.1").display().to_string());
+
+        // Started as `claude` from PATH: the launcher is the id, for the
+        // current version and for one still running after an update.
+        for (pid, exe) in [(20, &v11), (30, &v10)] {
+            p.add(pid, 1, 1000, exe, &["claude"], &[&path]);
+            p.add(pid + 1, pid, 1000, "/usr/bin/helix-agent", &[], &[]);
+            let agent = identify(&p.0, pid + 1, 1000).unwrap();
+            assert_eq!(agent.id, bin.join("claude").display().to_string());
+            assert_eq!(agent.executable, agent.id);
+            assert!(agent.identified);
+        }
+        // By its path, too.
+        p.add(40, 1, 1000, &v11, &[&bin.join("claude").display().to_string()], &[]);
+        assert_eq!(identify(&p.0, 40, 1000).unwrap().id, bin.join("claude").display().to_string());
+
+        // Not a launcher: a symlink to something else in another directory
+        // (a claimed command), a plain file, or no such command.
+        for (pid, command) in [(50, "tool"), (51, "plain"), (52, "missing")] {
+            p.add(pid, 1, 1000, &v11, &[command], &[&path]);
+            assert_eq!(identify(&p.0, pid, 1000).unwrap().id, v11, "{command}");
+        }
     }
 
     #[test]
