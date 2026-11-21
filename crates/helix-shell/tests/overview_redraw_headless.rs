@@ -81,7 +81,7 @@ impl Dispatch<xdg_surface::XdgSurface, ()> for State {
 impl Dispatch<xdg_toplevel::XdgToplevel, usize> for State {
     fn event(state: &mut Self, _: &xdg_toplevel::XdgToplevel, event: xdg_toplevel::Event, window: &usize, _: &Connection, _: &QueueHandle<Self>) {
         if let xdg_toplevel::Event::Configure { states, .. } = event {
-            let activated = states.chunks_exact(4).any(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]) == xdg_toplevel::State::Activated as u32);
+            let activated = states.as_chunks::<4>().0.iter().any(|c| u32::from_ne_bytes(*c) == xdg_toplevel::State::Activated as u32);
             state.activated[*window] = activated;
             state.minimized[*window] = false;
         }

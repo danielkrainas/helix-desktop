@@ -341,6 +341,10 @@ fn framed_x11_title_bar_drag_keeps_the_pointer_on_the_title_bar() {
     /// Helix's title bar height (`helix_comp::frames::TITLE_H`).
     const TITLE_H: i32 = 34;
     let Some(mut session) = session(2) else { return };
+    if session.x_display.is_empty() {
+        eprintln!("no Xwayland; skipped");
+        return;
+    }
     std::env::set_var("XAUTHORITY", &session.x_authority);
     let (conn, screen_num) = x11rb::connect(Some(&session.x_display)).unwrap();
     let root = conn.setup().roots[screen_num].root;

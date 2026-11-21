@@ -504,7 +504,7 @@ impl HeadlessGpu {
         let mut out = Vec::with_capacity(w * h);
         for row in 0..h {
             let src = if bottom_up { h - 1 - row } else { row };
-            for px in data[src * w * 4..(src + 1) * w * 4].chunks_exact(4) {
+            for px in data[src * w * 4..(src + 1) * w * 4].as_chunks::<4>().0 {
                 out.push(0xFF00_0000 | (u32::from(px[0]) << 16) | (u32::from(px[1]) << 8) | u32::from(px[2]));
             }
         }

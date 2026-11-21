@@ -80,7 +80,7 @@ fn relation(state: &Helix, window: &Window, surface: Option<&WlSurface>) -> Stri
     while let Some(parent) = get_parent(&top) {
         top = parent;
     }
-    if &top == &root {
+    if top == root {
         return if surface == &root { "the window".into() } else { "a subsurface of the window".into() };
     }
     if PopupManager::popups_for_surface(&root).any(|(p, _)| p.wl_surface() == &top) {
