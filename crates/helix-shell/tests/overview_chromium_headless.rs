@@ -16,14 +16,21 @@
 //! - `HELIX_TEST_OUTPUTS=2`: two monitors, the browser on the second.
 //! - `HELIX_TEST_MENU=1`: a context menu open in the browser when the
 //!   overview opens; `HELIX_TEST_SUPER=1`: the overview opened with Super.
-//! - `HELIX_TEST_ROUNDS`, `HELIX_TEST_HIDDEN` (s), `HELIX_TEST_DWELL` (ms).
+//! - `HELIX_TEST_TABS=1`: a normal browser window (tabs, and the
+//!   minimize, maximize and close buttons) instead of an app window;
+//!   with `HELIX_TEST_MINIMIZE=1` the browser minimizes itself (its
+//!   minimize button) instead of being covered, then is chosen in the
+//!   overview. Before the compositor deactivated hidden windows it stayed
+//!   a still picture that took no input (every round).
+//! - `HELIX_TEST_ROUNDS`, `HELIX_TEST_HIDDEN` (s), `HELIX_TEST_DWELL` (ms),
+//!   `HELIX_TEST_SHOT=file.png` (the browser's monitor when it is up).
 use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
 use helix_test_support::headless::{sibling_binary, HeadlessSession, Options};
 use smithay_client_toolkit::reexports::client::globals::{registry_queue_init, GlobalListContents};
-use smithay_client_toolkit::reexports::client::protocol::{wl_buffer, wl_compositor, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface};
+use smithay_client_toolkit::reexports::client::protocol::{wl_buffer, wl_compositor, wl_region, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface};
 use smithay_client_toolkit::reexports::client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum};
 use smithay_client_toolkit::reexports::protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
 
@@ -50,7 +57,7 @@ macro_rules! quiet {
         }
     )*};
 }
-quiet!(wl_compositor::WlCompositor, wl_surface::WlSurface, wl_shm::WlShm, wl_shm_pool::WlShmPool, wl_buffer::WlBuffer, wl_seat::WlSeat, xdg_toplevel::XdgToplevel);
+quiet!(wl_region::WlRegion, wl_compositor::WlCompositor, wl_surface::WlSurface, wl_shm::WlShm, wl_shm_pool::WlShmPool, wl_buffer::WlBuffer, wl_seat::WlSeat, xdg_toplevel::XdgToplevel);
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for State {
     fn event(_: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
@@ -153,6 +160,11 @@ impl Client {
         let x = xdg.clone();
         assert!(self.wait(Duration::from_secs(5), |s| s.configured.iter().any(|(c, _)| c == &x)), "no first configure");
         surface.attach(Some(&self.buffer(size, color)), 0, 0);
+        // Opaque, as most apps' windows are: what is under it is hidden
+        // for the compositor too.
+        let region = self.compositor.create_region(&self.qh, ());
+        region.add(0, 0, size.0, size.1);
+        surface.set_opaque_region(Some(&region));
         surface.damage_buffer(0, 0, size.0, size.1);
         surface.commit();
         self.roundtrip();
@@ -235,7 +247,7 @@ fn explore(ozone: &str) {
     let Some(browser) = chrome() else { eprintln!("no chrome"); return };
     if std::env::var_os("HELIX_TEST_CHROMIUM").is_none() { eprintln!("HELIX_TEST_CHROMIUM unset; skipped"); return; }
     let shell = std::path::PathBuf::from(env!("CARGO_BIN_EXE_helix-shell"));
-    let settings = "[org/gnome/desktop/interface]\nenable-hot-corners=false\n";
+    let settings = "[org/gnome/desktop/interface]\nenable-hot-corners=false\n\n[org/gnome/desktop/wm/preferences]\nbutton-layout='appmenu:minimize,maximize,close'\n";
     let mut env = vec![("RUST_LOG".to_owned(), std::env::var("HELIX_TEST_RUST_LOG").unwrap_or("info,helix_shell::ui::overview=debug".to_owned()))];
     if let Ok(gpu) = std::env::var("HELIX_TEST_GPU") {
         env.push(("HELIX_HEADLESS_GPU".to_owned(), gpu));
@@ -274,7 +286,7 @@ fn explore(ozone: &str) {
     let profile = session.home().join("chrome-profile");
     let log = std::fs::File::create(session.home().join("chrome.log")).unwrap();
     let mut cmd = std::process::Command::new(browser);
-    cmd.args([format!("--user-data-dir={}", profile.display()), "--no-first-run".into(), "--no-default-browser-check".into(), "--disable-sync".into(), "--password-store=basic".into(), "--start-maximized".into(), format!("--ozone-platform={ozone}"), format!("--app=file://{}", page.display())])
+    cmd.args([format!("--user-data-dir={}", profile.display()), "--no-first-run".into(), "--no-default-browser-check".into(), "--disable-sync".into(), "--password-store=basic".into(), "--start-maximized".into(), format!("--ozone-platform={ozone}"), if std::env::var_os("HELIX_TEST_TABS").is_some() { format!("file://{}", page.display()) } else { format!("--app=file://{}", page.display()) }])
         .args(std::env::var("HELIX_TEST_CHROME_ARGS").unwrap_or_default().split_whitespace())
         .env_clear()
         .env("PATH", "/usr/local/bin:/usr/bin:/bin")
@@ -287,6 +299,7 @@ fn explore(ozone: &str) {
         .env("TMPDIR", session.home().join("tmp"))
         .env("DBUS_SESSION_BUS_ADDRESS", session.bus().address())
         .env("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/nonexistent/helix-test")
+        .env("GSETTINGS_BACKEND", "keyfile")
         .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(log);
     if ozone == "wayland" {
         cmd.env("WAYLAND_DISPLAY", &session.wayland_display);
@@ -309,6 +322,9 @@ fn explore(ozone: &str) {
         (top_a != top_b, bottom)
     };
     let (live, _) = probe(&session, &mut c, "chrome up");
+    if let Ok(dest) = std::env::var("HELIX_TEST_SHOT") {
+        let _ = std::fs::copy(if two { session.home().join("snapshot-2.png") } else { session.snapshot_path() }, dest);
+    }
     assert!(live, "chrome is not animating at all");
     for amount in ["0 15", "0 150", "0 -150"] {
         session.input(&format!("scroll {amount}"));
@@ -325,6 +341,14 @@ fn explore(ozone: &str) {
         // To Other through the overview.
         for (title, to_chrome) in [("Other", false), ("Chrome", true)] {
             let drawn_before = session.log().lines().filter(|l| l.contains("overview tiles")).count();
+            if !to_chrome && std::env::var_os("HELIX_TEST_MINIMIZE").is_some() {
+                // Chrome minimizes itself (its minimize button, shown with
+                // `button-layout`; HELIX_TEST_TABS=1 for a window with it).
+                let cx = if two { 1280 + 1196 } else { 1196 };
+                session.input(&format!("click {cx} 52"));
+                c.wait(Duration::from_secs(2), |_| false);
+                continue;
+            }
             if !to_chrome && std::env::var_os("HELIX_TEST_MENU").is_some() {
                 // A menu open in Chrome (a popup with a grab) when the
                 // overview opens.

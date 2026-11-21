@@ -4,7 +4,9 @@
 //! maximized windows draw only when the compositor says a frame went by
 //! (as browsers do: a new picture on each `wl_surface.frame` callback,
 //! into whichever of two buffers the compositor has given back). One is
-//! chosen in the overview while it is under the other, or minimized; it
+//! chosen in the overview while it is under the other, or minimized (it
+//! asks to be, and, as Chromium does, draws nothing more until a configure
+//! tells it how it is now); it
 //! must then keep drawing (new commits, its picture in the overview
 //! current), have the keyboard and the pointer, and get a key, a click and
 //! a scroll without the pointer moving first.
@@ -42,6 +44,11 @@ struct State {
     free: [[bool; 2]; 2],
     /// Per window: pictures committed.
     drawn: [u32; 2],
+    /// Per window: it asked to be minimized and, as Chromium does, draws
+    /// nothing until a configure says how it is now.
+    minimized: [bool; 2],
+    /// Per window: whether the last configure said activated.
+    activated: [bool; 2],
 }
 
 macro_rules! quiet {
@@ -51,7 +58,7 @@ macro_rules! quiet {
         }
     )*};
 }
-quiet!(wl_compositor::WlCompositor, wl_surface::WlSurface, wl_shm::WlShm, wl_shm_pool::WlShmPool, wl_seat::WlSeat, xdg_toplevel::XdgToplevel);
+quiet!(wl_compositor::WlCompositor, wl_surface::WlSurface, wl_shm::WlShm, wl_shm_pool::WlShmPool, wl_seat::WlSeat);
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for State {
     fn event(_: &mut Self, _: &wl_registry::WlRegistry, _: wl_registry::Event, _: &GlobalListContents, _: &Connection, _: &QueueHandle<Self>) {}
@@ -68,6 +75,15 @@ impl Dispatch<xdg_surface::XdgSurface, ()> for State {
         if let xdg_surface::Event::Configure { serial } = event {
             surface.ack_configure(serial);
             state.configured.push((surface.clone(), serial));
+        }
+    }
+}
+impl Dispatch<xdg_toplevel::XdgToplevel, usize> for State {
+    fn event(state: &mut Self, _: &xdg_toplevel::XdgToplevel, event: xdg_toplevel::Event, window: &usize, _: &Connection, _: &QueueHandle<Self>) {
+        if let xdg_toplevel::Event::Configure { states, .. } = event {
+            let activated = states.chunks_exact(4).any(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]) == xdg_toplevel::State::Activated as u32);
+            state.activated[*window] = activated;
+            state.minimized[*window] = false;
         }
     }
 }
@@ -133,7 +149,7 @@ impl Client {
     fn pump(&mut self) {
         self.queue.roundtrip(&mut self.state).unwrap();
         for (i, w) in self.windows.iter_mut().enumerate() {
-            if !self.state.frame_due[i] {
+            if !self.state.frame_due[i] || self.state.minimized[i] {
                 continue;
             }
             // Into a buffer the compositor gave back (both are ours at
@@ -181,7 +197,7 @@ impl Client {
         let i = self.windows.len();
         let surface = self.compositor.create_surface(&self.qh, ());
         let xdg = self.base.get_xdg_surface(&surface, &self.qh, ());
-        let toplevel = xdg.get_toplevel(&self.qh, ());
+        let toplevel = xdg.get_toplevel(&self.qh, i);
         toplevel.set_title(title.to_owned());
         toplevel.set_app_id(format!("org.helixdesktop.Test{title}"));
         toplevel.set_maximized();
@@ -338,6 +354,7 @@ fn windows_chosen_in_the_overview_draw_and_take_input() {
         let i = if c.state.keyboard.as_ref() == Some(&c.windows[0].surface) { 0 } else { 1 };
         let title = ["First", "Second"][i];
         c.windows[i].toplevel.set_minimized();
+        c.state.minimized[i] = true;
         let other = c.windows[1 - i].surface.clone();
         assert!(c.wait(Duration::from_secs(3), |st| st.keyboard.as_ref() == Some(&other)), "minimizing did not focus the other window");
         c.wait(Duration::from_millis(300), |_| false);
@@ -423,3 +440,70 @@ fn x11_window_chosen_in_the_overview_takes_input() {
     assert!(!log.contains("panicked"), "{log}");
 }
 
+
+/// The pixel at (x, y) of an RGBA snapshot `w` wide, as 0xRRGGBB.
+fn pixel((w, data): (u32, &[u8]), x: u32, y: u32) -> u32 {
+    let i = ((y * w + x) * 4) as usize;
+    (u32::from(data[i]) << 16) | (u32::from(data[i + 1]) << 8) | u32::from(data[i + 2])
+}
+
+/// Choosing a window right as the overview opens (before its pictures
+/// came, during its fade-in), or while its picture requests go
+/// unanswered, leaves nothing of the overview on screen: the window is
+/// shown as it draws now and takes input.
+fn quick_choices(env: Vec<(String, String)>, what: &str) {
+    let Some(mut session) = start(env) else { return };
+    let mut c = connect(&session);
+    c.drawing("First", (1280, 768));
+    c.drawing("Second", (1280, 768));
+    let s = c.windows[1].surface.clone();
+    assert!(c.wait(Duration::from_secs(5), |st| st.keyboard.as_ref() == Some(&s)), "the new window has no focus");
+    let mut failures = Vec::new();
+    for (round, delay) in [0u64, 0, 16, 30, 60, 100, 160, 250, 0, 40].into_iter().enumerate() {
+        let i = if c.state.keyboard.as_ref() == Some(&c.windows[0].surface) { 1 } else { 0 };
+        let title = ["First", "Second"][i];
+        let drawn_before = session.log().lines().filter(|l| l.contains("overview tiles")).count();
+        overview(&session, true);
+        // The first drawing with the tiles where they are.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let (x, y) = loop {
+            let log = session.log();
+            if log.lines().filter(|l| l.contains("overview tiles")).count() > drawn_before {
+                if let Some((_, at)) = tiles(&log).into_iter().find(|(t, _)| t == title) {
+                    break at;
+                }
+            }
+            assert!(Instant::now() < deadline, "{what}: no tiles:\n{log}");
+            c.pump();
+        };
+        c.wait(Duration::from_millis(delay), |_| false);
+        session.input(&format!("move {x} {y}"));
+        session.input("button 272 1\nbutton 272 0");
+        if let Some(failure) = check_chosen(&mut session, &mut c, i, &format!("{what}, round {round}, {title} chosen {delay} ms after the tiles showed")) {
+            failures.push(failure);
+        }
+        // What the monitor shows there: the window's own colors, nothing
+        // of the overview.
+        let (w, _, shot) = session.fresh_snapshot();
+        let seen = pixel((w, &shot), 640, 600);
+        let own = COLORS[i].iter().any(|c| c & 0xFF_FFFF == seen);
+        if !own {
+            failures.push(format!("{what}, round {round}: the monitor shows {seen:06x} where {title} is, not its colors"));
+        }
+        session.input(&format!("move {} {}", x + 3, y + 3));
+        c.wait(Duration::from_millis(100), |_| false);
+    }
+    let log = session.log();
+    assert!(failures.is_empty(), "{}\n\n{log}", failures.join("\n"));
+    assert!(!log.contains("panicked"), "{log}");
+}
+
+#[test]
+fn windows_chosen_right_away_are_shown_and_take_input() {
+    quick_choices(Vec::new(), "pictures answered");
+}
+
+#[test]
+fn windows_chosen_while_pictures_are_unanswered_are_shown_and_take_input() {
+    quick_choices(vec![("HELIX_HEADLESS_NO_CAPTURE".to_owned(), "1".to_owned())], "pictures unanswered");
+}

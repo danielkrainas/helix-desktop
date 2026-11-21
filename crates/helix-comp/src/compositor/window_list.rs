@@ -288,6 +288,7 @@ impl Helix {
             Some(window) => {
                 tracing::debug!(id, "activating window for the shell");
                 self.focus_window(&window);
+                self.report_activation_later(&window);
                 self.sync_window_list();
             }
             None => tracing::debug!(id, "shell asked to activate an unknown window"),

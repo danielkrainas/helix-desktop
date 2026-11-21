@@ -135,6 +135,17 @@ impl Helix {
         self.space.elements().filter(|w| !is_override_redirect(w))
     }
 
+    /// Managed windows, shown or hidden (minimized, on another workspace).
+    fn all_managed(&self) -> Vec<Window> {
+        self.space
+            .elements()
+            .chain(self.minimized.iter())
+            .chain(self.workspaces.parked())
+            .filter(|w| !is_override_redirect(w))
+            .cloned()
+            .collect()
+    }
+
     /// Topmost managed window.
     pub fn top_window(&self) -> Option<Window> {
         self.managed().last().cloned()
@@ -178,8 +189,12 @@ impl Helix {
         keyboard.set_focus(self, super::focus::focus_target(window), SERIAL_COUNTER.next_serial());
         self.set_attention(window, false);
         self.check_alive(window);
-        let managed: Vec<Window> = self.managed().cloned().collect();
-        for w in &managed {
+        // Hidden windows (minimized, on another workspace) too: one that
+        // kept "activated" while hidden would get no configure when it is
+        // shown and focused again, and Chromium-based apps that minimized
+        // themselves wait for one before drawing again (a still picture
+        // that takes no input).
+        for w in &self.all_managed() {
             w.set_activated(w == window);
             if let Some(t) = w.toplevel() {
                 t.configure_pending();
@@ -207,10 +222,7 @@ impl Helix {
         }
         let keyboard = self.seat.get_keyboard().unwrap();
         keyboard.set_focus(self, Option::<super::focus::KeyboardFocusTarget>::None, SERIAL_COUNTER.next_serial());
-        for w in self.space.elements() {
-            if is_override_redirect(w) {
-                continue;
-            }
+        for w in &self.all_managed() {
             w.set_activated(false);
             if let Some(t) = w.toplevel() {
                 t.configure_pending();

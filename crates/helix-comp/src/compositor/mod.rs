@@ -46,6 +46,7 @@ pub mod monitors;
 mod shortcuts;
 mod supervise;
 pub mod window_list;
+mod activation_report;
 pub mod headless;
 mod headless_input;
 pub mod udev;
