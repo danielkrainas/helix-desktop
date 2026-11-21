@@ -4,9 +4,10 @@
 //! and have the shell ask whether to wait or force it to quit when it does
 //! not answer within `check-alive-timeout`.
 //!
-//! Some X11 apps list `_NET_WM_PING` but never answer it (Zoom), so an
-//! X11 app only counts as not responding once it has answered a ping
-//! before; one whose first ping goes unanswered is not pinged again.
+//! Some X11 apps list `_NET_WM_PING` but never answer it (Zoom: its
+//! start-up window answers, its main windows never do), so an X11 window
+//! only counts as not responding once it has answered a ping before; one
+//! whose first ping goes unanswered is not pinged again.
 
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -28,7 +29,7 @@ enum Target {
 
 struct Ping {
     target: Target,
-    /// For an X11 window, its app ([`super::x11ping::X11Ping::client_of`]).
+    /// For an X11 window: the window and its app's `_NET_WM_PID`.
     x11_client: Option<(u32, u32)>,
     window: Window,
     /// When the ping went out (or the user chose to wait).
@@ -46,7 +47,8 @@ pub struct AliveState {
 /// The most X11 apps remembered either way.
 const MAX_X11_CLIENTS: usize = 256;
 
-/// X11 apps seen answering pings, and ones that never did.
+/// X11 windows (window id, `_NET_WM_PID`) seen answering pings, and ones
+/// that never did. Per window, not per app: one app's windows may differ.
 #[derive(Default)]
 struct X11Clients {
     answering: HashSet<(u32, u32)>,
@@ -58,12 +60,13 @@ impl X11Clients {
         !self.silent.contains(&client)
     }
 
-    fn answered(&mut self, client: (u32, u32)) {
+    /// A window answered; whether it is the first answer remembered.
+    fn answered(&mut self, client: (u32, u32)) -> bool {
         self.silent.remove(&client);
         if self.answering.len() >= MAX_X11_CLIENTS {
             self.answering.clear();
         }
-        self.answering.insert(client);
+        self.answering.insert(client)
     }
 
     /// A ping went unanswered: whether that means the app is not
@@ -98,7 +101,7 @@ impl Helix {
         let sent = match &target {
             Target::Wayland(client) => client.send_ping(SERIAL_COUNTER.next_serial()).is_ok(),
             Target::X11(id) => self.x11ping.as_ref().is_some_and(|p| {
-                let client = p.client_of(*id);
+                let client = (*id, p.client_of(*id).1);
                 x11_client = Some(client);
                 self.alive.x11.may_ping(client) && p.ping(*id)
             }),
@@ -112,7 +115,9 @@ impl Helix {
     pub fn x11_pong(&mut self, id: u32) {
         let client = self.alive.pings.iter().find(|p| p.target == Target::X11(id)).and_then(|p| p.x11_client);
         if let Some(client) = client {
-            self.alive.x11.answered(client);
+            if self.alive.x11.answered(client) {
+                tracing::info!(window = id, pid = client.1, "an X11 window answers pings; checking it");
+            }
         }
         self.answered(|t| *t == Target::X11(id));
     }
@@ -148,7 +153,7 @@ impl Helix {
             }
             if let Some(client) = p.x11_client {
                 if !x11.late(client) {
-                    tracing::info!("an X11 app does not answer pings; not checking it");
+                    tracing::info!(window = client.0, pid = client.1, "an X11 window does not answer pings; not checking it");
                     return false;
                 }
             }
@@ -218,13 +223,17 @@ mod tests {
     #[test]
     fn x11_apps_that_never_answer_are_not_flagged() {
         let mut clients = X11Clients::default();
-        let (zoom, editor) = ((0x1c0_0000, 42), (0x220_0000, 43));
-        // Never answered: not "not responding", and not pinged again.
+        // Zoom: its start-up window answers, its main window never does.
+        let (splash, zoom, editor) = ((0x1c0_001b, 42), (0x1c0_0020, 42), (0x220_0004, 43));
+        assert!(clients.answered(splash));
+        assert!(!clients.answered(splash), "remembered once");
+        // Never answered: not "not responding", and not pinged again,
+        // whatever the app's other windows do.
         assert!(clients.may_ping(zoom));
         assert!(!clients.late(zoom));
         assert!(!clients.may_ping(zoom));
-        // The same client slot reused by another process is a new app.
-        assert!(clients.may_ping((0x1c0_0000, 99)));
+        // The same window id reused by another process is a new window.
+        assert!(clients.may_ping((0x1c0_0020, 99)));
         // Answered before: a late answer means it is not responding.
         clients.answered(editor);
         assert!(clients.late(editor));
