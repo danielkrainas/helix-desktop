@@ -760,8 +760,10 @@ pub(super) fn results_node(model: &Launcher, rows: &[(Rect, usize)]) -> Node {
     // Each result's place in the list's order (sections, not result
     // indexes).
     let order: Vec<usize> = model.sections().into_iter().filter_map(|i| if let launcher::ListItem::Row(r) = i { Some(r) } else { None }).collect();
-    let nodes = rows.iter().map(|&(r, result)| {
-        let hit = model.results[result];
+    // `rows` are the rows painted last; the results can have changed
+    // since (a search provider answered, the query changed) before the
+    // next paint, so a row may point past them. It is left out until then.
+    let nodes = rows.iter().filter_map(|&(r, result)| Some((r, result, *model.results.get(result)?))).map(|(r, result, hit)| {
         let (label, _) = model.row_label(hit);
         let label = match hit {
             launcher::Hit::More(_) => trf!("Search for “{query}” in {label}", query = model.query.trim(), label = label),
@@ -1023,6 +1025,21 @@ fn day_name(y: i32, m: i32, d: i32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The rows painted last can point past the results when they shrink
+    /// before the next paint (a search provider's answer arrived, the query
+    /// changed); such rows are left out instead of panicking.
+    #[test]
+    fn results_rows_from_an_older_paint() {
+        let apps: Vec<crate::launcher::App> =
+            (0..3).map(|i| crate::launcher::App { id: format!("app{i}.desktop"), name: format!("Notes {i}"), search: "notes".into(), categories: Vec::new() }).collect();
+        let mut model = crate::launcher::Launcher::new(apps);
+        model.type_text("notes");
+        let n = model.results.len();
+        let rows: Vec<(Rect, usize)> = (0..n + 2).map(|i| (Rect { x: 0, y: 48 * i as i32, w: 600, h: 48 }, i)).collect();
+        let list = results_node(&model, &rows);
+        assert_eq!(list.children.len(), n);
+    }
 
     fn hits() -> Vec<(Rect, OverlayHit)> {
         vec![(Rect { x: 10, y: 100, w: 80, h: 36 }, OverlayHit::Cancel), (Rect { x: 100, y: 100, w: 80, h: 36 }, OverlayHit::Confirm), (Rect { x: 10, y: 60, w: 200, h: 26 }, OverlayHit::EndInstall)]
