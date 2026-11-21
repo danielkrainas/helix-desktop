@@ -13,6 +13,8 @@ env:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    # A hung test fails the run instead of holding it for hours (a full run takes about 8 minutes).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:

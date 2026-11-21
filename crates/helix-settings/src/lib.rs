@@ -379,7 +379,17 @@ impl GSettings {
                             settings
                         })
                         .collect();
-                    let _ = ready_tx.send(main_loop.clone());
+                    // Ready only once the loop runs: a `quit()` from `Watch`'s
+                    // drop before `run()` would be lost, and `run()` would
+                    // then never return.
+                    let ready = std::sync::Mutex::new(Some((ready_tx, main_loop.clone())));
+                    gio::glib::idle_source_new(None, gio::glib::Priority::HIGH, move || {
+                        if let Some((ready_tx, main_loop)) = ready.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                            let _ = ready_tx.send(main_loop);
+                        }
+                        gio::glib::ControlFlow::Break
+                    })
+                    .attach(Some(&context));
                     main_loop.run();
                 });
             })

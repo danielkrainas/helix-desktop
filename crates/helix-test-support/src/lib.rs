@@ -104,10 +104,11 @@ impl TestBus {
             address,
         };
         let deadline = Instant::now() + Duration::from_secs(5);
-        while !socket.exists() {
+        // The socket file appears before dbus-daemon listens on it.
+        while std::os::unix::net::UnixStream::connect(&socket).is_err() {
             assert!(
                 Instant::now() < deadline,
-                "dbus-daemon did not create its socket"
+                "dbus-daemon did not start listening"
             );
             std::thread::sleep(Duration::from_millis(10));
         }
