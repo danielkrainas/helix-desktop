@@ -104,15 +104,50 @@ Contracts are defined in the companion [helixdesktop/spec](https://github.com/he
 
 ## Installing and using Helix
 
-1. Install the packages from a
-   [release](https://github.com/helixdesktop/desktop/releases)
-   (or build them, see "Releases and packages"): `helix-desktop`, plus
-   `helix-desktop-full`, which pulls in Helix's applications
-   (`helix-apps`, from its own
-   [releases](https://github.com/helixdesktop/apps/releases)),
-   Xwayland, xdg-desktop-portal, the GNOME schemas, dconf and PipeWire.
-   The package manager must be able to find `helix-apps`, so install it
-   in the same step. On Debian/Ubuntu:
+1. Add Helix's package repository, [packages.dakr.io/helix](https://packages.dakr.io/helix/),
+   then install `helix-desktop-full`. That pulls in `helix-desktop`,
+   Helix's applications (`helix-apps`), Xwayland, xdg-desktop-portal, the
+   GNOME schemas, dconf and PipeWire. The repository serves the packages
+   of every [desktop](https://github.com/helixdesktop/desktop/releases) and
+   [apps](https://github.com/helixdesktop/apps/releases) release, and its
+   metadata is signed (key fingerprint
+   `2C024E90BBC12BB09BC6749E68EF50830CA6B215`), so Helix then updates with
+   the rest of the system.
+
+   **Debian and Ubuntu (apt)**:
+
+   ```sh
+   sudo install -d -m 0755 /etc/apt/keyrings
+   curl -fsSL https://packages.dakr.io/key.asc | sudo tee /etc/apt/keyrings/omnirelease.asc >/dev/null
+   echo "deb [signed-by=/etc/apt/keyrings/omnirelease.asc] https://packages.dakr.io/helix/deb stable main" \
+     | sudo tee /etc/apt/sources.list.d/helix.list
+   sudo apt update
+   sudo apt install helix-desktop-full
+   ```
+
+   **Fedora and RHEL (dnf)**: the `.repo` file checks the repository
+   metadata against the same key.
+
+   ```sh
+   sudo curl -fsSL -o /etc/yum.repos.d/helix.repo https://packages.dakr.io/helix/rpm/helix.repo
+   sudo dnf install helix-desktop-full
+   ```
+
+   **Arch Linux (pacman, x86_64)**: trust the key, add the repository to
+   `/etc/pacman.conf`, then install.
+
+   ```sh
+   curl -fsSL https://packages.dakr.io/key.asc | sudo pacman-key --add -
+   sudo pacman-key --lsign-key 2C024E90BBC12BB09BC6749E68EF50830CA6B215
+   printf '\n[helix]\nSigLevel = PackageOptional DatabaseRequired TrustedOnly\nServer = https://packages.dakr.io/helix/arch/$arch\n' \
+     | sudo tee -a /etc/pacman.conf
+   sudo pacman -Syu helix-desktop-full
+   ```
+
+   Without the repository: download `helix-desktop`, `helix-desktop-full`
+   and `helix-apps` from the desktop and apps releases (or build them, see
+   "Releases and packages") and install them in one step, so the package
+   manager can find `helix-apps`. On Debian/Ubuntu:
 
    ```sh
    sudo apt install ./helix-desktop_*.deb ./helix-desktop-full_*.deb ./helix-apps_*.deb
@@ -121,8 +156,9 @@ Contracts are defined in the companion [helixdesktop/spec](https://github.com/he
 2. Log out, pick **Helix** from the session menu of your login screen
    (GDM's gear button, for example) and log in. On NVIDIA, KMS must be on
    (`nvidia-drm.modeset=1`).
-3. Optionally, replace GDM with Helix's own login screen: install
-   `helix-greeter` (it needs `greetd`), then
+3. Optionally, replace GDM with Helix's own login screen (Debian and
+   Ubuntu only for now): install `helix-greeter` from the repository
+   (`sudo apt install helix-greeter`; it needs `greetd`), then
 
    ```sh
    sudo systemctl disable gdm.service      # or lightdm, sddm, ...
@@ -206,7 +242,13 @@ xdg-desktop-portal, the GNOME schemas, dconf, PipeWire;
 (`packaging/nfpm-greeter.yaml`, `.deb` only; depends on `greetd`).
 `helix-apps` is packaged from its own repository. All of them
 are published with a `SHA256SUMS` file as a GitHub release (a
-prerelease when the version has a `-` suffix). Running the workflow by hand
+prerelease when the version has a `-` suffix). The package repository at
+[packages.dakr.io/helix](https://packages.dakr.io/helix/)
+([omnirelease](https://github.com/danielkrainas/omnirelease), group
+`helix`: the desktop, apps and web repositories) serves the `.deb`, `.rpm`
+and Arch packages of the newest releases as apt, dnf and pacman
+repositories, so a release reaches users without any further step
+(prereleases are not served). Running the workflow by hand
 builds the same packages as workflow artifacts without publishing.
 
 The packages are made with [nfpm](https://nfpm.goreleaser.com) from
